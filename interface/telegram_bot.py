@@ -84,11 +84,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if should_forward:
             try:
+                # Prepara intestazione con info sull'autore originale
+                sender = message.from_user
+                user_ref = f"@{sender.username}" if sender.username else f"{sender.full_name}"
+                user_id = sender.id
+
+                # 1. Manda intestazione con nome e ID
+                await context.bot.send_message(
+                    chat_id=OWNER_ID,
+                    text=f"{user_ref} ({user_id}):",
+                )
+
+                # 2. Inoltra il messaggio subito dopo
                 sent = await context.bot.forward_message(
                     chat_id=OWNER_ID,
                     from_chat_id=message.chat_id,
                     message_id=message.message_id
                 )
+
+                # 3. Traccia il messaggio inoltrato
                 plugin.track_message(
                     trainer_message_id=sent.message_id,
                     original_chat_id=message.chat_id,
@@ -162,13 +176,31 @@ async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_sticker_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
+
     message = update.message
     if not message.reply_to_message:
         await message.reply_text("\u26a0\ufe0f Devi usare /sticker in risposta a un messaggio.")
         return
-    sticker_proxy.set_target(OWNER_ID, message.chat_id, message.reply_to_message.message_id)
-    print(f"[DEBUG] Richiesta sticker su messaggio {message.reply_to_message.message_id}")
-    await context.bot.send_message(chat_id=OWNER_ID, text="\U0001f5bc Inviami ora lo sticker da usare come risposta.")
+
+    # Prova a recuperare i dati del messaggio inoltrato
+    forward_from_chat = message.reply_to_message.forward_from_chat
+    forward_from_message_id = message.reply_to_message.forward_from_message_id
+
+    if forward_from_chat and forward_from_message_id:
+        # Salva il messaggio originale per l'invio dello sticker
+        sticker_proxy.set_target(
+            OWNER_ID,
+            forward_from_chat.id,
+            forward_from_message_id
+        )
+        print(f"[DEBUG] Richiesta sticker su messaggio originale {forward_from_message_id} in chat {forward_from_chat.id}")
+        await context.bot.send_message(
+            chat_id=OWNER_ID,
+            text="\U0001f5bc Inviami ora lo sticker da usare come risposta."
+        )
+    else:
+        print("[DEBUG] Messaggio non inoltrato, impossibile determinare target.")
+        await message.reply_text("\u274c Usa /sticker in risposta a un messaggio inoltrato da Rekku.")
 
 async def handle_incoming_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
