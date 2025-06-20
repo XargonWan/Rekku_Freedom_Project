@@ -128,7 +128,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 original_chat_id=message.chat_id,
                 original_message_id=message.message_id
             )
-            await message.reply_text("\U0001f44b Il mio trainer ti risponder� a breve.")
             print("[DEBUG] Messaggio inoltrato correttamente.")
         except Exception as e:
             print(f"[ERROR] Inoltro da chat privata fallito: {e}")
