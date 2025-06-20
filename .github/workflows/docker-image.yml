@@ -27,7 +27,7 @@ jobs:
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+        password: ${{ secrets.CR_PAT }}
 
     - name: Tag image for GitHub Container Registry
       run: |
@@ -37,3 +37,11 @@ jobs:
       run: |
         REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
         docker push ghcr.io/$REPO_OWNER_LC/rekku_the_bot:latest
+    - name: Make image public (optional, requires gh CLI)
+      run: |
+        REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        gh api --method PATCH /user/packages/container/rekku_the_bot/versions/latest \
+          -H "Accept: application/vnd.github+json" \
+          -F visibility=public
+      env:
+        GH_TOKEN: ${{ secrets.CR_PAT }}
