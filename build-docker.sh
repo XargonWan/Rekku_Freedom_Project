@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker build -t rekku-bot .
+docker build -t rekku_the_bot .
