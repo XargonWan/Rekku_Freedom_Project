@@ -87,12 +87,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Prepara intestazione con info sull'autore originale
                 sender = message.from_user
                 user_ref = f"@{sender.username}" if sender.username else f"{sender.full_name}"
-                user_id = sender.id
 
                 # 1. Manda intestazione con nome e ID
                 await context.bot.send_message(
                     chat_id=OWNER_ID,
-                    text=f"{user_ref} ({user_id}):",
+                    text=f"{user_ref}:",
                 )
 
                 # 2. Inoltra il messaggio subito dopo
