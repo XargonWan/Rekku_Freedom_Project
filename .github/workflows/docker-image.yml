@@ -27,6 +27,9 @@ jobs:
     - name: Tag image for GitHub Container Registry
       run: |
         IMAGE_TAG=rekku_the_bot:$(date +%s)
-        docker tag $IMAGE_TAG ghcr.io/${{ github.repository_owner }}/rekku_the_bot:latest
+        REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        docker tag $IMAGE_TAG ghcr.io/$REPO_OWNER_LC/rekku_the_bot:latest
     - name: Push image to GitHub Container Registry
-      run: docker push ghcr.io/${{ github.repository_owner }}/rekku_the_bot:latest
+      run: |
+        REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        docker push ghcr.io/$REPO_OWNER_LC/rekku_the_bot:latest
