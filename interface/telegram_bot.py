@@ -15,12 +15,21 @@ from core import say_proxy, recent_chats
 from core.context import context_command
 from collections import deque
 import json
+from core.message_sender import send_content
+from core.message_sender import detect_media_type
 from core.config import BOT_TOKEN, BOT_USERNAME, OWNER_ID
 
+# Carica variabili da .env
+load_dotenv()
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
+BOT_USERNAME = "Rekku_the_bot"
+OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 
 plugin = ManualAIPlugin()
 say_sessions = {}
 context_memory = {}
+last_selected_chat = {}
+message_id = None
 
 # === Comandi blocco ===
 
@@ -113,6 +122,12 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
     if not target and message.reply_to_message:
         replied = message.reply_to_message
         tracked = plugin.get_target(replied.message_id)
+
+        # 🔁 Tenta anche con il messaggio originale (a cui il trainer sta rispondendo)
+        if not tracked and replied.reply_to_message:
+            print("[DEBUG] Nessun target da trainer_message_id, provo con messaggio originale.")
+            tracked = plugin.get_target(replied.reply_to_message.message_id)
+
         if tracked:
             print("[DEBUG] Uso risposta diretta a messaggio inoltrato.")
             target = {
@@ -133,41 +148,12 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
     chat_id = target["chat_id"]
     message_id = target["message_id"]
 
-    try:
-        if content_type == "sticker" and message.sticker:
-            await context.bot.send_sticker(chat_id=chat_id, sticker=message.sticker.file_id, reply_to_message_id=message_id)
-        elif content_type == "photo" and message.photo:
-            await context.bot.send_photo(chat_id=chat_id, photo=message.photo[-1].file_id, reply_to_message_id=message_id)
-        elif content_type == "audio" and (message.audio or message.voice):
-            audio = message.audio or message.voice
-            await context.bot.send_audio(chat_id=chat_id, audio=audio.file_id, reply_to_message_id=message_id)
-        elif content_type == "file" and message.document:
-            await context.bot.send_document(chat_id=chat_id, document=message.document.file_id, reply_to_message_id=message_id)
-        elif content_type == "video" and message.video:
-            await context.bot.send_video(chat_id=chat_id, video=message.video.file_id, reply_to_message_id=message_id)
-        else:
-            await message.reply_text(f"\u274c Il contenuto ricevuto non corrisponde a {content_type.upper()}.")
-            return
-
-        print(f"[DEBUG] Risposta {content_type} inviata a {chat_id}:{message_id}")
-        await message.reply_text("\u2705 Risposta inviata.")
+    success, response_text = await send_content(context.bot, chat_id, message, content_type, message_id)
+    await message.reply_text(response_text)
+    if success:
         response_proxy.clear_target(OWNER_ID)
-    except Exception as e:
-        print(f"[ERROR] Invio {content_type} fallito: {e}")
-        await message.reply_text("\u274c Errore durante l'invio.")
 
-def detect_media_type(message):
-    if message.sticker:
-        return "sticker"
-    elif message.photo:
-        return "photo"
-    elif message.audio or message.voice:
-        return "audio"
-    elif message.video:
-        return "video"
-    elif message.document:
-        return "file"
-    return "unknown"
+from core.message_sender import detect_media_type
 
 # === Comando generico per sticker/audio/photo/file/video ===
 
@@ -237,44 +223,26 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         parse_mode="Markdown"
     )
 
-import os
-from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    MessageHandler,
-    ContextTypes,
-    CommandHandler,
-    filters,
-)
-from dotenv import load_dotenv
-from llm_engines.manual import ManualAIPlugin
-from core import blocklist
-from core import response_proxy
-from core import say_proxy, recent_chats
-
-# Carica variabili da .env
-load_dotenv()
-BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
-BOT_USERNAME = "Rekku_the_bot"
-OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
-
-plugin = ManualAIPlugin()
-say_sessions = {}
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    from core import response_proxy
+
     message = update.message
+    user = message.from_user
+    usertag = f"@{user.username}" if user.username else "(nessun tag)"
+    text = message.text or ""
+    user_id = user.id
+    username = user.full_name
+
     if not message or not message.from_user:
         print("[DEBUG] Messaggio ignorato (vuoto o senza mittente)")
         return
 
-    user = message.from_user
-    user_id = user.id
-    username = user.full_name
-    usertag = f"@{user.username}" if user.username else "(nessun tag)"
-    text = message.text or ""
-
     if message.chat_id not in context_memory:
         context_memory[message.chat_id] = deque(maxlen=10)
+
+    # \U0001f501 Se l'utente ha appena selezionato una chat con /say,
+    # non impostiamo qui il target: verrà gestito dinamicamente in handle_incoming_response
 
     context_memory[message.chat_id].append({
         "message_id": message.message_id,
@@ -409,41 +377,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             print(f"[ERROR] Inoltro da chat privata fallito: {e}")
         return
 
-# === Comandi blocco ===
-
-async def block_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        return
-    try:
-        to_block = int(context.args[0])
-        blocklist.block_user(to_block)
-        print(f"[DEBUG] Utente {to_block} bloccato.")
-        await update.message.reply_text(f"\U0001f6ab Utente {to_block} bloccato.")
-    except (IndexError, ValueError):
-        await update.message.reply_text("\u274c Usa: /block <user_id>")
-
-async def block_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        return
-    blocked = blocklist.get_block_list()
-    print(f"[DEBUG] Lista utenti bloccati richiesta.")
-    if not blocked:
-        await update.message.reply_text("\u2705 Nessun utente bloccato.")
-    else:
-        await update.message.reply_text("\U0001f6ab Utenti bloccati:\n" + "\n".join(map(str, blocked)))
-
-async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        return
-    try:
-        to_unblock = int(context.args[0])
-        blocklist.unblock_user(to_unblock)
-        print(f"[DEBUG] Utente {to_unblock} sbloccato.")
-        await update.message.reply_text(f"\u2705 Utente {to_unblock} sbloccato.")
-    except (IndexError, ValueError):
-        await update.message.reply_text("\u274c Usa: /unblock <user_id>")
-
-
 # === Sticker ===
 
 async def handle_sticker_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -493,11 +426,18 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
     message = update.message
     if not message:
         return
+    
+    print(f"[DEBUG] handle_incoming_response: ricevo tipo = {detect_media_type(message)}")
 
     target = response_proxy.get_target(OWNER_ID)
+    print(f"[DEBUG] target iniziale = {target}")
 
     # === Se non c'� target attivo, prova a usare reply diretto a un messaggio inoltrato ===
+    target = response_proxy.get_target(OWNER_ID)
+
+    # Se non c'è target attivo, prova risposta diretta a messaggio inoltrato
     if not target and message.reply_to_message:
+        print("[DEBUG] Nessun target, provo risposta diretta a messaggio inoltrato")
         replied = message.reply_to_message
         tracked = plugin.get_target(replied.message_id)
         if tracked:
@@ -508,17 +448,38 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
                 "type": detect_media_type(message)
             }
 
+    # Se ancora non c'è target, ma c'è una chat selezionata da /say
+    if not target:
+        chat_id = say_proxy.get_target(OWNER_ID)
+        if chat_id and chat_id != "EXPIRED":
+            print("[DEBUG] Uso target da /say per invio diretto.")
+            target = {
+                "chat_id": chat_id,
+                "message_id": None,
+                "type": detect_media_type(message)
+            }
+            say_proxy.clear(OWNER_ID)
+
+        target = {
+            "chat_id": chat_id,
+            "message_id": None,
+            "type": detect_media_type(message)
+        }
+        print("[DEBUG] Uso target da /say per invio diretto.")
+
+
     if target == "EXPIRED":
         print("[DEBUG] Invio contenuto scaduto.")
         await message.reply_text("\u23f3 Tempo scaduto. Usa di nuovo il comando.")
         return
     elif not target:
+        print("[DEBUG] Ancora nessun target, invio errore")
         await message.reply_text("\u26a0\ufe0f Nessuna risposta attiva. Usa un comando tipo /sticker, /audio, o rispondi a un messaggio inoltrato.")
         return
 
-    content_type = target["type"]
     chat_id = target["chat_id"]
-    message_id = target["message_id"]
+    message_id = None
+    content_type = detect_media_type(message)
 
     try:
         if content_type == "sticker" and message.sticker:
@@ -542,19 +503,6 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
     except Exception as e:
         print(f"[ERROR] Invio {content_type} fallito: {e}")
         await message.reply_text("\u274c Errore durante l'invio.")
-
-def detect_media_type(message):
-    if message.sticker:
-        return "sticker"
-    elif message.photo:
-        return "photo"
-    elif message.audio or message.voice:
-        return "audio"
-    elif message.video:
-        return "video"
-    elif message.document:
-        return "file"
-    return "unknown"
 
 # === Comando generico per sticker/audio/photo/file/video ===
 
@@ -698,33 +646,10 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text("⚠️ Nessuna destinazione selezionata.")
         return
 
-    try:
-        if message.text:
-            await bot.send_message(chat_id=target_chat, text=message.text)
-        elif message.photo:
-            await bot.send_photo(chat_id=target_chat, photo=message.photo[-1].file_id, caption=message.caption)
-        elif message.document:
-            await bot.send_document(chat_id=target_chat, document=message.document.file_id, caption=message.caption)
-        elif message.sticker:
-            await bot.send_sticker(chat_id=target_chat, sticker=message.sticker.file_id)
-        elif message.audio:
-            await bot.send_audio(chat_id=target_chat, audio=message.audio.file_id, caption=message.caption)
-        elif message.voice:
-            await bot.send_voice(chat_id=target_chat, voice=message.voice.file_id)
-        elif message.video:
-            await bot.send_video(chat_id=target_chat, video=message.video.file_id, caption=message.caption)
-        else:
-            await message.reply_text("❌ Tipo di messaggio non supportato.")
-            return
-
-        await message.reply_text("✅ Contenuto inviato.")
-        say_proxy.clear(user_id)
-        # Pulisci le scelte dopo l'invio
-        context.user_data.pop("say_choices", None)
-
-    except Exception as e:
-        print(f"[ERROR] Invio fallito: {e}")
-        await message.reply_text("❌ Errore durante l'invio.")
+    success, response_text = await send_content(context.bot, chat_id, message, content_type, message_id)
+    await message.reply_text(response_text)
+    if success:
+        response_proxy.clear_target(OWNER_ID)
 
 # === Avvio ===
 
