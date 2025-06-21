@@ -311,7 +311,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text=message.text,
                 reply_to_message_id=original["message_id"]
             )
-            plugin.clear(message.reply_to_message.message_id)
             await message.reply_text("\u2705 Risposta inviata.")
         else:
             print("[DEBUG] Nessun messaggio da rispondere trovato.")
