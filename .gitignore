@@ -46,3 +46,4 @@ htmlcov/
 dist/
 build/
 site/
+rekku.db

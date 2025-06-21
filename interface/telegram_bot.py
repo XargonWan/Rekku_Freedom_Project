@@ -340,12 +340,12 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if update.effective_user.id != OWNER_ID:
         return
 
-    entries = recent_chats.get_last_active_chats_verbose(10, context.bot)
+    entries = await recent_chats.get_last_active_chats_verbose(10, context.bot)
     if not entries:
         await update.message.reply_text("\u26a0\ufe0f Nessuna chat recente trovata.")
         return
 
-    lines = [f"`{cid}` \u2014 {name}" for cid, name in entries]
+    lines = [f"[{name}](tg://user?id={cid}) — `{cid}`" for cid, name in entries]
     await update.message.reply_text(
         "\U0001f553 Ultime chat attive:\n" + "\n".join(lines),
         parse_mode="Markdown"
