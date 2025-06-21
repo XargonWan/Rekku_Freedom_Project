@@ -31,6 +31,20 @@ context_memory = {}
 last_selected_chat = {}
 message_id = None
 
+def resolve_forwarded_target(message):
+    """Dato un messaggio (presumibilmente reply a un messaggio inoltrato),
+    prova a ricostruire chat_id e message_id originali."""
+
+    if hasattr(message, "forward_from_chat") and hasattr(message, "forward_from_message_id"):
+        if message.forward_from_chat and message.forward_from_message_id:
+            return message.forward_from_chat.id, message.forward_from_message_id
+
+    tracked = plugin.get_target(message.message_id)
+    if tracked:
+        return tracked["chat_id"], tracked["message_id"]
+
+    return None, None
+
 # === Comandi blocco ===
 
 async def block_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -138,20 +152,7 @@ async def handle_response_command(update: Update, context: ContextTypes.DEFAULT_
         await message.reply_text("\u26a0\ufe0f Devi usare questo comando in risposta a un messaggio inoltrato da Rekku.")
         return
 
-    replied = message.reply_to_message
-    chat_id = None
-    message_id = None
-
-    if hasattr(replied, "forward_from_chat") and hasattr(replied, "forward_from_message_id"):
-        if replied.forward_from_chat and replied.forward_from_message_id:
-            chat_id = replied.forward_from_chat.id
-            message_id = replied.forward_from_message_id
-
-    if not chat_id or not message_id:
-        tracked = plugin.get_target(replied.message_id)
-        if tracked:
-            chat_id = tracked["chat_id"]
-            message_id = tracked["message_id"]
+    chat_id, message_id = resolve_forwarded_target(message.reply_to_message)
 
     if not chat_id or not message_id:
         await message.reply_text("\u274c Messaggio non valido per questo comando.")
@@ -349,48 +350,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             print(f"[ERROR] Inoltro da chat privata fallito: {e}")
         return
 
-# === Sticker ===
-
-async def handle_sticker_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        return
-
-    message = update.message
-    if not message.reply_to_message:
-        await message.reply_text("\u26a0\ufe0f Devi usare /sticker in risposta a un messaggio inoltrato da Rekku.")
-        return
-
-    replied = message.reply_to_message
-
-    # 1. Prova a usare forward info, se disponibile
-    chat_id = None
-    message_id = None
-
-    if hasattr(replied, "forward_from_chat") and hasattr(replied, "forward_from_message_id"):
-        if replied.forward_from_chat and replied.forward_from_message_id:
-            chat_id = replied.forward_from_chat.id
-            message_id = replied.forward_from_message_id
-
-    # 2. Altrimenti, cerca tra i messaggi tracciati
-    if not chat_id or not message_id:
-        tracked = plugin.get_target(replied.message_id)
-        if tracked:
-            chat_id = tracked["chat_id"]
-            message_id = tracked["message_id"]
-
-    if not chat_id or not message_id:
-        print("[DEBUG] Impossibile determinare il messaggio originale.")
-        await message.reply_text("\u274c Messaggio non valido per /sticker. Deve essere un messaggio inoltrato da Rekku.")
-        return
-
-    # Salva il target per lo sticker
-    response_proxy.set_target(OWNER_ID, chat_id, message_id, "sticker")
-    print(f"[DEBUG] Target sticker impostato: chat_id={chat_id}, message_id={message_id}")
-    await context.bot.send_message(
-        chat_id=OWNER_ID,
-        text="\U0001f5bc Inviami ora lo sticker da usare come risposta."
-    )
-
 async def cancel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
@@ -504,6 +463,7 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.reply_text(response_text)
     if success:
         response_proxy.clear_target(OWNER_ID)
+
 
 # === Avvio ===
 
