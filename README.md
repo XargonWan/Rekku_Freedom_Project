@@ -1,5 +1,6 @@
 # 🧞‍♀️ Rekku\_the\_bot
 
+Un bot Telegram progettato per gestire interazioni conversazionali non lineari, pensiero spontaneo e assistenza manuale tramite un "trainer".
 
 <img src="res/wink.webp" alt="Rekku Wink" width="300" />
 
@@ -9,7 +10,7 @@
 
 ### 🎭 Risposte gestite manualmente
 
-Il trainer può rispondere a messaggi inoltrati via Telegram, e Rekku risponderà per suo conto.
+Il trainer può rispondere a messaggi inoltrati via Telegram, e Rekku risponderà per suo conto nella chat d'origine del messaggio.
 
 ---
 
@@ -25,39 +26,54 @@ Il trainer può rispondere a messaggi inoltrati via Telegram, e Rekku risponder�
 
 ---
 
-### 🖼 Invio sticker "proxy"
+### 🖼️ Risposte con contenuti (Sticker, Immagini, Audio, File, Video)
 
-Flusso:
+#### Flusso consigliato:
 
-1. Rispondi a un messaggio in gruppo con `/sticker`
-2. Rekku ti scrive in privato: “🖼 Inviami ora lo sticker...”
-3. Invia uno sticker nel privato entro **60 secondi**
-4. Rekku lo invia nel gruppo come risposta
+1. Rispondi a un messaggio inoltrato con uno di questi comandi:
 
-#### Comandi:
+   * `/sticker` – per rispondere con uno sticker
+   * `/photo` – per rispondere con una foto
+   * `/audio` – per rispondere con un file audio o nota vocale
+   * `/file` – per rispondere con un documento
+   * `/video` – per rispondere con un video
 
-| Comando           | Descrizione                                                  |
-| ----------------- | ------------------------------------------------------------ |
-| `/sticker`        | (In risposta a un messaggio) Avvia la modalità invio sticker |
-| `/cancel_sticker` | Annulla l’invio sticker attivo                               |
+2. Rekku ti scrive in privato:
+   **"📎 Inviami ora il file \[TIPO] da usare come risposta."**
 
-⚠️ Dopo 60 secondi, se non invii lo sticker:
+3. Invia il contenuto richiesto **entro 60 secondi**
 
-> `❌ Ok, niente sticker.`
+4. Rekku lo inoltra nella chat originale come risposta
+
+✅ **Alternativa veloce**: puoi anche **rispondere direttamente** a un messaggio inoltrato con un contenuto (es. audio, sticker, ecc.) — anche senza comando.
+
+#### Comandi disponibili:
+
+| Comando    | Descrizione                                               |
+| ---------- | --------------------------------------------------------- |
+| `/sticker` | Rispondi a un messaggio inoltrato per inviare uno sticker |
+| `/photo`   | Rispondi per inviare una foto                             |
+| `/audio`   | Rispondi per inviare un audio o nota vocale               |
+| `/file`    | Rispondi per inviare un documento                         |
+| `/video`   | Rispondi per inviare un video                             |
+| `/cancel`  | Annulla un invio in attesa (qualsiasi tipo)               |
+
+⚠️ Se non invii nulla entro il tempo limite:
+**❌ Ok, niente \[tipo].**
 
 ---
 
 ### 🧪 Test rapido
 
-| Comando | Descrizione                                             |
-| ------- | ------------------------------------------------------- |
-| `/test` | Verifica che il bot sia online (risponde con ✅ Test OK) |
+| Comando | Descrizione                                  |
+| ------- | -------------------------------------------- |
+| `/test` | Verifica che il bot sia online (`✅ Test OK`) |
 
 ---
 
 ## 📤 Comportamento automatico
 
-Rekku inoltra messaggi **al trainer (OWNER)** quando:
+Rekku inoltra automaticamente i messaggi al trainer (`OWNER_ID`) quando:
 
 * Viene **menzionata** in un gruppo (`@Rekku_the_bot`)
 * Riceve una **risposta a un suo messaggio**
@@ -66,11 +82,12 @@ Rekku inoltra messaggi **al trainer (OWNER)** quando:
 
 ---
 
-## 🔒 Solo il trainer può:
+## 🔐 Solo il trainer può:
 
 * Usare i comandi speciali
 * Inviare risposte (in privato)
-* Annullare o gestire sticker
+* Inviare media in risposta a messaggi inoltrati
+* Gestire contenuti e annullare invii con `/cancel`
 
 ---
 
@@ -81,14 +98,14 @@ Rekku inoltra messaggi **al trainer (OWNER)** quando:
 * Docker installato
 * File `.env` configurato con:
 
-  ```env
-  TELEGRAM_TOKEN=123456:ABC-DEF...
-  OWNER_ID=123456789
-  ```
+```
+TELEGRAM_TOKEN=123456:ABC-DEF...
+OWNER_ID=123456789
+```
 
-### 📄 Esempio `Dockerfile`
+### 📄 Esempio Dockerfile
 
-```Dockerfile
+```
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -115,6 +132,4 @@ docker run -d \
 
 ```bash
 docker logs -f rekku-bot
-```
-
 ```

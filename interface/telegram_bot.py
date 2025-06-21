@@ -10,7 +10,7 @@ from telegram.ext import (
 from dotenv import load_dotenv
 from core.manual_ai_plugin import ManualAIPlugin
 from core import blocklist
-from core import sticker_proxy
+from core import response_proxy
 
 # Carica variabili da .env
 load_dotenv()
@@ -204,46 +204,129 @@ async def handle_sticker_command(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     # Salva il target per lo sticker
-    sticker_proxy.set_target(OWNER_ID, chat_id, message_id)
+    response_proxy.set_target(OWNER_ID, chat_id, message_id, "sticker")
     print(f"[DEBUG] Target sticker impostato: chat_id={chat_id}, message_id={message_id}")
     await context.bot.send_message(
         chat_id=OWNER_ID,
         text="\U0001f5bc Inviami ora lo sticker da usare come risposta."
     )
 
-async def handle_incoming_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
-    sticker = update.message.sticker
-    if not sticker:
+
+    message = update.message
+    if not message:
         return
-    target = sticker_proxy.get_target(OWNER_ID)
+
+    target = response_proxy.get_target(OWNER_ID)
+
+    # === Se non c'� target attivo, prova a usare reply diretto a un messaggio inoltrato ===
+    if not target and message.reply_to_message:
+        replied = message.reply_to_message
+        tracked = plugin.get_target(replied.message_id)
+        if tracked:
+            print("[DEBUG] Uso risposta diretta a messaggio inoltrato.")
+            target = {
+                "chat_id": tracked["chat_id"],
+                "message_id": tracked["message_id"],
+                "type": detect_media_type(message)
+            }
+
     if target == "EXPIRED":
-        print("[DEBUG] Tentativo di invio sticker scaduto.")
-        await update.message.reply_text("\u274c Ok, niente sticker.")
+        print("[DEBUG] Invio contenuto scaduto.")
+        await message.reply_text("\u23f3 Tempo scaduto. Usa di nuovo il comando.")
         return
     elif not target:
-        print("[DEBUG] Nessun sticker in attesa.")
-        await update.message.reply_text("\u26a0\ufe0f Nessuna risposta attiva. Usa /sticker su un messaggio.")
+        await message.reply_text("\u26a0\ufe0f Nessuna risposta attiva. Usa un comando tipo /sticker, /audio, o rispondi a un messaggio inoltrato.")
         return
-    print(f"[DEBUG] Invio sticker a {target}")
-    await context.bot.send_sticker(
-        chat_id=target["chat_id"],
-        sticker=sticker.file_id,
-        reply_to_message_id=target["message_id"]
-    )
-    await update.message.reply_text("\u2705 Sticker inviato.")
-    sticker_proxy.clear_target(OWNER_ID)
 
-async def cancel_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    content_type = target["type"]
+    chat_id = target["chat_id"]
+    message_id = target["message_id"]
+
+    try:
+        if content_type == "sticker" and message.sticker:
+            await context.bot.send_sticker(chat_id=chat_id, sticker=message.sticker.file_id, reply_to_message_id=message_id)
+        elif content_type == "photo" and message.photo:
+            await context.bot.send_photo(chat_id=chat_id, photo=message.photo[-1].file_id, reply_to_message_id=message_id)
+        elif content_type == "audio" and (message.audio or message.voice):
+            audio = message.audio or message.voice
+            await context.bot.send_audio(chat_id=chat_id, audio=audio.file_id, reply_to_message_id=message_id)
+        elif content_type == "file" and message.document:
+            await context.bot.send_document(chat_id=chat_id, document=message.document.file_id, reply_to_message_id=message_id)
+        elif content_type == "video" and message.video:
+            await context.bot.send_video(chat_id=chat_id, video=message.video.file_id, reply_to_message_id=message_id)
+        else:
+            await message.reply_text(f"\u274c Il contenuto ricevuto non corrisponde a {content_type.upper()}.")
+            return
+
+        print(f"[DEBUG] Risposta {content_type} inviata a {chat_id}:{message_id}")
+        await message.reply_text("\u2705 Risposta inviata.")
+        response_proxy.clear_target(OWNER_ID)
+    except Exception as e:
+        print(f"[ERROR] Invio {content_type} fallito: {e}")
+        await message.reply_text("\u274c Errore durante l'invio.")
+
+def detect_media_type(message):
+    if message.sticker:
+        return "sticker"
+    elif message.photo:
+        return "photo"
+    elif message.audio or message.voice:
+        return "audio"
+    elif message.video:
+        return "video"
+    elif message.document:
+        return "file"
+    return "unknown"
+
+# === Comando generico per sticker/audio/photo/file/video ===
+
+async def handle_response_command(update: Update, context: ContextTypes.DEFAULT_TYPE, content_type: str):
     if update.effective_user.id != OWNER_ID:
         return
-    if sticker_proxy.has_pending(OWNER_ID):
-        sticker_proxy.clear_target(OWNER_ID)
-        print("[DEBUG] Invio sticker annullato.")
-        await update.message.reply_text("\u274c Invio sticker annullato.")
+
+    message = update.message
+    if not message.reply_to_message:
+        await message.reply_text("\u26a0\ufe0f Devi usare questo comando in risposta a un messaggio inoltrato da Rekku.")
+        return
+
+    replied = message.reply_to_message
+    chat_id = None
+    message_id = None
+
+    if hasattr(replied, "forward_from_chat") and hasattr(replied, "forward_from_message_id"):
+        if replied.forward_from_chat and replied.forward_from_message_id:
+            chat_id = replied.forward_from_chat.id
+            message_id = replied.forward_from_message_id
+
+    if not chat_id or not message_id:
+        tracked = plugin.get_target(replied.message_id)
+        if tracked:
+            chat_id = tracked["chat_id"]
+            message_id = tracked["message_id"]
+
+    if not chat_id or not message_id:
+        await message.reply_text("\u274c Messaggio non valido per questo comando.")
+        return
+
+    response_proxy.set_target(OWNER_ID, chat_id, message_id, content_type)
+    print(f"[DEBUG] Target {content_type} impostato: chat_id={chat_id}, message_id={message_id}")
+    await context.bot.send_message(
+        chat_id=OWNER_ID,
+        text=f"\U0001f4ce Inviami ora il file {content_type.upper()} da usare come risposta."
+    )
+
+async def cancel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+    if response_proxy.has_pending(OWNER_ID):
+        response_proxy.clear_target(OWNER_ID)
+        print("[DEBUG] Invio risposta annullato.")
+        await update.message.reply_text("\u274c Invio annullato.")
     else:
-        await update.message.reply_text("\u26a0\ufe0f Nessun invio sticker da annullare.")
+        await update.message.reply_text("\u26a0\ufe0f Nessun invio attivo da annullare.")
 
 
 async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -260,12 +343,27 @@ def start_bot():
     app.add_handler(CommandHandler("block_list", block_list))
     app.add_handler(CommandHandler("unblock", unblock_user))
 
-    app.add_handler(CommandHandler("sticker", handle_sticker_command))
-    app.add_handler(CommandHandler("cancel_sticker", cancel_sticker))
+    app.add_handler(CommandHandler("sticker", lambda u, c: handle_response_command(u, c, "sticker")))
+    app.add_handler(CommandHandler("audio", lambda u, c: handle_response_command(u, c, "audio")))
+    app.add_handler(CommandHandler("photo", lambda u, c: handle_response_command(u, c, "photo")))
+    app.add_handler(CommandHandler("file", lambda u, c: handle_response_command(u, c, "file")))
+    app.add_handler(CommandHandler("video", lambda u, c: handle_response_command(u, c, "video")))
+
+    app.add_handler(MessageHandler(
+    filters.Chat(OWNER_ID) & (
+        filters.Sticker.ALL |
+        filters.PHOTO |
+        filters.AUDIO |
+        filters.VOICE |
+        filters.VIDEO |
+        filters.Document.ALL
+    ),
+    handle_incoming_response
+    ))
+
+    app.add_handler(CommandHandler("cancel", cancel_response))
 
     app.add_handler(CommandHandler("test", test_command))
-
-    app.add_handler(MessageHandler(filters.Sticker.ALL & filters.ChatType.PRIVATE, handle_incoming_sticker))
 
     print("🧞‍♀️ Rekku è online.")
     app.run_polling()
