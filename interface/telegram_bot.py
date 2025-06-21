@@ -126,7 +126,7 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
         return
     elif not target:
         print("[DEBUG] Ancora nessun target, invio errore")
-        await message.reply_text("\u26a0\ufe0f Nessuna risposta attiva. Usa un comando tipo /sticker, /audio, o rispondi a un messaggio inoltrato.")
+        await message.reply_text("\u26a0\ufe0f Nessuna risposta attiva. Usa un /say o rispondi a un messaggio inoltrato.")
         return
 
     content_type = target["type"]
