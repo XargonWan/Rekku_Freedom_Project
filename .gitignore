@@ -11,8 +11,6 @@ data
 *.egg
 *.dist-info
 __pycache__/
-__pycache__
-**/__pycache__
 .ipynb_checkpoints/
 .DS_Store
 *.cover
