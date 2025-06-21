@@ -177,28 +177,39 @@ async def handle_sticker_command(update: Update, context: ContextTypes.DEFAULT_T
 
     message = update.message
     if not message.reply_to_message:
-        await message.reply_text("\u26a0\ufe0f Devi usare /sticker in risposta a un messaggio.")
+        await message.reply_text("\u26a0\ufe0f Devi usare /sticker in risposta a un messaggio inoltrato da Rekku.")
         return
 
-    # Prova a recuperare i dati del messaggio inoltrato
-    forward_from_chat = message.reply_to_message.forward_from_chat
-    forward_from_message_id = message.reply_to_message.forward_from_message_id
+    replied = message.reply_to_message
 
-    if forward_from_chat and forward_from_message_id:
-        # Salva il messaggio originale per l'invio dello sticker
-        sticker_proxy.set_target(
-            OWNER_ID,
-            forward_from_chat.id,
-            forward_from_message_id
-        )
-        print(f"[DEBUG] Richiesta sticker su messaggio originale {forward_from_message_id} in chat {forward_from_chat.id}")
-        await context.bot.send_message(
-            chat_id=OWNER_ID,
-            text="\U0001f5bc Inviami ora lo sticker da usare come risposta."
-        )
-    else:
-        print("[DEBUG] Messaggio non inoltrato, impossibile determinare target.")
-        await message.reply_text("\u274c Usa /sticker in risposta a un messaggio inoltrato da Rekku.")
+    # 1. Prova a usare forward info, se disponibile
+    chat_id = None
+    message_id = None
+
+    if hasattr(replied, "forward_from_chat") and hasattr(replied, "forward_from_message_id"):
+        if replied.forward_from_chat and replied.forward_from_message_id:
+            chat_id = replied.forward_from_chat.id
+            message_id = replied.forward_from_message_id
+
+    # 2. Altrimenti, cerca tra i messaggi tracciati
+    if not chat_id or not message_id:
+        tracked = plugin.get_target(replied.message_id)
+        if tracked:
+            chat_id = tracked["chat_id"]
+            message_id = tracked["message_id"]
+
+    if not chat_id or not message_id:
+        print("[DEBUG] Impossibile determinare il messaggio originale.")
+        await message.reply_text("\u274c Messaggio non valido per /sticker. Deve essere un messaggio inoltrato da Rekku.")
+        return
+
+    # Salva il target per lo sticker
+    sticker_proxy.set_target(OWNER_ID, chat_id, message_id)
+    print(f"[DEBUG] Target sticker impostato: chat_id={chat_id}, message_id={message_id}")
+    await context.bot.send_message(
+        chat_id=OWNER_ID,
+        text="\U0001f5bc Inviami ora lo sticker da usare come risposta."
+    )
 
 async def handle_incoming_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
