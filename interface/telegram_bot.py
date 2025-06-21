@@ -12,131 +12,15 @@ from llm_engines.manual import ManualAIPlugin
 from core import blocklist
 from core import response_proxy
 from core import say_proxy, recent_chats
+from core.context import context_command
+from collections import deque
+import json
+from core.config import BOT_TOKEN, BOT_USERNAME, OWNER_ID
 
-# Carica variabili da .env
-load_dotenv()
-BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
-BOT_USERNAME = "Rekku_the_bot"
-OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 
 plugin = ManualAIPlugin()
 say_sessions = {}
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.message
-    if not message or not message.from_user:
-        print("[DEBUG] Messaggio ignorato (vuoto o senza mittente)")
-        return
-
-    user_id = message.from_user.id
-    text = message.text or ""
-
-    # Traccia ogni chat attiva
-    recent_chats.track_chat(message.chat_id)
-
-    print(f"[DEBUG] Messaggio da {user_id} ({message.chat.type}): {text}")
-
-    if blocklist.is_blocked(user_id) and user_id != OWNER_ID:
-        print(f"[DEBUG] Utente {user_id} � bloccato. Ignoro messaggio.")
-        return
-
-    # === 1. Trainer risponde ===
-    if message.chat.type == "private" and user_id == OWNER_ID and message.reply_to_message:
-        original = plugin.get_target(message.reply_to_message.message_id)
-        if original:
-            print(f"[DEBUG] Trainer risponde a messaggio {original}")
-            await context.bot.send_message(
-                chat_id=original["chat_id"],
-                text=message.text,
-                reply_to_message_id=original["message_id"]
-            )
-            plugin.clear(message.reply_to_message.message_id)
-            await message.reply_text("\u2705 Risposta inviata.")
-        else:
-            print("[DEBUG] Nessun messaggio da rispondere trovato.")
-            await message.reply_text("\u26a0\ufe0f Nessun messaggio da rispondere trovato.")
-        return
-
-    # === 2. Messaggi in gruppo ===
-    if message.chat.type in ["group", "supergroup"] and (user_id != OWNER_ID or True):
-        print("[DEBUG] Messaggio in gruppo ricevuto")
-        member_count = await context.bot.get_chat_member_count(chat_id=message.chat_id)
-        print(f"[DEBUG] chat_id={message.chat_id}, member_count={member_count}")
-        print(f"[DEBUG] Numero membri nel gruppo: {member_count}")
-        print(f"[DEBUG] Entities: {[e.type for e in message.entities or []]}")
-
-        should_forward = False
-
-        # Se � una menzione
-        if any(
-            entity.type == "mention" and f"@{BOT_USERNAME}" in text[entity.offset:entity.offset + entity.length]
-            for entity in message.entities or []
-        ):
-            print(f"[DEBUG] Trovata mention: @{BOT_USERNAME}")
-            should_forward = True
-
-        # Se � una risposta al bot
-        elif message.reply_to_message and message.reply_to_message.from_user.id == context.bot.id:
-            print("[DEBUG] � una risposta a Rekku.")
-            should_forward = True
-
-        # Se � un gruppo con solo 2 membri
-        elif member_count <= 2:
-            print("[DEBUG] Gruppo con 2 membri, inoltro forzato.")
-            should_forward = True
-
-        print(f"[DEBUG] should_forward: {should_forward}")
-
-        if should_forward:
-            try:
-                # Prepara intestazione con info sull'autore originale
-                sender = message.from_user
-                user_ref = f"@{sender.username}" if sender.username else f"{sender.full_name}"
-
-                # 1. Manda intestazione con nome e ID
-                await context.bot.send_message(
-                    chat_id=OWNER_ID,
-                    text=f"{user_ref}:",
-                )
-
-                # 2. Inoltra il messaggio subito dopo
-                sent = await context.bot.forward_message(
-                    chat_id=OWNER_ID,
-                    from_chat_id=message.chat_id,
-                    message_id=message.message_id
-                )
-
-                # 3. Traccia il messaggio inoltrato
-                plugin.track_message(
-                    trainer_message_id=sent.message_id,
-                    original_chat_id=message.chat_id,
-                    original_message_id=message.message_id
-                )
-                print("[DEBUG] Messaggio inoltrato con successo.")
-            except Exception as e:
-                print(f"[ERROR] Inoltro fallito: {e}")
-        else:
-            print("[DEBUG] Nessun criterio soddisfatto. Messaggio ignorato.")
-        return
-
-    # === 3. Messaggi privati da altri ===
-    if message.chat.type == "private" and user_id != OWNER_ID:
-        print(f"[DEBUG] Inoltro messaggio da utente in privato: {user_id}")
-        try:
-            sent = await context.bot.forward_message(
-                chat_id=OWNER_ID,
-                from_chat_id=message.chat_id,
-                message_id=message.message_id
-            )
-            plugin.track_message(
-                trainer_message_id=sent.message_id,
-                original_chat_id=message.chat_id,
-                original_message_id=message.message_id
-            )
-            print("[DEBUG] Messaggio inoltrato correttamente.")
-        except Exception as e:
-            print(f"[ERROR] Inoltro da chat privata fallito: {e}")
-        return
+context_memory = {}
 
 # === Comandi blocco ===
 
@@ -383,8 +267,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("[DEBUG] Messaggio ignorato (vuoto o senza mittente)")
         return
 
-    user_id = message.from_user.id
+    user = message.from_user
+    user_id = user.id
+    username = user.full_name
+    usertag = f"@{user.username}" if user.username else "(nessun tag)"
     text = message.text or ""
+
+    if message.chat_id not in context_memory:
+        context_memory[message.chat_id] = deque(maxlen=10)
+
+    context_memory[message.chat_id].append({
+        "message_id": message.message_id,
+        "username": username,
+        "usertag": usertag,
+        "text": text,
+        "timestamp": message.date.isoformat()
+    })
+
+    print(f"[DEBUG] context_memory[{message.chat_id}] = {list(context_memory[message.chat_id])}")
+
 
     # Traccia ogni chat attiva
     recent_chats.track_chat(message.chat_id)
@@ -448,25 +349,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"[DEBUG] should_forward: {should_forward}")
 
         if should_forward:
+            from core.context import get_context_state
+
+            if get_context_state():
+                print("[DEBUG] Modalità context attiva, invio cronologia.")
+                history = list(context_memory.get(message.chat_id, []))
+                history_json = json.dumps(history, ensure_ascii=False, indent=2)
+
+                if len(history_json) > 4000:
+                    history_json = history_json[:4000] + "\n... (troncato)"
+
+                await context.bot.send_message(
+                    chat_id=OWNER_ID,
+                    text=f"[Context]\n```json\n{history_json}\n```",
+                    parse_mode="Markdown"
+                )
+
             try:
                 # Prepara intestazione con info sull'autore originale
                 sender = message.from_user
                 user_ref = f"@{sender.username}" if sender.username else f"{sender.full_name}"
 
-                # 1. Manda intestazione con nome e ID
                 await context.bot.send_message(
                     chat_id=OWNER_ID,
                     text=f"{user_ref}:",
                 )
 
-                # 2. Inoltra il messaggio subito dopo
                 sent = await context.bot.forward_message(
                     chat_id=OWNER_ID,
                     from_chat_id=message.chat_id,
                     message_id=message.message_id
                 )
 
-                # 3. Traccia il messaggio inoltrato
                 plugin.track_message(
                     trainer_message_id=sent.message_id,
                     original_chat_id=message.chat_id,
@@ -475,9 +389,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 print("[DEBUG] Messaggio inoltrato con successo.")
             except Exception as e:
                 print(f"[ERROR] Inoltro fallito: {e}")
-        else:
-            print("[DEBUG] Nessun criterio soddisfatto. Messaggio ignorato.")
-        return
+
 
     # === 3. Messaggi privati da altri ===
     if message.chat.type == "private" and user_id != OWNER_ID:
@@ -820,60 +732,14 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def start_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CommandHandler("block", block_user))
     app.add_handler(CommandHandler("block_list", block_list))
     app.add_handler(CommandHandler("unblock", unblock_user))
     
     app.add_handler(CommandHandler("last_chats", last_chats_command))
-
-    app.add_handler(CommandHandler("sticker", lambda u, c: handle_response_command(u, c, "sticker")))
-    app.add_handler(CommandHandler("audio", lambda u, c: handle_response_command(u, c, "audio")))
-    app.add_handler(CommandHandler("photo", lambda u, c: handle_response_command(u, c, "photo")))
-    app.add_handler(CommandHandler("file", lambda u, c: handle_response_command(u, c, "file")))
-    app.add_handler(CommandHandler("video", lambda u, c: handle_response_command(u, c, "video")))
-
-    app.add_handler(CommandHandler("say", say_command))
-
-    # Prima gestisci /say step
-    app.add_handler(MessageHandler(
-        filters.Chat(OWNER_ID) & (
-            filters.TEXT | filters.PHOTO | filters.AUDIO | filters.VOICE | filters.VIDEO | filters.Document.ALL
-        ),
-        handle_say_step
-    ))
-
-    # Poi gli altri messaggi media generici
-    app.add_handler(MessageHandler(
-        filters.Chat(OWNER_ID) & (
-            filters.Sticker.ALL |
-            filters.PHOTO |
-            filters.AUDIO |
-            filters.VOICE |
-            filters.VIDEO |
-            filters.Document.ALL
-        ),
-        handle_incoming_response
-    ))
-
-    app.add_handler(CommandHandler("cancel", cancel_response))
-
-    app.add_handler(CommandHandler("test", test_command))
-
-    print("🧞‍♀️ Rekku è online.")
-    app.run_polling()
-
-# === Avvio ===
-
-def start_bot():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("context", context_command))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(CommandHandler("block", block_user))
-    app.add_handler(CommandHandler("block_list", block_list))
-    app.add_handler(CommandHandler("unblock", unblock_user))
-    
-    app.add_handler(CommandHandler("last_chats", last_chats_command))
 
     app.add_handler(CommandHandler("sticker", lambda u, c: handle_response_command(u, c, "sticker")))
     app.add_handler(CommandHandler("audio", lambda u, c: handle_response_command(u, c, "audio")))

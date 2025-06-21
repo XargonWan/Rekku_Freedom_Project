@@ -1,73 +1,8 @@
-# 🧞‍♀️ Rekku\_the\_bot
+## 🧞‍♀️ Rekku\_the\_bot
 
 Un bot Telegram progettato per gestire interazioni conversazionali non lineari, pensiero spontaneo e assistenza manuale tramite un "trainer".
 
 <img src="res/wink.webp" alt="Rekku Wink" width="300" />
-
----
-
-## 🧩 Modalità Manuale
-
-### 🎭 Risposte gestite manualmente
-
-Il trainer può rispondere a messaggi inoltrati via Telegram, e Rekku risponderà per suo conto nella chat d'origine del messaggio.
-
----
-
-## 📦 Comandi speciali (solo `OWNER_ID`)
-
-### 🧱 Gestione utenti
-
-| Comando              | Descrizione                                 |
-| -------------------- | ------------------------------------------- |
-| `/block <user_id>`   | Blocca un utente (ignora messaggi futuri)   |
-| `/unblock <user_id>` | Sblocca un utente                           |
-| `/block_list`        | Mostra la lista utenti attualmente bloccati |
-
----
-
-### 🖼️ Risposte con contenuti (Sticker, Immagini, Audio, File, Video)
-
-#### Flusso consigliato:
-
-1. Rispondi a un messaggio inoltrato con uno di questi comandi:
-
-   * `/sticker` – per rispondere con uno sticker
-   * `/photo` – per rispondere con una foto
-   * `/audio` – per rispondere con un file audio o nota vocale
-   * `/file` – per rispondere con un documento
-   * `/video` – per rispondere con un video
-
-2. Rekku ti scrive in privato:
-   **"📎 Inviami ora il file \[TIPO] da usare come risposta."**
-
-3. Invia il contenuto richiesto **entro 60 secondi**
-
-4. Rekku lo inoltra nella chat originale come risposta
-
-✅ **Alternativa veloce**: puoi anche **rispondere direttamente** a un messaggio inoltrato con un contenuto (es. audio, sticker, ecc.) — anche senza comando.
-
-#### Comandi disponibili:
-
-| Comando    | Descrizione                                               |
-| ---------- | --------------------------------------------------------- |
-| `/sticker` | Rispondi a un messaggio inoltrato per inviare uno sticker |
-| `/photo`   | Rispondi per inviare una foto                             |
-| `/audio`   | Rispondi per inviare un audio o nota vocale               |
-| `/file`    | Rispondi per inviare un documento                         |
-| `/video`   | Rispondi per inviare un video                             |
-| `/cancel`  | Annulla un invio in attesa (qualsiasi tipo)               |
-
-⚠️ Se non invii nulla entro il tempo limite:
-**❌ Ok, niente \[tipo].**
-
----
-
-### 🧪 Test rapido
-
-| Comando | Descrizione                                  |
-| ------- | -------------------------------------------- |
-| `/test` | Verifica che il bot sia online (`✅ Test OK`) |
 
 ---
 
@@ -82,12 +17,88 @@ Rekku inoltra automaticamente i messaggi al trainer (`OWNER_ID`) quando:
 
 ---
 
-## 🔐 Solo il trainer può:
+## 🧠 Modalità Context
 
-* Usare i comandi speciali
-* Inviare risposte (in privato)
-* Inviare media in risposta a messaggi inoltrati
-* Gestire contenuti e annullare invii con `/cancel`
+Quando la modalità context è attiva, ogni messaggio inoltrato include anche una cronologia in formato JSON dei **10 messaggi più recenti** nella stessa chat, ad esempio:
+
+```json
+[
+  {
+    "message_id": 42,
+    "username": "Marco Rossi",
+    "usertag": "@marco23",
+    "text": "ciao rekku",
+    "timestamp": "2025-06-21T20:58:00+00:00"
+  },
+  ...
+]
+```
+
+### Comandi disponibili (solo `OWNER_ID`):
+
+| Comando    | Descrizione                          |
+| ---------- | ------------------------------------ |
+| `/context` | Attiva/disattiva la modalità context |
+
+⚠️ Il context viene mantenuto in memoria finché il bot è acceso. Non viene salvato su file.
+
+---
+
+## 🧩 Modalità Manuale
+
+### 🎭 Risposte gestite manualmente
+
+Il trainer può rispondere a messaggi inoltrati via Telegram, e Rekku risponderà per suo conto nella chat d'origine.
+
+---
+
+## 🧱 Gestione utenti (solo `OWNER_ID`)
+
+| Comando              | Descrizione                                 |
+| -------------------- | ------------------------------------------- |
+| `/block <user_id>`   | Blocca un utente (ignora messaggi futuri)   |
+| `/unblock <user_id>` | Sblocca un utente                           |
+| `/block_list`        | Mostra la lista utenti attualmente bloccati |
+
+---
+
+## 🖼️ Risposte con contenuti (sticker, immagini, audio, file, video)
+
+Puoi rispondere manualmente ai messaggi inoltrati usando:
+
+| Comando    | Tipo di contenuto                |
+| ---------- | -------------------------------- |
+| `/sticker` | Invia uno sticker                |
+| `/photo`   | Invia una foto                   |
+| `/audio`   | Invia un audio (MP3/nota vocale) |
+| `/file`    | Invia un file                    |
+| `/video`   | Invia un video                   |
+
+Oppure semplicemente **rispondi con un contenuto** (senza comando).
+Rekku ti chiederà il file, che va inviato **entro 60 secondi**.
+
+| Comando   | Descrizione                |
+| --------- | -------------------------- |
+| `/cancel` | Annulla un invio in attesa |
+
+---
+
+## 🧪 Test rapido
+
+| Comando | Descrizione                                  |
+| ------- | -------------------------------------------- |
+| `/test` | Verifica che il bot sia online (`✅ Test OK`) |
+
+---
+
+## ✏️ Comando `/say`
+
+| Comando             | Descrizione                                           |
+| ------------------- | ----------------------------------------------------- |
+| `/say`              | Mostra le ultime chat attive (da selezionare)         |
+| `/say <id> <testo>` | Invia direttamente il messaggio a una chat tramite ID |
+
+Dopo la selezione, puoi inviare qualsiasi contenuto (testo, foto, audio, ecc.).
 
 ---
 
@@ -118,14 +129,8 @@ CMD ["python", "main.py"]
 ### ▶️ Build e avvio
 
 ```bash
-# Costruisci l'immagine
 docker build -t rekku-bot .
-
-# Avvia il container
-docker run -d \
-  --name rekku-bot \
-  --env-file .env \
-  rekku-bot
+docker run -d --name rekku-bot --env-file .env rekku-bot
 ```
 
 ### 📋 Logs
