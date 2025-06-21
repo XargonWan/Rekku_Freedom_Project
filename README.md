@@ -1,6 +1,7 @@
 # 🧞‍♀️ Rekku\_the\_bot
 
-Un bot Telegram progettato per gestire interazioni conversazionali non lineari, pensiero spontaneo e assistenza manuale.
+
+<img src="res/wink.webp" alt="Rekku Wink" width="300" />
 
 ---
 
