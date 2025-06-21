@@ -50,6 +50,16 @@ Quando la modalità context è attiva, ogni messaggio inoltrato include anche un
 
 Il trainer può rispondere a messaggi inoltrati via Telegram, e Rekku risponderà per suo conto nella chat d'origine.
 
+Può anche rispondere con **contenuti multimediali** (sticker, immagini, audio, video, file, ecc.):
+
+* Basta **rispondere a un messaggio inoltrato** con il contenuto desiderato
+* Rekku inoltrerà automaticamente nella chat d'origine
+* Non è più necessario usare comandi come `/sticker`, `/photo`, ecc.
+
+| Comando   | Descrizione                |
+| --------- | -------------------------- |
+| `/cancel` | Annulla un invio in attesa |
+
 ---
 
 ## 🧱 Gestione utenti (solo `OWNER_ID`)
@@ -62,24 +72,15 @@ Il trainer può rispondere a messaggi inoltrati via Telegram, e Rekku risponder�
 
 ---
 
-## 🖼️ Risposte con contenuti (sticker, immagini, audio, file, video)
+## ✏️ Comando `/say`
 
-Puoi rispondere manualmente ai messaggi inoltrati usando:
+| Comando             | Descrizione                                           |
+| ------------------- | ----------------------------------------------------- |
+| `/say`              | Mostra le ultime chat attive (da selezionare)         |
+| `/say <id> <testo>` | Invia direttamente il messaggio a una chat tramite ID |
 
-| Comando    | Tipo di contenuto                |
-| ---------- | -------------------------------- |
-| `/sticker` | Invia uno sticker                |
-| `/photo`   | Invia una foto                   |
-| `/audio`   | Invia un audio (MP3/nota vocale) |
-| `/file`    | Invia un file                    |
-| `/video`   | Invia un video                   |
-
-Oppure semplicemente **rispondi con un contenuto** (senza comando).
-Rekku ti chiederà il file, che va inviato **entro 60 secondi**.
-
-| Comando   | Descrizione                |
-| --------- | -------------------------- |
-| `/cancel` | Annulla un invio in attesa |
+Dopo la selezione, puoi inviare **qualsiasi contenuto** (testo, foto, audio, file, video, sticker).
+Rekku lo inoltrerà alla chat selezionata.
 
 ---
 
@@ -88,17 +89,6 @@ Rekku ti chiederà il file, che va inviato **entro 60 secondi**.
 | Comando | Descrizione                                  |
 | ------- | -------------------------------------------- |
 | `/test` | Verifica che il bot sia online (`✅ Test OK`) |
-
----
-
-## ✏️ Comando `/say`
-
-| Comando             | Descrizione                                           |
-| ------------------- | ----------------------------------------------------- |
-| `/say`              | Mostra le ultime chat attive (da selezionare)         |
-| `/say <id> <testo>` | Invia direttamente il messaggio a una chat tramite ID |
-
-Dopo la selezione, puoi inviare qualsiasi contenuto (testo, foto, audio, ecc.).
 
 ---
 
