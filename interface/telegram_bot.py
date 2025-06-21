@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from core.manual_ai_plugin import ManualAIPlugin
 from core import blocklist
 from core import response_proxy
+from core import recent_chats
 
 # Carica variabili da .env
 load_dotenv()
@@ -28,6 +29,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = message.from_user.id
     text = message.text or ""
+
+    # Traccia ogni chat attiva
+    recent_chats.track_chat(message.chat_id)
     
     print(f"[DEBUG] Messaggio da {user_id} ({message.chat.type}): {text}")
 
@@ -132,7 +136,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             print(f"[ERROR] Inoltro da chat privata fallito: {e}")
         return
-
 
 # === Comandi blocco ===
 
@@ -333,6 +336,21 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print("[DEBUG] /test ricevuto")
     await update.message.reply_text("✅ Test OK")
 
+async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+
+    entries = recent_chats.get_last_active_chats_verbose(10, context.bot)
+    if not entries:
+        await update.message.reply_text("\u26a0\ufe0f Nessuna chat recente trovata.")
+        return
+
+    lines = [f"`{cid}` \u2014 {name}" for cid, name in entries]
+    await update.message.reply_text(
+        "\U0001f553 Ultime chat attive:\n" + "\n".join(lines),
+        parse_mode="Markdown"
+    )
+
 # === Avvio ===
 
 def start_bot():
@@ -342,6 +360,8 @@ def start_bot():
     app.add_handler(CommandHandler("block", block_user))
     app.add_handler(CommandHandler("block_list", block_list))
     app.add_handler(CommandHandler("unblock", unblock_user))
+    
+    app.add_handler(CommandHandler("last_chats", last_chats_command))
 
     app.add_handler(CommandHandler("sticker", lambda u, c: handle_response_command(u, c, "sticker")))
     app.add_handler(CommandHandler("audio", lambda u, c: handle_response_command(u, c, "audio")))
