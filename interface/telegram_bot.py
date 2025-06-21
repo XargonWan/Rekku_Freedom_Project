@@ -117,6 +117,8 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
         return
 
     target = response_proxy.get_target(OWNER_ID)
+    print(f"[DEBUG] handle_incoming_response: ricevo tipo = {detect_media_type(message)}")
+    print(f"[DEBUG] target iniziale = {target}")
 
     # === Se non c'� target attivo, prova a usare reply diretto a un messaggio inoltrato ===
     if not target and message.reply_to_message:
@@ -136,11 +138,23 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
                 "type": detect_media_type(message)
             }
 
+    # \u2705 Fallback: usa /say
+    if not target:
+        chat_id = say_proxy.get_target(OWNER_ID)
+        if chat_id and chat_id != "EXPIRED":
+            print("[DEBUG] Uso target da /say per invio diretto.")
+            target = {
+                "chat_id": chat_id,
+                "message_id": None,
+                "type": detect_media_type(message)
+            }
+
     if target == "EXPIRED":
         print("[DEBUG] Invio contenuto scaduto.")
         await message.reply_text("\u23f3 Tempo scaduto. Usa di nuovo il comando.")
         return
     elif not target:
+        print("[DEBUG] Ancora nessun target, invio errore")
         await message.reply_text("\u26a0\ufe0f Nessuna risposta attiva. Usa un comando tipo /sticker, /audio, o rispondi a un messaggio inoltrato.")
         return
 
@@ -152,6 +166,7 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
     await message.reply_text(response_text)
     if success:
         response_proxy.clear_target(OWNER_ID)
+        say_proxy.clear(OWNER_ID)
 
 from core.message_sender import detect_media_type
 
