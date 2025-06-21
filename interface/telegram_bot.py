@@ -8,7 +8,7 @@ from telegram.ext import (
     filters,
 )
 from dotenv import load_dotenv
-from core.manual_ai_plugin import ManualAIPlugin
+from llm_engines.manual import ManualAIPlugin
 from core import blocklist
 from core import response_proxy
 from core import say_proxy, recent_chats
@@ -363,7 +363,7 @@ from telegram.ext import (
     filters,
 )
 from dotenv import load_dotenv
-from core.manual_ai_plugin import ManualAIPlugin
+from llm_engines.manual import ManualAIPlugin
 from core import blocklist
 from core import response_proxy
 from core import say_proxy, recent_chats
