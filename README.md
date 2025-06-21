@@ -82,13 +82,17 @@ Può anche rispondere con **contenuti multimediali** (sticker, immagini, audio, 
 Dopo la selezione, puoi inviare **qualsiasi contenuto** (testo, foto, audio, file, video, sticker).
 Rekku lo inoltrerà alla chat selezionata.
 
+Perfetto, aggiorniamo quella sezione del README rimuovendo `/test` e promuovendo `/help` come comando informativo principale.
+
+Ecco la nuova versione modificata:
+
 ---
 
-## 🧪 Test rapido
+## 🧪 Aiuto e comandi
 
-| Comando | Descrizione                                  |
-| ------- | -------------------------------------------- |
-| `/test` | Verifica che il bot sia online (`✅ Test OK`) |
+| Comando | Descrizione                             |
+| ------- | --------------------------------------- |
+| `/help` | Mostra l'elenco dei comandi disponibili |
 
 ---
 

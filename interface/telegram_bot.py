@@ -360,10 +360,35 @@ async def cancel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("\u26a0\ufe0f Nessun invio attivo da annullare.")
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print("[DEBUG] /test ricevuto")
-    await update.message.reply_text("✅ Test OK")
+    from core.context import get_context_state
+
+    if update.effective_user.id != OWNER_ID:
+        return
+    
+    context_status = "attiva ✅" if get_context_state() else "disattiva ❌"
+
+    help_text = (
+        f"🧞‍♀️ *Rekku – Comandi disponibili*\n\n"
+        "*🧠 Modalità context*\n"
+        f"`/context` – Attiva/disattiva la cronologia nei messaggi inoltrati, attualmente *{context_status}*\n\n"
+        "*✏️ Comando /say*\n"
+        "`/say` – Seleziona una chat dalle più recenti\n"
+        "`/say <id> <messaggio>` – Invia direttamente un messaggio a una chat\n\n"
+        "*🧩 Modalità manuale*\n"
+        "Rispondi a un messaggio inoltrato con testo o contenuti (sticker, foto, audio, file, ecc.)\n"
+        "`/cancel` – Annulla un invio in attesa\n\n"
+        "*🧱 Gestione utenti*\n"
+        "`/block <user_id>` – Blocca un utente\n"
+        "`/unblock <user_id>` – Sblocca un utente\n"
+        "`/block_list` – Elenca gli utenti bloccati\n\n"
+        "*📋 Varie*\n"
+        "`/last_chats` – Ultime chat attive\n"
+    )
+
+    await update.message.reply_text(help_text, parse_mode="Markdown")
+
 
 async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -470,6 +495,8 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def start_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    app.add_handler(CommandHandler("help", help_command))
+
     app.add_handler(CommandHandler("block", block_user))
     app.add_handler(CommandHandler("block_list", block_list))
     app.add_handler(CommandHandler("unblock", unblock_user))
@@ -503,8 +530,6 @@ def start_bot():
     ))
 
     app.add_handler(CommandHandler("cancel", cancel_response))
-
-    app.add_handler(CommandHandler("test", test_command))
 
     print("🧞‍♀️ Rekku è online.")
     app.run_polling()
