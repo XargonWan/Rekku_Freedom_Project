@@ -7,10 +7,13 @@ on:
     branches: [ "main" ]
 
 jobs:
-
-  build:
-
+  build-and-push:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
 
     steps:
     - uses: actions/checkout@v4
@@ -29,19 +32,24 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.CR_PAT }}
 
-    - name: Tag image for GitHub Container Registry
+    - name: Tag image for GHCR
       run: |
         REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
         docker tag ${{ steps.vars.outputs.tag }} ghcr.io/$REPO_OWNER_LC/rekku_the_bot:latest
-    - name: Push image to GitHub Container Registry
+
+    - name: Push image to GHCR
       run: |
         REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
         docker push ghcr.io/$REPO_OWNER_LC/rekku_the_bot:latest
-    - name: Make image public (optional, requires gh CLI)
+
+    - name: Make image public (one-time per package)
+      if: github.event_name == 'push'
       run: |
+        echo "🔓 Rendendo il pacchetto pubblico..."
+        gh auth login --with-token <<< "${{ secrets.CR_PAT }}"
         REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        gh api --method PATCH /user/packages/container/rekku_the_bot/versions/latest \
+        gh api --method PATCH /users/${{ github.actor }}/packages/container/rekku_the_bot \
           -H "Accept: application/vnd.github+json" \
-          -F visibility=public
+          -f visibility=public || true
       env:
         GH_TOKEN: ${{ secrets.CR_PAT }}
