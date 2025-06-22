@@ -41,7 +41,11 @@ class OpenAIAIPlugin(AIPluginBase):
 
         response = openai.ChatCompletion.create(
             model=model,
-            messages=messages
+            messages=messages,
+            temperature=0.9,           # 🔥 Creatività viva
+            top_p=1.0,                # 🌌 Massima libertà di scelta
+            presence_penalty=0.6,     # 🚫 Evita la monotonia nei temi
+            frequency_penalty=0.3     # 🔁 Riduce ripetizioni nella forma
         )
         return response.choices[0].message["content"]
 
