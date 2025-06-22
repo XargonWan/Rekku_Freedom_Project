@@ -17,7 +17,10 @@ from collections import deque
 import json
 from core.message_sender import send_content
 from core.message_sender import detect_media_type
+from core.message_sender import extract_response_target
+from core.plugin_instance import plugin
 from core.config import BOT_TOKEN, BOT_USERNAME, OWNER_ID
+
 
 # Carica variabili da .env
 load_dotenv()
@@ -25,7 +28,6 @@ BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 BOT_USERNAME = "Rekku_the_bot"
 OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 
-plugin = ManualAIPlugin()
 say_sessions = {}
 context_memory = {}
 last_selected_chat = {}
@@ -79,65 +81,83 @@ async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except (IndexError, ValueError):
         await update.message.reply_text("\u274c Usa: /unblock <user_id>")
 
+from core.message_sender import send_content, detect_media_type, extract_response_target
+
 async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
+        print("[DEBUG] Messaggio ignorato: non da OWNER_ID")
         return
 
     message = update.message
     if not message:
+        print("[DEBUG] ❌ Nessun message presente, esco.")
         return
 
+    media_type = detect_media_type(message)
+    print(f"[DEBUG] ✅ handle_incoming_response: media_type = {media_type}; reply_to = {bool(message.reply_to_message)}")
+
+    # === 1. Prova target da response_proxy (es. /say)
     target = response_proxy.get_target(OWNER_ID)
-    print(f"[DEBUG] handle_incoming_response: ricevo tipo = {detect_media_type(message)}")
-    print(f"[DEBUG] target iniziale = {target}")
+    print(f"[DEBUG] Target iniziale da response_proxy = {target}")
 
-    # === Se non c'� target attivo, prova a usare reply diretto a un messaggio inoltrato ===
+    # === 2. Se risponde a un messaggio, cerca nel plugin mapping
     if not target and message.reply_to_message:
-        replied = message.reply_to_message
-        tracked = plugin.get_target(replied.message_id)
+        reply = message.reply_to_message
+        print(f"[DEBUG] Risposta a trainer_message_id={reply.message_id}")
+        possible_ids = [reply.message_id]
+        if reply.reply_to_message:
+            possible_ids.append(reply.reply_to_message.message_id)
 
-        # 🔁 Tenta anche con il messaggio originale (a cui il trainer sta rispondendo)
-        if not tracked and replied.reply_to_message:
-            print("[DEBUG] Nessun target da trainer_message_id, provo con messaggio originale.")
-            tracked = plugin.get_target(replied.reply_to_message.message_id)
+        for mid in possible_ids:
+            tracked = plugin.get_target(mid)
+            if tracked:
+                target = {
+                    "chat_id": tracked["chat_id"],
+                    "message_id": tracked["message_id"],
+                    "type": media_type
+                }
+                print(f"[DEBUG] Trovato target via plugin.get_target({mid}): {target}")
+                break
+        if not target:
+            print("[DEBUG] ❌ Nessun mapping trovato nel plugin")
 
-        if tracked:
-            print("[DEBUG] Uso risposta diretta a messaggio inoltrato.")
-            target = {
-                "chat_id": tracked["chat_id"],
-                "message_id": tracked["message_id"],
-                "type": detect_media_type(message)
-            }
-
-    # \u2705 Fallback: usa /say
+    # === 3. Fallback da /say
     if not target:
-        chat_id = say_proxy.get_target(OWNER_ID)
-        if chat_id and chat_id != "EXPIRED":
-            print("[DEBUG] Uso target da /say per invio diretto.")
+        fallback = say_proxy.get_target(OWNER_ID)
+        print(f"[DEBUG] Fallback da say_proxy = {fallback}")
+        if fallback and fallback != "EXPIRED":
             target = {
-                "chat_id": chat_id,
+                "chat_id": fallback,
                 "message_id": None,
-                "type": detect_media_type(message)
+                "type": media_type
             }
+            print(f"[DEBUG] Target impostato da say_proxy: {target}")
+        elif fallback == "EXPIRED":
+            await message.reply_text("⏳ Tempo scaduto, rifai /say.")
+            return
 
-    if target == "EXPIRED":
-        print("[DEBUG] Invio contenuto scaduto.")
-        await message.reply_text("\u23f3 Tempo scaduto. Usa di nuovo il comando.")
-        return
-    elif not target:
-        print("[DEBUG] Ancora nessun target, invio errore")
-        await message.reply_text("\u26a0\ufe0f Nessuna risposta attiva. Usa un /say o rispondi a un messaggio inoltrato.")
+    # === 4. Se ancora niente, abort
+    if not target:
+        print("[ERROR] ❌ Nessun target trovato per l'invio.")
+        await message.reply_text("⚠️ Nessun destinatario rilevato. Usa /say o rispondi a un messaggio inoltrato.")
         return
 
-    content_type = target["type"]
+    # === 5. Invia contenuto
     chat_id = target["chat_id"]
-    message_id = target["message_id"]
+    reply_to = target["message_id"]
+    content_type = target["type"]
 
-    success, response_text = await send_content(context.bot, chat_id, message, content_type, message_id)
-    await message.reply_text(response_text)
+    print(f"[DEBUG] Invio media_type={content_type} to chat_id={chat_id}, reply_to={reply_to}")
+    success, feedback = await send_content(context.bot, chat_id, message, content_type, reply_to)
+
+    await message.reply_text(feedback)
+
     if success:
+        print("[DEBUG] ✅ Invio avvenuto con successo. Pulizia proxy.")
         response_proxy.clear_target(OWNER_ID)
         say_proxy.clear(OWNER_ID)
+    else:
+        print("[ERROR] ❌ Invio fallito.")
 
 from core.message_sender import detect_media_type
 
@@ -244,7 +264,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # === 1. Trainer risponde ===
     if message.chat.type == "private" and user_id == OWNER_ID and message.reply_to_message:
+        print(f"[DEBUG] Risposta a trainer_message_id={message.reply_to_message.message_id}")
         original = plugin.get_target(message.reply_to_message.message_id)
+        print(f"[DEBUG] Reply_to_message_id = {message.reply_to_message.message_id}")
+        print(f"[DEBUG] reply_map = {plugin.reply_map}")
         if original:
             print(f"[DEBUG] Trainer risponde a messaggio {original}")
             await context.bot.send_message(
@@ -326,6 +349,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     original_chat_id=message.chat_id,
                     original_message_id=message.message_id
                 )
+                print(f"[DEBUG] Tracciamento salvato: {sent.message_id} -> {message.chat_id}:{message.message_id}")
                 print("[DEBUG] Messaggio inoltrato con successo.")
             except Exception as e:
                 print(f"[ERROR] Inoltro fallito: {e}")
@@ -345,6 +369,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 original_chat_id=message.chat_id,
                 original_message_id=message.message_id
             )
+            print(f"[DEBUG] Tracciamento salvato: {sent.message_id} -> {message.chat_id}:{message.message_id}")
             print("[DEBUG] Messaggio inoltrato correttamente.")
         except Exception as e:
             print(f"[ERROR] Inoltro da chat privata fallito: {e}")
@@ -484,6 +509,7 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_id = None
     content_type = detect_media_type(message)
 
+    print(f"[DEBUG] Invio media_type={content_type} to chat={chat_id}, reply_to={message_id}")
     success, response_text = await send_content(context.bot, chat_id, message, content_type, message_id)
     await message.reply_text(response_text)
     if success:

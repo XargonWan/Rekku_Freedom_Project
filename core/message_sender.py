@@ -1,36 +1,155 @@
-async def send_content(bot, chat_id, message, content_type, message_id=None):
+from llm_engines.manual import ManualAIPlugin
+from core import response_proxy, say_proxy
+from core.plugin_instance import plugin
+import traceback
+
+async def send_content(bot, chat_id, message, content_type, reply_to_message_id=None):
+    print(f"[DEBUG] Invio contenuto: {content_type}, reply_to={reply_to_message_id}")
+
     try:
-        kwargs = {"chat_id": chat_id}
-        if message_id:
-            kwargs["reply_to_message_id"] = message_id
+        if content_type == "audio":
+            try:
+                print("[DEBUG] Invio audio in corso...")
+                file_id = message.audio.file_id if message.audio else message.document.file_id
+                print(f"[DEBUG] file_id rilevato: {file_id}")
+                await bot.send_audio(chat_id=chat_id, audio=file_id, reply_to_message_id=reply_to_message_id)
+                return True, "\u2705 Audio inviato con successo."
+            except Exception as e_audio:
+                print(f"[WARN] Invio audio fallito: {e_audio}")
+                traceback.print_exc()
+                if message.document:
+                    try:
+                        print("[DEBUG] Riprovo invio come documento (fallback)...")
+                        await bot.send_document(chat_id=chat_id, document=message.document.file_id, reply_to_message_id=reply_to_message_id)
+                        return True, "\u2705 Inviato come documento (fallback da audio)."
+                    except Exception as e_fallback:
+                        print(f"[ERROR] Anche il fallback documento � fallito: {e_fallback}")
+                        traceback.print_exc()
+                        return False, f"\u274c Errore doppio: {e_audio} / {e_fallback}"
+                return False, f"\u274c Errore invio audio: {e_audio}"
 
-        if content_type == "sticker" and message.sticker:
-            await bot.send_sticker(**kwargs, sticker=message.sticker.file_id)
-        elif content_type == "photo" and message.photo:
-            await bot.send_photo(**kwargs, photo=message.photo[-1].file_id, caption=message.caption)
-        elif content_type == "audio" and (message.audio or message.voice):
-            audio = message.audio or message.voice
-            await bot.send_audio(**kwargs, audio=audio.file_id, caption=message.caption)
-        elif content_type == "file" and message.document:
-            await bot.send_document(**kwargs, document=message.document.file_id, caption=message.caption)
-        elif content_type == "video" and message.video:
-            await bot.send_video(**kwargs, video=message.video.file_id, caption=message.caption)
+        elif content_type == "document":
+            try:
+                print("[DEBUG] Invio documento in corso...")
+                await bot.send_document(chat_id=chat_id, document=message.document.file_id, reply_to_message_id=reply_to_message_id)
+                return True, "\u2705 Documento inviato con successo."
+            except Exception as e_doc:
+                print(f"[WARN] Invio documento fallito: {e_doc}")
+                traceback.print_exc()
+                mime = message.document.mime_type or ""
+                filename = message.document.file_name or ""
+                if mime.startswith("audio/") or filename.lower().endswith(".mp3"):
+                    try:
+                        print("[DEBUG] Riprovo invio come audio (fallback)...")
+                        await bot.send_audio(chat_id=chat_id, audio=message.document.file_id, reply_to_message_id=reply_to_message_id)
+                        return True, "\u2705 Inviato come audio (fallback da documento)."
+                    except Exception as e_audio:
+                        print(f"[ERROR] Anche il fallback audio � fallito: {e_audio}")
+                        traceback.print_exc()
+                        return False, f"\u274c Errore doppio: {e_doc} / {e_audio}"
+                return False, f"\u274c Errore invio documento: {e_doc}"
+
+        elif content_type == "voice":
+            print("[DEBUG] Invio voice in corso...")
+            await bot.send_voice(chat_id=chat_id, voice=message.voice.file_id, reply_to_message_id=reply_to_message_id)
+
+        elif content_type == "photo":
+            print("[DEBUG] Invio foto in corso...")
+            await bot.send_photo(chat_id=chat_id, photo=message.photo[-1].file_id, reply_to_message_id=reply_to_message_id)
+
+        elif content_type == "video":
+            print("[DEBUG] Invio video in corso...")
+            await bot.send_video(chat_id=chat_id, video=message.video.file_id, reply_to_message_id=reply_to_message_id)
+
+        elif content_type == "sticker":
+            print("[DEBUG] Invio sticker in corso...")
+            await bot.send_sticker(chat_id=chat_id, sticker=message.sticker.file_id, reply_to_message_id=reply_to_message_id)
+
+        elif content_type == "text":
+            print("[DEBUG] Invio testo in corso...")
+            await bot.send_message(chat_id=chat_id, text=message.text, reply_to_message_id=reply_to_message_id)
+
+        elif content_type == "file":
+            print("[DEBUG] Invio file in corso...")
+            await bot.send_document(chat_id=chat_id, document=message.document.file_id, reply_to_message_id=reply_to_message_id)
+
         else:
-            return False, f"\u274c Il contenuto ricevuto non corrisponde a {content_type.upper()}."
+            print(f"[ERROR] Tipo di contenuto non gestito: {content_type}")
+            return False, "\u274c Tipo di contenuto non supportato."
 
-        return True, "\u2705 Risposta inviata."
+        return True, "\u2705 Contenuto inviato con successo."
+
     except Exception as e:
-        return False, f"\u274c Errore durante l'invio: {e}"
-    
+        print(f"[ERROR] Errore nell'invio del contenuto: {e}")
+        traceback.print_exc()
+        return False, f"\u274c Errore: {e}"
+
 def detect_media_type(message):
     if message.sticker:
         return "sticker"
     elif message.photo:
         return "photo"
-    elif message.audio or message.voice:
+    elif message.voice:
+        return "voice"
+    elif message.audio:
         return "audio"
     elif message.video:
         return "video"
     elif message.document:
-        return "file"
+        mime = message.document.mime_type or ""
+        filename = message.document.file_name or ""
+        if mime.startswith("audio/") or filename.lower().endswith(".mp3"):
+            print(f"[DEBUG] Documento rilevato come audio: mime={mime}, filename={filename}")
+            return "audio"
+        print(f"[DEBUG] Documento generico: mime={mime}, filename={filename}")
+        return "document"
+    elif message.text:
+        return "text"
     return "unknown"
+
+
+def extract_response_target(message, user_id):
+    print(f"[DEBUG] Estrazione target per user_id={user_id}")
+
+    # 1. Controllo via proxy (es. /photo, /say...)
+    target = response_proxy.get_target(user_id)
+    print(f"[DEBUG] Target iniziale da proxy: {target}")
+
+    # 2. Risposta a messaggio
+    if not target and message.reply_to_message:
+        replied = message.reply_to_message
+        print(f"[DEBUG] Risposta a messaggio: {replied.message_id}")
+        print(f"[DEBUG] reply_map = {plugin.reply_map}")
+
+        for attempt in [replied.message_id,
+                        getattr(replied.reply_to_message, "message_id", None)]:
+            if attempt:
+                tracked = plugin.get_target(attempt)
+                if tracked:
+                    print(f"[DEBUG] Trovato target da reply: {tracked}")
+                    return {
+                        "chat_id": tracked["chat_id"],
+                        "message_id": tracked["message_id"],
+                        "type": detect_media_type(message)
+                    }
+
+    # 3. Fallback da /say
+    if not target:
+        chat_id = say_proxy.get_target(user_id)
+        print(f"[DEBUG] Fallback target da /say: {chat_id}")
+        if chat_id and chat_id != "EXPIRED":
+            return {
+                "chat_id": chat_id,
+                "message_id": None,
+                "type": detect_media_type(message)
+            }
+
+    print(f"[DEBUG] Target finale = {target}")
+    return target
+
+
+__all__ = [
+    "send_content",
+    "detect_media_type",
+    "extract_response_target"
+]
