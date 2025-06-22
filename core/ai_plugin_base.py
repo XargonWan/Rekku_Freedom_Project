@@ -11,3 +11,6 @@ class AIPluginBase:
 
     async def generate_response(self, messages):
         raise NotImplementedError()
+
+    def get_supported_models(self) -> list[str]:
+        return ["gpt-3.5-turbo", "gpt-4", "gpt-4o"]

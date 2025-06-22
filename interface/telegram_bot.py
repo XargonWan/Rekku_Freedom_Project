@@ -304,9 +304,9 @@ async def cancel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\u26a0\ufe0f Nessun invio attivo da annullare.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     from core.context import get_context_state
     from core.config import get_active_llm
+    from core.plugin_instance import plugin
 
     if update.effective_user.id != OWNER_ID:
         return
@@ -316,32 +316,42 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     help_text = (
         f"🧞‍♀️ *Rekku – Comandi disponibili*\n\n"
-
         "*🧠 Modalità context*\n"
         f"`/context` – Attiva/disattiva la cronologia nei messaggi inoltrati, attualmente *{context_status}*\n\n"
-
         "*✏️ Comando /say*\n"
         "`/say` – Seleziona una chat dalle più recenti\n"
         "`/say <id> <messaggio>` – Invia direttamente un messaggio a una chat\n\n"
-
         "*🧩 Modalità manuale*\n"
         "Rispondi a un messaggio inoltrato con testo o contenuti (sticker, foto, audio, file, ecc.)\n"
         "`/cancel` – Annulla un invio in attesa\n\n"
-
         "*🧱 Gestione utenti*\n"
         "`/block <user_id>` – Blocca un utente\n"
         "`/unblock <user_id>` – Sblocca un utente\n"
         "`/block_list` – Elenca gli utenti bloccati\n\n"
-
         "*⚙️ Modalità LLM*\n"
-        f"`/llm` – Mostra e seleziona il motore attuale (attivo: `{llm_mode}`)\n\n"
+        f"`/llm` – Mostra e seleziona il motore attuale (attivo: `{llm_mode}`)\n"
+    )
 
-        "*📋 Varie*\n"
+    # Aggiungi /model se supportato
+    if hasattr(plugin, "get_supported_models") and callable(getattr(plugin, "get_supported_models", None)):
+        current_model = None
+        if hasattr(plugin, "get_current_model") and callable(getattr(plugin, "get_current_model", None)):
+            try:
+                current_model = plugin.get_current_model()
+            except Exception:
+                pass
+
+        if current_model:
+            help_text += f"`/model` – Visualizza o imposta il modello attivo (attivo: `{current_model}`)\n"
+        else:
+            help_text += "`/model` – Visualizza o imposta il modello attivo\n"
+
+    help_text += (
+        "\n*📋 Varie*\n"
         "`/last_chats` – Ultime chat attive\n"
     )
 
     await update.message.reply_text(help_text, parse_mode="Markdown")
-
 
 async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -468,9 +478,45 @@ async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"\u274c Errore nel caricamento del plugin: {e}")
 
+async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+
+    if not hasattr(plugin, "get_supported_models"):
+        await update.message.reply_text("⚠️ Questo plugin non supporta la selezione del modello.")
+        return
+
+    models = plugin.get_supported_models()
+    if not models:
+        await update.message.reply_text("⚠️ Nessun modello disponibile per questo plugin.")
+        return
+
+    # Nessun argomento → mostra lista
+    if not context.args:
+        current = plugin.get_current_model()
+        current = current or models[0]
+        msg = f"*Modelli disponibili:*\n" + "\n".join(f"• `{m}`" for m in models)
+        msg += f"\n\nModello attivo: `{current}`"
+        msg += "\n\nPer cambiare: `/model <nome>`"
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        return
+
+    # Con argomento → cambio modello
+    choice = context.args[0]
+    if choice not in models:
+        await update.message.reply_text(f"❌ Modello `{choice}` non valido.")
+        return
+
+    try:
+        plugin.set_current_model(choice)
+        await update.message.reply_text(f"✅ Modello aggiornato a `{choice}`.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Errore nel cambio modello: {e}")
+
 # === Avvio ===
 
 def start_bot():
+    
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("help", help_command))
@@ -482,6 +528,8 @@ def start_bot():
     app.add_handler(CommandHandler("last_chats", last_chats_command))
     app.add_handler(CommandHandler("context", context_command))
     app.add_handler(CommandHandler("llm", llm_command))
+    if hasattr(plugin, "get_supported_models") and callable(plugin.get_supported_models) and plugin.get_supported_models():
+        app.add_handler(CommandHandler("model", model_command))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
