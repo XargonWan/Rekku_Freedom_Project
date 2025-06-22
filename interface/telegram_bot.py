@@ -232,19 +232,19 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
-    user = message.from_user
-    usertag = f"@{user.username}" if user.username else "(nessun tag)"
-    text = message.text or ""
-    user_id = user.id
-    username = user.full_name
-
     if not message or not message.from_user:
         print("[DEBUG] Messaggio ignorato (vuoto o senza mittente)")
         return
 
+    user = message.from_user
+    user_id = user.id
+    username = user.full_name
+    usertag = f"@{user.username}" if user.username else "(nessun tag)"
+    text = message.text or ""
+
+    # Traccia contesto
     if message.chat_id not in context_memory:
         context_memory[message.chat_id] = deque(maxlen=10)
-
     context_memory[message.chat_id].append({
         "message_id": message.message_id,
         "username": username,
@@ -252,28 +252,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "text": text,
         "timestamp": message.date.isoformat()
     })
-
+    recent_chats.track_chat(message.chat_id)
     print(f"[DEBUG] context_memory[{message.chat_id}] = {list(context_memory[message.chat_id])}")
 
-    recent_chats.track_chat(message.chat_id)
-
-    # Gestione comando /say (step interattivo)
+    # Step interattivo /say
     if message.chat.type == "private" and user_id == OWNER_ID and context.user_data.get("say_choices"):
         await handle_say_step(update, context)
         return
 
     print(f"[DEBUG] Messaggio da {user_id} ({message.chat.type}): {text}")
 
+    # Utente bloccato
     if blocklist.is_blocked(user_id) and user_id != OWNER_ID:
         print(f"[DEBUG] Utente {user_id} è bloccato. Ignoro messaggio.")
         return
 
-    # === Risposta dell'owner a un messaggio inoltrato
+    # Risposta owner a messaggio inoltrato
     if message.chat.type == "private" and user_id == OWNER_ID and message.reply_to_message:
-        print(f"[DEBUG] Risposta a trainer_message_id={message.reply_to_message.message_id}")
-        original = plugin.get_target(message.reply_to_message.message_id)
-        print(f"[DEBUG] Reply_to_message_id = {message.reply_to_message.message_id}")
-        print(f"[DEBUG] reply_map = {plugin.reply_map}")
+        reply_msg_id = message.reply_to_message.message_id
+        print(f"[DEBUG] Risposta a trainer_message_id={reply_msg_id}")
+        original = plugin.get_target(reply_msg_id)
         if original:
             print(f"[DEBUG] Trainer risponde a messaggio {original}")
             await context.bot.send_message(
@@ -281,13 +279,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text=message.text,
                 reply_to_message_id=original["message_id"]
             )
-            await message.reply_text("\u2705 Risposta inviata.")
+            await message.reply_text("✅ Risposta inviata.")
         else:
-            print("[DEBUG] Nessun messaggio da rispondere trovato.")
-            await message.reply_text("\u26a0\ufe0f Nessun messaggio da rispondere trovato.")
+            await message.reply_text("⚠️ Nessun messaggio da rispondere trovato.")
         return
 
-    # === Tutti gli altri messaggi vengono delegati al plugin
+    # === FILTRO: Rispondi solo se menzionata o in risposta
+    if message.chat.type in ["group", "supergroup"]:
+        bot_username = BOT_USERNAME.lower()
+        mentioned = any(
+            entity.type == "mention" and message.text[entity.offset:entity.offset + entity.length].lower() == f"@{bot_username}"
+            for entity in message.entities or []
+        )
+        is_reply_to_bot = (
+            message.reply_to_message and
+            message.reply_to_message.from_user and
+            message.reply_to_message.from_user.username and
+            message.reply_to_message.from_user.username.lower() == bot_username
+        )
+        if not mentioned and not is_reply_to_bot:
+            print("[DEBUG] Ignoro messaggio: non menzionata né in risposta a me.")
+            return
+
+    # === Passa al plugin
     try:
         await plugin.handle_incoming_message(context.bot, message, context_memory)
     except Exception as e:
