@@ -18,9 +18,11 @@ import json
 from core.message_sender import send_content
 from core.message_sender import detect_media_type
 from core.message_sender import extract_response_target
-from core.plugin_instance import plugin
+from core.config import get_active_llm, set_active_llm, list_available_llms
 from core.config import BOT_TOKEN, BOT_USERNAME, OWNER_ID
+from core.plugin_instance import plugin, load_plugin
 
+load_plugin(get_active_llm()) 
 
 # Carica variabili da .env
 load_dotenv()
@@ -32,6 +34,18 @@ say_sessions = {}
 context_memory = {}
 last_selected_chat = {}
 message_id = None
+
+from core.config import LLM_MODE
+
+if LLM_MODE == "manual":
+    from llm_engines.manual import ManualAIPlugin
+    plugin = ManualAIPlugin()
+elif LLM_MODE == "chatgpt":
+    from llm_engines.openai_chatgpt import OpenAIAIPlugin
+    plugin = OpenAIAIPlugin(api_key=os.getenv("OPENAI_API_KEY"))
+else:
+    raise ValueError(f"Modalità LLM non riconosciuta: {LLM_MODE}")
+
 
 def resolve_forwarded_target(message):
     """Dato un messaggio (presumibilmente reply a un messaggio inoltrato),
@@ -282,7 +296,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # === 2. Messaggi in gruppo ===
-    if message.chat.type in ["group", "supergroup"] and (user_id != OWNER_ID or True):
+    if message.chat.type in ["group", "supergroup"] and user_id != OWNER_ID:
         print("[DEBUG] Messaggio in gruppo ricevuto")
         member_count = await context.bot.get_chat_member_count(chat_id=message.chat_id)
         print(f"[DEBUG] chat_id={message.chat_id}, member_count={member_count}")
@@ -291,7 +305,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         should_forward = False
 
-        # Se � una menzione
+        # Se è una menzione
         if any(
             entity.type == "mention" and f"@{BOT_USERNAME}" in text[entity.offset:entity.offset + entity.length]
             for entity in message.entities or []
@@ -299,12 +313,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             print(f"[DEBUG] Trovata mention: @{BOT_USERNAME}")
             should_forward = True
 
-        # Se � una risposta al bot
+        # Se è una risposta al bot
         elif message.reply_to_message and message.reply_to_message.from_user.id == context.bot.id:
-            print("[DEBUG] � una risposta a Rekku.")
+            print("[DEBUG] È una risposta a Rekku.")
             should_forward = True
 
-        # Se � un gruppo con solo 2 membri
+        # Se è un gruppo con solo 2 membri
         elif member_count <= 2:
             print("[DEBUG] Gruppo con 2 membri, inoltro forzato.")
             should_forward = True
@@ -312,68 +326,118 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"[DEBUG] should_forward: {should_forward}")
 
         if should_forward:
-            from core.context import get_context_state
+            if LLM_MODE == "manual":
+                from core.context import get_context_state
 
-            if get_context_state():
-                print("[DEBUG] Modalità context attiva, invio cronologia.")
-                history = list(context_memory.get(message.chat_id, []))
-                history_json = json.dumps(history, ensure_ascii=False, indent=2)
+                if get_context_state():
+                    print("[DEBUG] Modalità context attiva, invio cronologia.")
+                    history = list(context_memory.get(message.chat_id, []))
+                    history_json = json.dumps(history, ensure_ascii=False, indent=2)
 
-                if len(history_json) > 4000:
-                    history_json = history_json[:4000] + "\n... (troncato)"
+                    if len(history_json) > 4000:
+                        history_json = history_json[:4000] + "\n... (troncato)"
 
-                await context.bot.send_message(
-                    chat_id=OWNER_ID,
-                    text=f"[Context]\n```json\n{history_json}\n```",
-                    parse_mode="Markdown"
-                )
+                    await context.bot.send_message(
+                        chat_id=OWNER_ID,
+                        text=f"[Context]\n```json\n{history_json}\n```",
+                        parse_mode="Markdown"
+                    )
 
+                try:
+                    # Prepara intestazione con info sull'autore originale
+                    sender = message.from_user
+                    user_ref = f"@{sender.username}" if sender.username else f"{sender.full_name}"
+
+                    await context.bot.send_message(
+                        chat_id=OWNER_ID,
+                        text=f"{user_ref}:",
+                    )
+
+                    sent = await context.bot.forward_message(
+                        chat_id=OWNER_ID,
+                        from_chat_id=message.chat_id,
+                        message_id=message.message_id
+                    )
+
+                    plugin.track_message(
+                        trainer_message_id=sent.message_id,
+                        original_chat_id=message.chat_id,
+                        original_message_id=message.message_id
+                    )
+                    print(f"[DEBUG] Tracciamento salvato: {sent.message_id} -> {message.chat_id}:{message.message_id}")
+                    print("[DEBUG] Messaggio inoltrato con successo.")
+                except Exception as e:
+                    print(f"[ERROR] Inoltro fallito: {e}")
+
+            else:
+                # modalità automatica → genera risposta
+                if hasattr(plugin, "generate_response"):
+                    try:
+                        messages = [{"role": "user", "content": text}]
+                        response_text = await plugin.generate_response(messages)
+                        if response_text:
+                            await context.bot.send_message(
+                                chat_id=message.chat_id,
+                                text=response_text,
+                                reply_to_message_id=message.message_id
+                            )
+                    except Exception as e:
+                        print(f"[ERROR] Risposta automatica fallita: {e}")
+
+    # === 3. Messaggi privati da altri ===
+    if message.chat.type == "private" and user_id != OWNER_ID:
+        print(f"[DEBUG] Messaggio privato da utente: {user_id}")
+
+        if LLM_MODE == "manual":
             try:
-                # Prepara intestazione con info sull'autore originale
-                sender = message.from_user
-                user_ref = f"@{sender.username}" if sender.username else f"{sender.full_name}"
-
-                await context.bot.send_message(
-                    chat_id=OWNER_ID,
-                    text=f"{user_ref}:",
-                )
-
                 sent = await context.bot.forward_message(
                     chat_id=OWNER_ID,
                     from_chat_id=message.chat_id,
                     message_id=message.message_id
                 )
-
                 plugin.track_message(
                     trainer_message_id=sent.message_id,
                     original_chat_id=message.chat_id,
                     original_message_id=message.message_id
                 )
                 print(f"[DEBUG] Tracciamento salvato: {sent.message_id} -> {message.chat_id}:{message.message_id}")
-                print("[DEBUG] Messaggio inoltrato con successo.")
+                print("[DEBUG] Messaggio inoltrato correttamente.")
             except Exception as e:
-                print(f"[ERROR] Inoltro fallito: {e}")
-
-
-    # === 3. Messaggi privati da altri ===
-    if message.chat.type == "private" and user_id != OWNER_ID:
-        print(f"[DEBUG] Inoltro messaggio da utente in privato: {user_id}")
-        try:
-            sent = await context.bot.forward_message(
-                chat_id=OWNER_ID,
-                from_chat_id=message.chat_id,
-                message_id=message.message_id
-            )
-            plugin.track_message(
-                trainer_message_id=sent.message_id,
-                original_chat_id=message.chat_id,
-                original_message_id=message.message_id
-            )
-            print(f"[DEBUG] Tracciamento salvato: {sent.message_id} -> {message.chat_id}:{message.message_id}")
-            print("[DEBUG] Messaggio inoltrato correttamente.")
-        except Exception as e:
-            print(f"[ERROR] Inoltro da chat privata fallito: {e}")
+                print(f"[ERROR] Inoltro da chat privata fallito: {e}")
+        else:
+            # modalit� automatica: genera risposta con LLM
+            try:
+                if hasattr(plugin, "generate_response"):
+                    messages = [{"role": "user", "content": text}]
+                    response_text = await plugin.generate_response(messages)
+                    if response_text:
+                        await context.bot.send_message(
+                            chat_id=message.chat_id,
+                            text=response_text,
+                            reply_to_message_id=message.message_id
+                        )
+            except Exception as e:
+                print(f"[ERROR] Risposta automatica fallita: {e}")
         return
+    
+    # === 4. Messaggi privati dall'owner in modalità chatgpt ===
+    if message.chat.type == "private" and user_id == OWNER_ID and LLM_MODE != "manual":
+        print("[DEBUG] Messaggio privato dall'owner in modalità LLM")
+
+        try:
+            if hasattr(plugin, "generate_response"):
+                messages = [{"role": "user", "content": text}]
+                response_text = await plugin.generate_response(messages)
+                if response_text:
+                    await context.bot.send_message(
+                        chat_id=message.chat_id,
+                        text=response_text,
+                        reply_to_message_id=message.message_id
+                    )
+        except Exception as e:
+            print(f"[ERROR] Risposta automatica all'owner fallita: {e}")
+        return
+
 
 async def cancel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -388,26 +452,36 @@ async def cancel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     from core.context import get_context_state
+    from core.config import get_active_llm
 
     if update.effective_user.id != OWNER_ID:
         return
-    
+
     context_status = "attiva ✅" if get_context_state() else "disattiva ❌"
+    llm_mode = get_active_llm()
 
     help_text = (
         f"🧞‍♀️ *Rekku – Comandi disponibili*\n\n"
+
         "*🧠 Modalità context*\n"
         f"`/context` – Attiva/disattiva la cronologia nei messaggi inoltrati, attualmente *{context_status}*\n\n"
+
         "*✏️ Comando /say*\n"
         "`/say` – Seleziona una chat dalle più recenti\n"
         "`/say <id> <messaggio>` – Invia direttamente un messaggio a una chat\n\n"
+
         "*🧩 Modalità manuale*\n"
         "Rispondi a un messaggio inoltrato con testo o contenuti (sticker, foto, audio, file, ecc.)\n"
         "`/cancel` – Annulla un invio in attesa\n\n"
+
         "*🧱 Gestione utenti*\n"
         "`/block <user_id>` – Blocca un utente\n"
         "`/unblock <user_id>` – Sblocca un utente\n"
         "`/block_list` – Elenca gli utenti bloccati\n\n"
+
+        "*⚙️ Modalità LLM*\n"
+        f"`/llm` – Mostra e seleziona il motore attuale (attivo: `{llm_mode}`)\n\n"
+
         "*📋 Varie*\n"
         "`/last_chats` – Ultime chat attive\n"
     )
@@ -515,6 +589,33 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if success:
         response_proxy.clear_target(OWNER_ID)
 
+async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+
+    args = context.args
+    current = get_active_llm()
+    available = list_available_llms()
+
+    if not args:
+        msg = f"*LLM attivo:* `{current}`\n\n*Disponibili:*"
+        msg += "\n" + "\n".join(f"\u2022 `{name}`" for name in available)
+        msg += "\n\nPer cambiare: `/llm <nome>`"
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        return
+
+    choice = args[0]
+    if choice not in available:
+        await update.message.reply_text(f"\u274c LLM `{choice}` non trovato.")
+        return
+
+    from core.plugin_instance import load_plugin
+    try:
+        load_plugin(choice)
+        set_active_llm(choice)
+        await update.message.reply_text(f"\u2705 Modalit� LLM aggiornata dinamicamente a `{choice}`.")
+    except Exception as e:
+        await update.message.reply_text(f"\u274c Errore nel caricamento del plugin: {e}")
 
 # === Avvio ===
 
@@ -529,6 +630,7 @@ def start_bot():
     
     app.add_handler(CommandHandler("last_chats", last_chats_command))
     app.add_handler(CommandHandler("context", context_command))
+    app.add_handler(CommandHandler("llm", llm_command))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 

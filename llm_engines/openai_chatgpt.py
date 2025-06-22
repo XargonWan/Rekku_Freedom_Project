@@ -1,7 +1,10 @@
+import openai
 from core.ai_plugin_base import AIPluginBase
 
-class ManualAIPlugin(AIPluginBase):
-    def __init__(self):
+class OpenAIAIPlugin(AIPluginBase):
+    def __init__(self, api_key):
+        self.api_key = api_key
+        openai.api_key = api_key
         self.reply_map = {}
 
     def track_message(self, trainer_message_id, original_chat_id, original_message_id):
@@ -18,5 +21,9 @@ class ManualAIPlugin(AIPluginBase):
             del self.reply_map[trainer_message_id]
 
     async def generate_response(self, messages):
-        # In modalità manuale non si genera nulla
-        return None
+        # messages = [{"role": "user", "content": "ciao"}]
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=messages
+        )
+        return response.choices[0].message["content"]
