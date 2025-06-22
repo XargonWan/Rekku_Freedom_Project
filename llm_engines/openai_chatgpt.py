@@ -27,3 +27,14 @@ class OpenAIAIPlugin(AIPluginBase):
             messages=messages
         )
         return response.choices[0].message["content"]
+
+    async def handle_incoming_message(self, bot, message, context_memory):
+        text = message.text or ""
+        messages = [{"role": "user", "content": text}]
+        response = await self.generate_response(messages)
+        if response:
+            await bot.send_message(
+                chat_id=message.chat_id,
+                text=response,
+                reply_to_message_id=message.message_id
+            )

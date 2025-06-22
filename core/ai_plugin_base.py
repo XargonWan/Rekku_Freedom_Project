@@ -1,5 +1,6 @@
 class AIPluginBase:
-    def track_message(self, trainer_message_id, original_chat_id, original_message_id):
+    async def handle_incoming_message(self, bot, message, context_memory):
+        """Elabora un messaggio utente (gruppo o privato)."""
         raise NotImplementedError()
 
     def get_target(self, trainer_message_id):

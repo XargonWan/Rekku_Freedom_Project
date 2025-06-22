@@ -231,9 +231,6 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    from core import response_proxy
-
     message = update.message
     user = message.from_user
     usertag = f"@{user.username}" if user.username else "(nessun tag)"
@@ -248,9 +245,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if message.chat_id not in context_memory:
         context_memory[message.chat_id] = deque(maxlen=10)
 
-    # \U0001f501 Se l'utente ha appena selezionato una chat con /say,
-    # non impostiamo qui il target: verrà gestito dinamicamente in handle_incoming_response
-
     context_memory[message.chat_id].append({
         "message_id": message.message_id,
         "username": username,
@@ -261,22 +255,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     print(f"[DEBUG] context_memory[{message.chat_id}] = {list(context_memory[message.chat_id])}")
 
-
-    # Traccia ogni chat attiva
     recent_chats.track_chat(message.chat_id)
 
     # Gestione comando /say (step interattivo)
     if message.chat.type == "private" and user_id == OWNER_ID and context.user_data.get("say_choices"):
         await handle_say_step(update, context)
         return
-    
+
     print(f"[DEBUG] Messaggio da {user_id} ({message.chat.type}): {text}")
 
     if blocklist.is_blocked(user_id) and user_id != OWNER_ID:
-        print(f"[DEBUG] Utente {user_id} � bloccato. Ignoro messaggio.")
+        print(f"[DEBUG] Utente {user_id} è bloccato. Ignoro messaggio.")
         return
 
-    # === 1. Trainer risponde ===
+    # === Risposta dell'owner a un messaggio inoltrato
     if message.chat.type == "private" and user_id == OWNER_ID and message.reply_to_message:
         print(f"[DEBUG] Risposta a trainer_message_id={message.reply_to_message.message_id}")
         original = plugin.get_target(message.reply_to_message.message_id)
@@ -295,149 +287,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text("\u26a0\ufe0f Nessun messaggio da rispondere trovato.")
         return
 
-    # === 2. Messaggi in gruppo ===
-    if message.chat.type in ["group", "supergroup"] and user_id != OWNER_ID:
-        print("[DEBUG] Messaggio in gruppo ricevuto")
-        member_count = await context.bot.get_chat_member_count(chat_id=message.chat_id)
-        print(f"[DEBUG] chat_id={message.chat_id}, member_count={member_count}")
-        print(f"[DEBUG] Numero membri nel gruppo: {member_count}")
-        print(f"[DEBUG] Entities: {[e.type for e in message.entities or []]}")
-
-        should_forward = False
-
-        # Se è una menzione
-        if any(
-            entity.type == "mention" and f"@{BOT_USERNAME}" in text[entity.offset:entity.offset + entity.length]
-            for entity in message.entities or []
-        ):
-            print(f"[DEBUG] Trovata mention: @{BOT_USERNAME}")
-            should_forward = True
-
-        # Se è una risposta al bot
-        elif message.reply_to_message and message.reply_to_message.from_user.id == context.bot.id:
-            print("[DEBUG] È una risposta a Rekku.")
-            should_forward = True
-
-        # Se è un gruppo con solo 2 membri
-        elif member_count <= 2:
-            print("[DEBUG] Gruppo con 2 membri, inoltro forzato.")
-            should_forward = True
-
-        print(f"[DEBUG] should_forward: {should_forward}")
-
-        if should_forward:
-            if LLM_MODE == "manual":
-                from core.context import get_context_state
-
-                if get_context_state():
-                    print("[DEBUG] Modalità context attiva, invio cronologia.")
-                    history = list(context_memory.get(message.chat_id, []))
-                    history_json = json.dumps(history, ensure_ascii=False, indent=2)
-
-                    if len(history_json) > 4000:
-                        history_json = history_json[:4000] + "\n... (troncato)"
-
-                    await context.bot.send_message(
-                        chat_id=OWNER_ID,
-                        text=f"[Context]\n```json\n{history_json}\n```",
-                        parse_mode="Markdown"
-                    )
-
-                try:
-                    # Prepara intestazione con info sull'autore originale
-                    sender = message.from_user
-                    user_ref = f"@{sender.username}" if sender.username else f"{sender.full_name}"
-
-                    await context.bot.send_message(
-                        chat_id=OWNER_ID,
-                        text=f"{user_ref}:",
-                    )
-
-                    sent = await context.bot.forward_message(
-                        chat_id=OWNER_ID,
-                        from_chat_id=message.chat_id,
-                        message_id=message.message_id
-                    )
-
-                    plugin.track_message(
-                        trainer_message_id=sent.message_id,
-                        original_chat_id=message.chat_id,
-                        original_message_id=message.message_id
-                    )
-                    print(f"[DEBUG] Tracciamento salvato: {sent.message_id} -> {message.chat_id}:{message.message_id}")
-                    print("[DEBUG] Messaggio inoltrato con successo.")
-                except Exception as e:
-                    print(f"[ERROR] Inoltro fallito: {e}")
-
-            else:
-                # modalità automatica → genera risposta
-                if hasattr(plugin, "generate_response"):
-                    try:
-                        messages = [{"role": "user", "content": text}]
-                        response_text = await plugin.generate_response(messages)
-                        if response_text:
-                            await context.bot.send_message(
-                                chat_id=message.chat_id,
-                                text=response_text,
-                                reply_to_message_id=message.message_id
-                            )
-                    except Exception as e:
-                        print(f"[ERROR] Risposta automatica fallita: {e}")
-
-    # === 3. Messaggi privati da altri ===
-    if message.chat.type == "private" and user_id != OWNER_ID:
-        print(f"[DEBUG] Messaggio privato da utente: {user_id}")
-
-        if LLM_MODE == "manual":
-            try:
-                sent = await context.bot.forward_message(
-                    chat_id=OWNER_ID,
-                    from_chat_id=message.chat_id,
-                    message_id=message.message_id
-                )
-                plugin.track_message(
-                    trainer_message_id=sent.message_id,
-                    original_chat_id=message.chat_id,
-                    original_message_id=message.message_id
-                )
-                print(f"[DEBUG] Tracciamento salvato: {sent.message_id} -> {message.chat_id}:{message.message_id}")
-                print("[DEBUG] Messaggio inoltrato correttamente.")
-            except Exception as e:
-                print(f"[ERROR] Inoltro da chat privata fallito: {e}")
-        else:
-            # modalit� automatica: genera risposta con LLM
-            try:
-                if hasattr(plugin, "generate_response"):
-                    messages = [{"role": "user", "content": text}]
-                    response_text = await plugin.generate_response(messages)
-                    if response_text:
-                        await context.bot.send_message(
-                            chat_id=message.chat_id,
-                            text=response_text,
-                            reply_to_message_id=message.message_id
-                        )
-            except Exception as e:
-                print(f"[ERROR] Risposta automatica fallita: {e}")
-        return
-    
-    # === 4. Messaggi privati dall'owner in modalità chatgpt ===
-    if message.chat.type == "private" and user_id == OWNER_ID and LLM_MODE != "manual":
-        print("[DEBUG] Messaggio privato dall'owner in modalità LLM")
-
-        try:
-            if hasattr(plugin, "generate_response"):
-                messages = [{"role": "user", "content": text}]
-                response_text = await plugin.generate_response(messages)
-                if response_text:
-                    await context.bot.send_message(
-                        chat_id=message.chat_id,
-                        text=response_text,
-                        reply_to_message_id=message.message_id
-                    )
-        except Exception as e:
-            print(f"[ERROR] Risposta automatica all'owner fallita: {e}")
-        return
-
+    # === Tutti gli altri messaggi vengono delegati al plugin
+    try:
+        await plugin.handle_incoming_message(context.bot, message, context_memory)
+    except Exception as e:
+        print(f"[ERROR] plugin.handle_incoming_message fallito: {e}")
 
 async def cancel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -542,9 +396,10 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(numbered, parse_mode="Markdown")
 
 async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from core.plugin_instance import plugin
+
     user_id = update.effective_user.id
     message = update.message
-    bot = context.bot
 
     target_chat = say_proxy.get_target(user_id)
 
@@ -552,7 +407,7 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text("\u23f3 Tempo scaduto. Usa di nuovo /say.")
         return
 
-    # Se il target non � ancora stato scelto, prova SEMPRE a interpretare il testo come numero
+    # Se il target non è ancora stato scelto, prova SEMPRE a interpretare il testo come numero
     if not target_chat and message.text:
         stripped = message.text.strip()
         if stripped.isdigit():
@@ -574,20 +429,16 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text("❌ Selezione non valida. Invia un numero corretto.")
         return
 
-    target_chat = say_proxy.get_target(user_id)
-    if not target_chat:
-        await message.reply_text("⚠️ Nessuna destinazione selezionata.")
-        return
-
-    chat_id = target_chat
-    message_id = None
-    content_type = detect_media_type(message)
-
-    print(f"[DEBUG] Invio media_type={content_type} to chat={chat_id}, reply_to={message_id}")
-    success, response_text = await send_content(context.bot, chat_id, message, content_type, message_id)
-    await message.reply_text(response_text)
-    if success:
-        response_proxy.clear_target(OWNER_ID)
+    # Chat selezionata → inoltra il contenuto attraverso il plugin
+    if target_chat:
+        print(f"[DEBUG] Inoltro tramite plugin.handle_incoming_message (chat_id={target_chat})")
+        try:
+            await plugin.handle_incoming_message(context.bot, message, context.user_data)
+            response_proxy.clear_target(OWNER_ID)
+            say_proxy.clear(OWNER_ID)
+        except Exception as e:
+            print(f"[ERROR] Errore durante plugin.handle_incoming_message in /say: {e}")
+            await message.reply_text("❌ Errore durante l'invio del messaggio.")
 
 async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -613,7 +464,7 @@ async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         load_plugin(choice)
         set_active_llm(choice)
-        await update.message.reply_text(f"\u2705 Modalit� LLM aggiornata dinamicamente a `{choice}`.")
+        await update.message.reply_text(f"\u2705 Modalità LLM aggiornata dinamicamente a `{choice}`.")
     except Exception as e:
         await update.message.reply_text(f"\u274c Errore nel caricamento del plugin: {e}")
 
