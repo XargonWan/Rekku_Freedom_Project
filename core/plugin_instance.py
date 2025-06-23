@@ -46,3 +46,37 @@ def load_plugin(name: str):
                     print(f"[DEBUG] Modello predefinito impostato: {models[0]}")
         except Exception as e:
             print(f"[WARNING] Errore durante il setup del modello: {e}")
+
+async def handle_incoming_message(bot, message, context_memory):
+    if plugin is None:
+        raise RuntimeError("Nessun plugin LLM caricato.")
+    return await plugin.handle_incoming_message(bot, message, context_memory)
+
+def get_supported_models():
+    if plugin is None:
+        raise RuntimeError("Plugin non caricato.")
+    if hasattr(plugin, "get_supported_models"):
+        return plugin.get_supported_models()
+    return []
+
+def get_current_model():
+    if plugin is None:
+        raise RuntimeError("Plugin non caricato.")
+    if hasattr(plugin, "get_current_model"):
+        return plugin.get_current_model()
+    return None
+
+def set_current_model(name):
+    if plugin is None:
+        raise RuntimeError("Plugin non caricato.")
+    if hasattr(plugin, "set_current_model"):
+        return plugin.set_current_model(name)
+    raise NotImplementedError("Il plugin non supporta il cambio modello.")
+
+def get_target(message_id):
+    if plugin is None:
+        return None
+    if hasattr(plugin, "get_target"):
+        return plugin.get_target(message_id)
+    return None
+

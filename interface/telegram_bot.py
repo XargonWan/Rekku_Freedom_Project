@@ -24,6 +24,7 @@ from core.message_sender import extract_response_target
 from core.config import get_active_llm, set_active_llm, list_available_llms
 from core.config import BOT_TOKEN, BOT_USERNAME, OWNER_ID
 import core.plugin_instance as plugin_instance
+from core.plugin_instance import load_plugin
 import traceback
 
 # Carica variabili da .env
@@ -41,7 +42,7 @@ async def ensure_plugin_loaded(update: Update):
     Controlla che un plugin LLM sia stato caricato correttamente.
     Se assente, risponde all'utente con un messaggio di errore e logga il problema.
     """
-    if plugin is None:
+    if plugin_instance.plugin is None:
         print("[ERROR] Nessun plugin LLM caricato.")
         if update and update.message:
             await update.message.reply_text("⚠️ Nessun plugin LLM attivo. Usa /llm per selezionarne uno.")
@@ -56,7 +57,7 @@ def resolve_forwarded_target(message):
         if message.forward_from_chat and message.forward_from_message_id:
             return message.forward_from_chat.id, message.forward_from_message_id
 
-    tracked = plugin.get_target(message.message_id)
+    tracked = plugin_instance.get_target(message.message_id)
     if tracked:
         return tracked["chat_id"], tracked["message_id"]
 
@@ -128,14 +129,14 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
             possible_ids.append(reply.reply_to_message.message_id)
 
         for mid in possible_ids:
-            tracked = plugin.get_target(mid)
+            tracked = plugin_instance.get_target(mid)
             if tracked:
                 target = {
                     "chat_id": tracked["chat_id"],
                     "message_id": tracked["message_id"],
                     "type": media_type
                 }
-                print(f"[DEBUG] Trovato target via plugin.get_target({mid}): {target}")
+                print(f"[DEBUG] Trovato target via plugin_instance.get_target({mid}): {target}")
                 break
         if not target:
             print("[DEBUG] ❌ Nessun mapping trovato nel plugin")
@@ -284,7 +285,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if message.chat.type == "private" and user_id == OWNER_ID and message.reply_to_message:
         reply_msg_id = message.reply_to_message.message_id
         print(f"[DEBUG] Risposta a trainer_message_id={reply_msg_id}")
-        original = plugin.get_target(reply_msg_id)
+        original = plugin_instance.get_target(reply_msg_id)
         if original:
             print(f"[DEBUG] Trainer risponde a messaggio {original}")
             await context.bot.send_message(
@@ -316,14 +317,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # === Passa al plugin
     try:
-        await plugin.handle_incoming_message(context.bot, message, context_memory)
+        await plugin_instance.handle_incoming_message(context.bot, message, context_memory)
     except Exception as e:
-        print(f"[ERROR] plugin.handle_incoming_message fallito: {e}")
+        print(f"[ERROR] plugin_instance.handle_incoming_message fallito: {e}")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from core.context import get_context_state
     from core.config import get_active_llm
-    from core.plugin_instance import plugin
 
     if update.effective_user.id != OWNER_ID:
         return
@@ -350,11 +350,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # Aggiungi /model se supportato
-    if hasattr(plugin, "get_supported_models") and callable(getattr(plugin, "get_supported_models", None)):
+    try:
+        models = plugin_instance.get_supported_models()
+        if models:
+            current_model = plugin_instance.get_current_model() or models[0]
+            help_text += f"`/model` – Visualizza o imposta il modello attivo (attivo: `{current_model}`)\n"
+    except Exception:
+        pass
         current_model = None
-        if hasattr(plugin, "get_current_model") and callable(getattr(plugin, "get_current_model", None)):
+        try:
+            models = plugin_instance.get_supported_models()
+            if models:
+                current_model = plugin_instance.get_current_model() or models[0]
+                help_text += f"`/model` – Visualizza o imposta il modello attivo (attivo: `{current_model}`)\n"
+        except Exception:
+            pass
             try:
-                current_model = plugin.get_current_model()
+                current_model = plugin_instance.get_current_model()
             except Exception:
                 pass
 
@@ -463,13 +475,13 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Chat selezionata → inoltra il contenuto attraverso il plugin
     if target_chat:
-        print(f"[DEBUG] Inoltro tramite plugin.handle_incoming_message (chat_id={target_chat})")
+        print(f"[DEBUG] Inoltro tramite plugin_instance.handle_incoming_message (chat_id={target_chat})")
         try:
-            await plugin.handle_incoming_message(context.bot, message, context.user_data)
+            await plugin_instance.handle_incoming_message(context.bot, message, context.user_data)
             response_proxy.clear_target(OWNER_ID)
             say_proxy.clear(OWNER_ID)
         except Exception as e:
-            print(f"[ERROR] Errore durante plugin.handle_incoming_message in /say: {e}")
+            print(f"[ERROR] Errore durante plugin_instance.handle_incoming_message in /say: {e}")
             await message.reply_text("❌ Errore durante l'invio del messaggio.")
 
 async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -492,7 +504,6 @@ async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"\u274c LLM `{choice}` non trovato.")
         return
 
-    from core.plugin_instance import load_plugin
     try:
         load_plugin(choice)
         set_active_llm(choice)
@@ -504,83 +515,76 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
 
-    if not hasattr(plugin, "get_supported_models"):
-        await update.message.reply_text("⚠️ Questo plugin non supporta la selezione del modello.")
+    try:
+        models = plugin_instance.get_supported_models()
+    except Exception:
+        await update.message.reply_text("\u26a0\ufe0f Questo plugin non supporta la selezione del modello.")
         return
 
-    models = plugin.get_supported_models()
     if not models:
-        await update.message.reply_text("⚠️ Nessun modello disponibile per questo plugin.")
+        await update.message.reply_text("\u26a0\ufe0f Nessun modello disponibile per questo plugin.")
         return
 
-    # Nessun argomento → mostra lista
     if not context.args:
-        current = plugin.get_current_model()
-        current = current or models[0]
-        msg = f"*Modelli disponibili:*\n" + "\n".join(f"• `{m}`" for m in models)
+        current = plugin_instance.get_current_model() or models[0]
+        msg = f"*Modelli disponibili:*\n" + "\n".join(f"\u2022 `{m}`" for m in models)
         msg += f"\n\nModello attivo: `{current}`"
         msg += "\n\nPer cambiare: `/model <nome>`"
         await update.message.reply_text(msg, parse_mode="Markdown")
         return
 
-    # Con argomento → cambio modello
     choice = context.args[0]
     if choice not in models:
-        await update.message.reply_text(f"❌ Modello `{choice}` non valido.")
+        await update.message.reply_text(f"\u274c Modello `{choice}` non valido.")
         return
 
     try:
-        plugin.set_current_model(choice)
-        await update.message.reply_text(f"✅ Modello aggiornato a `{choice}`.")
+        plugin_instance.set_current_model(choice)
+        await update.message.reply_text(f"\u2705 Modello aggiornato a `{choice}`.")
     except Exception as e:
-        await update.message.reply_text(f"❌ Errore nel cambio modello: {e}")
+        await update.message.reply_text(f"\u274c Errore nel cambio modello: {e}")
 
 # === Avvio ===
 
 def start_bot():
-
-    load_plugin(get_active_llm())  # ✅ Carica il plugin dinamicamente qui
+    plugin_instance.load_plugin(get_active_llm())  # ✅ carica il plugin all'avvio
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("help", help_command))
-
     app.add_handler(CommandHandler("block", block_user))
     app.add_handler(CommandHandler("block_list", block_list))
     app.add_handler(CommandHandler("unblock", unblock_user))
-    
     app.add_handler(CommandHandler("last_chats", last_chats_command))
     app.add_handler(CommandHandler("context", context_command))
     app.add_handler(CommandHandler("llm", llm_command))
-    if hasattr(plugin, "get_supported_models") and callable(plugin.get_supported_models) and plugin.get_supported_models():
-        app.add_handler(CommandHandler("model", model_command))
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Se il plugin supporta i modelli, aggiungi il comando /model
+    try:
+        if plugin_instance.get_supported_models():
+            app.add_handler(CommandHandler("model", model_command))
+    except Exception as e:
+        print(f"[WARNING] Il plugin attivo non supporta modelli: {e}")
 
     app.add_handler(CommandHandler("say", say_command))
+    app.add_handler(CommandHandler("cancel", cancel_response))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Prima gestisci /say step
     app.add_handler(MessageHandler(
         filters.Chat(OWNER_ID) & (
-            filters.TEXT | filters.PHOTO | filters.AUDIO | filters.VOICE | filters.VIDEO | filters.Document.ALL
+            filters.TEXT | filters.PHOTO | filters.AUDIO | filters.VOICE |
+            filters.VIDEO | filters.Document.ALL
         ),
         handle_say_step
     ))
 
-    # Poi gli altri messaggi media generici
     app.add_handler(MessageHandler(
         filters.Chat(OWNER_ID) & (
-            filters.Sticker.ALL |
-            filters.PHOTO |
-            filters.AUDIO |
-            filters.VOICE |
-            filters.VIDEO |
-            filters.Document.ALL
+            filters.Sticker.ALL | filters.PHOTO | filters.AUDIO |
+            filters.VOICE | filters.VIDEO | filters.Document.ALL
         ),
         handle_incoming_response
     ))
-
-    app.add_handler(CommandHandler("cancel", cancel_response))
 
     print("🧞‍♀️ Rekku è online.")
     app.run_polling()

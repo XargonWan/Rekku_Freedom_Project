@@ -1,21 +1,19 @@
 # llm_engines/openai_chatgpt.py
 
-import openai
-from core.config import get_current_model, set_current_model
+from core import say_proxy
+from core.context import get_context_state
+from core.config import OWNER_ID
 from core.ai_plugin_base import AIPluginBase
 from core.prompt_engine import build_prompt
-from core.plugin_instance import rekku_identity_prompt
-from core.rekku_core_memory import should_remember, silently_record_memory
-from core.rekku_emotion_evaluator import evaluate_emotional_impact
 from core.db import get_db
-from core.rekku_tagging import extract_tags  # \u2705 import centrale
+import json
 
-class OpenAIAIPlugin(AIPluginBase):
 
-    def __init__(self, api_key, default_model="gpt-4"):
-        self.api_key = api_key
-        self.default_model = default_model
+class ManualAIPlugin(AIPluginBase):
+
+    def __init__(self, prompt=None):
         self.reply_map = {}
+        self.identity_prompt = prompt
 
     def track_message(self, trainer_message_id, original_chat_id, original_message_id):
         self.reply_map[trainer_message_id] = {
@@ -27,24 +25,17 @@ class OpenAIAIPlugin(AIPluginBase):
         return self.reply_map.get(trainer_message_id)
 
     def clear(self, trainer_message_id):
-        if trainer_message_id in self.reply_map:
-            del self.reply_map[trainer_message_id]
+        self.reply_map.pop(trainer_message_id, None)
 
-    def get_supported_models(self) -> list[str]:
-        return ["gpt-3.5-turbo", "gpt-4", "gpt-4o"]
-
-    def set_current_model(self, model: str):
-        if model not in self.get_supported_models():
-            raise ValueError(f"Modello non supportato: {model}")
-        set_current_model(model)
-
-    def get_current_model(self) -> str:
-        return get_current_model() or self.default_model
+    def extract_tags(self, text: str) -> list:
+        text = text.lower()
+        tags = []
+        if "jay" in text: tags.append("jay")
+        if "retrodeck" in text: tags.append("retrodeck")
+        if "amore" in text or "affetto" in text: tags.append("emozioni")
+        return tags
 
     def search_memories(self, tags=None, scope=None, limit=5):
-        """
-        Ricerca semplice nel DB. Funzione fallback per il core.
-        """
         if not tags:
             return []
 
@@ -65,56 +56,63 @@ class OpenAIAIPlugin(AIPluginBase):
         with get_db() as db:
             return [row[0] for row in db.execute(query, params)]
 
-    async def generate_response(self, messages):
-        if not self.api_key:
-            raise ValueError("\u26a0\ufe0f Nessuna chiave API disponibile.")
-
-        openai.api_key = self.api_key
-        model = self.get_current_model()
-
-        response = openai.ChatCompletion.create(
-            model=model,
-            messages=messages,
-            temperature=0.9,
-            top_p=1.0,
-            presence_penalty=0.6,
-            frequency_penalty=0.3
-        )
-        return response.choices[0].message["content"]
-
     async def handle_incoming_message(self, bot, message, context_memory):
-        user_text = message.text or ""
+        user_id = message.from_user.id
+        text = message.text or ""
+        print(f"[DEBUG/manual] Messaggio ricevuto in modalit� manuale da chat_id={message.chat_id}")
 
-        # Costruzione prompt
-        messages = build_prompt(
-            user_text=user_text,
-            identity_prompt=rekku_identity_prompt,
-            extract_tags_fn=extract_tags,
-            search_memories_fn=self.search_memories
-        )
+        # === Caso speciale: /say attivo ===
+        target_chat = say_proxy.get_target(user_id)
+        if target_chat and target_chat != "EXPIRED":
+            print(f"[DEBUG/manual] Invio da /say: chat_id={target_chat}")
+            await bot.send_message(chat_id=target_chat, text=text)
+            say_proxy.clear(user_id)
+            return
 
-        try:
-            response = await self.generate_response(messages)
-
-            if response:
-                await bot.send_message(
-                    chat_id=message.chat_id,
-                    text=response,
-                    reply_to_message_id=message.message_id
-                )
-
-                if should_remember(user_text, response):
-                    silently_record_memory(user_text, response)
-
-                evaluate_emotional_impact(
-                    user_text, response, message.from_user.full_name
-                )
-
-        except Exception as e:
-            print(f"[ERROR/chatgpt] Errore durante la generazione della risposta: {e}")
+        # === Context attivo ===
+        if get_context_state():
+            print("[DEBUG/manual] Context attivo, invio cronologia")
+            history = list(context_memory.get(message.chat_id, []))
+            history_json = json.dumps(history, ensure_ascii=False, indent=2)
+            if len(history_json) > 4000:
+                history_json = history_json[:4000] + "\n... (troncato)"
             await bot.send_message(
-                chat_id=message.chat_id,
-                text="\u26a0\ufe0f Errore nella generazione della risposta. Controlla API key o modello."
+                chat_id=OWNER_ID,
+                text=f"[Context]\n```json\n{history_json}\n```",
+                parse_mode="Markdown"
             )
 
-PLUGIN_CLASS = OpenAIAIPlugin
+        # === Prompt simulato ===
+        messages = build_prompt(
+            user_text=text,
+            identity_prompt=self.identity_prompt,
+            extract_tags_fn=self.extract_tags,
+            search_memories_fn=self.search_memories
+        )
+        prompt_json = json.dumps(messages, ensure_ascii=False, indent=2)
+        if len(prompt_json) > 4000:
+            prompt_json = prompt_json[:4000] + "\n... (troncato)"
+
+        await bot.send_message(
+            chat_id=OWNER_ID,
+            text=f"\U0001f4dc Prompt generato:\n```json\n{prompt_json}\n```",
+            parse_mode="Markdown"
+        )
+
+        # === Inoltro messaggio ===
+        sender = message.from_user
+        user_ref = f"@{sender.username}" if sender.username else sender.full_name
+        await bot.send_message(chat_id=OWNER_ID, text=f"{user_ref}:")
+        sent = await bot.forward_message(
+            chat_id=OWNER_ID,
+            from_chat_id=message.chat_id,
+            message_id=message.message_id
+        )
+        self.track_message(sent.message_id, message.chat_id, message.message_id)
+        print(f"[DEBUG/manual] Messaggio inoltrato e tracciato")
+
+    async def generate_response(self, messages):
+        return "\U0001f570\ufe0f Risposta in attesa di input manuale."
+
+
+PLUGIN_CLASS = ManualAIPlugin
