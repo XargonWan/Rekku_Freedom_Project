@@ -2,9 +2,14 @@ from core import say_proxy
 from core.context import get_context_state
 from core.config import OWNER_ID
 from core.ai_plugin_base import AIPluginBase
+from core.prompt_engine import build_prompt
+from core.plugin_instance import rekku_identity_prompt
+from core.db import get_db
 import json
 
+
 class ManualAIPlugin(AIPluginBase):
+
     def __init__(self):
         self.reply_map = {}
 
@@ -21,10 +26,42 @@ class ManualAIPlugin(AIPluginBase):
         if trainer_message_id in self.reply_map:
             del self.reply_map[trainer_message_id]
 
+    def extract_tags(self, text: str) -> list:
+        text = text.lower()
+        tags = []
+        if "jay" in text:
+            tags.append("jay")
+        if "retrodeck" in text:
+            tags.append("retrodeck")
+        if "amore" in text or "affetto" in text:
+            tags.append("emozioni")
+        return tags
+
+    def search_memories(self, tags=None, scope=None, limit=5):
+        if not tags:
+            return []
+
+        query = "SELECT content FROM memories WHERE 1=1"
+        params = []
+
+        for tag in tags:
+            query += " AND tags LIKE ?"
+            params.append(f"%{tag}%")
+
+        if scope:
+            query += " AND scope = ?"
+            params.append(scope)
+
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+
+        with get_db() as db:
+            return [row[0] for row in db.execute(query, params)]
+
     async def handle_incoming_message(self, bot, message, context_memory):
         user_id = message.from_user.id
         text = message.text or ""
-        print(f"[DEBUG/manual] Messaggio ricevuto in modalità manuale da chat_id={message.chat_id}")
+        print(f"[DEBUG/manual] Messaggio ricevuto in modalit� manuale da chat_id={message.chat_id}")
 
         # === Caso speciale: /say attivo ===
         target_chat = say_proxy.get_target(user_id)
@@ -47,6 +84,24 @@ class ManualAIPlugin(AIPluginBase):
                 parse_mode="Markdown"
             )
 
+        # === Prompt simulato ===
+        messages = build_prompt(
+            user_text=text,
+            identity_prompt=rekku_identity_prompt,
+            extract_tags_fn=self.extract_tags,
+            search_memories_fn=self.search_memories
+        )
+        prompt_json = json.dumps(messages, ensure_ascii=False, indent=2)
+        if len(prompt_json) > 4000:
+            prompt_json = prompt_json[:4000] + "\n... (troncato)"
+
+        await bot.send_message(
+            chat_id=OWNER_ID,
+            text=f"\U0001f4dc Prompt generato:\n```json\n{prompt_json}\n```",
+            parse_mode="Markdown"
+        )
+
+        # === Inoltro messaggio ===
         sender = message.from_user
         user_ref = f"@{sender.username}" if sender.username else sender.full_name
         await bot.send_message(chat_id=OWNER_ID, text=f"{user_ref}:")
@@ -60,4 +115,7 @@ class ManualAIPlugin(AIPluginBase):
 
     async def generate_response(self, messages):
         """Nel caso manuale, la risposta non viene generata automaticamente."""
-        return "🕰️ Risposta in attesa di input manuale."
+        return "\U0001f570\ufe0f Risposta in attesa di input manuale."
+
+
+PLUGIN_CLASS = ManualAIPlugin

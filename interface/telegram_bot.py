@@ -1,4 +1,4 @@
-# llm_engines/openai_chatgpt.py
+# interface/telegram_bot.py
 
 import os
 import re
@@ -514,7 +514,6 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # === Avvio ===
 
 def start_bot():
-    
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("help", help_command))

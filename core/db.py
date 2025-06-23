@@ -1,3 +1,5 @@
+# core/db.py
+
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -18,10 +20,57 @@ def get_db():
 
 def init_db():
     with get_db() as db:
+        # Tabella recent_chats (per tracciamento delle chat attive)
         db.execute("""
             CREATE TABLE IF NOT EXISTS recent_chats (
                 chat_id INTEGER PRIMARY KEY,
                 last_active REAL
+            )
+        """)
+
+        # Tabella memories (per i ricordi memorizzati)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                content TEXT,
+                author TEXT,
+                source TEXT,
+                tags TEXT,
+                scope TEXT,
+                emotion TEXT,
+                intensity INTEGER,
+                emotion_state TEXT
+            )
+        """)
+
+        # Tabella emotion_diary (per gli eventi emozionali)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS emotion_diary (
+                id TEXT PRIMARY KEY,
+                source TEXT,
+                event TEXT,
+                emotion TEXT,
+                intensity INTEGER,
+                state TEXT,
+                trigger_condition TEXT,
+                decision_logic TEXT,
+                next_check TEXT
+            )
+        """)
+
+        # Tabella tag_links (per le relazioni tra tag)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS tag_links (
+                tag TEXT,
+                related_tag TEXT
+            )
+        """)
+
+        # Tabella blocklist (per utenti bloccati)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS blocklist (
+                user_id INTEGER PRIMARY KEY
             )
         """)
 
@@ -99,3 +148,15 @@ def crystallize_emotion(eid: str):
             SET state = 'crystallized'
             WHERE id = ?
         """, (eid,))
+
+# 🔁 Recupera le risposte recenti generate dal bot
+def get_recent_responses(since_timestamp: str) -> list[dict]:
+    with get_db() as db:
+        rows = db.execute("""
+            SELECT * FROM memories
+            WHERE source = 'rekku' AND timestamp >= ?
+            ORDER BY timestamp DESC
+        """, (since_timestamp,)).fetchall()
+        return [dict(row) for row in rows]
+
+
