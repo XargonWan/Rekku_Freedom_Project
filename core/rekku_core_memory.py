@@ -1,14 +1,25 @@
 from core.db import insert_memory
+import logging
+from datetime import datetime
 
-# \U0001f527 Configurazioni interne statiche (espandibili)
+# === Setup logging memoria ===
+os.makedirs("logs", exist_ok=True)  # Assicura esistenza cartella log
+
+memory_logger = logging.getLogger("rekku.memory")
+if not memory_logger.handlers:
+    memory_logger.setLevel(logging.INFO)
+    handler = logging.FileHandler("logs/memoria.log", encoding="utf-8")
+    formatter = logging.Formatter('%(asctime)s - %(message)s')
+    handler.setFormatter(formatter)
+    memory_logger.addHandler(handler)
+
+
+# Configurazioni interne statiche (espandibili)
 DEFAULT_TAGS = "auto,interazione"
-DEFAULT_SCOPE = "jay"
+DEFAULT_SCOPE = "general"
 DEFAULT_SOURCE = "chat"
 
-REMEMBER_KEYWORDS = [
-    "jay", "prometto", "giuramento", "famiglia",
-    "retrodeck", "tanuki", "sei importante"
-]
+REMEMBER_KEYWORDS = []
 
 def should_remember(user_text: str, response_text: str) -> bool:
     """
@@ -34,7 +45,7 @@ def silently_record_memory(
     source: str = DEFAULT_SOURCE
 ):
     """
-    Rekku salva internamente ci� che ha deciso di ricordare.
+    Rekku salva internamente ciò che ha deciso di ricordare.
     Nessun feedback viene dato all'esterno.
     """
     insert_memory(
@@ -47,4 +58,12 @@ def silently_record_memory(
         intensity=None,
         emotion_state=None
     )
-    print("[REKKU_CORE] \U0001f9e0 Memoria salvata autonomamente.")
+
+    print("[REKKU_CORE] 🧠 Memoria salvata autonomamente.")
+
+    memory_logger.info(
+        f"[MEMORIA] Salvata da Rekku\n"
+        f"→ Input: {user_text}\n"
+        f"→ Risposta: {response_text}\n"
+        f"→ Tags: {tags} | Scope: {scope} | Source: {source}"
+    )

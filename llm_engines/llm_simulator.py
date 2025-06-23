@@ -2,6 +2,8 @@ from core.ai_plugin_base import AIPluginBase
 from core.prompt_engine import build_prompt
 from core.rekku_core_memory import should_remember, silently_record_memory
 from core.db import get_db
+from core.prompt_engine import search_memories
+
 
 class LLMTestSimulator(AIPluginBase):
 
@@ -29,24 +31,6 @@ class LLMTestSimulator(AIPluginBase):
         if "amore" in text or "affetto" in text: tags.append("emozioni")
         return tags
 
-    def search_memories(self, tags=None, scope=None, limit=5):
-        if not tags:
-            return []
-
-        query = "SELECT content FROM memories WHERE 1=1"
-        params = [f"%{tag}%" for tag in tags]
-        query += "".join(" AND tags LIKE ?" for _ in tags)
-
-        if scope:
-            query += " AND scope = ?"
-            params.append(scope)
-
-        query += " ORDER BY timestamp DESC LIMIT ?"
-        params.append(limit)
-
-        with get_db() as db:
-            return [row[0] for row in db.execute(query, params)]
-
     def get_supported_models(self):
         return ["simulated-model"]
 
@@ -70,7 +54,7 @@ class LLMTestSimulator(AIPluginBase):
             user_text=user_text,
             identity_prompt=self.identity_prompt,
             extract_tags_fn=self.extract_tags,
-            search_memories_fn=self.search_memories
+            search_memories_fn=search_memories
         )
         try:
             response = await self.generate_response(messages)

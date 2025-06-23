@@ -8,7 +8,7 @@ from core.prompt_engine import build_prompt
 from core.plugin_instance import rekku_identity_prompt
 from core.db import get_db
 import json
-
+from core.prompt_engine import search_memories
 
 class ManualAIPlugin(AIPluginBase):
 
@@ -38,27 +38,6 @@ class ManualAIPlugin(AIPluginBase):
         if "amore" in text or "affetto" in text:
             tags.append("emozioni")
         return tags
-
-    def search_memories(self, tags=None, scope=None, limit=5):
-        if not tags:
-            return []
-
-        query = "SELECT content FROM memories WHERE 1=1"
-        params = []
-
-        for tag in tags:
-            query += " AND tags LIKE ?"
-            params.append(f"%{tag}%")
-
-        if scope:
-            query += " AND scope = ?"
-            params.append(scope)
-
-        query += " ORDER BY timestamp DESC LIMIT ?"
-        params.append(limit)
-
-        with get_db() as db:
-            return [row[0] for row in db.execute(query, params)]
 
     async def handle_incoming_message(self, bot, message, context_memory):
         user_id = message.from_user.id
@@ -91,7 +70,7 @@ class ManualAIPlugin(AIPluginBase):
             user_text=text,
             identity_prompt=rekku_identity_prompt,
             extract_tags_fn=self.extract_tags,
-            search_memories_fn=self.search_memories
+            search_memories_fn=search_memories
         )
         prompt_json = json.dumps(messages, ensure_ascii=False, indent=2)
         if len(prompt_json) > 4000:
