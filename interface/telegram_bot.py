@@ -23,9 +23,8 @@ from core.message_sender import detect_media_type
 from core.message_sender import extract_response_target
 from core.config import get_active_llm, set_active_llm, list_available_llms
 from core.config import BOT_TOKEN, BOT_USERNAME, OWNER_ID
-from core.plugin_instance import plugin, load_plugin
-
-load_plugin(get_active_llm()) 
+import core.plugin_instance as plugin_instance
+import traceback
 
 # Carica variabili da .env
 load_dotenv()
@@ -37,6 +36,17 @@ message_id = None
 
 from core.config import LLM_MODE
 
+async def ensure_plugin_loaded(update: Update):
+    """
+    Controlla che un plugin LLM sia stato caricato correttamente.
+    Se assente, risponde all'utente con un messaggio di errore e logga il problema.
+    """
+    if plugin is None:
+        print("[ERROR] Nessun plugin LLM caricato.")
+        if update and update.message:
+            await update.message.reply_text("⚠️ Nessun plugin LLM attivo. Usa /llm per selezionarne uno.")
+        return False
+    return True
 
 def resolve_forwarded_target(message):
     """Dato un messaggio (presumibilmente reply a un messaggio inoltrato),
@@ -89,6 +99,10 @@ async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 from core.message_sender import send_content, detect_media_type, extract_response_target
 
 async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not await ensure_plugin_loaded(update):
+        return
+
     if update.effective_user.id != OWNER_ID:
         print("[DEBUG] Messaggio ignorato: non da OWNER_ID")
         return
@@ -169,6 +183,10 @@ from core.message_sender import detect_media_type
 # === Comando generico per sticker/audio/photo/file/video ===
 
 async def handle_response_command(update: Update, context: ContextTypes.DEFAULT_TYPE, content_type: str):
+
+    if not await ensure_plugin_loaded(update):
+        return
+
     if update.effective_user.id != OWNER_ID:
         return
 
@@ -222,6 +240,10 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not await ensure_plugin_loaded(update):
+        return
+
     message = update.message
     if not message or not message.from_user:
         print("[DEBUG] Messaggio ignorato (vuoto o senza mittente)")
@@ -404,7 +426,9 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(numbered, parse_mode="Markdown")
 
 async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from core.plugin_instance import plugin
+
+    if not await ensure_plugin_loaded(update):
+        return
 
     user_id = update.effective_user.id
     message = update.message
@@ -514,6 +538,9 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # === Avvio ===
 
 def start_bot():
+
+    load_plugin(get_active_llm())  # ✅ Carica il plugin dinamicamente qui
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("help", help_command))

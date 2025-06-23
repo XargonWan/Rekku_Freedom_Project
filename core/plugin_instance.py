@@ -1,39 +1,48 @@
 # core/plugin_instance.py
 
 import importlib
-import os
 from core.config import set_current_model, get_current_model
 from core.prompt_engine import load_identity_prompt
 
 plugin = None
 rekku_identity_prompt = None  # visibile ai plugin o altri moduli
 
+
 def load_plugin(name: str):
     """
-    Carica dinamicamente un plugin dalla directory llm_engines/
-    Il plugin deve definire una classe `PLUGIN_CLASS`.
+    Carica dinamicamente un plugin dalla directory llm_engines/.
+    Il plugin deve definire una variabile `PLUGIN_CLASS` che espone la classe principale.
     """
     global plugin, rekku_identity_prompt
 
     try:
         module = importlib.import_module(f"llm_engines.{name}")
-    except ModuleNotFoundError:
+        print(f"[DEBUG] Modulo llm_engines.{name} importato con successo.")
+    except ModuleNotFoundError as e:
+        print(f"[ERROR] Impossibile importare llm_engines.{name}: {e}")
         raise ValueError(f"LLM plugin non valido: {name}")
 
     if not hasattr(module, "PLUGIN_CLASS"):
+        print(f"[ERROR] Il modulo `{name}` non definisce `PLUGIN_CLASS`.")
         raise ValueError(f"Il plugin `{name}` non definisce `PLUGIN_CLASS`.")
 
     plugin_class = getattr(module, "PLUGIN_CLASS")
     plugin = plugin_class()
+    print(f"[DEBUG] Plugin inizializzato: {plugin.__class__.__name__}")
 
-    # Solo alcuni plugin richiedono il prompt identitario
+    # Carica il prompt identitario solo se richiesto
     if name not in ["manual"]:
         rekku_identity_prompt = load_identity_prompt()
+        print("[DEBUG] Prompt identitario caricato.")
 
-    # Imposta modello di default se serve
+    # Imposta modello di default se il plugin lo supporta
     if hasattr(plugin, "get_supported_models"):
-        models = plugin.get_supported_models()
-        if models:
-            current = get_current_model()
-            if not current:
-                set_current_model(models[0])
+        try:
+            models = plugin.get_supported_models()
+            if models:
+                current = get_current_model()
+                if not current:
+                    set_current_model(models[0])
+                    print(f"[DEBUG] Modello predefinito impostato: {models[0]}")
+        except Exception as e:
+            print(f"[WARNING] Errore durante il setup del modello: {e}")

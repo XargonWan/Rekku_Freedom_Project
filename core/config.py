@@ -1,6 +1,7 @@
 import os
 import json
 from dotenv import load_dotenv
+from core.db import get_db
 
 load_dotenv()
 
@@ -10,17 +11,33 @@ BOT_USERNAME = "Rekku_the_bot"
 LLM_MODE = os.getenv("LLM_MODE", "manual")
 
 # === LLM mode persistente ===
-LLM_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "llm_mode.txt")
+
+_active_llm = None  # cache in memoria
 
 def get_active_llm():
-    if os.path.exists(LLM_CONFIG_PATH):
-        with open(LLM_CONFIG_PATH, "r") as f:
-            return f.read().strip()
-    return os.getenv("LLM_MODE", "manual")
+    global _active_llm
+    if _active_llm is None:
+        try:
+            with get_db() as db:
+                row = db.execute("SELECT value FROM settings WHERE key = 'active_llm'").fetchone()
+                if row:
+                    _active_llm = row[0]
+                else:
+                    _active_llm = "manual"  # default se non impostato
+        except Exception as e:
+            print(f"[ERROR] get_active_llm fallita: {e}")
+            _active_llm = "manual"
+    return _active_llm
 
-def set_active_llm(mode: str):
-    with open(LLM_CONFIG_PATH, "w") as f:
-        f.write(mode)
+def set_active_llm(name: str):
+    global _active_llm
+    _active_llm = name
+    try:
+        with get_db() as db:
+            db.execute("REPLACE INTO settings (key, value) VALUES (?, ?)", ("active_llm", name))
+            db.commit()
+    except Exception as e:
+        print(f"[ERROR] set_active_llm fallita: {e}")
 
 def list_available_llms():
     engines_dir = os.path.join(os.path.dirname(__file__), "../llm_engines")

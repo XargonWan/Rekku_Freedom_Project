@@ -28,6 +28,13 @@ def init_db():
             )
         """)
 
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+
         # Tabella memories (per i ricordi memorizzati)
         db.execute("""
             CREATE TABLE IF NOT EXISTS memories (
