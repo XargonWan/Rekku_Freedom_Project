@@ -1,16 +1,44 @@
-class AIPluginBase:
+from abc import ABC, abstractmethod
+from core.prompt_engine import build_prompt
+
+
+class AIPluginBase(ABC):
+    """
+    Interfaccia base per tutti i motori AI.
+    Ogni plugin (OpenAI, Claude, Manual, ecc.) deve implementarla.
+    """
+
+    @abstractmethod
     async def handle_incoming_message(self, bot, message, context_memory):
-        """Elabora un messaggio utente (gruppo o privato)."""
-        raise NotImplementedError()
+        """
+        Elabora un messaggio utente. Deve essere implementato da ogni plugin.
+        """
+        pass
 
+    @abstractmethod
     def get_target(self, trainer_message_id):
-        raise NotImplementedError()
+        """
+        Restituisce a chi appartiene un messaggio addestrativo (per proxy reply).
+        """
+        pass
 
+    @abstractmethod
     def clear(self, trainer_message_id):
-        raise NotImplementedError()
+        """
+        Rimuove riferimenti da proxy una volta esauriti.
+        """
+        pass
 
+    @abstractmethod
     async def generate_response(self, messages):
-        raise NotImplementedError()
+        """
+        Invia una lista di messaggi al motore LLM e riceve la risposta.
+        """
+        pass
 
     def get_supported_models(self) -> list[str]:
-        return ["gpt-3.5-turbo", "gpt-4", "gpt-4o"]
+        """
+        Facoltativo. Restituisce l\u2019elenco dei modelli disponibili.
+        Overrideabile da chi ne ha bisogno.
+        """
+        return []

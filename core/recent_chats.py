@@ -3,6 +3,7 @@ from telegram.ext import ContextTypes
 from core.db import get_db
 import time
 import os
+import re
 
 OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 MAX_ENTRIES = 100
@@ -27,14 +28,14 @@ def get_last_active_chats(n=10):
 
 def format_chat_entry(chat):
     name = chat.title or chat.username or chat.first_name or str(chat.id)
+    safe_name = escape_markdown(name)
 
     if chat.username:
         # Pubblico: link cliccabile
         link = f"https://t.me/{chat.username}"
-        return f"[{name}]({link}) — `{chat.id}`"
+        return f"[{safe_name}]({link}) — `{chat.id}`"
     else:
-        # Nessun link disponibile, mostra solo nome + ID
-        return f"{name} — `{chat.id}`"
+        return f"{safe_name} — `{chat.id}`"
 
 async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -68,3 +69,9 @@ async def get_last_active_chats_verbose(n=10, bot=None):
         results.append((chat_id, name))
     return results
 
+def escape_markdown(text: str) -> str:
+    """
+    Escapa caratteri Markdown v1 per evitare errori o malformazioni.
+    """
+    escape_chars = r'\_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)

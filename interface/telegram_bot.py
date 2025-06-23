@@ -1,4 +1,7 @@
+# llm_engines/openai_chatgpt.py
+
 import os
+import re
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -26,9 +29,6 @@ load_plugin(get_active_llm())
 
 # Carica variabili da .env
 load_dotenv()
-BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
-BOT_USERNAME = "Rekku_the_bot"
-OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 
 say_sessions = {}
 context_memory = {}
@@ -36,15 +36,6 @@ last_selected_chat = {}
 message_id = None
 
 from core.config import LLM_MODE
-
-if LLM_MODE == "manual":
-    from llm_engines.manual import ManualAIPlugin
-    plugin = ManualAIPlugin()
-elif LLM_MODE == "chatgpt":
-    from llm_engines.openai_chatgpt import OpenAIAIPlugin
-    plugin = OpenAIAIPlugin(api_key=os.getenv("OPENAI_API_KEY"))
-else:
-    raise ValueError(f"Modalità LLM non riconosciuta: {LLM_MODE}")
 
 
 def resolve_forwarded_target(message):
@@ -307,16 +298,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"[ERROR] plugin.handle_incoming_message fallito: {e}")
 
-async def cancel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        return
-    if response_proxy.has_pending(OWNER_ID):
-        response_proxy.clear_target(OWNER_ID)
-        print("[DEBUG] Invio risposta annullato.")
-        await update.message.reply_text("\u274c Invio annullato.")
-    else:
-        await update.message.reply_text("\u26a0\ufe0f Nessun invio attivo da annullare.")
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from core.context import get_context_state
     from core.config import get_active_llm
@@ -367,6 +348,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
+def escape_markdown(text):
+    return re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', text)
+
 async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
@@ -376,7 +360,7 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("\u26a0\ufe0f Nessuna chat recente trovata.")
         return
 
-    lines = [f"[{name}](tg://user?id={cid}) — `{cid}`" for cid, name in entries]
+    lines = [f"[{escape_markdown(name)}](tg://user?id={cid}) — `{cid}`" for cid, name in entries]
     await update.message.reply_text(
         "\U0001f553 Ultime chat attive:\n" + "\n".join(lines),
         parse_mode="Markdown"

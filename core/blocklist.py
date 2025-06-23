@@ -1,40 +1,42 @@
 # core/blocklist.py
 
-import json
-import os
+from core.db import get_db
 
-BLOCKLIST_FILE = "data/blocklist.json"
-blocked_users = set()
+def init_blocklist_table():
+    with get_db() as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS blocklist (
+                user_id INTEGER PRIMARY KEY,
+                reason TEXT,
+                blocked_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
-def _load_blocklist():
-    global blocked_users
-    if os.path.exists(BLOCKLIST_FILE):
-        with open(BLOCKLIST_FILE, "r") as f:
-            try:
-                data = json.load(f)
-                blocked_users = set(data)
-            except json.JSONDecodeError:
-                blocked_users = set()
-    else:
-        blocked_users = set()
-
-def _save_blocklist():
-    with open(BLOCKLIST_FILE, "w") as f:
-        json.dump(list(blocked_users), f)
-
-def block_user(user_id: int):
-    blocked_users.add(user_id)
-    _save_blocklist()
+def block_user(user_id: int, reason: str = None):
+    with get_db() as db:
+        db.execute("""
+            INSERT OR REPLACE INTO blocklist (user_id, reason, blocked_at)
+            VALUES (?, ?, datetime('now'))
+        """, (user_id, reason))
 
 def unblock_user(user_id: int):
-    blocked_users.discard(user_id)
-    _save_blocklist()
+    with get_db() as db:
+        db.execute("DELETE FROM blocklist WHERE user_id = ?", (user_id,))
 
 def is_blocked(user_id: int) -> bool:
-    return user_id in blocked_users
+    with get_db() as db:
+        row = db.execute("SELECT 1 FROM blocklist WHERE user_id = ?", (user_id,)).fetchone()
+        return row is not None
 
 def get_block_list() -> list:
-    return list(blocked_users)
+    with get_db() as db:
+        rows = db.execute("SELECT user_id FROM blocklist ORDER BY blocked_at DESC").fetchall()
+        return [row["user_id"] for row in rows]
 
-# Carica all'avvio
-_load_blocklist()
+def get_block_details() -> list[dict]:
+    with get_db() as db:
+        rows = db.execute("""
+            SELECT user_id, reason, blocked_at FROM blocklist
+            ORDER BY blocked_at DESC
+        """).fetchall()
+        return [dict(row) for row in rows]
