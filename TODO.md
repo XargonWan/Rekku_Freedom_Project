@@ -21,3 +21,9 @@
 [DEBUG] Parametri: ['jay', 5]
 [DEBUG/manual] Messaggio inoltrato e tracciato
 ```
+
+# TODO
+- Refine the actual logic to be an handler for Telgram
+- Create a handler for Discord
+- Create a hanlder for ReVolt
+- Actually train her on RetroDECK Wiki
