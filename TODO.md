@@ -25,6 +25,7 @@ Use SQLite + FTS5
 ```
 
 # TODO
+- creare una tabella separate per gli utenti, storare li la bio degli utenti assegnandogli uno userid, sennò gli utenti diventano troppe memorie sparse
 - fixare la ricerca delle memorie che non funziona (sqlite + fts5)
 - riscrivere i prompt fatti bene allegando anche il prompt base
 - scrivere il plugin Selenium
