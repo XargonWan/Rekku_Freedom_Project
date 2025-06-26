@@ -3,6 +3,8 @@
 import importlib
 from core.config import set_current_model, get_current_model
 from core.prompt_engine import load_identity_prompt
+import json
+from core.prompt_engine import build_json_prompt
 
 plugin = None
 rekku_identity_prompt = None  # visibile ai plugin o altri moduli
@@ -50,7 +52,16 @@ def load_plugin(name: str):
 async def handle_incoming_message(bot, message, context_memory):
     if plugin is None:
         raise RuntimeError("Nessun plugin LLM caricato.")
-    return await plugin.handle_incoming_message(bot, message, context_memory)
+
+    # ✅ Costruisce prompt JSON standard da context + memorie + messaggio
+    prompt = await build_json_prompt(message, context_memory)
+
+    # 🧠 DEBUG: stampa il prompt globale
+    print("[DEBUG] 🌐 PROMPT JSON costruito per il plugin:")
+    print(json.dumps(prompt, indent=2, ensure_ascii=False))
+
+    # 🔁 Passa prompt già costruito al plugin attivo
+    return await plugin.handle_incoming_message(bot, message, prompt)
 
 def get_supported_models():
     if plugin is None:

@@ -1,6 +1,7 @@
 from core.db import insert_memory
 import logging
 from datetime import datetime
+import json
 
 # === Setup logging memoria ===
 os.makedirs("logs", exist_ok=True)  # Assicura esistenza cartella log
@@ -15,7 +16,7 @@ if not memory_logger.handlers:
 
 
 # Configurazioni interne statiche (espandibili)
-DEFAULT_TAGS = "auto,interazione"
+DEFAULT_TAGS = json.dumps(["auto", "interazione"])
 DEFAULT_SCOPE = "general"
 DEFAULT_SOURCE = "chat"
 
@@ -48,6 +49,11 @@ def silently_record_memory(
     Rekku salva internamente ciò che ha deciso di ricordare.
     Nessun feedback viene dato all'esterno.
     """
+
+    # Se tags è una lista, converti in JSON
+    if isinstance(tags, list):
+        tags = json.dumps(tags)
+
     insert_memory(
         content=user_text,
         author="rekku",

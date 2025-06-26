@@ -9,10 +9,8 @@ class AIPluginBase(ABC):
     """
 
     @abstractmethod
-    async def handle_incoming_message(self, bot, message, context_memory):
-        """
-        Elabora un messaggio utente. Deve essere implementato da ogni plugin.
-        """
+    async def handle_incoming_message(self, bot, message, prompt):
+        """Elabora un messaggio usando un prompt gi� costruito."""
         pass
 
     @abstractmethod

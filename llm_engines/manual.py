@@ -1,14 +1,10 @@
 # llm_engines/manual.py
 
 from core import say_proxy
-from core.context import get_context_state
 from core.config import OWNER_ID
 from core.ai_plugin_base import AIPluginBase
-from core.prompt_engine import build_prompt
-from core.plugin_instance import rekku_identity_prompt
-from core.db import get_db
 import json
-from core.prompt_engine import search_memories
+from telegram.constants import ParseMode
 
 class ManualAIPlugin(AIPluginBase):
 
@@ -28,18 +24,7 @@ class ManualAIPlugin(AIPluginBase):
         if trainer_message_id in self.reply_map:
             del self.reply_map[trainer_message_id]
 
-    def extract_tags(self, text: str) -> list:
-        text = text.lower()
-        tags = []
-        if "jay" in text:
-            tags.append("jay")
-        if "retrodeck" in text:
-            tags.append("retrodeck")
-        if "amore" in text or "affetto" in text:
-            tags.append("emozioni")
-        return tags
-
-    async def handle_incoming_message(self, bot, message, context_memory):
+    async def handle_incoming_message(self, bot, message, prompt):
         user_id = message.from_user.id
         text = message.text or ""
         print(f"[DEBUG/manual] Messaggio ricevuto in modalit� manuale da chat_id={message.chat_id}")
@@ -52,37 +37,18 @@ class ManualAIPlugin(AIPluginBase):
             say_proxy.clear(user_id)
             return
 
-        # === Context attivo ===
-        if get_context_state():
-            print("[DEBUG/manual] Context attivo, invio cronologia")
-            history = list(context_memory.get(message.chat_id, []))
-            history_json = json.dumps(history, ensure_ascii=False, indent=2)
-            if len(history_json) > 4000:
-                history_json = history_json[:4000] + "\n... (troncato)"
-            await bot.send_message(
-                chat_id=OWNER_ID,
-                text=f"[Context]\n```json\n{history_json}\n```",
-                parse_mode="Markdown"
-            )
-
-        # === Prompt simulato ===
-        messages = build_prompt(
-            user_text=text,
-            identity_prompt=rekku_identity_prompt,
-            extract_tags_fn=self.extract_tags,
-            search_memories_fn=search_memories
-        )
-        prompt_json = json.dumps(messages, ensure_ascii=False, indent=2)
+        # === Invia prompt JSON al trainer (OWNER_ID) ===
+        prompt_json = json.dumps(prompt, ensure_ascii=False, indent=2)
         if len(prompt_json) > 4000:
             prompt_json = prompt_json[:4000] + "\n... (troncato)"
 
         await bot.send_message(
             chat_id=OWNER_ID,
-            text=f"\U0001f4dc Prompt generato:\n```json\n{prompt_json}\n```",
-            parse_mode="Markdown"
+            text=f"\U0001f4e6 *Prompt JSON generato:*\n```json\n{prompt_json}\n```",
+            parse_mode=ParseMode.MARKDOWN
         )
 
-        # === Inoltro messaggio ===
+        # === Inoltra il messaggio originale per facilitare la risposta ===
         sender = message.from_user
         user_ref = f"@{sender.username}" if sender.username else sender.full_name
         await bot.send_message(chat_id=OWNER_ID, text=f"{user_ref}:")

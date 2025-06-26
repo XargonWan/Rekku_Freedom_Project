@@ -4,7 +4,51 @@ from core.rekku_tagging import extract_tags, expand_tags
 import os
 from datetime import datetime
 from core.db import get_db
+import json
 
+
+async def build_json_prompt(message, context_memory) -> dict:
+    chat_id = message.chat_id
+    text = message.text or ""
+
+    # === 1. Context ===
+    context_list = list(context_memory.get(chat_id, []))[-10:]
+
+    # === 2. Tags e memories ===
+    tags = extract_tags(text)
+    expanded = expand_tags(tags)
+
+    memories = []
+    if expanded:
+        placeholders = ",".join("?" for _ in expanded)
+        query = f"""
+            SELECT content FROM memories
+            WHERE json_valid(tags)
+              AND EXISTS (
+                  SELECT 1
+                  FROM json_each(memories.tags)
+                  WHERE json_each.value IN ({placeholders})
+              )
+            ORDER BY timestamp DESC LIMIT 5
+        """
+        with get_db() as db:
+            rows = db.execute(query, expanded).fetchall()
+            memories = [row["content"] for row in rows]
+
+    # === 3. Messaggio attuale ===
+    current_message = {
+        "username": message.from_user.full_name,
+        "usertag": f"@{message.from_user.username}" if message.from_user.username else "(nessun tag)",
+        "text": text,
+        "timestamp": message.date.isoformat()
+    }
+
+    # === 4. JSON prompt finale ===
+    return {
+        "context": context_list,
+        "memories": memories,
+        "message": current_message
+    }
 
 def load_identity_prompt() -> str:
     try:
