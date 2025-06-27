@@ -12,9 +12,6 @@ if __name__ == "__main__":
     init_db()
     init_blocklist_table()
 
-    # Carica plugin LLM attivo (es. manual, openai_chatgpt, llm_simulator...)
-    load_plugin(get_active_llm())
-
     # Avvia il bot
     start_bot()
 

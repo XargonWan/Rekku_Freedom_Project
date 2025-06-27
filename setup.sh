@@ -5,6 +5,8 @@ set -e
 IMAGE_NAME="rekku_bot"
 NEEDS_SUDO=""
 
+source .env
+
 # 🐳 Verifica se Docker è installato
 if ! command -v docker &> /dev/null; then
   echo "❌ Docker non è installato."
@@ -39,6 +41,11 @@ if ! docker info > /dev/null 2>&1; then
     NEEDS_SUDO="sudo"
   fi
 fi
+
+# 🗂️ Crea directory volume Selenium se non esiste
+mkdir -p "$SELENIUM_PROFILE_DIR"
+sudo chown -R "1000:1000" "$SELENIUM_PROFILE_DIR"
+chmod u+rw "$SELENIUM_PROFILE_DIR"
 
 # 🐳 Costruzione immagine Docker
 echo "🐳 Costruzione immagine Docker: $IMAGE_NAME"

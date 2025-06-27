@@ -1,3 +1,5 @@
+# core/config.py
+
 import os
 import json
 from dotenv import load_dotenv
@@ -6,9 +8,13 @@ from core.db import get_db
 load_dotenv()
 
 OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
-BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
+BOT_TOKEN = os.getenv("BOTFATHER_TOKEN") or os.getenv("TELEGRAM_TOKEN")
 BOT_USERNAME = "Rekku_the_bot"
 LLM_MODE = os.getenv("LLM_MODE", "manual")
+SELENIUM_PROFILE_DIR = os.getenv("SELENIUM_PROFILE_DIR", "./selenium_profile")
+
+if not BOT_TOKEN:
+    raise RuntimeError("❌ BOTFATHER_TOKEN mancante. Impostalo in .env o come variabile d'ambiente.")
 
 # === LLM mode persistente ===
 

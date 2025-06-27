@@ -82,10 +82,6 @@ Può anche rispondere con **contenuti multimediali** (sticker, immagini, audio, 
 Dopo la selezione, puoi inviare **qualsiasi contenuto** (testo, foto, audio, file, video, sticker).
 Rekku lo inoltrerà alla chat selezionata.
 
-Perfetto, aggiorniamo quella sezione del README rimuovendo `/test` e promuovendo `/help` come comando informativo principale.
-
-Ecco la nuova versione modificata:
-
 ---
 
 ## 🧪 Aiuto e comandi
@@ -100,35 +96,60 @@ Ecco la nuova versione modificata:
 
 ### ✅ Prerequisiti
 
-* Docker installato
-* File `.env` configurato con:
-
-```
-TELEGRAM_TOKEN=123456:ABC-DEF...
-OWNER_ID=123456789
-```
-
-### 📄 Esempio Dockerfile
-
-```
-FROM python:3.11-slim
-
-WORKDIR /app
-COPY . .
-RUN pip install --no-cache-dir -r requirements.txt
-
-CMD ["python", "main.py"]
-```
+* File `.env` configurato con i dati richiest, visionare `env.example` per utleriori informazioni.
 
 ### ▶️ Build e avvio
 
+Avviare il servizio e vedere l'output su terminale:
 ```bash
-docker build -t rekku-bot .
-docker run -d --name rekku-bot --env-file .env rekku-bot
+setup.sh
+start.sh
 ```
 
-### 📋 Logs
+Tuttavia si consiglia di esegurlo via `docker compose`.
 
+---
+
+## 🔐 Login manuale per plugin Selenium
+
+Il plugin `selenium_chatgpt` richiede che l'utente sia già loggato su ChatGPT. Per motivi di sicurezza, il login va effettuato **manualmente e una sola volta** in ambiente con interfaccia grafica.
+
+### ✅ Preparazione del profilo
+
+1. Assicurati di avere Chromium e ChromeDriver installati sul tuo sistema.
+Se non li hai, installali con:
 ```bash
-docker logs -f rekku-bot
+sudo apt update
+sudo apt install -y chromium chromium-driver
+```
+
+3. Avvia lo script in locale (fuori da Docker):
+
+```
+python3 login_selenium.py
+```
+
+4. Una volta completato il login, verrà creata la cartella `selenium_profile/`.
+
+5. Per trasferirla su un server remoto:
+
+```
+tar czf selenium_profile.tar.gz selenium_profile
+```
+
+Poi copia e decomprimi sul server:
+
+```
+tar xzf selenium_profile.tar.gz
+```
+
+---
+
+### 📁 Ignora il profilo in Git
+
+Nel file `.gitignore` assicurati che ci siano queste righe:
+
+```
+selenium_profile/
+selenium_profile.tar.gz
 ```

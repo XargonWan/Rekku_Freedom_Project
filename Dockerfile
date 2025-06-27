@@ -1,5 +1,5 @@
 # Usa un'immagine Python ufficiale
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # Variabili per path binari
 ENV CHROME_BIN=/usr/bin/chromium
