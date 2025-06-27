@@ -9,8 +9,12 @@ VERSION=138.0.7204.49
 BASE_URL="https://storage.googleapis.com/chrome-for-testing-public/${VERSION}/linux64"
 
 TMP_DIR=$(mktemp -d)
-export CHROME_BIN="$TMP_DIR/chrome-linux64/chrome"
-export CHROMEDRIVER_PATH="$TMP_DIR/chromedriver-linux64/chromedriver"
+CHROME_BIN="$TMP_DIR/chrome-linux64/chrome"
+CHROMEDRIVER_PATH="$TMP_DIR/chromedriver-linux64/chromedriver"
+SELENIUM_PROFILE_DIR="selenium_profile"
+
+export CHROME_BIN
+export CHROMEDRIVER_PATH
 export PATH="$TMP_DIR/chromedriver-linux64:$PATH"
 
 echo "⬇️ Scarico Chrome v$VERSION..."
@@ -30,6 +34,8 @@ echo "✅ ChromeDriver pronto: $CHROMEDRIVER_PATH"
 
 echo ""
 echo "🌐 Avvio Chrome per login manuale su ChatGPT..."
+mkdir -p "$SELENIUM_PROFILE_DIR"
+
 "$CHROME_BIN" \
     --user-data-dir="$SELENIUM_PROFILE_DIR" \
     --no-sandbox \
@@ -42,7 +48,7 @@ read -p "✅ Premi INVIO quando hai completato il login e chiuso il browser..."
 
 # 🗜️ Comprimi profilo
 echo "🗜️  Comprimo il profilo Selenium..."
-tar czf selenium_profile.tar.gz selenium_profile
-rm -rf selenium_profile
+tar czf selenium_profile.tar.gz "$SELENIUM_PROFILE_DIR"
+rm -rf "$SELENIUM_PROFILE_DIR"
 
 echo "✅ Profilo creato: selenium_profile.tar.gz"

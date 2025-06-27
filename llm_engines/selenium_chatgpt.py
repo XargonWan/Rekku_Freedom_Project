@@ -20,6 +20,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
+
 login_waiting = False
 
 class SeleniumChatGPTPlugin(AIPluginBase):
@@ -152,8 +153,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             raise
 
         if "login" in current_url or "captcha" in page_text or "please enable javascript" in page_text:
-            login_waiting = True
             print("[WARN] Login/CAPTCHA richiesto o sessione scaduta.")
+
+            bypass_ok = self._attempt_simple_captcha_bypass()
+            if bypass_ok:
+                print("[DEBUG/selenium] ✅ Bypass CAPTCHA completato.")
+                return
+
+            login_waiting = True
             self._notify_owner(
                 "⚠️ Il profilo Selenium sembra scaduto o bloccato.\n"
                 "Apri manualmente il browser, completa l'accesso a https://chat.openai.com,\n"
@@ -200,7 +207,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     async def handle_incoming_message(self, bot, message, prompt):
         global login_waiting
 
-        # 🔐 Se in attesa di login e il messaggio arriva dall'OWNER in privato → sblocca
         if login_waiting and message.chat.type == "private" and message.from_user.id == OWNER_ID:
             login_waiting = False
             await bot.send_message(chat_id=OWNER_ID, text="✅ Accesso confermato. Riprendo l’esecuzione.")
@@ -214,9 +220,13 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
             chat_path = self._build_chat_path_from_message(message)
             self.login_if_needed()
-            self.go_to_chat_by_path(chat_path)
+            chat_found = self.go_to_chat_by_path(chat_path)
+
             self.paste_and_send(formatted_prompt)
             response = self.wait_for_response()
+
+            if not chat_found:
+                self._rename_current_chat(chat_path)
 
             await bot.send_message(
                 chat_id=message.chat_id,
@@ -229,7 +239,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             print(error_msg)
             traceback.print_exc()
             self._notify_owner(f"❌ Errore nel plugin Selenium:\n```\n{e}\n```")
-
 
     def _format_prompt_as_text(self, prompt: dict) -> str:
         ctx = "\n".join(f"{m['username']}: {m['text']}" for m in prompt.get("context", []))
@@ -269,9 +278,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             parts.append(str(message.chat.id))  # fallback grezzo
         return " / ".join(parts)
     
-    def go_to_chat_by_path(self, chat_path: str):
+    def go_to_chat_by_path(self, chat_path: str) -> bool:
         from datetime import datetime
-        from pathlib import Path
 
         print(f"[DEBUG/selenium] Navigo nella chat con path: {chat_path}")
         parts = [p.strip().lower() for p in chat_path.split("/") if p.strip()]
@@ -285,18 +293,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
             # Prova a trovare la sidebar principale
             try:
-                sidebar = WebDriverWait(self.driver, 20).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, 'nav[data-testid="left-nav"]'))
+                sidebar = WebDriverWait(self.driver, 30).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 'nav[role="navigation"][aria-label="Chat history"]'))
                 )
             except TimeoutException:
-                # Dump di emergenza per debug
-                timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-                html_path = f"debug_failed_sidebar_{timestamp}.html"
-                screenshot_path = f"debug_failed_sidebar_{timestamp}.png"
-                Path(html_path).write_text(self.driver.page_source)
-                self.driver.save_screenshot(screenshot_path)
-                print(f"[DEBUG/selenium] Dump salvato in: {html_path}, {screenshot_path}")
-                raise Exception("\u274c Sidebar non trovata nella UI di ChatGPT.")
+                self._dump_debug_page("failed_sidebar")
+                raise Exception("\u274c Jayyy! Non riesco a trovare la sidebar delle chat!")
 
             current_node = sidebar
             for depth, part in enumerate(parts):
@@ -314,14 +316,92 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         found = True
                         break
                 if not found:
-                    raise Exception(f"\u274c Livello '{part}' non trovato nella sidebar.")
+                    print(f"[WARN/selenium] Livello '{part}' non trovato. Creo nuova chat.")
+                    self._create_new_chat()
+                    return False  # chat non esistente, appena creata
 
             print("[DEBUG/selenium] \u2705 Chat selezionata con successo.")
+            return True
 
         except Exception as e:
             error = f"\u274c Errore nella selezione della chat '{chat_path}': {e}"
             print(f"[ERROR/selenium] {error}")
             self._notify_owner(f"\u26a0\ufe0f Impossibile trovare la chat:\n`{chat_path}`\n\nErrore: {e}")
             raise
+
+    def _dump_debug_page(self, prefix: str):
+        try:
+            timestamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+            base_dir = os.getenv("SE_DEBUG_DIR", "/app/debug_logs")
+            os.makedirs(base_dir, exist_ok=True)
+
+            html_path = os.path.join(base_dir, f"debug_{prefix}_{timestamp}.html")
+            png_path = os.path.join(base_dir, f"debug_{prefix}_{timestamp}.png")
+
+            with open(html_path, "w", encoding="utf-8") as f:
+                f.write(self.driver.page_source)
+            self.driver.save_screenshot(png_path)
+
+            print(f"[DEBUG/selenium] Dump salvato in: {html_path}, {png_path}")
+        except Exception as e:
+            print(f"[WARN/selenium] Dump fallito: {e}")
+
+    def _create_new_chat(self):
+        print("[DEBUG/selenium] Clic su 'New Chat'")
+        try:
+            new_chat_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, '//a[contains(@href, "/chat/new")]'))
+            )
+            new_chat_button.click()
+            time.sleep(2)
+        except Exception as e:
+            self._dump_debug_page("failed_create_new_chat")
+            raise Exception("\u274c Impossibile creare una nuova chat.") from e
+        
+    def _rename_current_chat(self, new_name: str):
+        try:
+            print(f"[DEBUG/selenium] Rinominazione della chat in: {new_name}")
+            menu_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, '//button[@aria-label="More"]'))
+            )
+            menu_button.click()
+            time.sleep(0.5)
+
+            rename_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, '//button[contains(text(), "Rename")]'))
+            )
+            rename_button.click()
+            time.sleep(1)
+
+            input_box = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.TAG_NAME, "input"))
+            )
+            input_box.clear()
+            input_box.send_keys(new_name)
+            input_box.send_keys(Keys.ENTER)
+            time.sleep(1.5)
+            print("[DEBUG/selenium] ✅ Chat rinominata con successo.")
+        except Exception as e:
+            print(f"[WARN/selenium] ⚠️ Rinomina fallita: {e}")
+
+    def _attempt_simple_captcha_bypass(self):
+        print("[DEBUG/selenium] Provo il bypass semplice del CAPTCHA...")
+        try:
+            iframe = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "iframe[src*='hcaptcha.com']"))
+            )
+            self.driver.switch_to.frame(iframe)
+            checkbox = WebDriverWait(self.driver, 5).until(
+                EC.element_to_be_clickable((By.ID, "checkbox"))
+            )
+            checkbox.click()
+            print("[DEBUG/selenium] ✅ Checkbox cliccata.")
+            time.sleep(2)
+            self.driver.switch_to.default_content()
+            return True
+        except Exception as e:
+            print(f"[WARN/selenium] ❌ Bypass CAPTCHA fallito: {e}")
+            self._dump_debug_page("captcha_blocked")
+            return False
 
 PLUGIN_CLASS = SeleniumChatGPTPlugin

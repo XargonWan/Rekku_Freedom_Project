@@ -23,4 +23,5 @@ echo "🚀 Avvio del bot Rekku in Docker..."
 
 $DOCKER_CMD run --rm -it \
   --env-file .env \
+  -v "$(pwd)/logs:/app/debug_logs" \
   "$IMAGE_NAME"
