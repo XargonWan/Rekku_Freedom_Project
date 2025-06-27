@@ -42,11 +42,6 @@ if ! docker info > /dev/null 2>&1; then
   fi
 fi
 
-# 🗂️ Crea directory volume Selenium se non esiste
-mkdir -p "$SELENIUM_PROFILE_DIR"
-sudo chown -R "1000:1000" "$SELENIUM_PROFILE_DIR"
-chmod u+rw "$SELENIUM_PROFILE_DIR"
-
 # 🐳 Costruzione immagine Docker
 echo "🐳 Costruzione immagine Docker: $IMAGE_NAME"
 $NEEDS_SUDO docker build -t "$IMAGE_NAME" .

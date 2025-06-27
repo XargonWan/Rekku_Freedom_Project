@@ -22,7 +22,5 @@ fi
 echo "🚀 Avvio del bot Rekku in Docker..."
 
 $DOCKER_CMD run --rm -it \
-  -v "$SELENIUM_PROFILE_DIR":/app/selenium_profile \
-  -e SELENIUM_PROFILE_DIR="/app/selenium_profile" \
   --env-file .env \
   "$IMAGE_NAME"

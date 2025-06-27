@@ -28,11 +28,6 @@ echo "✅ ChromeDriver pronto: $CHROMEDRIVER_PATH"
 "$CHROME_BIN" --version
 "$CHROMEDRIVER_PATH" --version
 
-# 🗂️ Crea directory profilo Selenium se non esiste
-mkdir -p "$SELENIUM_PROFILE_DIR"
-sudo chown -R "1000:1000" "$SELENIUM_PROFILE_DIR"
-chmod u+rw "$SELENIUM_PROFILE_DIR"
-
 echo ""
 echo "🌐 Avvio Chrome per login manuale su ChatGPT..."
 "$CHROME_BIN" \
@@ -48,5 +43,6 @@ read -p "✅ Premi INVIO quando hai completato il login e chiuso il browser..."
 # 🗜️ Comprimi profilo
 echo "🗜️  Comprimo il profilo Selenium..."
 tar czf selenium_profile.tar.gz selenium_profile
+rm -rf selenium_profile
 
 echo "✅ Profilo creato: selenium_profile.tar.gz"
