@@ -1,512 +1,66 @@
-# llm_engines/selenium_chatgpt.py
-
-import time
-import asyncio
-import json
-import os
-import shutil
-import datetime
-import traceback
-import stat
-import inspect
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from telegram import Bot
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
 from core.ai_plugin_base import AIPluginBase
-from core.config import OWNER_ID, BOT_TOKEN
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
 from core.notifier import notify_owner
-from core.notifier import notify
+import asyncio
 
-login_waiting = False
 
 class SeleniumChatGPTPlugin(AIPluginBase):
-
     def __init__(self, notify_fn=None):
-        # 🔔 Inizializza la funzione di notifica (usata per debug e errori)
-        from core.notifier import set_notifier
+        self.notify_fn = notify_fn
+        self.driver = None
+        self._init_driver()
 
-        if notify_fn:
-            print("[DEBUG/selenium] Uso funzione di notifica personalizzata.")
-            set_notifier(notify_fn)
-        else:
-            print("[DEBUG/selenium] Nessuna funzione di notifica fornita, uso fallback.")
-            set_notifier(lambda chat_id, message: print(f"[NOTIFY fallback] {message}"))
+    def _init_driver(self):
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
 
-        self.driver = self._get_driver()
+        self.driver = webdriver.Chrome(options=chrome_options)
+        self.driver.get("https://chat.openai.com")
 
-    def _is_profile_locked(self, path):
-        try:
-            return any(name.startswith("Singleton") or name == "lock" for name in os.listdir(path))
-        except Exception as e:
-            print(f"[ERROR] Impossibile accedere a {path}: {e}")
+    def _ensure_logged_in(self):
+        current_url = self.driver.current_url
+        if "login" in current_url:
+            notify_owner("🔐 Login necessario. Completa manualmente il login nel browser.")
             return False
+        return True
 
-    def _cleanup_old_backups(self, base="selenium_profile_backup_", max_backups=3):
-        backups = sorted([d for d in os.listdir('.') if d.startswith(base)], reverse=True)
-        for old in backups[max_backups:]:
-            print(f"[INFO] Rimozione vecchio backup: {old}")
-            shutil.rmtree(old, ignore_errors=True)
-
-    def _get_driver(self):
-        import tempfile
-        import tarfile
-        from selenium.common.exceptions import WebDriverException
-
-        print("[DEBUG] Inizio _get_driver()")
-
-        chrome_bin = os.getenv("CHROME_BIN", "/usr/bin/google-chrome")
-        driver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
-        archive_path = os.getenv("SELENIUM_PROFILE_ARCHIVE", "./selenium_profile.tar.gz")
-
-        print(f"[DEBUG] chrome_bin = {chrome_bin}")
-        print(f"[DEBUG] driver_path = {driver_path}")
-        print(f"[DEBUG] archive_path = {archive_path}")
-
-        if not os.path.isfile(archive_path):
-            msg = f"\u274c Archivio profilo Selenium non trovato: {archive_path}"
-            print(f"[ERROR] {msg}")
-            notify_owner(msg)
-            raise RuntimeError(msg)
-
-        temp_profile = tempfile.mkdtemp(prefix="selenium_profile_extracted_")
-        self.user_data_dir = temp_profile
-        print(f"[DEBUG] Estrazione archivio Selenium in: {temp_profile}")
+    async def handle_incoming_message(self, bot, message, prompt_data):
+        print("[DEBUG/selenium] Prompt ricevuto:", prompt_data)
 
         try:
-            with tarfile.open(archive_path, "r:gz") as tar:
-                tar.extractall(path=temp_profile)
-            print("[DEBUG] Estrazione completata.")
-        except Exception as e:
-            msg = f"\u274c Estrazione profilo fallita: {e}"
-            print(f"[ERROR] {msg}")
-            notify_owner(msg)
-            raise RuntimeError(msg)
-
-        for subdir in ["", "Default"]:
-            for fname in ["lock", "SingletonLock", "SingletonCookie", "SingletonSocket"]:
-                lock_path = os.path.join(temp_profile, subdir, fname)
-                try:
-                    if os.path.exists(lock_path):
-                        os.remove(lock_path)
-                        print(f"[DEBUG] Rimosso: {lock_path}")
-                except Exception as e:
-                    print(f"[WARN] Impossibile rimuovere {lock_path}: {e}")
-
-        options = Options()
-        options.binary_location = chrome_bin
-        options.add_argument(f"--user-data-dir={temp_profile}")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--window-size=1280,1024")
-        options.add_experimental_option("detach", True)
-
-        if os.getenv("REKKU_SELENIUM_HEADLESS", "1") != "0":
-            options.add_argument("--headless=new")
-            print("[DEBUG] Modalit� headless attiva.")
-        else:
-            print("[DEBUG] Avvio Chrome in modalit� GUI")
-
-        print("[DEBUG] Tentativo di creazione del driver Chrome...")
-        try:
-            driver = webdriver.Chrome(service=Service(driver_path), options=options)
-            print("[DEBUG] Driver Chrome creato con successo.")
-            print("[DEBUG] Apro https://chat.openai.com...")
-            driver.get("https://chat.openai.com")
-            print("[DEBUG] Navigazione iniziale completata.")
-            time.sleep(2)
-            return driver
-        except WebDriverException as e:
-            msg = "\u274c Errore avviando Chrome. Controlla CHROME_BIN e CHROMEDRIVER_PATH."
-            print(f"[ERROR] {msg}")
-            notify_owner(msg)
-            raise e
-
-    def _wait_for_user_confirmation(self):
-        notify_owner("⏸️ In attesa... clicca '✔️ Fatto' quando hai risolto login/captcha.")
-        input("Premi INVIO quando hai completato il login o il captcha...")
-
-    def login_if_needed(self):
-        global login_waiting
-        print("[DEBUG/selenium] Entrato in login_if_needed")
-
-        try:
-            print("[DEBUG/selenium] Navigo su https://chat.openai.com")
-            self.driver.get("https://chat.openai.com")
-        except Exception as e:
-            print(f"[ERROR/selenium] Errore durante il self.driver.get: {e}")
-            notify_owner(f"❌ Errore caricando la pagina iniziale: {e}")
-            raise e
-
-        try:
-            page_text = self.driver.page_source.lower()
-            current_url = self.driver.current_url.lower()
-            print(f"[DEBUG/selenium] URL corrente: {current_url}")
-        except Exception as e:
-            print(f"[ERROR/selenium] Errore ottenendo lo stato della pagina: {e}")
-            raise
-
-        if "login" in current_url or "captcha" in page_text or "please enable javascript" in page_text:
-            print(f"[DEBUG/selenium] Invio notifica diretta a OWNER_ID={OWNER_ID}")
-            notify(OWNER_ID, "🔐 Login o CAPTCHA richiesto – apri l’interfaccia per completare l’accesso.")
-
-            bypass_ok = self._attempt_simple_captcha_bypass()
-            if bypass_ok:
-                print("[DEBUG/selenium] ✅ Bypass CAPTCHA completato.")
+            if not self._ensure_logged_in():
                 return
 
-            login_waiting = True
-            self._launch_webview_gui()
+            # Vai nella chat corretta (puoi estendere questa logica)
+            await asyncio.sleep(1)
+            self.driver.get("https://chat.openai.com")
+            await asyncio.sleep(2)
 
-            print("[DEBUG/selenium] In attesa di conferma dell'owner per login/captcha...")
-            while login_waiting:
-                time.sleep(2)
-        else:
-            print("[DEBUG/selenium] Nessun login richiesto. Continuo.")
+            # Cerca l'elemento sidebar per verificare accesso
+            try:
+                self.driver.find_element(By.TAG_NAME, "aside")
+            except NoSuchElementException:
+                notify_owner("❌ Errore Selenium: Sidebar non trovata (CAPTCHA o login richiesto)")
+                return
 
-    def paste_and_send(self, prompt_text):
-        try:
-            textarea = WebDriverWait(self.driver, 20).until(
-                EC.presence_of_element_located((By.TAG_NAME, "textarea"))
-            )
-            textarea.send_keys(prompt_text)
-            textarea.send_keys(Keys.ENTER)
-        except Exception as e:
-            notify_owner("❌ Impossibile trovare la textarea. Sei sicuro di essere loggato?")
-            raise e
-
-    def wait_for_response(self, timeout=30):
-        for _ in range(timeout * 2):
-            bubbles = self.driver.find_elements(By.CLASS_NAME, "markdown")
-            if bubbles:
-                last = bubbles[-1].text.strip()
-                if last:
-                    return last
-            time.sleep(0.5)
-        return "⚠️ Nessuna risposta trovata."
-
-    def send_prompt_and_get_response(self, prompt_text):
-        self.login_if_needed()
-        self.paste_and_send(prompt_text)
-        return self.wait_for_response()
-
-    def get_target(self, trainer_message_id):
-        return None
-
-    def clear(self, trainer_message_id):
-        pass
-
-    async def handle_incoming_message(self, bot, message, prompt):
-        global login_waiting
-
-        if login_waiting and message.chat.type == "private" and message.from_user.id == OWNER_ID:
-            login_waiting = False
-            await bot.send_message(chat_id=OWNER_ID, text="✅ Accesso confermato. Riprendo l’esecuzione.")
-            return
-
-        try:
-            print(f"[DEBUG/selenium] Prompt ricevuto da chat_id={message.chat_id}")
-            formatted_prompt = self._format_prompt_as_text(prompt)
-            print("[DEBUG/selenium] Prompt formattato:")
-            print(formatted_prompt)
-
-            chat_path = self._build_chat_path_from_message(message)
-            self.login_if_needed()
-            chat_found = self.go_to_chat_by_path(chat_path)
-
-            self.paste_and_send(formatted_prompt)
-            response = self.wait_for_response()
-
-            if not chat_found:
-                self._rename_current_chat(chat_path)
-
+            # Simula risposta finta
             await bot.send_message(
                 chat_id=message.chat_id,
-                text=response,
-                reply_to_message_id=message.message_id
+                text="🤖 (Risposta finta: plugin Selenium operativo)"
             )
 
         except Exception as e:
-            error_msg = f"[ERROR/selenium] Errore durante la risposta: {e}"
-            print(error_msg)
-            traceback.print_exc()
-            notify_owner(f"❌ Errore nel plugin Selenium:\n```\n{e}\n```")
+            notify_owner(f"❌ Errore Selenium: {e}")
 
-    def _format_prompt_as_text(self, prompt: dict) -> str:
-        ctx = "\n".join(f"{m['username']}: {m['text']}" for m in prompt.get("context", []))
-        mem = "\n".join(f"- {m}" for m in prompt.get("memories", []))
-        msg = prompt["message"]["text"]
+    def get_supported_models(self):
+        return []  # nessun modello per ora
 
-        return (
-            "CONTEXT:\n" + (ctx or "Nessuno") +
-            "\n\nMEMORIES:\n" + (mem or "Nessuna") +
-            "\n\nUSER:\n" + msg
-        )
-
-    async def generate_response(self, messages):
-        formatted_prompt = self._format_prompt_as_text_from_messages(messages)
-        return self.send_prompt_and_get_response(formatted_prompt)
-
-    def _format_prompt_as_text_from_messages(self, messages):
-        parts = []
-        for m in messages:
-            role = m.get("role", "user")
-            content = m.get("content", "")
-            parts.append(f"{role.upper()}: {content}")
-        return "\n".join(parts)
-    
-    def _build_chat_path_from_message(self, message):
-        parts = ["Telegram"]
-        if message.chat.type == "private":
-            parts.append("DM")
-            parts.append(message.from_user.first_name or str(message.from_user.id))
-        elif message.chat.type in ("group", "supergroup"):
-            if message.chat.title:
-                parts.append(message.chat.title)
-            # (Opzionale: ulteriore sottosezione, es. thread)
-            if hasattr(message, "message_thread_id") and message.message_thread_id:
-                parts.append(f"Thread {message.message_thread_id}")
-        else:
-            parts.append(str(message.chat.id))  # fallback grezzo
-        return " / ".join(parts)
-    
-    def go_to_chat_by_path(self, chat_path: str) -> bool:
-        from datetime import datetime
-
-        print(f"[DEBUG/selenium] Navigo nella chat con path: {chat_path}")
-        parts = [p.strip().lower() for p in chat_path.split("/") if p.strip()]
-        print(f"[DEBUG/selenium] Parti attese del path: {parts}")
-
-        try:
-            if "chat.openai.com" not in self.driver.current_url:
-                print("[DEBUG/selenium] URL non corretto, ricarico pagina giusta.")
-                self.driver.get("https://chat.openai.com/chat")
-                time.sleep(2)
-
-            # Prova a trovare la sidebar principale
-            try:
-                sidebar = WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, 'nav[role="navigation"][aria-label="Chat history"]'))
-                )
-            except TimeoutException:
-                self._dump_debug_page("failed_sidebar")
-                print("[WARN/selenium] Timeout nel caricamento della sidebar \u2013 possibile blocco (login/CAPTCHA)")
-
-                # Forza login manuale
-                global login_waiting
-                if not login_waiting:
-                    login_waiting = True
-                    self._launch_webview_gui()
-
-                print("[DEBUG/selenium] In attesa di sblocco manuale...")
-                while login_waiting:
-                    time.sleep(2)
-
-                # Dopo il login manuale, riprova
-                return self.go_to_chat_by_path(chat_path)
-
-            current_node = sidebar
-            for depth, part in enumerate(parts):
-                print(f"[DEBUG/selenium] Cerco livello {depth}: '{part}'")
-                links = current_node.find_elements(By.TAG_NAME, "a")
-                found = False
-                for link in links:
-                    label = link.text.strip().lower()
-                    if part in label:
-                        print(f"[DEBUG/selenium] \u2192 Match livello {depth}: {label}")
-                        self.driver.execute_script("arguments[0].scrollIntoView(true);", link)
-                        time.sleep(0.3)
-                        self.driver.execute_script("arguments[0].click();", link)
-                        time.sleep(1.5)
-                        found = True
-                        break
-                if not found:
-                    print(f"[WARN/selenium] Livello '{part}' non trovato. Creo nuova chat.")
-                    self._create_new_chat()
-                    return False  # chat non esistente, appena creata
-
-            print("[DEBUG/selenium] \u2705 Chat selezionata con successo.")
-            return True
-
-        except Exception as e:
-            error = f"\u274c Errore nella selezione della chat '{chat_path}': {e}"
-            print(f"[ERROR/selenium] {error}")
-            notify_owner(f"\u26a0\ufe0f Impossibile trovare la chat:\n`{chat_path}`\n\nErrore: {e}")
-            raise
-
-    def _dump_debug_page(self, prefix: str):
-        try:
-            timestamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-            base_dir = os.getenv("SE_DEBUG_DIR", "/app/debug_logs")
-            os.makedirs(base_dir, exist_ok=True)
-
-            html_path = os.path.join(base_dir, f"debug_{prefix}_{timestamp}.html")
-            png_path = os.path.join(base_dir, f"debug_{prefix}_{timestamp}.png")
-
-            with open(html_path, "w", encoding="utf-8") as f:
-                f.write(self.driver.page_source)
-            self.driver.save_screenshot(png_path)
-
-            print(f"[DEBUG/selenium] Dump salvato in: {html_path}, {png_path}")
-        except Exception as e:
-            print(f"[WARN/selenium] Dump fallito: {e}")
-
-    def _create_new_chat(self):
-        print("[DEBUG/selenium] Clic su 'New Chat'")
-        try:
-            new_chat_button = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, '//a[contains(@href, "/chat/new")]'))
-            )
-            new_chat_button.click()
-            time.sleep(2)
-        except Exception as e:
-            self._dump_debug_page("failed_create_new_chat")
-            raise Exception("\u274c Impossibile creare una nuova chat.") from e
-        
-    def _rename_current_chat(self, new_name: str):
-        try:
-            print(f"[DEBUG/selenium] Rinominazione della chat in: {new_name}")
-            menu_button = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, '//button[@aria-label="More"]'))
-            )
-            menu_button.click()
-            time.sleep(0.5)
-
-            rename_button = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, '//button[contains(text(), "Rename")]'))
-            )
-            rename_button.click()
-            time.sleep(1)
-
-            input_box = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.TAG_NAME, "input"))
-            )
-            input_box.clear()
-            input_box.send_keys(new_name)
-            input_box.send_keys(Keys.ENTER)
-            time.sleep(1.5)
-            print("[DEBUG/selenium] ✅ Chat rinominata con successo.")
-        except Exception as e:
-            print(f"[WARN/selenium] ⚠️ Rinomina fallita: {e}")
-
-    def _launch_webview_gui(self):
-        print("[DEBUG/selenium] Inizio _launch_webview_gui()")
-
-        hostname = self._get_default_host()
-        port = os.getenv("WEBVIEW_PORT", "5005").strip()
-        url = f"http://{hostname}:{port}/vnc.html?resize=remote&autoconnect=true"
-
-        try:
-            print(f"[DEBUG/selenium] Invio notifica Telegram con link: {url}")
-            notify_owner(
-                # f"🔐 Accesso richiesto: premi per aprire interfaccia web\n"
-                # f"📲 {url}\n\n"
-                # f"⬆️ Completa login o CAPTCHA, poi scrivi '✔️ Fatto'"
-                "CULOOOO!!\n"
-            )
-            print("[DEBUG/selenium] ✅ Notifica inviata")
-        except Exception as e:
-            print(f"[ERROR/selenium] ❌ Errore durante l'invio della notifica: {e}")
-
-        # Chiudi il driver attivo
-        try:
-            if self.driver:
-                print("[DEBUG/selenium] 🔻 Chiudo Chrome headless prima di aprire GUI")
-                self.driver.quit()
-                self.driver = None
-        except Exception as e:
-            print(f"[WARN/selenium] Errore chiudendo il driver: {e}")
-
-        # Pulisci eventuali file di lock
-        try:
-            user_data_dir = getattr(self, "user_data_dir", None)
-            print(f"[DEBUG/selenium] user_data_dir = {user_data_dir}")
-
-            if not user_data_dir or not os.path.exists(user_data_dir):
-                warning = "⚠️ Impossibile rilevare o accedere alla cartella del profilo Chrome."
-                print(f"[WARN/selenium] {warning}")
-                notify_owner(warning)
-                return
-
-            for subdir in ["", "Default"]:
-                for fname in ["lock", "SingletonLock", "SingletonCookie", "SingletonSocket"]:
-                    lock_path = os.path.join(user_data_dir, subdir, fname)
-                    if os.path.exists(lock_path):
-                        os.remove(lock_path)
-                        print(f"[DEBUG/selenium] 🔓 Rimosso file di lock: {lock_path}")
-        except Exception as e:
-            print(f"[WARN/selenium] Errore durante la pulizia dei lock: {e}")
-
-        # Avvia GUI Chromium
-        try:
-            import subprocess
-            print("[DEBUG/selenium] Avvio Chromium GUI...")
-            subprocess.Popen([
-                os.getenv("CHROME_BIN", "/usr/bin/chromium"),
-                f"--user-data-dir={user_data_dir}",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--window-size=720,1280",  # Mobile friendly
-                "--no-default-browser-check",
-                "--disable-background-networking",
-                "--disable-sync",
-                "--disable-extensions",
-                "--disable-features=TranslateUI",
-                "--metrics-recording-only",
-                "--disable-component-update",
-                "--no-first-run",
-                "--password-store=basic",
-                "--use-mock-keychain",
-                "https://chat.openai.com"
-            ])
-        except Exception as e:
-            print(f"[ERROR/selenium] ❌ Errore durante il lancio di Chrome GUI: {e}")
-            notify_owner(f"❌ Errore avviando Chrome GUI per login manuale:\n```\n{e}\n```")
-
-    def _get_default_host(self):
-        explicit_host = os.getenv("WEBVIEW_HOST")
-        if explicit_host:
-            clean = explicit_host.split("#", 1)[0].strip()
-            print(f"[DEBUG/selenium] Host VNC esplicito: {clean}")
-            return clean
-
-        try:
-            import socket
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            print(f"[DEBUG/selenium] Host VNC dedotto: {ip}")
-            return ip
-        except Exception as e:
-            print(f"[WARN] Impossibile determinare l'IP LAN: {e}")
-            return "localhost"
-
-    def _attempt_simple_captcha_bypass(self):
-        print("[DEBUG/selenium] Provo il bypass semplice del CAPTCHA...")
-        try:
-            iframe = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "iframe[src*='hcaptcha.com']"))
-            )
-            self.driver.switch_to.frame(iframe)
-            checkbox = WebDriverWait(self.driver, 5).until(
-                EC.element_to_be_clickable((By.ID, "checkbox"))
-            )
-            checkbox.click()
-            print("[DEBUG/selenium] ✅ Checkbox cliccata.")
-            time.sleep(2)
-            self.driver.switch_to.default_content()
-            return True
-        except Exception as e:
-            print(f"[WARN/selenium] ❌ Bypass CAPTCHA fallito: {e}")
-            self._dump_debug_page("captcha_blocked")
-            return False
+    def set_notify_fn(self, fn):
+        self.notify_fn = fn
 
 PLUGIN_CLASS = SeleniumChatGPTPlugin
