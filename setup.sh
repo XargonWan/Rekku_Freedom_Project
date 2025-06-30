@@ -2,7 +2,7 @@
 
 set -e
 
-IMAGE_NAME="rekku_bot"
+IMAGE_NAME="rekku_the_bot"
 NEEDS_SUDO=""
 
 source .env

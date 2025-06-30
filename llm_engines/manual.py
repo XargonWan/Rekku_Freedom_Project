@@ -8,8 +8,9 @@ from telegram.constants import ParseMode
 
 class ManualAIPlugin(AIPluginBase):
 
-    def __init__(self):
+    def __init__(self, notify_fn=None):
         self.reply_map = {}
+        self.notify_fn = notify_fn
 
     def track_message(self, trainer_message_id, original_chat_id, original_message_id):
         self.reply_map[trainer_message_id] = {
@@ -25,9 +26,12 @@ class ManualAIPlugin(AIPluginBase):
             del self.reply_map[trainer_message_id]
 
     async def handle_incoming_message(self, bot, message, prompt):
+        if self.notify_fn:
+            self.notify_fn("🚨 Sto generando la risposta...")
+
         user_id = message.from_user.id
         text = message.text or ""
-        print(f"[DEBUG/manual] Messaggio ricevuto in modalit� manuale da chat_id={message.chat_id}")
+        print(f"[DEBUG/manual] Messaggio ricevuto in modalità manuale da chat_id={message.chat_id}")
 
         # === Caso speciale: /say attivo ===
         target_chat = say_proxy.get_target(user_id)

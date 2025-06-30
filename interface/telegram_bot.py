@@ -2,7 +2,7 @@
 
 import os
 import re
-from telegram import Update
+from telegram import Update, Bot
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
@@ -547,7 +547,27 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # === Avvio ===
 
 def start_bot():
-    plugin_instance.load_plugin(get_active_llm())  # ✅ carica il plugin all'avvio
+
+    # ✅ Definizione corretta e completa
+    def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None):
+        import asyncio
+        from telegram import Bot
+        bot = Bot(token=BOT_TOKEN)
+
+        async def send():
+            try:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=message,
+                    reply_to_message_id=reply_to_message_id
+                )
+                print(f"[DEBUG/notify] Messaggio Telegram inviato a {chat_id}")
+            except Exception as e:
+                print(f"[ERROR/notify] Fallito invio messaggio Telegram: {e}")
+
+        asyncio.create_task(send())
+
+    plugin_instance.load_plugin(get_active_llm(), notify_fn=telegram_notify)
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 

@@ -8,6 +8,7 @@ import shutil
 import datetime
 import traceback
 import stat
+import inspect
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -25,9 +26,9 @@ login_waiting = False
 
 class SeleniumChatGPTPlugin(AIPluginBase):
 
-    def __init__(self):
-        print(f"[DEBUG] OWNER_ID = {OWNER_ID!r} ({type(OWNER_ID)})")
-        self.bot = Bot(token=BOT_TOKEN)
+    def __init__(self, notify_fn=None):
+        # Imposta una notifica valida: richiede chat_id + messaggio
+        self._notify_fn = notify_fn or (lambda chat_id, message: print(f"[NOTIFY fallback] {message}"))
         self.driver = self._get_driver()
 
     def _is_profile_locked(self, path):
@@ -65,6 +66,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             raise RuntimeError(msg)
 
         temp_profile = tempfile.mkdtemp(prefix="selenium_profile_extracted_")
+        self.user_data_dir = temp_profile
         print(f"[DEBUG] Estrazione archivio Selenium in: {temp_profile}")
 
         try:
@@ -117,19 +119,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             self._notify_owner(msg)
             raise e
 
-    async def _notify_owner_async(self, text):
-        await self.bot.send_message(chat_id=OWNER_ID, text=text)
-
-    def _notify_owner(self, text):
+    def _notify_owner(self, message):
+        print("[DEBUG/notify] Notifica esterna richiesta:")
+        print(f"[DEBUG/notify] → {message}")
         try:
-            loop = asyncio.get_running_loop()
-            asyncio.create_task(self._notify_owner_async(text))
-        except RuntimeError:
-            # No running loop
-            asyncio.run(self._notify_owner_async(text))
+            self._notify_fn(OWNER_ID, message)  # ✅ Fix: ora passa chat_id
+        except Exception as e:
+            print(f"[ERROR/notify] ❌ Errore nella callback di notifica: {e}")
 
     def _wait_for_user_confirmation(self):
-        self._notify_owner("⏸️ In attesa... clicca '✔️ Fatto' su Telegram quando hai risolto login/captcha.")
+        self._notify_owner("⏸️ In attesa... clicca '✔️ Fatto' quando hai risolto login/captcha.")
         input("Premi INVIO quando hai completato il login o il captcha...")
 
     def login_if_needed(self):
@@ -161,12 +160,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 return
 
             login_waiting = True
-            self._notify_owner(
-                "⚠️ Il profilo Selenium sembra scaduto o bloccato.\n"
-                "Apri manualmente il browser, completa l'accesso a https://chat.openai.com,\n"
-                "poi rispondi '✔️ Fatto' su Telegram per continuare."
-            )
-            print("[DEBUG/selenium] In attesa di conferma dall'owner...")
+            self._launch_webview_gui()
+
+            print("[DEBUG/selenium] In attesa di conferma dell'owner per login/captcha...")
             while login_waiting:
                 time.sleep(2)
         else:
@@ -293,12 +289,25 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
             # Prova a trovare la sidebar principale
             try:
-                sidebar = WebDriverWait(self.driver, 30).until(
+                sidebar = WebDriverWait(self.driver, 10).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, 'nav[role="navigation"][aria-label="Chat history"]'))
                 )
             except TimeoutException:
                 self._dump_debug_page("failed_sidebar")
-                raise Exception("\u274c Jayyy! Non riesco a trovare la sidebar delle chat!")
+                print("[WARN/selenium] Timeout nel caricamento della sidebar \u2013 possibile blocco (login/CAPTCHA)")
+
+                # Forza login manuale
+                global login_waiting
+                if not login_waiting:
+                    login_waiting = True
+                    self._launch_webview_gui()
+
+                print("[DEBUG/selenium] In attesa di sblocco manuale...")
+                while login_waiting:
+                    time.sleep(2)
+
+                # Dopo il login manuale, riprova
+                return self.go_to_chat_by_path(chat_path)
 
             current_node = sidebar
             for depth, part in enumerate(parts):
@@ -383,6 +392,98 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             print("[DEBUG/selenium] ✅ Chat rinominata con successo.")
         except Exception as e:
             print(f"[WARN/selenium] ⚠️ Rinomina fallita: {e}")
+
+    def _launch_webview_gui(self):
+        print("[DEBUG/selenium] Inizio _launch_webview_gui()")
+
+        hostname = self._get_default_host()
+        port = os.getenv("WEBVIEW_PORT", "5005").strip()
+        url = f"http://{hostname}:{port}/vnc.html?resize=remote&autoconnect=true"
+
+        try:
+            print(f"[DEBUG/selenium] Invio notifica Telegram con link: {url}")
+            self._notify_owner(
+                f"🔐 Login o CAPTCHA richiesto.\n\n"
+                f"👉 Apri questo link dal tuo **browser mobile o desktop**:\n"
+                f"{url}\n\n"
+                f"✅ Completa l'accesso a ChatGPT, poi invia '✔️ Fatto'."
+            )
+            print("[DEBUG/selenium] ✅ Notifica inviata")
+        except Exception as e:
+            print(f"[ERROR/selenium] ❌ Errore durante l'invio della notifica: {e}")
+
+        # Chiudi il driver attivo
+        try:
+            if self.driver:
+                print("[DEBUG/selenium] 🔻 Chiudo Chrome headless prima di aprire GUI")
+                self.driver.quit()
+                self.driver = None
+        except Exception as e:
+            print(f"[WARN/selenium] Errore chiudendo il driver: {e}")
+
+        # Pulisci eventuali file di lock
+        try:
+            user_data_dir = getattr(self, "user_data_dir", None)
+            print(f"[DEBUG/selenium] user_data_dir = {user_data_dir}")
+
+            if not user_data_dir or not os.path.exists(user_data_dir):
+                warning = "⚠️ Impossibile rilevare o accedere alla cartella del profilo Chrome."
+                print(f"[WARN/selenium] {warning}")
+                self._notify_owner(warning)
+                return
+
+            for subdir in ["", "Default"]:
+                for fname in ["lock", "SingletonLock", "SingletonCookie", "SingletonSocket"]:
+                    lock_path = os.path.join(user_data_dir, subdir, fname)
+                    if os.path.exists(lock_path):
+                        os.remove(lock_path)
+                        print(f"[DEBUG/selenium] 🔓 Rimosso file di lock: {lock_path}")
+        except Exception as e:
+            print(f"[WARN/selenium] Errore durante la pulizia dei lock: {e}")
+
+        # Avvia GUI Chromium
+        try:
+            import subprocess
+            print("[DEBUG/selenium] Avvio Chromium GUI...")
+            subprocess.Popen([
+                os.getenv("CHROME_BIN", "/usr/bin/chromium"),
+                f"--user-data-dir={user_data_dir}",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--window-size=720,1280",  # Mobile friendly
+                "--no-default-browser-check",
+                "--disable-background-networking",
+                "--disable-sync",
+                "--disable-extensions",
+                "--disable-features=TranslateUI",
+                "--metrics-recording-only",
+                "--disable-component-update",
+                "--no-first-run",
+                "--password-store=basic",
+                "--use-mock-keychain",
+                "https://chat.openai.com"
+            ])
+        except Exception as e:
+            print(f"[ERROR/selenium] ❌ Errore durante il lancio di Chrome GUI: {e}")
+            self._notify_owner(f"❌ Errore avviando Chrome GUI per login manuale:\n```\n{e}\n```")
+
+    def _get_default_host(self):
+        explicit_host = os.getenv("WEBVIEW_HOST")
+        if explicit_host:
+            clean = explicit_host.split("#", 1)[0].strip()
+            return clean
+
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception as e:
+            print(f"[WARN] Impossibile determinare l'IP LAN: {e}")
+            return os.getenv("HOSTNAME", "localhost")
 
     def _attempt_simple_captcha_bypass(self):
         print("[DEBUG/selenium] Provo il bypass semplice del CAPTCHA...")

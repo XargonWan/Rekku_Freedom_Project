@@ -7,8 +7,9 @@ from core.config import get_user_api_key
 
 class OpenAIPlugin(AIPluginBase):
 
-    def __init__(self):
+    def __init__(self, notify_fn=None):
         self.reply_map = {}
+        self.notify_fn = notify_fn
 
     def get_target(self, trainer_message_id):
         return self.reply_map.get(trainer_message_id)
@@ -17,6 +18,9 @@ class OpenAIPlugin(AIPluginBase):
         self.reply_map.pop(trainer_message_id, None)
 
     async def handle_incoming_message(self, bot, message, prompt):
+        if self.notify_fn:
+            self.notify_fn("🚨 Sto generando la risposta...")
+
         try:
             response = await self.generate_response(prompt)
             await bot.send_message(

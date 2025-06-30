@@ -1,6 +1,7 @@
+# core/ai_plugin_base.py
+
 from abc import ABC, abstractmethod
 from core.prompt_engine import build_prompt
-
 
 class AIPluginBase(ABC):
     """

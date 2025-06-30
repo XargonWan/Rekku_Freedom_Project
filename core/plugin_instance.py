@@ -9,12 +9,7 @@ from core.prompt_engine import build_json_prompt
 plugin = None
 rekku_identity_prompt = None  # visibile ai plugin o altri moduli
 
-
-def load_plugin(name: str):
-    """
-    Carica dinamicamente un plugin dalla directory llm_engines/.
-    Il plugin deve definire una variabile `PLUGIN_CLASS` che espone la classe principale.
-    """
+def load_plugin(name: str, notify_fn=None):
     global plugin, rekku_identity_prompt
 
     try:
@@ -25,19 +20,22 @@ def load_plugin(name: str):
         raise ValueError(f"LLM plugin non valido: {name}")
 
     if not hasattr(module, "PLUGIN_CLASS"):
-        print(f"[ERROR] Il modulo `{name}` non definisce `PLUGIN_CLASS`.")
         raise ValueError(f"Il plugin `{name}` non definisce `PLUGIN_CLASS`.")
 
     plugin_class = getattr(module, "PLUGIN_CLASS")
-    plugin = plugin_class()
+
+    # 👇 Passa notify_fn solo se il costruttore la accetta
+    try:
+        plugin = plugin_class(notify_fn=notify_fn)
+    except TypeError:
+        plugin = plugin_class()  # fallback per plugin legacy
+
     print(f"[DEBUG] Plugin inizializzato: {plugin.__class__.__name__}")
 
-    # Carica il prompt identitario solo se richiesto
     if name not in ["manual"]:
         rekku_identity_prompt = load_identity_prompt()
         print("[DEBUG] Prompt identitario caricato.")
 
-    # Imposta modello di default se il plugin lo supporta
     if hasattr(plugin, "get_supported_models"):
         try:
             models = plugin.get_supported_models()
