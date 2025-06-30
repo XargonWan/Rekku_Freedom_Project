@@ -1,0 +1,15 @@
+services:
+  rekku_the_bot:
+    container_name: rekku_the_bot
+    image: rekku_the_bot:latest
+    restart: on-failure
+    environment:
+      - TELEGRAM_TOKEN=${REKKU_TELEGRAM_TOKEN}
+      - OWNER_ID=${TELEGRAM_OWNER_ID}
+    ports:
+      - "${REKKU_WEBVIEW_PORT:-5005}:5005"
+    volumes:
+      - ./logs:/app/debug_logs
+      - ./selenium_profile:/app/selenium_profile
+    env_file:
+      - .env
