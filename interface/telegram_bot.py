@@ -315,11 +315,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             print("[DEBUG] Ignoro messaggio: non menzionata né in risposta a me.")
             return
 
-    # === Passa al plugin
+    # === Passa al plugin con fallback
     try:
         await plugin_instance.handle_incoming_message(context.bot, message, context_memory)
     except Exception as e:
         print(f"[ERROR] plugin_instance.handle_incoming_message fallito: {e}")
+        await message.reply_text("⚠️ Il modulo LLM ha avuto un problema e non ha potuto rispondere.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from core.context import get_context_state
@@ -506,7 +507,6 @@ async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         load_plugin(choice)
-        set_active_llm(choice)
         await update.message.reply_text(f"\u2705 Modalità LLM aggiornata dinamicamente a `{choice}`.")
     except Exception as e:
         await update.message.reply_text(f"\u274c Errore nel caricamento del plugin: {e}")
@@ -544,30 +544,45 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"\u274c Errore nel cambio modello: {e}")
 
+def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None):
+    import asyncio
+    from telegram import Bot
+    from telegram.error import TelegramError
+
+    print(f"[DEBUG/telegram_notify] → CHIAMATO con chat_id={chat_id}")
+    print(f"[DEBUG/telegram_notify] → MESSAGGIO:\n{message}")
+
+    bot = Bot(token=BOT_TOKEN)
+
+    async def send():
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=message,
+                reply_to_message_id=reply_to_message_id
+            )
+            print(f"[DEBUG/notify] ✅ Messaggio Telegram inviato a {chat_id}")
+        except TelegramError as e:
+            print(f"[ERROR/notify] ❌ Errore Telegram: {e}")
+        except Exception as e:
+            print(f"[ERROR/notify] ❌ Altro errore nel send(): {e}")
+
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(send())
+        else:
+            asyncio.run(send())
+    except Exception as e:
+        print(f"[ERROR/notify] ❌ Errore nella gestione event loop: {e}")
+
 # === Avvio ===
 
 def start_bot():
 
-    # ✅ Definizione corretta e completa
-    def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None):
-        import asyncio
-        from telegram import Bot
-        bot = Bot(token=BOT_TOKEN)
 
-        async def send():
-            try:
-                await bot.send_message(
-                    chat_id=chat_id,
-                    text=message,
-                    reply_to_message_id=reply_to_message_id
-                )
-                print(f"[DEBUG/notify] Messaggio Telegram inviato a {chat_id}")
-            except Exception as e:
-                print(f"[ERROR/notify] Fallito invio messaggio Telegram: {e}")
-
-        asyncio.create_task(send())
-
-    plugin_instance.load_plugin(get_active_llm(), notify_fn=telegram_notify)
+    # 🔁 Passa la funzione di notifica corretta (per i plugin)
+    load_plugin(get_active_llm(), notify_fn=telegram_notify)
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -579,7 +594,6 @@ def start_bot():
     app.add_handler(CommandHandler("context", context_command))
     app.add_handler(CommandHandler("llm", llm_command))
 
-    # Se il plugin supporta i modelli, aggiungi il comando /model
     try:
         if plugin_instance.get_supported_models():
             app.add_handler(CommandHandler("model", model_command))
@@ -608,3 +622,4 @@ def start_bot():
 
     print("🧞‍♀️ Rekku è online.")
     app.run_polling()
+

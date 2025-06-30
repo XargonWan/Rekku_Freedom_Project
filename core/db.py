@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timezone
 
-DB_PATH = Path(__file__).parent.parent / "rekku_memories.db"  # ✅ database unico
+DB_PATH = Path(__file__).parent.parent / "persona" / "rekku_memories.db"
 
 @contextmanager
 def get_db():

@@ -9,8 +9,16 @@ from telegram.constants import ParseMode
 class ManualAIPlugin(AIPluginBase):
 
     def __init__(self, notify_fn=None):
+        from core.notifier import set_notifier
+
         self.reply_map = {}
-        self.notify_fn = notify_fn
+
+        if notify_fn:
+            print("[DEBUG/manual] Uso funzione di notifica personalizzata.")
+            set_notifier(notify_fn)
+        else:
+            print("[DEBUG/manual] Nessuna funzione di notifica fornita, uso fallback.")
+            set_notifier(lambda chat_id, message: print(f"[NOTIFY fallback] {message}"))
 
     def track_message(self, trainer_message_id, original_chat_id, original_message_id):
         self.reply_map[trainer_message_id] = {
@@ -26,8 +34,9 @@ class ManualAIPlugin(AIPluginBase):
             del self.reply_map[trainer_message_id]
 
     async def handle_incoming_message(self, bot, message, prompt):
-        if self.notify_fn:
-            self.notify_fn("🚨 Sto generando la risposta...")
+        from core.notifier import notify_owner
+
+        notify_owner("🚨 Sto generando la risposta...")
 
         user_id = message.from_user.id
         text = message.text or ""
@@ -42,6 +51,9 @@ class ManualAIPlugin(AIPluginBase):
             return
 
         # === Invia prompt JSON al trainer (OWNER_ID) ===
+        import json
+        from telegram.constants import ParseMode
+
         prompt_json = json.dumps(prompt, ensure_ascii=False, indent=2)
         if len(prompt_json) > 4000:
             prompt_json = prompt_json[:4000] + "\n... (troncato)"
@@ -56,6 +68,7 @@ class ManualAIPlugin(AIPluginBase):
         sender = message.from_user
         user_ref = f"@{sender.username}" if sender.username else sender.full_name
         await bot.send_message(chat_id=OWNER_ID, text=f"{user_ref}:")
+
         sent = await bot.forward_message(
             chat_id=OWNER_ID,
             from_chat_id=message.chat_id,

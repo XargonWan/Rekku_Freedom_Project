@@ -20,15 +20,24 @@ from core.config import OWNER_ID, BOT_TOKEN
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
-
+from core.notifier import notify_owner
+from core.notifier import notify
 
 login_waiting = False
 
 class SeleniumChatGPTPlugin(AIPluginBase):
 
     def __init__(self, notify_fn=None):
-        # Imposta una notifica valida: richiede chat_id + messaggio
-        self._notify_fn = notify_fn or (lambda chat_id, message: print(f"[NOTIFY fallback] {message}"))
+        # 🔔 Inizializza la funzione di notifica (usata per debug e errori)
+        from core.notifier import set_notifier
+
+        if notify_fn:
+            print("[DEBUG/selenium] Uso funzione di notifica personalizzata.")
+            set_notifier(notify_fn)
+        else:
+            print("[DEBUG/selenium] Nessuna funzione di notifica fornita, uso fallback.")
+            set_notifier(lambda chat_id, message: print(f"[NOTIFY fallback] {message}"))
+
         self.driver = self._get_driver()
 
     def _is_profile_locked(self, path):
@@ -62,7 +71,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         if not os.path.isfile(archive_path):
             msg = f"\u274c Archivio profilo Selenium non trovato: {archive_path}"
             print(f"[ERROR] {msg}")
-            self._notify_owner(msg)
+            notify_owner(msg)
             raise RuntimeError(msg)
 
         temp_profile = tempfile.mkdtemp(prefix="selenium_profile_extracted_")
@@ -76,7 +85,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except Exception as e:
             msg = f"\u274c Estrazione profilo fallita: {e}"
             print(f"[ERROR] {msg}")
-            self._notify_owner(msg)
+            notify_owner(msg)
             raise RuntimeError(msg)
 
         for subdir in ["", "Default"]:
@@ -116,19 +125,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except WebDriverException as e:
             msg = "\u274c Errore avviando Chrome. Controlla CHROME_BIN e CHROMEDRIVER_PATH."
             print(f"[ERROR] {msg}")
-            self._notify_owner(msg)
+            notify_owner(msg)
             raise e
 
-    def _notify_owner(self, message):
-        print("[DEBUG/notify] Notifica esterna richiesta:")
-        print(f"[DEBUG/notify] → {message}")
-        try:
-            self._notify_fn(OWNER_ID, message)  # ✅ Fix: ora passa chat_id
-        except Exception as e:
-            print(f"[ERROR/notify] ❌ Errore nella callback di notifica: {e}")
-
     def _wait_for_user_confirmation(self):
-        self._notify_owner("⏸️ In attesa... clicca '✔️ Fatto' quando hai risolto login/captcha.")
+        notify_owner("⏸️ In attesa... clicca '✔️ Fatto' quando hai risolto login/captcha.")
         input("Premi INVIO quando hai completato il login o il captcha...")
 
     def login_if_needed(self):
@@ -140,7 +141,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             self.driver.get("https://chat.openai.com")
         except Exception as e:
             print(f"[ERROR/selenium] Errore durante il self.driver.get: {e}")
-            self._notify_owner(f"❌ Errore caricando la pagina iniziale: {e}")
+            notify_owner(f"❌ Errore caricando la pagina iniziale: {e}")
             raise e
 
         try:
@@ -152,7 +153,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             raise
 
         if "login" in current_url or "captcha" in page_text or "please enable javascript" in page_text:
-            print("[WARN] Login/CAPTCHA richiesto o sessione scaduta.")
+            print(f"[DEBUG/selenium] Invio notifica diretta a OWNER_ID={OWNER_ID}")
+            notify(OWNER_ID, "🔐 Login o CAPTCHA richiesto – apri l’interfaccia per completare l’accesso.")
 
             bypass_ok = self._attempt_simple_captcha_bypass()
             if bypass_ok:
@@ -176,7 +178,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             textarea.send_keys(prompt_text)
             textarea.send_keys(Keys.ENTER)
         except Exception as e:
-            self._notify_owner("❌ Impossibile trovare la textarea. Sei sicuro di essere loggato?")
+            notify_owner("❌ Impossibile trovare la textarea. Sei sicuro di essere loggato?")
             raise e
 
     def wait_for_response(self, timeout=30):
@@ -234,7 +236,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             error_msg = f"[ERROR/selenium] Errore durante la risposta: {e}"
             print(error_msg)
             traceback.print_exc()
-            self._notify_owner(f"❌ Errore nel plugin Selenium:\n```\n{e}\n```")
+            notify_owner(f"❌ Errore nel plugin Selenium:\n```\n{e}\n```")
 
     def _format_prompt_as_text(self, prompt: dict) -> str:
         ctx = "\n".join(f"{m['username']}: {m['text']}" for m in prompt.get("context", []))
@@ -335,7 +337,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except Exception as e:
             error = f"\u274c Errore nella selezione della chat '{chat_path}': {e}"
             print(f"[ERROR/selenium] {error}")
-            self._notify_owner(f"\u26a0\ufe0f Impossibile trovare la chat:\n`{chat_path}`\n\nErrore: {e}")
+            notify_owner(f"\u26a0\ufe0f Impossibile trovare la chat:\n`{chat_path}`\n\nErrore: {e}")
             raise
 
     def _dump_debug_page(self, prefix: str):
@@ -402,11 +404,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
         try:
             print(f"[DEBUG/selenium] Invio notifica Telegram con link: {url}")
-            self._notify_owner(
-                f"🔐 Login o CAPTCHA richiesto.\n\n"
-                f"👉 Apri questo link dal tuo **browser mobile o desktop**:\n"
-                f"{url}\n\n"
-                f"✅ Completa l'accesso a ChatGPT, poi invia '✔️ Fatto'."
+            notify_owner(
+                # f"🔐 Accesso richiesto: premi per aprire interfaccia web\n"
+                # f"📲 {url}\n\n"
+                # f"⬆️ Completa login o CAPTCHA, poi scrivi '✔️ Fatto'"
+                "CULOOOO!!\n"
             )
             print("[DEBUG/selenium] ✅ Notifica inviata")
         except Exception as e:
@@ -429,7 +431,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             if not user_data_dir or not os.path.exists(user_data_dir):
                 warning = "⚠️ Impossibile rilevare o accedere alla cartella del profilo Chrome."
                 print(f"[WARN/selenium] {warning}")
-                self._notify_owner(warning)
+                notify_owner(warning)
                 return
 
             for subdir in ["", "Default"]:
@@ -466,12 +468,13 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             ])
         except Exception as e:
             print(f"[ERROR/selenium] ❌ Errore durante il lancio di Chrome GUI: {e}")
-            self._notify_owner(f"❌ Errore avviando Chrome GUI per login manuale:\n```\n{e}\n```")
+            notify_owner(f"❌ Errore avviando Chrome GUI per login manuale:\n```\n{e}\n```")
 
     def _get_default_host(self):
         explicit_host = os.getenv("WEBVIEW_HOST")
         if explicit_host:
             clean = explicit_host.split("#", 1)[0].strip()
+            print(f"[DEBUG/selenium] Host VNC esplicito: {clean}")
             return clean
 
         try:
@@ -480,10 +483,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
             s.close()
+            print(f"[DEBUG/selenium] Host VNC dedotto: {ip}")
             return ip
         except Exception as e:
             print(f"[WARN] Impossibile determinare l'IP LAN: {e}")
-            return os.getenv("HOSTNAME", "localhost")
+            return "localhost"
 
     def _attempt_simple_captcha_bypass(self):
         print("[DEBUG/selenium] Provo il bypass semplice del CAPTCHA...")
