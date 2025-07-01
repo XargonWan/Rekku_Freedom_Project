@@ -9,7 +9,7 @@ services:
       - WEBVIEW_PORT=${REKKU_WEBVIEW_PORT:-5005}
       - WEBVIEW_HOST=${REKKU_WEBVIEW_HOST:-localhost}
     ports:
-      - "${REKKU_WEBVIEW_PORT:-5005}:5005"
+      - "${REKKU_WEBVIEW_PORT:-5005}:${REKKU_WEBVIEW_PORT:-5005}"
     volumes:
       - ./logs:/app/debug_logs
       - ./selenium_profile:/app/selenium_profile
