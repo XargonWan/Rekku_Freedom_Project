@@ -7,17 +7,15 @@ from core.notifier import notify_owner, set_notifier
 from core.config import SELENIUM_PROFILE_DIR
 import asyncio
 import os
+import subprocess
 
 def _get_default_host() -> str:
     explicit = os.getenv("WEBVIEW_HOST")
     if explicit:
         return explicit
     try:
-        import socket
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
+        output = subprocess.check_output(["hostname", "-I"]).decode().strip()
+        ip = output.split()[0]
         return ip
     except Exception:
         return "localhost"
