@@ -124,8 +124,14 @@ def _get_driver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-infobars")
     options.add_argument("--disable-extensions")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
+    # Recent Chrome versions may reject the 'excludeSwitches' capability.
+    # Failures here previously prevented the VNC notification from reaching
+    # the owner, so we guard the call and fall back gracefully.
+    try:
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+    except Exception as e:
+        print(f"[WARN/selenium] Opzioni experimental non supportate: {e}")
 
     os.makedirs(PROFILE_DIR, exist_ok=True)
 
