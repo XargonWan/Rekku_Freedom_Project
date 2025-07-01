@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fluxbox \
     python3-pyqt5 \
     websockify \
+    python3-distutils \
     && rm -rf /var/lib/apt/lists/* && \
     echo 'PRETTY_NAME="Ubuntu 22.04.4 LTS"' > /etc/os-release && \
     echo 'NAME="Ubuntu"' >> /etc/os-release && \

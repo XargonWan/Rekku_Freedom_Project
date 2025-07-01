@@ -3,3 +3,4 @@ python-dotenv
 openai
 selenium
 undetected-chromedriver
+setuptools
