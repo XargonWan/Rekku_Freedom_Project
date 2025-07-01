@@ -101,8 +101,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         time.sleep(1)
 
     def _ensure_logged_in(self):
-        current_url = self.driver.current_url
-        if "login" in current_url:
+        try:
+            current_url = self.driver.current_url
+        except Exception:
+            current_url = ""
+        if current_url and "login" in current_url:
             notify_owner(
                 f"🔐 Login necessario. Apri {WEBVIEW_URL} per completare la procedura."
             )
@@ -152,6 +155,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     def set_notify_fn(self, fn):
         set_notifier(fn)
         if self.driver is None:
-            self._init_driver()
+            try:
+                self._init_driver()
+            except Exception as e:
+                notify_owner(f"❌ Errore Selenium: {e}")
 
 PLUGIN_CLASS = SeleniumChatGPTPlugin
