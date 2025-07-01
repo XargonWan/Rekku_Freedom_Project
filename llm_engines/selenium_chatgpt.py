@@ -65,7 +65,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         chrome_options.add_argument('--disable-dev-shm-usage')
         os.makedirs(PROFILE_DIR, exist_ok=True)
         chrome_options.add_argument(f'--user-data-dir={PROFILE_DIR}')
-        chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36')
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36')
         # Evita che il browser si identifichi come "ChromeHeadless"
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
         chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])

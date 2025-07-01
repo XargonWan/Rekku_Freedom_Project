@@ -12,6 +12,10 @@ fluxbox &
 # Assicura che Selenium sia avviato con interfaccia grafica
 export REKKU_SELENIUM_HEADLESS=0
 
+# Finge ambiente desktop Ubuntu
+export XDG_CURRENT_DESKTOP=ubuntu:GNOME
+export XDG_SESSION_DESKTOP=ubuntu
+
 # Avvia server VNC (condivisione e senza password)
 x11vnc -display :0 -forever -nopw -shared -rfbport 5900 -bg
 

@@ -31,7 +31,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fluxbox \
     python3-pyqt5 \
     websockify \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* && \
+    echo 'PRETTY_NAME="Ubuntu 22.04.4 LTS"' > /etc/os-release && \
+    echo 'NAME="Ubuntu"' >> /etc/os-release && \
+    echo 'VERSION_ID="22.04"' >> /etc/os-release && \
+    echo 'VERSION="22.04.4 LTS (Jammy Jellyfish)"' >> /etc/os-release && \
+    echo 'VERSION_CODENAME=jammy' >> /etc/os-release && \
+    echo 'ID=ubuntu' >> /etc/os-release && \
+    echo 'ID_LIKE=debian' >> /etc/os-release && \
+    echo 'HOME_URL="https://www.ubuntu.com/"' >> /etc/os-release && \
+    echo 'SUPPORT_URL="https://help.ubuntu.com/"' >> /etc/os-release && \
+    echo 'BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"' >> /etc/os-release && \
+    echo 'UBUNTU_CODENAME=jammy' >> /etc/os-release && \
+    echo 'LOGO=ubuntu-logo' >> /etc/os-release && \
+    echo 'DISTRIB_ID=Ubuntu' > /etc/lsb-release && \
+    echo 'DISTRIB_RELEASE=22.04' >> /etc/lsb-release && \
+    echo 'DISTRIB_CODENAME=jammy' >> /etc/lsb-release && \
+    echo 'DISTRIB_DESCRIPTION="Ubuntu 22.04.4 LTS"' >> /etc/lsb-release && \
+    echo 'Ubuntu 22.04.4 LTS \n \l' > /etc/issue
 
 # Scarica noVNC
 RUN mkdir -p /opt/novnc && \
