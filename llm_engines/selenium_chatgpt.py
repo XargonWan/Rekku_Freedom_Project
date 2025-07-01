@@ -14,6 +14,7 @@ import glob
 import time
 import zipfile
 import urllib.request
+import shutil
 
 def _get_default_host() -> str:
     explicit = os.getenv("WEBVIEW_HOST")
@@ -44,11 +45,18 @@ def _cleanup_profile_locks():
 
 
 def _install_webstore_extension(ext_id: str, name: str) -> str | None:
-    """Download and unpack a Chrome Web Store extension if missing."""
+    """Download and unpack a Chrome Web Store extension if missing.
+
+    Returns the directory path containing the unpacked extension or ``None`` if
+    the download fails. The function never raises to avoid breaking Selenium
+    startup when network access is unavailable.
+    """
     target_dir = os.path.join(SELENIUM_EXTENSIONS_DIR, name)
-    if os.path.isdir(target_dir) and os.listdir(target_dir):
+    manifest = os.path.join(target_dir, "manifest.json")
+    if os.path.isfile(manifest):
         print(f"[DEBUG/selenium] Estensione {name} già presente")
         return target_dir
+
     os.makedirs(target_dir, exist_ok=True)
     url = (
         "https://clients2.google.com/service/update2/crx?response=redirect"
@@ -65,6 +73,11 @@ def _install_webstore_extension(ext_id: str, name: str) -> str | None:
         return target_dir
     except Exception as e:
         print(f"[ERROR/selenium] Impossibile installare {name}: {e}")
+        # Elimina eventuali file parziali per evitare errori di caricamento
+        try:
+            shutil.rmtree(target_dir)
+        except Exception:
+            pass
         return None
 
 
@@ -126,7 +139,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         if os.path.isdir(SELENIUM_EXTENSIONS_DIR):
             for d in os.listdir(SELENIUM_EXTENSIONS_DIR):
                 p = os.path.join(SELENIUM_EXTENSIONS_DIR, d)
-                if os.path.isdir(p) and p not in extension_paths:
+                if os.path.isfile(os.path.join(p, "manifest.json")) and p not in extension_paths:
                     extension_paths.append(p)
 
         if extension_paths:
