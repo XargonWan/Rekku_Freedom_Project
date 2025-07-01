@@ -80,6 +80,12 @@ def _install_webstore_extension(ext_id: str, name: str) -> str | None:
         return None
 
 
+def _notify_gui(message: str = ""):
+    """Send a notification with the VNC URL, optionally prefixed."""
+    text = f"{message} {WEBVIEW_URL}".strip()
+    notify_owner(text)
+
+
 STEALTH_JS = """
 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
 Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
@@ -148,6 +154,7 @@ def _get_driver():
             )
         else:
             print(f"[ERROR/selenium] Errore avvio Chrome: {e}")
+            _notify_gui(f"❌ Errore Selenium: {e}. Apri")
             raise
 
     try:
@@ -159,7 +166,7 @@ def _get_driver():
         print(f"[WARN/selenium] Patch fingerprint fallita: {e}")
 
     if not headless:
-        notify_owner(f"🔎 Interfaccia grafica disponibile su {WEBVIEW_URL}")
+        _notify_gui("🔎 Interfaccia grafica disponibile su")
 
     return driver
 
@@ -173,11 +180,15 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             try:
                 self._init_driver()
             except Exception as e:
-                notify_owner(f"❌ Errore Selenium: {e}")
+                _notify_gui(f"❌ Errore Selenium: {e}. Apri")
 
     def _init_driver(self):
         if self.driver is None:
-            self.driver = _get_driver()
+            try:
+                self.driver = _get_driver()
+            except Exception as e:
+                _notify_gui(f"❌ Errore Selenium: {e}. Apri")
+                raise
 
     def _ensure_logged_in(self):
         try:
@@ -186,9 +197,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             current_url = ""
         if current_url and ("login" in current_url or "auth0" in current_url):
             print("[DEBUG/selenium] Login richiesto, notifico l'utente")
-            notify_owner(
-                f"🔐 Login necessario. Apri {WEBVIEW_URL} per completare la procedura."
-            )
+            _notify_gui("🔐 Login necessario. Apri")
             return False
         return True
 
@@ -209,7 +218,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 self.driver.find_element(By.TAG_NAME, "aside")
             except NoSuchElementException:
                 print("[DEBUG/selenium] Sidebar assente, notifica il proprietario")
-                notify_owner(f"❌ Errore Selenium: Sidebar non trovata. Apri {WEBVIEW_URL} per risolvere CAPTCHA o login.")
+                _notify_gui("❌ Errore Selenium: Sidebar non trovata. Apri")
                 return
 
             # Simula risposta finta
@@ -219,7 +228,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             )
 
         except Exception as e:
-            notify_owner(f"❌ Errore Selenium: {e}")
+            _notify_gui(f"❌ Errore Selenium: {e}. Apri")
 
     def get_supported_models(self):
         return []  # nessun modello per ora
@@ -230,6 +239,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             try:
                 self._init_driver()
             except Exception as e:
-                notify_owner(f"❌ Errore Selenium: {e}")
+                _notify_gui(f"❌ Errore Selenium: {e}. Apri")
 
 PLUGIN_CLASS = SeleniumChatGPTPlugin
