@@ -2,6 +2,7 @@
 
 import os
 import re
+import asyncio
 from telegram import Update, Bot
 from telegram.ext import (
     ApplicationBuilder,
@@ -545,7 +546,6 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"\u274c Errore nel cambio modello: {e}")
 
 def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None):
-    import asyncio
     import html
     import re
     from telegram import Bot
@@ -557,32 +557,26 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
 
     bot = Bot(token=BOT_TOKEN)
 
-    # Rende cliccabili gli eventuali link con modifica successiva del messaggio
+    # Rende cliccabili eventuali URL
     url_pattern = re.compile(r"https?://\S+")
+    match = url_pattern.search(message or "")
     formatted_message = None
-    if url_pattern.search(message or ""):
-        def repl(match):
-            url = match.group(0)
+    if match:
+        def repl(m):
+            url = m.group(0)
             return f'<a href="{html.escape(url)}">{html.escape(url)}</a>'
 
         formatted_message = url_pattern.sub(repl, html.escape(message))
 
     async def send():
         try:
-            sent = await bot.send_message(
+            await bot.send_message(
                 chat_id=chat_id,
-                text=message,
+                text=formatted_message or message,
                 reply_to_message_id=reply_to_message_id,
+                parse_mode=ParseMode.HTML if formatted_message else None,
                 disable_web_page_preview=True,
             )
-            if formatted_message:
-                await bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=sent.message_id,
-                    text=formatted_message,
-                    parse_mode=ParseMode.HTML,
-                    disable_web_page_preview=True,
-                )
             print(f"[DEBUG/notify] ✅ Messaggio Telegram inviato a {chat_id}")
         except TelegramError as e:
             print(f"[ERROR/notify] ❌ Errore Telegram: {e}")
@@ -590,13 +584,13 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
             print(f"[ERROR/notify] ❌ Altro errore nel send(): {e}")
 
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(send())
-        else:
-            asyncio.run(send())
-    except Exception as e:
-        print(f"[ERROR/notify] ❌ Errore nella gestione event loop: {e}")
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        loop.create_task(send())
+    else:
+        asyncio.run(send())
 
 # === Avvio ===
 
@@ -605,6 +599,10 @@ def start_bot():
 
     # 🔁 Passa la funzione di notifica corretta (per i plugin)
     load_plugin(get_active_llm(), notify_fn=telegram_notify)
+
+    # Assicura la presenza di un event loop principale
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
