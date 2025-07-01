@@ -21,11 +21,17 @@ def _build_vnc_url() -> str:
     host = os.getenv("WEBVIEW_HOST")
     if not host or host in {"localhost", "127.0.0.1", "0.0.0.0"}:
         try:
-            output = subprocess.check_output(["hostname", "-I"]).decode().strip()
-            host = output.split()[0]
-        except Exception:
-            host = "localhost"
-    return f"http://{host}:{port}/vnc.html"
+            output = subprocess.check_output(
+                "ip route get 1 | awk '{print $NF;exit}'",
+                shell=True,
+            ).decode().strip()
+            host = output or host
+        except Exception as e:
+            print(f"[WARN/selenium] Impossibile determinare host: {e}")
+            host = host or "localhost"
+    url = f"http://{host}:{port}/vnc.html"
+    print(f"[DEBUG/selenium] VNC URL costruita: {url}")
+    return url
 
 # Path assoluto per il profilo Selenium montato dall'host
 PROFILE_DIR = os.path.abspath(SELENIUM_PROFILE_DIR)
@@ -173,9 +179,9 @@ def _get_driver():
 class SeleniumChatGPTPlugin(AIPluginBase):
     def __init__(self, notify_fn=None):
         """Initialize the plugin without starting Selenium yet."""
+        self.driver = None
         if notify_fn:
             set_notifier(notify_fn)
-        self.driver = None
 
     def _init_driver(self):
         if self.driver is None:

@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium-driver \
     fonts-liberation \
     fonts-dejavu-core \
+    fonts-noto-color-emoji \
+    fonts-ubuntu \
     libnss3 \
     libx11-6 \
     libxcomposite1 \
@@ -29,6 +31,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     x11vnc \
     fluxbox \
+    xfce4 \
+    dbus \
+    udev \
     python3-pyqt5 \
     websockify \
     python3-distutils \

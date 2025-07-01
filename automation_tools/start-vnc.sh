@@ -6,8 +6,13 @@ export DISPLAY=:0
 # Avvia display virtuale (Xvfb)
 Xvfb :0 -screen 0 720x1280x24 &
 
-# Avvia window manager (necessario per Chrome GUI)
-fluxbox &
+# Avvia servizi di sistema per un ambiente desktop più realistico
+/lib/udev/udevd --daemon >/dev/null 2>&1 || udevd --daemon >/dev/null 2>&1
+udevadm trigger &
+dbus-daemon --system --fork
+
+# Avvia un desktop completo (XFCE)
+startxfce4 &
 
 # Assicura che Selenium sia avviato con interfaccia grafica
 export REKKU_SELENIUM_HEADLESS=0
