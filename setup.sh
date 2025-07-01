@@ -2,6 +2,14 @@
 
 set -e
 
+# Modalità CI/CD: risponde automaticamente "yes" a tutte le richieste
+AUTO_YES=false
+for arg in "$@"; do
+  if [[ "$arg" == "--cicd" ]]; then
+    AUTO_YES=true
+  fi
+done
+
 IMAGE_NAME="rekku_the_bot"
 NEEDS_SUDO=""
 
@@ -15,7 +23,12 @@ fi
 if ! command -v docker &> /dev/null; then
   echo "❌ Docker non è installato."
   echo "Vuoi installarlo ora? (richiede sudo) [y/N]"
-  read -r risposta
+  if [ "$AUTO_YES" = true ]; then
+    risposta="y"
+    echo "Risposta automatica: yes"
+  else
+    read -r risposta
+  fi
   if [[ "$risposta" =~ ^[Yy]$ ]]; then
     echo "🔧 Installazione di Docker..."
     sudo apt-get update
@@ -33,7 +46,12 @@ fi
 if ! docker info > /dev/null 2>&1; then
   echo "⚠️ L'utente $(whoami) non ha accesso al daemon Docker."
   echo "Vuoi aggiungerlo al gruppo docker per evitare sudo in futuro? [y/N]"
-  read -r addgroup
+  if [ "$AUTO_YES" = true ]; then
+    addgroup="y"
+    echo "Risposta automatica: yes"
+  else
+    read -r addgroup
+  fi
   if [[ "$addgroup" =~ ^[Yy]$ ]]; then
     sudo usermod -aG docker "$USER"
     echo "✅ Utente aggiunto al gruppo docker."

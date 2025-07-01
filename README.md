@@ -106,6 +106,11 @@ setup.sh
 start.sh
 ```
 
+Per eseguire il setup in modalità non interattiva (es. CI/CD) usare:
+```bash
+setup.sh --cicd
+```
+
 Tuttavia si consiglia di esegurlo via `docker compose`.
 
 ---
