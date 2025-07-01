@@ -9,6 +9,9 @@ Xvfb :0 -screen 0 720x1280x24 &
 # Avvia window manager (necessario per Chrome GUI)
 fluxbox &
 
+# Assicura che Selenium sia avviato con interfaccia grafica
+export REKKU_SELENIUM_HEADLESS=0
+
 # Avvia server VNC (condivisione e senza password)
 x11vnc -display :0 -forever -nopw -shared -rfbport 5900 -bg
 

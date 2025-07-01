@@ -557,26 +557,32 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
 
     bot = Bot(token=BOT_TOKEN)
 
-    # Rende cliccabili gli eventuali link presenti nel messaggio
-    parse_mode = None
+    # Rende cliccabili gli eventuali link con modifica successiva del messaggio
     url_pattern = re.compile(r"https?://\S+")
+    formatted_message = None
     if url_pattern.search(message or ""):
         def repl(match):
             url = match.group(0)
             return f'<a href="{html.escape(url)}">{html.escape(url)}</a>'
 
-        message = url_pattern.sub(repl, html.escape(message))
-        parse_mode = ParseMode.HTML
+        formatted_message = url_pattern.sub(repl, html.escape(message))
 
     async def send():
         try:
-            await bot.send_message(
+            sent = await bot.send_message(
                 chat_id=chat_id,
                 text=message,
                 reply_to_message_id=reply_to_message_id,
-                parse_mode=parse_mode,
                 disable_web_page_preview=True,
             )
+            if formatted_message:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=sent.message_id,
+                    text=formatted_message,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True,
+                )
             print(f"[DEBUG/notify] ✅ Messaggio Telegram inviato a {chat_id}")
         except TelegramError as e:
             print(f"[ERROR/notify] ❌ Errore Telegram: {e}")
