@@ -6,6 +6,7 @@ services:
     environment:
       - TELEGRAM_TOKEN=${REKKU_TELEGRAM_TOKEN}
       - OWNER_ID=${TELEGRAM_OWNER_ID}
+      - WEBVIEW_PORT=${REKKU_WEBVIEW_PORT:-5005}
     ports:
       - "${REKKU_WEBVIEW_PORT:-5005}:5005"
     volumes:

@@ -3,21 +3,33 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
 from core.ai_plugin_base import AIPluginBase
-from core.notifier import notify_owner
+from core.notifier import notify_owner, set_notifier
+from core.config import SELENIUM_PROFILE_DIR
 import asyncio
+import os
+
+WEBVIEW_HOST = os.getenv("WEBVIEW_HOST", "localhost")
+WEBVIEW_PORT = os.getenv("WEBVIEW_PORT", "5005")
+WEBVIEW_URL = f"http://{WEBVIEW_HOST}:{WEBVIEW_PORT}/vnc.html"
 
 
 class SeleniumChatGPTPlugin(AIPluginBase):
     def __init__(self, notify_fn=None):
-        self.notify_fn = notify_fn
+        if notify_fn:
+            set_notifier(notify_fn)
         self.driver = None
         self._init_driver()
 
     def _init_driver(self):
         chrome_options = Options()
-        chrome_options.add_argument('--headless')
+        headless = os.getenv('REKKU_SELENIUM_HEADLESS', '1') != '0'
+        if headless:
+            chrome_options.add_argument('--headless=new')
+        else:
+            notify_owner(f"🔎 Interfaccia grafica disponibile su {WEBVIEW_URL}")
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument(f'--user-data-dir={SELENIUM_PROFILE_DIR}')
 
         self.driver = webdriver.Chrome(options=chrome_options)
         self.driver.get("https://chat.openai.com")
@@ -25,7 +37,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     def _ensure_logged_in(self):
         current_url = self.driver.current_url
         if "login" in current_url:
-            notify_owner("🔐 Login necessario. Completa manualmente il login nel browser.")
+            notify_owner(
+                f"🔐 Login necessario. Apri {WEBVIEW_URL} per completare la procedura."
+            )
             return False
         return True
 
@@ -45,7 +59,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             try:
                 self.driver.find_element(By.TAG_NAME, "aside")
             except NoSuchElementException:
-                notify_owner("❌ Errore Selenium: Sidebar non trovata (CAPTCHA o login richiesto)")
+                notify_owner(
+                    f"❌ Errore Selenium: Sidebar non trovata. Apri {WEBVIEW_URL} per risolvere CAPTCHA o login."
+                )
                 return
 
             # Simula risposta finta
@@ -61,6 +77,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         return []  # nessun modello per ora
 
     def set_notify_fn(self, fn):
-        self.notify_fn = fn
+        set_notifier(fn)
 
 PLUGIN_CLASS = SeleniumChatGPTPlugin

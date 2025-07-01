@@ -546,20 +546,36 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None):
     import asyncio
+    import html
+    import re
     from telegram import Bot
     from telegram.error import TelegramError
+    from telegram.constants import ParseMode
 
     print(f"[DEBUG/telegram_notify] → CHIAMATO con chat_id={chat_id}")
     print(f"[DEBUG/telegram_notify] → MESSAGGIO:\n{message}")
 
     bot = Bot(token=BOT_TOKEN)
 
+    # Rende cliccabili gli eventuali link presenti nel messaggio
+    parse_mode = None
+    url_pattern = re.compile(r"https?://\S+")
+    if url_pattern.search(message or ""):
+        def repl(match):
+            url = match.group(0)
+            return f'<a href="{html.escape(url)}">{html.escape(url)}</a>'
+
+        message = url_pattern.sub(repl, html.escape(message))
+        parse_mode = ParseMode.HTML
+
     async def send():
         try:
             await bot.send_message(
                 chat_id=chat_id,
                 text=message,
-                reply_to_message_id=reply_to_message_id
+                reply_to_message_id=reply_to_message_id,
+                parse_mode=parse_mode,
+                disable_web_page_preview=True,
             )
             print(f"[DEBUG/notify] ✅ Messaggio Telegram inviato a {chat_id}")
         except TelegramError as e:

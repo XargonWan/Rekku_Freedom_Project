@@ -52,6 +52,7 @@ case "$MODE" in
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
+      -e WEBVIEW_PORT=$PORT \
       -p $PORT:5005 \
       "$IMAGE_NAME"
     ;;
@@ -64,6 +65,7 @@ case "$MODE" in
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
+      -e WEBVIEW_PORT=$PORT \
       -p $PORT:5005 \
       "$IMAGE_NAME" \
       /bin/bash
@@ -77,6 +79,7 @@ case "$MODE" in
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
+      -e WEBVIEW_PORT=$PORT \
       -p $PORT:5005 \
       "$IMAGE_NAME" \
       python3 -c 'import asyncio; from telegram import Bot; from core.config import BOT_TOKEN, OWNER_ID; bot = Bot(token=BOT_TOKEN); asyncio.run(bot.send_message(chat_id=OWNER_ID, text="🔔 TEST: notifica diretta dal container"))'
