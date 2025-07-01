@@ -14,7 +14,7 @@ import time
 
 def _get_default_host() -> str:
     explicit = os.getenv("WEBVIEW_HOST")
-    if explicit:
+    if explicit and explicit not in {"localhost", "127.0.0.1", "0.0.0.0"}:
         return explicit
     try:
         output = subprocess.check_output(["hostname", "-I"]).decode().strip()
@@ -43,7 +43,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             set_notifier(notify_fn)
         self.driver = None
         if notify_fn:
-            self._init_driver()
+            try:
+                self._init_driver()
+            except Exception as e:
+                notify_owner(f"❌ Errore Selenium: {e}")
 
     def _init_driver(self):
         if self.driver is not None:
