@@ -27,11 +27,14 @@ WEBVIEW_HOST = _get_default_host()
 WEBVIEW_PORT = os.getenv("WEBVIEW_PORT", "5005")
 WEBVIEW_URL = f"http://{WEBVIEW_HOST}:{WEBVIEW_PORT}/vnc.html"
 
+# Path assoluto per il profilo Selenium montato dall'host
+PROFILE_DIR = os.path.abspath(SELENIUM_PROFILE_DIR)
+
 
 def _cleanup_profile_locks():
     """Remove Chrome profile lock files that prevent reuse."""
     try:
-        for path in glob.glob(os.path.join(SELENIUM_PROFILE_DIR, "Singleton*")):
+        for path in glob.glob(os.path.join(PROFILE_DIR, "Singleton*")):
             os.remove(path)
     except Exception:
         pass
@@ -60,7 +63,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             notify_owner(f"🔎 Interfaccia grafica disponibile su {WEBVIEW_URL}")
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument(f'--user-data-dir={SELENIUM_PROFILE_DIR}')
+        os.makedirs(PROFILE_DIR, exist_ok=True)
+        chrome_options.add_argument(f'--user-data-dir={PROFILE_DIR}')
         chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36')
         # Evita che il browser si identifichi come "ChromeHeadless"
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
