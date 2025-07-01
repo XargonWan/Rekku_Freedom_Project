@@ -8,6 +8,7 @@ from core.config import SELENIUM_PROFILE_DIR
 import asyncio
 import os
 import subprocess
+import glob
 
 def _get_default_host() -> str:
     explicit = os.getenv("WEBVIEW_HOST")
@@ -25,14 +26,27 @@ WEBVIEW_PORT = os.getenv("WEBVIEW_PORT", "5005")
 WEBVIEW_URL = f"http://{WEBVIEW_HOST}:{WEBVIEW_PORT}/vnc.html"
 
 
+def _cleanup_profile_locks():
+    """Remove Chrome profile lock files that prevent reuse."""
+    try:
+        for path in glob.glob(os.path.join(SELENIUM_PROFILE_DIR, "Singleton*")):
+            os.remove(path)
+    except Exception:
+        pass
+
+
 class SeleniumChatGPTPlugin(AIPluginBase):
     def __init__(self, notify_fn=None):
         if notify_fn:
             set_notifier(notify_fn)
         self.driver = None
-        self._init_driver()
+        if notify_fn:
+            self._init_driver()
 
     def _init_driver(self):
+        if self.driver is not None:
+            return
+        _cleanup_profile_locks()
         chrome_options = Options()
         headless = os.getenv('REKKU_SELENIUM_HEADLESS', '1') != '0'
         if headless:
@@ -72,6 +86,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         print("[DEBUG/selenium] Prompt ricevuto:", prompt_data)
 
         try:
+            if self.driver is None:
+                self._init_driver()
             if not self._ensure_logged_in():
                 return
 
@@ -103,8 +119,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
     def set_notify_fn(self, fn):
         set_notifier(fn)
-        headless = os.getenv('REKKU_SELENIUM_HEADLESS', '1') != '0'
-        if not headless:
-            notify_owner(f"🔎 Interfaccia grafica disponibile su {WEBVIEW_URL}")
+        if self.driver is None:
+            self._init_driver()
 
 PLUGIN_CLASS = SeleniumChatGPTPlugin
