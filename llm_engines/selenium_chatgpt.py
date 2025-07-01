@@ -15,20 +15,17 @@ import zipfile
 import urllib.request
 import shutil
 
-def _get_default_host() -> str:
-    explicit = os.getenv("WEBVIEW_HOST")
-    if explicit and explicit not in {"localhost", "127.0.0.1", "0.0.0.0"}:
-        return explicit
-    try:
-        output = subprocess.check_output(["hostname", "-I"]).decode().strip()
-        ip = output.split()[0]
-        return ip
-    except Exception:
-        return "localhost"
-
-WEBVIEW_HOST = _get_default_host()
-WEBVIEW_PORT = os.getenv("WEBVIEW_PORT", "5005")
-WEBVIEW_URL = f"http://{WEBVIEW_HOST}:{WEBVIEW_PORT}/vnc.html"
+def _build_vnc_url() -> str:
+    """Return the URL to access the noVNC interface."""
+    port = os.getenv("WEBVIEW_PORT", "5005")
+    host = os.getenv("WEBVIEW_HOST")
+    if not host or host in {"localhost", "127.0.0.1", "0.0.0.0"}:
+        try:
+            output = subprocess.check_output(["hostname", "-I"]).decode().strip()
+            host = output.split()[0]
+        except Exception:
+            host = "localhost"
+    return f"http://{host}:{port}/vnc.html"
 
 # Path assoluto per il profilo Selenium montato dall'host
 PROFILE_DIR = os.path.abspath(SELENIUM_PROFILE_DIR)
@@ -82,7 +79,9 @@ def _install_webstore_extension(ext_id: str, name: str) -> str | None:
 
 def _notify_gui(message: str = ""):
     """Send a notification with the VNC URL, optionally prefixed."""
-    text = f"{message} {WEBVIEW_URL}".strip()
+    url = _build_vnc_url()
+    text = f"{message} {url}".strip()
+    print(f"[DEBUG/selenium] Invio notifica VNC: {text}")
     notify_owner(text)
 
 
@@ -173,14 +172,10 @@ def _get_driver():
 
 class SeleniumChatGPTPlugin(AIPluginBase):
     def __init__(self, notify_fn=None):
+        """Initialize the plugin without starting Selenium yet."""
         if notify_fn:
             set_notifier(notify_fn)
         self.driver = None
-        if notify_fn:
-            try:
-                self._init_driver()
-            except Exception as e:
-                _notify_gui(f"❌ Errore Selenium: {e}. Apri")
 
     def _init_driver(self):
         if self.driver is None:
