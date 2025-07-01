@@ -108,8 +108,6 @@ def _get_driver():
     options = uc.ChromeOptions()
     if headless:
         options.add_argument("--headless=new")
-    else:
-        notify_owner(f"🔎 Interfaccia grafica disponibile su {WEBVIEW_URL}")
 
     ua = os.getenv(
         "SELENIUM_USER_AGENT",
@@ -124,14 +122,9 @@ def _get_driver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-infobars")
     options.add_argument("--disable-extensions")
-    # Recent Chrome versions may reject the 'excludeSwitches' capability.
-    # Failures here previously prevented the VNC notification from reaching
-    # the owner, so we guard the call and fall back gracefully.
-    try:
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-    except Exception as e:
-        print(f"[WARN/selenium] Opzioni experimental non supportate: {e}")
+    # Alcune versioni di Chrome non accettano le opzioni experimental
+    # come 'excludeSwitches'. Preferiamo non impostarle per evitare errori
+    # di avvio che impedirebbero l'invio della notifica VNC.
 
     os.makedirs(PROFILE_DIR, exist_ok=True)
 
@@ -143,8 +136,19 @@ def _get_driver():
             log_level=3,
         )
     except Exception as e:
-        print(f"[ERROR/selenium] Errore avvio Chrome: {e}")
-        raise
+        if "excludeSwitches" in str(e):
+            print(f"[WARN/selenium] excludeSwitches non supportato: {e}. Retry senza.")
+            options.experimental_options.pop("excludeSwitches", None)
+            options.experimental_options.pop("useAutomationExtension", None)
+            driver = uc.Chrome(
+                options=options,
+                user_data_dir=PROFILE_DIR,
+                headless=headless,
+                log_level=3,
+            )
+        else:
+            print(f"[ERROR/selenium] Errore avvio Chrome: {e}")
+            raise
 
     try:
         driver.execute_cdp_cmd(
@@ -153,6 +157,9 @@ def _get_driver():
         )
     except Exception as e:
         print(f"[WARN/selenium] Patch fingerprint fallita: {e}")
+
+    if not headless:
+        notify_owner(f"🔎 Interfaccia grafica disponibile su {WEBVIEW_URL}")
 
     return driver
 
