@@ -8,7 +8,21 @@ from core.config import SELENIUM_PROFILE_DIR
 import asyncio
 import os
 
-WEBVIEW_HOST = os.getenv("WEBVIEW_HOST", "localhost")
+def _get_default_host() -> str:
+    explicit = os.getenv("WEBVIEW_HOST")
+    if explicit:
+        return explicit
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "localhost"
+
+WEBVIEW_HOST = _get_default_host()
 WEBVIEW_PORT = os.getenv("WEBVIEW_PORT", "5005")
 WEBVIEW_URL = f"http://{WEBVIEW_HOST}:{WEBVIEW_PORT}/vnc.html"
 
@@ -78,5 +92,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
     def set_notify_fn(self, fn):
         set_notifier(fn)
+        headless = os.getenv('REKKU_SELENIUM_HEADLESS', '1') != '0'
+        if not headless:
+            notify_owner(f"🔎 Interfaccia grafica disponibile su {WEBVIEW_URL}")
 
 PLUGIN_CLASS = SeleniumChatGPTPlugin

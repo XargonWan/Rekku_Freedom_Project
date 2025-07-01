@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     chromium-driver \
     fonts-liberation \
+    fonts-dejavu-core \
     libnss3 \
     libx11-6 \
     libxcomposite1 \
