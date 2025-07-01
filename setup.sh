@@ -5,7 +5,11 @@ set -e
 IMAGE_NAME="rekku_the_bot"
 NEEDS_SUDO=""
 
-source .env
+if [ -f .env ]; then
+  source .env
+else
+  echo "⚠️  File .env non trovato. Alcune variabili potrebbero mancare."
+fi
 
 # 🐳 Verifica se Docker è installato
 if ! command -v docker &> /dev/null; then
