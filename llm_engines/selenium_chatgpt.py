@@ -22,13 +22,15 @@ def _build_vnc_url() -> str:
     if not host or host in {"localhost", "127.0.0.1", "0.0.0.0"}:
         try:
             output = subprocess.check_output(
-                "ip route get 1 | awk '{print $NF;exit}'",
+                "hostname -I | awk '{print $1}'",
                 shell=True,
             ).decode().strip()
-            host = output or host
+            if output:
+                host = output
         except Exception as e:
             print(f"[WARN/selenium] Impossibile determinare host: {e}")
-            host = host or "localhost"
+        if not host:
+            host = "localhost"
     url = f"http://{host}:{port}/vnc.html"
     print(f"[DEBUG/selenium] VNC URL costruita: {url}")
     return url
@@ -88,7 +90,10 @@ def _notify_gui(message: str = ""):
     url = _build_vnc_url()
     text = f"{message} {url}".strip()
     print(f"[DEBUG/selenium] Invio notifica VNC: {text}")
-    notify_owner(text)
+    try:
+        notify_owner(text)
+    except Exception as e:
+        print(f"[ERROR/selenium] notify_owner failed: {e}")
 
 
 STEALTH_JS = """

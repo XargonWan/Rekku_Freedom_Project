@@ -29,5 +29,12 @@ x11vnc -display :0 -forever -nopw -shared -rfbport 5900 -bg
 WEB_PORT="${WEBVIEW_PORT:-5005}"
 websockify --web=/opt/novnc "$WEB_PORT" localhost:5900 &
 
+# Stampa URL finale per debug
+HOST="${WEBVIEW_HOST:-localhost}"
+if [[ "$HOST" == "localhost" || "$HOST" == "127.0.0.1" || "$HOST" == "0.0.0.0" ]]; then
+  HOST=$(hostname -I | awk '{print $1}')
+fi
+echo "[INFO] VNC disponibile su http://$HOST:$WEB_PORT/vnc.html"
+
 # Lancia il bot Python (in parallelo)
 exec python main.py
