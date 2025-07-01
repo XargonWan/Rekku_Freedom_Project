@@ -12,6 +12,8 @@ BOT_TOKEN = os.getenv("BOTFATHER_TOKEN") or os.getenv("TELEGRAM_TOKEN")
 BOT_USERNAME = "Rekku_the_bot"
 LLM_MODE = os.getenv("LLM_MODE", "manual")
 SELENIUM_PROFILE_DIR = os.getenv("SELENIUM_PROFILE_DIR", "./selenium_profile")
+# Directory dove cercare eventuali estensioni da caricare con Selenium
+SELENIUM_EXTENSIONS_DIR = os.getenv("SELENIUM_EXTENSIONS_DIR", "./extensions")
 
 if not BOT_TOKEN:
     raise RuntimeError("❌ BOTFATHER_TOKEN mancante. Impostalo in .env o come variabile d'ambiente.")

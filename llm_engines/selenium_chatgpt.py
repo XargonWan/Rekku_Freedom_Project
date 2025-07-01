@@ -1,14 +1,16 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import NoSuchElementException
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
-from core.config import SELENIUM_PROFILE_DIR
+from core.config import SELENIUM_PROFILE_DIR, SELENIUM_EXTENSIONS_DIR
 import asyncio
 import os
 import subprocess
 import glob
+import time
 
 def _get_default_host() -> str:
     explicit = os.getenv("WEBVIEW_HOST")
@@ -62,6 +64,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
         chrome_options.add_experimental_option('useAutomationExtension', False)
 
+        # Carica eventuali estensioni presenti nella directory configurata
+        if os.path.isdir(SELENIUM_EXTENSIONS_DIR):
+            ext_dirs = [
+                os.path.join(SELENIUM_EXTENSIONS_DIR, d)
+                for d in os.listdir(SELENIUM_EXTENSIONS_DIR)
+                if os.path.isdir(os.path.join(SELENIUM_EXTENSIONS_DIR, d))
+            ]
+            if ext_dirs:
+                chrome_options.add_argument("--load-extension=" + ",".join(ext_dirs))
+
         self.driver = webdriver.Chrome(options=chrome_options)
         # Nasconde proprieta' webdriver per evitare detection
         try:
@@ -72,6 +84,21 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except Exception:
             pass
         self.driver.get("https://chat.openai.com")
+        # Attende che la pagina sia caricata
+        for _ in range(30):
+            try:
+                ready = self.driver.execute_script("return document.readyState")
+                if ready == "complete":
+                    break
+            except Exception:
+                pass
+            time.sleep(1)
+        # Simula piccolo movimento del mouse per evitare detection
+        try:
+            ActionChains(self.driver).move_by_offset(5, 5).perform()
+        except Exception:
+            pass
+        time.sleep(1)
 
     def _ensure_logged_in(self):
         current_url = self.driver.current_url
@@ -94,7 +121,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             # Vai nella chat corretta (puoi estendere questa logica)
             await asyncio.sleep(1)
             self.driver.get("https://chat.openai.com")
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
+            try:
+                ActionChains(self.driver).move_by_offset(3, 3).perform()
+            except Exception:
+                pass
+            await asyncio.sleep(1)
 
             # Cerca l'elemento sidebar per verificare accesso
             try:
