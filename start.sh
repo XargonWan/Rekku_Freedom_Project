@@ -14,6 +14,9 @@ else
 fi
 
 PORT="${WEBVIEW_PORT:-5005}"
+# Determina l'host su cui esporre la GUI VNC
+HOST_IP=$(hostname -I | awk '{print $1}')
+WEBVIEW_HOST_ENV="${WEBVIEW_HOST:-$HOST_IP}"
 
 # Controllo variabile BOTFATHER_TOKEN
 if [[ -z "$BOTFATHER_TOKEN" ]]; then
@@ -53,6 +56,7 @@ case "$MODE" in
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
       -e WEBVIEW_PORT=$PORT \
+      -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
       -p $PORT:5005 \
       "$IMAGE_NAME"
     ;;
@@ -66,6 +70,7 @@ case "$MODE" in
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
       -e WEBVIEW_PORT=$PORT \
+      -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
       -p $PORT:5005 \
       "$IMAGE_NAME" \
       /bin/bash
@@ -80,6 +85,7 @@ case "$MODE" in
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
       -e WEBVIEW_PORT=$PORT \
+      -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
       -p $PORT:5005 \
       "$IMAGE_NAME" \
       python3 -c 'import asyncio; from telegram import Bot; from core.config import BOT_TOKEN, OWNER_ID; bot = Bot(token=BOT_TOKEN); asyncio.run(bot.send_message(chat_id=OWNER_ID, text="🔔 TEST: notifica diretta dal container"))'
