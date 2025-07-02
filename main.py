@@ -1,22 +1,20 @@
 # main.py
 
-from interface.telegram_bot import start_bot
 from core.db import init_db
 from core.blocklist import init_blocklist_table
 from core.config import get_active_llm
-from core.plugin_instance import plugin, load_plugin
-from core.db import get_db
+from core.plugin_instance import load_plugin
 
 if __name__ == "__main__":
-    # Inizializzazioni
+    # Inizializzazioni DB e tabelle
     init_db()
     init_blocklist_table()
 
-    # Avvia il bot
-    start_bot()
+    # \U0001f501 Carica il plugin LLM attivo da DB (senza notify_fn, verr� impostato dopo dal bot)
+    llm_name = get_active_llm()
+    print(f"[DEBUG/main] Plugin attivo da caricare: {llm_name}")
+    load_plugin(llm_name)
 
-    with get_db() as db:
-        rows = db.execute("SELECT content, tags FROM memories LIMIT 10").fetchall()
-        for content, tags in rows:
-            print("CONTENT:", content)
-            print("TAGS:", tags)
+    # \u2705 Avvia il bot solo ora
+    from interface.telegram_bot import start_bot
+    start_bot()

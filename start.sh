@@ -2,6 +2,7 @@
 
 IMAGE_NAME="rekku_the_bot"
 ENV_FILE=".env"
+MODE="${1:-run}"  # Default: run
 
 # Carica variabili da .env solo se esiste
 if [[ -f "$ENV_FILE" ]]; then
@@ -13,6 +14,9 @@ else
 fi
 
 PORT="${WEBVIEW_PORT:-5005}"
+# Determina l'host su cui esporre la GUI VNC
+HOST_IP=$(hostname -I | awk '{print $1}')
+WEBVIEW_HOST_ENV="${WEBVIEW_HOST:-$HOST_IP}"
 
 # Controllo variabile BOTFATHER_TOKEN
 if [[ -z "$BOTFATHER_TOKEN" ]]; then
@@ -42,12 +46,54 @@ if $DOCKER_CMD ps -a --format '{{.Names}}' | grep -q '^rekku_container$'; then
   $DOCKER_CMD rm -f rekku_container > /dev/null
 fi
 
-echo "🚀 Avvio del bot Rekku in Docker sulla porta $PORT..."
+case "$MODE" in
+  run)
+    echo "🚀 Avvio del bot Rekku in Docker sulla porta $PORT..."
+    $DOCKER_CMD run --rm -it \
+      --name rekku_container \
+      --env-file "$ENV_FILE" \
+      -v "$(pwd)/logs:/app/debug_logs" \
+      -v "$(pwd)/selenium_profile:/app/selenium_profile" \
+      -v "$(pwd)/persona:/app/persona" \
+      -e WEBVIEW_PORT=$PORT \
+      -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
+      -p $PORT:$PORT \
+      "$IMAGE_NAME"
+    ;;
 
-$DOCKER_CMD run --rm -it \
-  --name rekku_container \
-  --env-file "$ENV_FILE" \
-  -v "$(pwd)/logs:/app/debug_logs" \
-  -v "$(pwd)/selenium_profile:/app/selenium_profile" \
-  -p $PORT:5005 \
-  "$IMAGE_NAME"
+  shell)
+    echo "🐚 Accesso interattivo al container Rekku..."
+    $DOCKER_CMD run --rm -it \
+      --name rekku_container \
+      --env-file "$ENV_FILE" \
+      -v "$(pwd)/logs:/app/debug_logs" \
+      -v "$(pwd)/selenium_profile:/app/selenium_profile" \
+      -v "$(pwd)/persona:/app/persona" \
+      -e WEBVIEW_PORT=$PORT \
+      -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
+      -p $PORT:$PORT \
+      "$IMAGE_NAME" \
+      /bin/bash
+    ;;
+
+  test_notify)
+    echo "📡 Test notifica diretta dal container..."
+    $DOCKER_CMD run --rm -it \
+      --name rekku_container \
+      --env-file "$ENV_FILE" \
+      -v "$(pwd)/logs:/app/debug_logs" \
+      -v "$(pwd)/selenium_profile:/app/selenium_profile" \
+      -v "$(pwd)/persona:/app/persona" \
+      -e WEBVIEW_PORT=$PORT \
+      -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
+      -p $PORT:$PORT \
+      "$IMAGE_NAME" \
+      python3 -c 'import asyncio; from telegram import Bot; from core.config import BOT_TOKEN, OWNER_ID; bot = Bot(token=BOT_TOKEN); asyncio.run(bot.send_message(chat_id=OWNER_ID, text="🔔 TEST: notifica diretta dal container"))'
+    ;;
+
+  *)
+    echo "❌ Modalità sconosciuta: $MODE"
+    echo "Usa: ./start.sh [run|shell|test_notify]"
+    exit 1
+    ;;
+esac

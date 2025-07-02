@@ -3,3 +3,5 @@ python-dotenv
 openai
 selenium
 telethon
+undetected-chromedriver
+setuptools
