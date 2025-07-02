@@ -138,7 +138,6 @@ def _get_driver():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-infobars")
-    options.add_argument("--disable-extensions")
     # Alcune versioni di Chrome non accettano le opzioni experimental
     # come 'excludeSwitches'. Preferiamo non impostarle per evitare errori
     # di avvio che impedirebbero l'invio della notifica VNC.

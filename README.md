@@ -132,6 +132,8 @@ sudo apt install -y chromium chromium-driver
 
 2. Avvia il container con `./start.sh run` e completa il login manuale tramite l'interfaccia VNC.
    Tutti i dati verranno salvati in `rekku_home/`, che viene montata su `/home/rekku`.
+   Puoi installare normalmente le estensioni dal Chrome Web Store: il profilo
+   persistente permette di conservarle tra un riavvio e l'altro.
 
 Non è più necessario creare o copiare la cartella `selenium_profile`.
 
