@@ -222,12 +222,25 @@ async def handle_message(event):
 
 def main():
     def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None):
+        import html
+        import re
+        url_pattern = re.compile(r"https?://\S+")
+        match = url_pattern.search(message or "")
+        formatted_message = None
+        if match:
+            def repl(m):
+                url = m.group(0)
+                return f'<a href="{html.escape(url)}">{html.escape(url)}</a>'
+
+            formatted_message = url_pattern.sub(repl, html.escape(message))
+
         async def send():
             try:
                 await client.send_message(
                     chat_id,
-                    message,
-                    reply_to=reply_to_message_id
+                    formatted_message or message,
+                    reply_to=reply_to_message_id,
+                    parse_mode="html" if formatted_message else None
                 )
                 print(f"[DEBUG/notify] Messaggio Telegram inviato a {chat_id}")
             except Exception as e:
