@@ -558,15 +558,24 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
     bot = Bot(token=BOT_TOKEN)
 
     # Rende cliccabili eventuali URL
-    url_pattern = re.compile(r"https?://\S+")
-    match = url_pattern.search(message or "")
-    formatted_message = None
-    if match:
-        def repl(m):
+    def make_clickable(msg: str):
+        url_pattern = re.compile(r"https?://\S+")
+        matches = list(url_pattern.finditer(msg or ""))
+        if not matches:
+            return None
+        parts = []
+        last = 0
+        for m in matches:
+            parts.append(html.escape(msg[last:m.start()]))
             url = m.group(0)
-            return f'<a href="{html.escape(url)}">{html.escape(url)}</a>'
+            parts.append(
+                f'<a href="{html.escape(url)}">{html.escape(url)}</a>'
+            )
+            last = m.end()
+        parts.append(html.escape(msg[last:]))
+        return "".join(parts)
 
-        formatted_message = url_pattern.sub(repl, html.escape(message))
+    formatted_message = make_clickable(message)
 
     async def send():
         try:
