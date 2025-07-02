@@ -12,6 +12,6 @@ services:
       - "${REKKU_WEBVIEW_PORT:-5005}:${REKKU_WEBVIEW_PORT:-5005}"
     volumes:
       - ./logs:/app/debug_logs
-      - ./selenium_profile:/app/selenium_profile
+      - ./rekku_home:/home/rekku
     env_file:
       - .env
