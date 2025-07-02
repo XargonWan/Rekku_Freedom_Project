@@ -19,14 +19,12 @@ def _build_vnc_url() -> str:
     """Return the URL to access the noVNC interface."""
     port = os.getenv("WEBVIEW_PORT", "5005")
     host = os.getenv("WEBVIEW_HOST")
-    if not host or host in {"localhost", "127.0.0.1", "0.0.0.0"}:
+    if not host:
         try:
-            output = subprocess.check_output(
-                "hostname -I | awk '{print $1}'",
+            host = subprocess.check_output(
+                "ip route | awk '/default/ {print $3}'",
                 shell=True,
             ).decode().strip()
-            if output:
-                host = output
         except Exception as e:
             print(f"[WARN/selenium] Impossibile determinare host: {e}")
         if not host:
@@ -248,3 +246,4 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 _notify_gui(f"❌ Errore Selenium: {e}. Apri")
 
 PLUGIN_CLASS = SeleniumChatGPTPlugin
+

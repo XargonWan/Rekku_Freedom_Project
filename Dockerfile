@@ -50,7 +50,7 @@ WORKDIR /app
 COPY . .
 
 # Installa dipendenze Python
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 
 # Copia script avvio VNC + bot
 COPY automation_tools/start-vnc.sh /start-vnc.sh
