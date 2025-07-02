@@ -546,8 +546,7 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"\u274c Errore nel cambio modello: {e}")
 
 def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None):
-    import html
-    import re
+    from core.html_utils import make_clickable_links
     from telegram import Bot
     from telegram.error import TelegramError
     from telegram.constants import ParseMode
@@ -557,25 +556,7 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
 
     bot = Bot(token=BOT_TOKEN)
 
-    # Rende cliccabili eventuali URL
-    def make_clickable(msg: str):
-        url_pattern = re.compile(r"https?://\S+")
-        matches = list(url_pattern.finditer(msg or ""))
-        if not matches:
-            return None
-        parts = []
-        last = 0
-        for m in matches:
-            parts.append(html.escape(msg[last:m.start()]))
-            url = m.group(0)
-            parts.append(
-                f'<a href="{html.escape(url)}">{html.escape(url)}</a>'
-            )
-            last = m.end()
-        parts.append(html.escape(msg[last:]))
-        return "".join(parts)
-
-    formatted_message = make_clickable(message)
+    formatted_message, changed = make_clickable_links(message)
 
     async def send():
         try:
@@ -583,7 +564,7 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
                 chat_id=chat_id,
                 text=formatted_message or message,
                 reply_to_message_id=reply_to_message_id,
-                parse_mode=ParseMode.HTML if formatted_message else None,
+                parse_mode=ParseMode.HTML if changed else None,
                 disable_web_page_preview=True,
             )
             print(f"[DEBUG/notify] ✅ Messaggio Telegram inviato a {chat_id}")
