@@ -2,3 +2,4 @@ python-telegram-bot
 python-dotenv
 openai
 selenium
+telethon
