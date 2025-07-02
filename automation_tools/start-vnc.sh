@@ -4,22 +4,22 @@
 export DISPLAY=:0
 
 # Avvia display virtuale (Xvfb)
-Xvfb :0 -screen 0 720x1280x24 &
+Xvfb :0 -screen 0 1920x1080x24 &
 
 # Avvia servizi di sistema per un ambiente desktop più realistico
 /lib/udev/udevd --daemon >/dev/null 2>&1 || udevd --daemon >/dev/null 2>&1
 udevadm trigger &
 dbus-daemon --system --fork
 
-# Avvia un desktop completo (XFCE)
-startxfce4 &
+# Avvia un window manager leggero (Openbox)
+openbox-session &
 
 # Assicura che Selenium sia avviato con interfaccia grafica
 export REKKU_SELENIUM_HEADLESS=0
 
 # Finge ambiente desktop Ubuntu
-export XDG_CURRENT_DESKTOP=ubuntu:GNOME
-export XDG_SESSION_DESKTOP=ubuntu
+export XDG_CURRENT_DESKTOP=LXDE
+export XDG_SESSION_DESKTOP=LXDE
 
 # Avvia server VNC (condivisione e senza password)
 x11vnc -display :0 -forever -nopw -shared -rfbport 5900 -bg

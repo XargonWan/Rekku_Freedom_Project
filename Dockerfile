@@ -29,8 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     xvfb \
     x11vnc \
-    fluxbox \
-    xfce4 \
+    openbox \
     dbus \
     udev \
     python3-pyqt5 \
