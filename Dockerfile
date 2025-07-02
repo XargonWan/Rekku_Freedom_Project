@@ -36,7 +36,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libatk1.0-0 \
     libdrm2 \
     libxss1 \
+    sudo \
     && rm -rf /var/lib/apt/lists/*
+
+# Crea l'utente non privilegiato 'rekku' con sudo senza password
+RUN useradd -m -s /bin/bash rekku \
+    && echo 'rekku ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 # Scarica noVNC
 RUN mkdir -p /opt/novnc && \
