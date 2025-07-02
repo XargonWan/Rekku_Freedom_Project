@@ -3,8 +3,8 @@
 # Imposta DISPLAY virtuale
 export DISPLAY=:0
 
-# Avvia display virtuale (Xvfb)
-Xvfb :0 -screen 0 1920x1080x24 &
+# Avvia display virtuale (Xvfb) con risoluzione standard
+Xvfb :0 -screen 0 1280x720x24 &
 
 # Avvia servizi di sistema per un ambiente desktop più realistico
 /lib/udev/udevd --daemon >/dev/null 2>&1 || udevd --daemon >/dev/null 2>&1
@@ -12,7 +12,7 @@ udevadm trigger &
 dbus-daemon --system --fork
 
 # Avvia l'ambiente desktop XFCE completo
-startxfce4 &
+dbus-launch --exit-with-session startxfce4 &
 
 # Assicura che Selenium sia avviato con interfaccia grafica
 export REKKU_SELENIUM_HEADLESS=0
