@@ -126,8 +126,12 @@ Il plugin `selenium_chatgpt` richiede che l'utente sia loggato su ChatGPT. Il pr
 sudo apt update
 sudo apt install -y chromium chromium-driver
 ```
+   Nel container sono installati anche i pacchetti `fonts-noto-core` e
+   `fonts-noto-cjk` per il supporto a caratteri internazionali (ad esempio
+   giapponese).
 
 2. Avvia il container con `./start.sh run` e completa il login manuale tramite l'interfaccia VNC.
    Tutti i dati verranno salvati in `rekku_home/`, che viene montata su `/home/rekku`.
 
 Non è più necessario creare o copiare la cartella `selenium_profile`.
+

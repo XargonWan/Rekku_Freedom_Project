@@ -26,6 +26,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     fonts-dejavu-core \
     fonts-noto-color-emoji \
+    fonts-noto-core \
+    fonts-noto-cjk \
     libnss3 \
     libx11-6 \
     libxcomposite1 \
