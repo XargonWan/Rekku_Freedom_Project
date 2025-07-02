@@ -117,44 +117,17 @@ Tuttavia si consiglia di esegurlo via `docker compose`.
 
 ## 🔐 Login manuale per plugin Selenium
 
-Il plugin `selenium_chatgpt` richiede che l'utente sia già loggato su ChatGPT. Per motivi di sicurezza, il login va effettuato **manualmente e una sola volta** in ambiente con interfaccia grafica.
+Il plugin `selenium_chatgpt` richiede che l'utente sia loggato su ChatGPT. Il profilo del browser è quello di Chromium (`~/.config/chromium`) e viene salvato direttamente nella cartella home del container (`/home/rekku`).
 
-### ✅ Preparazione del profilo
+### ✅ Primo avvio con interfaccia grafica
 
-1. Assicurati di avere Chromium e ChromeDriver installati sul tuo sistema.
-Se non li hai, installali con:
+1. Assicurati di avere Chromium e ChromeDriver installati sul tuo sistema:
 ```bash
 sudo apt update
 sudo apt install -y chromium chromium-driver
 ```
 
-3. Avvia lo script in locale (fuori da Docker):
+2. Avvia il container con `./start.sh run` e completa il login manuale tramite l'interfaccia VNC.
+   Tutti i dati verranno salvati in `rekku_home/`, che viene montata su `/home/rekku`.
 
-```
-python3 login_selenium.py
-```
-
-4. Una volta completato il login, verrà creata la cartella `selenium_profile/`.
-
-5. Per trasferirla su un server remoto:
-
-```
-tar czf selenium_profile.tar.gz selenium_profile
-```
-
-Poi copia e decomprimi sul server:
-
-```
-tar xzf selenium_profile.tar.gz
-```
-
----
-
-### 📁 Ignora il profilo in Git
-
-Nel file `.gitignore` assicurati che ci siano queste righe:
-
-```
-selenium_profile/
-selenium_profile.tar.gz
-```
+Non è più necessario creare o copiare la cartella `selenium_profile`.

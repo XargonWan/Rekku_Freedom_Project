@@ -49,4 +49,3 @@ build/
 site/
 rekku.db
 logs/
-selenium_profile/
