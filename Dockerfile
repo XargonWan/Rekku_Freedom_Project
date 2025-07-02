@@ -15,7 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xfce4 \
     x11vnc \
     xvfb \
+    dbus \
     dbus-x11 \
+    xinit \
     udev \
     websockify \
     wget \

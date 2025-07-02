@@ -43,4 +43,4 @@ fi
 echo "[INFO] VNC disponibile su http://$HOST:$WEB_PORT/vnc.html"
 
 # Lancia il bot Python (in parallelo)
-exec su - rekku -c "python3 main.py"
+exec su - rekku -c "cd /app && python3 main.py"
