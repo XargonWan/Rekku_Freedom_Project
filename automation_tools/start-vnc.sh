@@ -9,6 +9,9 @@ if [[ -n "$ROOT_PASSWORD" ]]; then
   echo "rekku:$ROOT_PASSWORD" | chpasswd
 fi
 
+# Imposta HOME corretto per i processi avviati come rekku
+export HOME=/home/rekku
+
 # Avvia display virtuale (Xvfb) con risoluzione standard
 su -p rekku -c "Xvfb :0 -screen 0 1280x720x24 &"
 
