@@ -41,16 +41,25 @@ echo "🧹 Pulizia container Docker esistenti relativi a Rekku..."
 $DOCKER_CMD ps --format '{{.ID}} {{.Image}} {{.Command}}' | grep -E 'rekku_the_bot|start-vnc\.sh' | awk '{print $1}' | xargs -r $DOCKER_CMD kill
 
 # Rimuove eventuale container esistente con lo stesso nome
-if $DOCKER_CMD ps -a --format '{{.Names}}' | grep -q '^rekku_container$'; then
-  echo "🧹 Container 'rekku_container' già esistente, rimozione in corso..."
-  $DOCKER_CMD rm -f rekku_container > /dev/null
+if $DOCKER_CMD ps -a --format '{{.Names}}' | grep -q '^rekku_desktop$'; then
+  echo "🧹 Container 'rekku_desktop' già esistente, rimozione in corso..."
+  $DOCKER_CMD rm -f rekku_desktop > /dev/null
+fi
+
+if [ ! -d "$(pwd)/rekku_home" ]; then
+  echo "📂 Creazione della cartella 'rekku_home' per i dati persistenti..."
+  mkdir -p "$(pwd)/rekku_home"
+  chown -R 1000:1000 "$(pwd)/rekku_home"
+  chmod u+rw "$(pwd)/rekku_home"
+else
+  echo "📂 Cartella 'rekku_home' già esistente, verrà utilizzata." 
 fi
 
 case "$MODE" in
   run)
     echo "🚀 Avvio del bot Rekku in Docker sulla porta $PORT..."
     $DOCKER_CMD run --rm -it \
-      --name rekku_container \
+      --name rekku_desktop \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
@@ -64,7 +73,7 @@ case "$MODE" in
   shell)
     echo "🐚 Accesso interattivo al container Rekku..."
     $DOCKER_CMD run --rm -it \
-      --name rekku_container \
+      --name rekku_desktop \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
@@ -79,11 +88,12 @@ case "$MODE" in
   test_notify)
     echo "📡 Test notifica diretta dal container..."
     $DOCKER_CMD run --rm -it \
-      --name rekku_container \
+      --name rekku_desktop \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
+      -v "$(pwd)/rekku_home:/home/rekku" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
       -p $PORT:$PORT \
