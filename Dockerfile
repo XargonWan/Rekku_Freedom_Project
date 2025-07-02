@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM debian:bookworm
 
 ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
@@ -7,8 +7,20 @@ ENV WEBVIEW_PORT=5005
 
 # Installa Chrome + dipendenze + VNC stack
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-distutils \
     chromium \
     chromium-driver \
+    xfce4 \
+    x11vnc \
+    xvfb \
+    dbus-x11 \
+    udev \
+    websockify \
+    wget \
+    curl \
+    unzip \
     fonts-liberation \
     fonts-dejavu-core \
     fonts-noto-color-emoji \
@@ -24,35 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libatk1.0-0 \
     libdrm2 \
     libxss1 \
-    wget \
-    curl \
-    unzip \
-    xvfb \
-    x11vnc \
-    openbox \
-    dbus \
-    udev \
-    python3-pyqt5 \
-    websockify \
-    python3-distutils \
-    && rm -rf /var/lib/apt/lists/* && \
-    echo 'PRETTY_NAME="Ubuntu 22.04.4 LTS"' > /etc/os-release && \
-    echo 'NAME="Ubuntu"' >> /etc/os-release && \
-    echo 'VERSION_ID="22.04"' >> /etc/os-release && \
-    echo 'VERSION="22.04.4 LTS (Jammy Jellyfish)"' >> /etc/os-release && \
-    echo 'VERSION_CODENAME=jammy' >> /etc/os-release && \
-    echo 'ID=ubuntu' >> /etc/os-release && \
-    echo 'ID_LIKE=debian' >> /etc/os-release && \
-    echo 'HOME_URL="https://www.ubuntu.com/"' >> /etc/os-release && \
-    echo 'SUPPORT_URL="https://help.ubuntu.com/"' >> /etc/os-release && \
-    echo 'BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"' >> /etc/os-release && \
-    echo 'UBUNTU_CODENAME=jammy' >> /etc/os-release && \
-    echo 'LOGO=ubuntu-logo' >> /etc/os-release && \
-    echo 'DISTRIB_ID=Ubuntu' > /etc/lsb-release && \
-    echo 'DISTRIB_RELEASE=22.04' >> /etc/lsb-release && \
-    echo 'DISTRIB_CODENAME=jammy' >> /etc/lsb-release && \
-    echo 'DISTRIB_DESCRIPTION="Ubuntu 22.04.4 LTS"' >> /etc/lsb-release && \
-    echo 'Ubuntu 22.04.4 LTS \n \l' > /etc/issue
+    && rm -rf /var/lib/apt/lists/*
 
 # Scarica noVNC
 RUN mkdir -p /opt/novnc && \
