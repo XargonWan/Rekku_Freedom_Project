@@ -1,6 +1,6 @@
 # llm_engines/manual.py
 
-from core import say_proxy
+from core import say_proxy, message_map
 from core.config import OWNER_ID
 from core.ai_plugin_base import AIPluginBase
 import json
@@ -11,7 +11,8 @@ class ManualAIPlugin(AIPluginBase):
     def __init__(self, notify_fn=None):
         from core.notifier import set_notifier
 
-        self.reply_map = {}
+        # Inizializza la tabella di mapping persistente
+        message_map.init_table()
 
         if notify_fn:
             print("[DEBUG/manual] Uso funzione di notifica personalizzata.")
@@ -21,17 +22,14 @@ class ManualAIPlugin(AIPluginBase):
             set_notifier(lambda chat_id, message: print(f"[NOTIFY fallback] {message}"))
 
     def track_message(self, trainer_message_id, original_chat_id, original_message_id):
-        self.reply_map[trainer_message_id] = {
-            "chat_id": original_chat_id,
-            "message_id": original_message_id
-        }
+        """Persist the mapping for a forwarded message."""
+        message_map.add_mapping(trainer_message_id, original_chat_id, original_message_id)
 
     def get_target(self, trainer_message_id):
-        return self.reply_map.get(trainer_message_id)
+        return message_map.get_mapping(trainer_message_id)
 
     def clear(self, trainer_message_id):
-        if trainer_message_id in self.reply_map:
-            del self.reply_map[trainer_message_id]
+        message_map.delete_mapping(trainer_message_id)
 
     async def handle_incoming_message(self, bot, message, prompt):
         from core.notifier import notify_owner

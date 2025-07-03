@@ -15,13 +15,15 @@ from dotenv import load_dotenv
 from llm_engines.manual import ManualAIPlugin
 from core import blocklist
 from core import response_proxy
-from core import say_proxy, recent_chats
+from core import say_proxy, recent_chats, message_map
 from core.context import context_command
 from collections import deque
 import json
-from core.message_sender import send_content
-from core.message_sender import detect_media_type
-from core.message_sender import extract_response_target
+from core.message_sender import (
+    send_content,
+    detect_media_type,
+    extract_response_target,
+)
 from core.config import get_active_llm, set_active_llm, list_available_llms
 from core.config import BOT_TOKEN, BOT_USERNAME, OWNER_ID
 import core.plugin_instance as plugin_instance
@@ -98,7 +100,21 @@ async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except (IndexError, ValueError):
         await update.message.reply_text("\u274c Usa: /unblock <user_id>")
 
-from core.message_sender import send_content, detect_media_type, extract_response_target
+async def purge_mappings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+    # Ensure table exists even if manual plugin never loaded
+    message_map.init_table()
+    try:
+        days = int(context.args[0]) if context.args else 7
+    except ValueError:
+        await update.message.reply_text("\u274c Usa: /purge_map [giorni]")
+        return
+    deleted = message_map.purge_old_entries(days * 86400)
+    await update.message.reply_text(
+        f"\U0001f5d1 Eliminati {deleted} mapping più vecchi di {days} giorni."
+    )
+
 
 async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -180,7 +196,6 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
     else:
         print("[ERROR] ❌ Invio fallito.")
 
-from core.message_sender import detect_media_type
 
 # === Comando generico per sticker/audio/photo/file/video ===
 
@@ -380,6 +395,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text += (
         "\n*📋 Varie*\n"
         "`/last_chats` – Ultime chat attive\n"
+        "`/purge_map [giorni]` – Pulisce i vecchi mapping\n"
     )
 
     await update.message.reply_text(help_text, parse_mode="Markdown")
@@ -610,6 +626,7 @@ def start_bot():
     app.add_handler(CommandHandler("block", block_user))
     app.add_handler(CommandHandler("block_list", block_list))
     app.add_handler(CommandHandler("unblock", unblock_user))
+    app.add_handler(CommandHandler("purge_map", purge_mappings))
     app.add_handler(CommandHandler("last_chats", last_chats_command))
     app.add_handler(CommandHandler("context", context_command))
     app.add_handler(CommandHandler("llm", llm_command))
