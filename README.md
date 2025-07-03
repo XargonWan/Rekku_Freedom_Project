@@ -121,12 +121,14 @@ Il plugin `selenium_chatgpt` richiede che l'utente sia già loggato su ChatGPT. 
 
 ### ✅ Preparazione del profilo
 
-1. Assicurati di avere Chromium e ChromeDriver installati sul tuo sistema.
-Se non li hai, installali con:
+1. Assicurati di avere Google Chrome e il relativo ChromeDriver installati sul tuo sistema.
+Puoi scaricare Chrome dal [sito ufficiale](https://www.google.com/chrome/) e installare il pacchetto `.deb`:
 ```bash
-sudo apt update
-sudo apt install -y chromium chromium-driver
+wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+sudo apt install -y ./google-chrome-stable_current_amd64.deb
+rm google-chrome-stable_current_amd64.deb
 ```
+Assicurati di scaricare anche la versione di ChromeDriver che corrisponde al numero di versione di Chrome installato.
 
 3. Avvia lo script in locale (fuori da Docker):
 

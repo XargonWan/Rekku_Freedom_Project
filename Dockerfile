@@ -1,7 +1,7 @@
 FROM debian:bookworm
 
-ENV CHROME_BIN=/usr/bin/chromium
-ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
+ENV CHROME_BIN=/usr/bin/google-chrome
+ENV CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
 ENV DISPLAY=:0
 ENV WEBVIEW_PORT=5005
 
@@ -10,8 +10,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-distutils \
-    chromium \
-    chromium-driver \
     xfce4 \
     x11vnc \
     xvfb \
@@ -43,6 +41,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxss1 \
     sudo \
     && rm -rf /var/lib/apt/lists/*
+
+# Installa Google Chrome stabile e ChromeDriver abbinato
+RUN wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    && apt-get update \
+    && apt-get install -y /tmp/google-chrome.deb \
+    && rm /tmp/google-chrome.deb \
+    && CHROME_VERSION=$(google-chrome --version | awk '{print $3}') \
+    && CHROME_MAJOR=$(echo $CHROME_VERSION | cut -d. -f1) \
+    && DRIVER_VERSION=$(wget -qO- https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_MAJOR}) \
+    && wget -q -O /tmp/chromedriver.zip https://chromedriver.storage.googleapis.com/${DRIVER_VERSION}/chromedriver_linux64.zip \
+    && unzip -q /tmp/chromedriver.zip -d /usr/local/bin \
+    && chmod +x /usr/local/bin/chromedriver \
+    && rm /tmp/chromedriver.zip \
+    && apt-get purge -y chromium chromium-browser || true \
+    && rm -rf /var/lib/apt/lists/*
+
+# Imposta hostname realistico
+RUN echo 'luna-workstation' > /etc/hostname
 
 # Crea l'utente non privilegiato 'rekku' con sudo senza password
 RUN useradd -m -s /bin/bash rekku \

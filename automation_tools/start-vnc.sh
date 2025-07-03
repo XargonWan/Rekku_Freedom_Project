@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Imposta hostname realistico
+hostname luna-workstation
+
 # Imposta DISPLAY virtuale
 export DISPLAY=:0
 
@@ -24,7 +27,8 @@ dbus-daemon --system --fork
 su -p rekku -c "dbus-launch --exit-with-session startxfce4 &"
 
 # Imposta browser e terminale predefiniti
-su -p rekku -c "xdg-settings set default-web-browser chromium.desktop"
+su -p rekku -c "xdg-settings set default-web-browser google-chrome.desktop"
+ln -sf /usr/bin/google-chrome /usr/bin/xdg-open
 su -p rekku -c "exo-preferred-applications --set TerminalEmulator xfce4-terminal" || true
 
 # Assicura che Selenium sia avviato con interfaccia grafica
