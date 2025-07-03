@@ -2,16 +2,36 @@
 
 import sqlite3
 import time
+import os
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timezone
 
-DB_PATH = Path(__file__).parent.parent / "persona" / "rekku_memories.db"
+DB_PATH = Path(
+    os.getenv(
+        "MEMORY_DB",
+        Path(__file__).parent.parent / "persona" / "rekku_memories.db",
+    )
+)
 
 @contextmanager
 def get_db():
+    first_time = not DB_PATH.exists()
+    if first_time:
+        print(f"[WARN] {DB_PATH.name} not found, creating new database")
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row  # ✅ accesso per chiave
+
+    if first_time:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+            """
+        )
     try:
         yield conn
         conn.commit()
