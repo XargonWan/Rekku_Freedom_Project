@@ -104,11 +104,7 @@ def start_weather_updater():
             await asyncio.sleep(1800)
             await update_weather()
 
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    loop = asyncio.get_event_loop()
     loop.create_task(update_loop())
 
 

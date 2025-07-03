@@ -30,6 +30,7 @@ from core.config import BOT_TOKEN, BOT_USERNAME, OWNER_ID
 from core.mention_utils import is_rekku_mentioned
 import core.plugin_instance as plugin_instance
 from core.plugin_instance import load_plugin
+from core.weather import start_weather_updater, update_weather
 import traceback
 
 # Carica variabili da .env
@@ -618,9 +619,11 @@ def start_bot():
     # 🔁 Passa la funzione di notifica corretta (per i plugin)
     load_plugin(get_active_llm(), notify_fn=telegram_notify)
 
-    # Assicura la presenza di un event loop principale
+    # 🌀 Weather fetch subito e loop periodico
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    loop.run_until_complete(update_weather())
+    start_weather_updater()
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
