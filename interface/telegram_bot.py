@@ -439,17 +439,53 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("\u274c Errore nell'invio.")
         return
 
-    # Caso 2: /say (senza argomenti) \u2192 mostra ultime chat
-    entries = await recent_chats.get_last_active_chats_verbose(10, bot)
+    # Caso 2: /say @username -> seleziona chat privata
+    if len(args) == 1 and args[0].startswith("@"):  # /say @username
+        username = args[0]
+        try:
+            chat = await bot.get_chat(username)
+            print(f"[DEBUG] Risolto {username} -> {chat.id} ({chat.type})")
+            if chat.type != "private":
+                await update.message.reply_text(
+                    "\u274c User not found or not in a private chat."
+                )
+                return
+            say_proxy.set_target(update.effective_user.id, chat.id)
+            context.user_data.pop("say_choices", None)
+            print(f"[DEBUG] Target impostato tramite /say {username} -> {chat.id}")
+            await update.message.reply_text(
+                f"\u2709\ufe0f What do you want to send to {username}?",
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            print(f"[ERROR] Errore /say @username: {e}")
+            await update.message.reply_text(
+                "\u274c User not found or not in a private chat."
+            )
+        return
+
+    # Caso 3: /say (senza argomenti) -> mostra ultime chat
+    all_entries = await recent_chats.get_last_active_chats_verbose(20, bot)
+    entries = all_entries[:10]
     if not entries:
         await update.message.reply_text("\u26a0\ufe0f Nessuna chat recente trovata.")
         return
 
     # Salva lista in memoria e mostra opzioni
-    buttons = [
-        [f"{i+1}. {name} \u2014 `{cid}`"] for i, (cid, name) in enumerate(entries)
-    ]
-    numbered = "\n".join(f"{i+1}. {name} \u2014 `{cid}`" for i, (cid, name) in enumerate(entries))
+    numbered = "\n".join(
+        f"{i+1}. {escape_markdown(name)} \u2014 `{cid}`"
+        for i, (cid, name) in enumerate(entries)
+    )
+
+    # Elenco aggiuntivo di chat private recenti
+    privates = [(cid, name) for cid, name in all_entries if cid > 0][:5]
+    if privates:
+        private_lines = "\n".join(
+            f"{i+1}. {escape_markdown(name)} \u2014 `{cid}`"
+            for i, (cid, name) in enumerate(privates)
+        )
+        numbered += "\n\n\U0001f512 Recent private chats:\n" + private_lines
+
     numbered += "\n\n\u270f\ufe0f Rispondi con il numero per scegliere la chat."
 
     say_proxy.clear(update.effective_user.id)  # Assicura pulizia prima della scelta
