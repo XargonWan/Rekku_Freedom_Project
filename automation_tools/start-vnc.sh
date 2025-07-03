@@ -23,6 +23,10 @@ dbus-daemon --system --fork
 # Avvia l'ambiente desktop XFCE completo
 su -p rekku -c "dbus-launch --exit-with-session startxfce4 &"
 
+# Imposta browser e terminale predefiniti
+su -p rekku -c "xdg-settings set default-web-browser chromium.desktop"
+su -p rekku -c "exo-preferred-applications --set TerminalEmulator xfce4-terminal" || true
+
 # Assicura che Selenium sia avviato con interfaccia grafica
 export REKKU_SELENIUM_HEADLESS=0
 

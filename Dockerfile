@@ -35,6 +35,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-3-0 \
     libasound2 \
     autocutsel \
+    xfce4-terminal \
+    xdg-utils \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
     libdrm2 \
