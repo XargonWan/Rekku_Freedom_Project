@@ -8,7 +8,7 @@ import json
 
 
 async def build_json_prompt(message, context_memory) -> dict:
-    from core.weather import get_current_weather
+    import core.weather
     from datetime import datetime
     import pytz
     import os
@@ -63,7 +63,8 @@ async def build_json_prompt(message, context_memory) -> dict:
     date = now_local.strftime("%Y-%m-%d")
     time = now_local.strftime("%H:%M")
 
-    weather = get_current_weather()
+    weather = core.weather.current_weather
+    print(f"[DEBUG/prompt] Weather injected in prompt: {weather}")
 
     # === 4. JSON prompt finale ===
     prompt = {
@@ -72,7 +73,7 @@ async def build_json_prompt(message, context_memory) -> dict:
         "message": current_message,
     }
     prompt["location"] = location
-    prompt["weather"] = weather or "Unavailable"
+    prompt["weather"] = weather if weather else "Unavailable"
     prompt["date"] = date
     prompt["time"] = time
 
