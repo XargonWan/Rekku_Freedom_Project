@@ -24,6 +24,7 @@ from core.message_sender import detect_media_type
 from core.message_sender import extract_response_target
 from core.config import get_active_llm, set_active_llm, list_available_llms
 from core.config import BOT_TOKEN, BOT_USERNAME, OWNER_ID
+from core.mention_utils import is_rekku_mentioned
 import core.plugin_instance as plugin_instance
 from core.plugin_instance import load_plugin
 import traceback
@@ -312,8 +313,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message.reply_to_message.from_user.username and
             message.reply_to_message.from_user.username.lower() == bot_username
         )
-        if not mentioned and not is_reply_to_bot:
-            print("[DEBUG] Ignoro messaggio: non menzionata né in risposta a me.")
+        if not mentioned and not is_reply_to_bot and not is_rekku_mentioned(text):
+            print("[DEBUG] Ignoro messaggio: nessuna forma di Rekku rilevata.")
             return
 
     # === Passa al plugin con fallback
