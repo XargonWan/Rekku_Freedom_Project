@@ -88,8 +88,10 @@ async def update_weather() -> None:
         current_weather = weather_string
         _logger.info("Weather string: %s", current_weather)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[ERROR/weather] Failed to parse or format weather data: {e}")
         _logger.warning("Error parsing weather data: %s", e)
-        print(f"[ERROR/weather] Failed to update weather: {e}")
         current_weather = "Weather data unavailable."
 
 
