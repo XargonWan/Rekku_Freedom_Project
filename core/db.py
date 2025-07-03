@@ -81,6 +81,18 @@ def init_db():
             )
         """)
 
+        # Tabella message_map (associa messaggi inoltrati all'originale)
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS message_map (
+                trainer_message_id INTEGER PRIMARY KEY,
+                chat_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                timestamp REAL
+            )
+            """
+        )
+
 # 🧠 Inserisce una nuova memoria nel database
 def insert_memory(
     content: str,
