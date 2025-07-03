@@ -51,6 +51,7 @@ async def update_weather() -> None:
         return
 
     try:
+        print("[DEBUG/weather] Parsing started...")
         data = json.loads(data_bytes.decode())
         print("[DEBUG/weather] Weather JSON fetched successfully.")
         cc = data.get("current_condition", [{}])[0]
