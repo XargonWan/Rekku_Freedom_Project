@@ -36,7 +36,7 @@ fi
 # Crea la cartella logs se non esiste
 mkdir -p "$(pwd)/logs"
 
-# 🧹 Pulisce container avviati con /desktop-setup.sh o immagine rekku_the_bot
+# 🧹 Pulisce container avviati con /desktop_setup.sh o immagine rekku_the_bot
 echo "🧹 Pulizia container Docker esistenti relativi a Rekku..."
 $DOCKER_CMD ps --format '{{.ID}} {{.Image}} {{.Command}}' | grep -E 'rekku_the_bot|start-vnc\.sh' | awk '{print $1}' | xargs -r $DOCKER_CMD kill
 
