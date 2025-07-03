@@ -29,7 +29,7 @@ def _choose_emoji(description: str) -> str:
     return "🌡️"
 
 
-async def _fetch_weather() -> None:
+async def update_weather() -> None:
     global current_weather
 
     location = os.getenv("WEATHER_LOCATION", "Kyoto")
@@ -87,19 +87,20 @@ async def _fetch_weather() -> None:
         current_weather = "Weather data unavailable."
 
 
-async def _weather_loop():
-    while True:
-        await _fetch_weather()
-        await asyncio.sleep(1800)
-
-
 def start_weather_updater():
+    async def update_loop():
+        await update_weather()
+        print("[DEBUG] Weather updater started and initial fetch done.")
+        while True:
+            await asyncio.sleep(1800)
+            await update_weather()
+
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    loop.create_task(_weather_loop())
+    loop.create_task(update_loop())
 
 
 def get_current_weather() -> str:
