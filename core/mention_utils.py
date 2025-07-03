@@ -1,26 +1,52 @@
-"""Utility per rilevare menzioni di Rekku in testo generico."""
+"""Utilities for detecting mentions of Rekku in free-form text."""
 
-from __future__ import annotations
-
-
-_ALIAS_LIST = [
-    # Latin-based
+REKKU_ALIASES = [
+    # Latin aliases
     "rekku",
-    "re-chan", "re-cchan", "recchan", "rekkuchan", "rekuchan",
-    "rekku-tan", "rekku-san", "rekku-sama", "rekku-senpai", "rekku-kun",
-    "genietta", "genietto", "tanukina",
-    # Japanese Hiragana
-    "れっく", "れっくう", "れっくちゃん", "れっくたん", "れっくさん", "れっく様",
-    # Japanese Katakana
-    "レック", "レックちゃん", "レックたん",
-    # Cyrillic phonetic
-    "рекку", "рекка", "реккун", "рекчан", "рекушка",
-    # Handles / symbols
+    "re-chan",
+    "re-cchan",
+    "recchan",
+    "rekkuchan",
+    "rekuchan",
+    "rekku-tan",
+    "rekku-san",
+    "rekku-sama",
+    "rekku-senpai",
+    "rekku-kun",
+    "genietta",
+    "genietto",
+    "tanukina",
+    # Japanese aliases
+    "れっく",
+    "れっくう",
+    "れっくちゃん",
+    "れっくたん",
+    "れっくさん",
+    "れっく様",
+    "レック",
+    "レックちゃん",
+    "レックたん",
+    # Cyrillic aliases
+    "рекку",
+    "рекка",
+    "рекчан",
+    "реккун",
+    "рекушка",
+    # Official handle
     "@the_official_rekku",
 ]
+
+# Pre-compute a lower-case version for faster checks
+REKKU_ALIASES_LOWER = [alias.lower() for alias in REKKU_ALIASES]
 
 
 def is_rekku_mentioned(text: str) -> bool:
     """Return ``True`` if ``text`` contains any alias for Rekku."""
-    lower = text.lower()
-    return any(alias in lower for alias in _ALIAS_LIST)
+    if not text:
+        return False
+    lowered = text.lower()
+    for alias in REKKU_ALIASES_LOWER:
+        if alias in lowered:
+            print(f"[DEBUG/mention] Rekku alias matched: '{alias}'")
+            return True
+    return False
