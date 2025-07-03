@@ -144,6 +144,8 @@ python3 login_selenium.py
 docker run -v $(pwd)/rekku_home:/home/rekku ...
 ```
 
+6. L'immagine Docker include i font Noto e Liberation per visualizzare correttamente testi internazionali ed emoji in Chrome.
+
 ---
 
 ### 📁 Ignora il profilo in Git

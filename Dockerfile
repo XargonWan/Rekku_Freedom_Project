@@ -1,6 +1,6 @@
 FROM debian:bookworm
 
-ENV CHROME_BIN=/usr/bin/google-chrome
+ENV CHROME_BIN=/usr/local/bin/google-chrome
 ENV CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
 ENV DISPLAY=:0
 ENV WEBVIEW_PORT=5005
@@ -23,6 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     fonts-liberation \
     fonts-dejavu-core \
+    fonts-noto \
+    fonts-noto-cjk \
     fonts-noto-color-emoji \
     libnss3 \
     libx11-6 \
@@ -55,7 +57,10 @@ RUN wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-
     && chmod +x /usr/local/bin/chromedriver \
     && rm /tmp/chromedriver.zip \
     && apt-get purge -y chromium chromium-browser || true \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && printf '#!/bin/bash\nexec /usr/bin/google-chrome --no-sandbox "$@"\n' \
+       >/usr/local/bin/google-chrome \
+    && chmod +x /usr/local/bin/google-chrome
 
 # Imposta hostname realistico
 RUN echo 'luna-workstation' > /etc/hostname

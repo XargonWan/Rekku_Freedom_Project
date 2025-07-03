@@ -28,7 +28,7 @@ su -p rekku -c "dbus-launch --exit-with-session startxfce4 &"
 
 # Imposta browser e terminale predefiniti
 su -p rekku -c "xdg-settings set default-web-browser google-chrome.desktop"
-ln -sf /usr/bin/google-chrome /usr/bin/xdg-open
+ln -sf /usr/local/bin/google-chrome /usr/bin/xdg-open
 su -p rekku -c "exo-preferred-applications --set TerminalEmulator xfce4-terminal" || true
 
 # Assicura che Selenium sia avviato con interfaccia grafica
@@ -41,7 +41,8 @@ export XDG_SESSION_DESKTOP=XFCE
 # Avvia server VNC (condivisione e senza password)
 su -p rekku -c "x11vnc -display :0 -forever -nopw -shared -rfbport 5900 -bg -cursor arrow"
 # Sincronizza gli appunti tra host e VNC
-su -p rekku -c "autocutsel -fork"
+su -p rekku -c "autocutsel -fork -selection PRIMARY"
+su -p rekku -c "autocutsel -fork -selection CLIPBOARD"
 
 # Avvia noVNC sulla porta pubblica interna configurabile
 # Usa versione "vnc.html" che include UI completa

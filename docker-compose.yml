@@ -1,6 +1,7 @@
 services:
   rekku_the_bot:
     container_name: rekku_the_bot
+    hostname: luna-workstation
     image: rekku_the_bot:latest
     restart: on-failure
     environment:
