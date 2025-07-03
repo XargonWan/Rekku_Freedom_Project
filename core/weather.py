@@ -36,19 +36,23 @@ async def update_weather() -> None:
     encoded = urllib.parse.quote(location)
     url = f"https://wttr.in/{encoded}?format=j1"
     _logger.info("Fetching weather for %s", location)
+    print(f"[DEBUG/weather] Fetching weather for location: {location}")
 
     try:
         response = await asyncio.to_thread(urllib.request.urlopen, url)
         status = getattr(response, "status", 200)
         _logger.info("HTTP status: %s", status)
+        print(f"[DEBUG/weather] HTTP response status: {status}")
         data_bytes = await asyncio.to_thread(response.read)
     except Exception as e:
         _logger.warning("Failed to fetch weather: %s", e)
+        print(f"[ERROR/weather] Failed to update weather: {e}")
         current_weather = "Weather data unavailable."
         return
 
     try:
         data = json.loads(data_bytes.decode())
+        print("[DEBUG/weather] Weather JSON fetched successfully.")
         cc = data.get("current_condition", [{}])[0]
         desc = cc.get("weatherDesc", [{}])[0].get("value", "N/A")
         temp_c = cc.get("temp_C", "N/A")
@@ -74,16 +78,18 @@ async def update_weather() -> None:
         )
 
         emoji = _choose_emoji(desc)
-        current_weather = (
+        weather_string = (
             f"{location}: {emoji} {desc} +{temp_c}°C ("
             f"Feels like {feels_c}°C, Humidity {humidity}%, "
             f"Wind {wind_speed}km/h {wind_dir}, Visibility {visibility}km, "
-            f"Pressure {pressure}hPa, Cloud cover {cloudcover}%"
-            ")"
+            f"Pressure {pressure}hPa, Cloud cover {cloudcover}%)"
         )
+        print(f"[DEBUG/weather] Final weather string: {weather_string}")
+        current_weather = weather_string
         _logger.info("Weather string: %s", current_weather)
     except Exception as e:
         _logger.warning("Error parsing weather data: %s", e)
+        print(f"[ERROR/weather] Failed to update weather: {e}")
         current_weather = "Weather data unavailable."
 
 
