@@ -442,25 +442,27 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Caso 2: /say @username -> seleziona chat privata
     if len(args) == 1 and args[0].startswith("@"):  # /say @username
         username = args[0]
+        print(f"[DEBUG] Resolving username {username} via bot.get_chat")
         try:
             chat = await bot.get_chat(username)
-            print(f"[DEBUG] Risolto {username} -> {chat.id} ({chat.type})")
-            if chat.type != "private":
-                await update.message.reply_text(
-                    "\u274c User not found or not in a private chat."
-                )
-                return
-            say_proxy.set_target(update.effective_user.id, chat.id)
-            context.user_data.pop("say_choices", None)
-            print(f"[DEBUG] Target impostato tramite /say {username} -> {chat.id}")
-            await update.message.reply_text(
-                f"\u2709\ufe0f What do you want to send to {username}?",
-                parse_mode="Markdown",
+            print(
+                f"[DEBUG] Resolved to chat_id = {chat.id}, type = {chat.type}"
             )
+            if chat.type == "private":
+                say_proxy.set_target(update.effective_user.id, chat.id)
+                context.user_data.pop("say_choices", None)
+                await update.message.reply_text(
+                    f"\u2709\ufe0f What do you want to send to {username}?",
+                    parse_mode="Markdown",
+                )
+            else:
+                await update.message.reply_text(
+                    f"\u274c Cannot send to {username}. They must start the chat with the bot first."
+                )
         except Exception as e:
             print(f"[ERROR] Errore /say @username: {e}")
             await update.message.reply_text(
-                "\u274c User not found or not in a private chat."
+                f"\u274c Cannot send to {username}. They must start the chat with the bot first."
             )
         return
 
