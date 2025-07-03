@@ -63,8 +63,6 @@ RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 COPY automation_tools/start-vnc.sh /start-vnc.sh
 RUN chmod +x /start-vnc.sh
 
-# VOLUME persistente (se desiderato)
-VOLUME ["/app/selenium_profile"]
 
 EXPOSE 5005
 

@@ -5,11 +5,10 @@ from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import NoSuchElementException
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
-from core.config import SELENIUM_PROFILE_DIR, SELENIUM_EXTENSIONS_DIR
+from core.config import SELENIUM_EXTENSIONS_DIR
 import asyncio
 import os
 import subprocess
-import glob
 import time
 import zipfile
 import urllib.request
@@ -33,18 +32,8 @@ def _build_vnc_url() -> str:
     print(f"[DEBUG/selenium] VNC URL costruita: {url}")
     return url
 
-# Path assoluto per il profilo Selenium montato dall'host
-PROFILE_DIR = os.path.abspath(SELENIUM_PROFILE_DIR)
-
-
-def _cleanup_profile_locks():
-    """Remove Chrome profile lock files that prevent reuse."""
-    try:
-        for path in glob.glob(os.path.join(PROFILE_DIR, "Singleton*")):
-            os.remove(path)
-    except Exception:
-        pass
-
+# Profilo Chrome persistente montato dall'host
+PROFILE_DIR = "/home/rekku/.config/google-chrome"
 
 def _install_webstore_extension(ext_id: str, name: str) -> str | None:
     """Download and unpack a Chrome Web Store extension if missing.
@@ -116,7 +105,6 @@ AudioBuffer.prototype.getChannelData = function(){
 
 def _get_driver():
     """Return a configured undetected Chrome driver."""
-    _cleanup_profile_locks()
 
     headless = os.getenv("REKKU_SELENIUM_HEADLESS", "1") != "0"
     options = uc.ChromeOptions()
@@ -136,6 +124,7 @@ def _get_driver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-infobars")
     options.add_argument("--disable-extensions")
+    options.add_argument(f"--user-data-dir={PROFILE_DIR}")
     # Alcune versioni di Chrome non accettano le opzioni experimental
     # come 'excludeSwitches'. Preferiamo non impostarle per evitare errori
     # di avvio che impedirebbero l'invio della notifica VNC.
@@ -145,7 +134,6 @@ def _get_driver():
     try:
         driver = uc.Chrome(
             options=options,
-            user_data_dir=PROFILE_DIR,
             headless=headless,
             log_level=3,
         )
@@ -156,7 +144,6 @@ def _get_driver():
             options.experimental_options.pop("useAutomationExtension", None)
             driver = uc.Chrome(
                 options=options,
-                user_data_dir=PROFILE_DIR,
                 headless=headless,
                 log_level=3,
             )

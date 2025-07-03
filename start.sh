@@ -62,7 +62,6 @@ case "$MODE" in
       --name rekku_desktop \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
-      -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
@@ -76,7 +75,6 @@ case "$MODE" in
       --name rekku_desktop \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
-      -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
@@ -91,7 +89,6 @@ case "$MODE" in
       --name rekku_desktop \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
-      -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
       -v "$(pwd)/rekku_home:/home/rekku" \
       -e WEBVIEW_PORT=$PORT \
