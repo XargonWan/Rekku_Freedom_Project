@@ -8,6 +8,11 @@ import json
 
 
 async def build_json_prompt(message, context_memory) -> dict:
+    import core.weather
+    from datetime import datetime
+    import pytz
+    import os
+
     chat_id = message.chat_id
     text = message.text or ""
 
@@ -43,12 +48,38 @@ async def build_json_prompt(message, context_memory) -> dict:
         "timestamp": message.date.isoformat()
     }
 
+    # === Extra weather and time info ===
+    location = os.getenv("WEATHER_LOCATION", "Kyoto")
+    tz_map = {
+        "Kyoto": "Asia/Tokyo",
+    }
+    tz_name = tz_map.get(location, "UTC")
+    try:
+        tz = pytz.timezone(tz_name)
+    except Exception:
+        tz = pytz.utc
+
+    now_local = datetime.now(tz)
+    date = now_local.strftime("%Y-%m-%d")
+    time = now_local.strftime("%H:%M")
+
+    weather = core.weather.current_weather
+    print(f"[DEBUG/prompt] Weather injected in prompt: {weather}")
+
     # === 4. JSON prompt finale ===
-    return {
+    prompt = {
         "context": context_list,
         "memories": memories,
-        "message": current_message
+        "message": current_message,
     }
+    prompt["location"] = location
+    prompt["weather"] = weather if weather else "Unavailable"
+    prompt["date"] = date
+    prompt["time"] = time
+
+    print(f"[DEBUG] Prompt arricchito con: {location=} {weather=} {date=} {time=}")
+
+    return prompt
 
 def load_identity_prompt() -> str:
     try:
