@@ -1,50 +1,22 @@
 FROM debian:bookworm
 
-ENV CHROME_BIN=/usr/local/bin/google-chrome
+ENV CHROME_BIN=/usr/bin/google-chrome
 ENV CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
 ENV DISPLAY=:0
 ENV WEBVIEW_PORT=5005
 
-# Installa Chrome + dipendenze + VNC stack
+# === Installa Chrome + VNC + Fonts ===
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    python3-distutils \
-    xfce4 \
-    x11vnc \
-    xvfb \
-    dbus \
-    dbus-x11 \
-    xinit \
-    udev \
-    websockify \
-    wget \
-    curl \
-    unzip \
-    fonts-liberation \
-    fonts-dejavu-core \
-    fonts-noto \
-    fonts-noto-cjk \
-    fonts-noto-color-emoji \
-    libnss3 \
-    libx11-6 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libgtk-3-0 \
-    libasound2 \
+    python3 python3-pip python3-distutils \
+    xfce4 xfce4-terminal x11vnc xvfb xinit dbus dbus-x11 udev sudo \
+    websockify wget curl unzip xdg-utils \
+    fonts-liberation fonts-dejavu-core fonts-noto fonts-noto-cjk fonts-noto-color-emoji \
+    libnss3 libx11-6 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libgtk-3-0 libasound2 \
+    libatk-bridge2.0-0 libatk1.0-0 libdrm2 libxss1 \
     autocutsel \
-    xfce4-terminal \
-    xdg-utils \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libdrm2 \
-    libxss1 \
-    sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Installa Google Chrome stabile e ChromeDriver abbinato
+# === Installa Google Chrome stabile e ChromeDriver compatibile ===
 RUN wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
     && apt-get update \
     && apt-get install -y /tmp/google-chrome.deb \
@@ -58,36 +30,39 @@ RUN wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-
     && rm /tmp/chromedriver.zip \
     && apt-get purge -y chromium chromium-browser || true \
     && rm -rf /var/lib/apt/lists/* \
-    && printf '#!/bin/bash\nexec /usr/bin/google-chrome --no-sandbox "$@"\n' \
-       >/usr/local/bin/google-chrome \
-    && chmod +x /usr/local/bin/google-chrome
+    && ln -sf /usr/bin/google-chrome /usr/local/bin/google-chrome \
+    && echo '#!/bin/bash\nexec /usr/bin/google-chrome --no-sandbox "$@"' > /usr/local/bin/chrome-launch \
+    && chmod +x /usr/local/bin/chrome-launch \
+    && xdg-settings set default-web-browser google-chrome.desktop || true
 
-# Imposta hostname realistico
+# === Imposta hostname realistico ===
 RUN echo 'luna-workstation' > /etc/hostname
 
-# Crea l'utente non privilegiato 'rekku' con sudo senza password
+# === Crea utente non privilegiato ===
 RUN useradd -m -s /bin/bash rekku \
     && echo 'rekku ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-# Scarica noVNC
+# === Scarica noVNC ===
 RUN mkdir -p /opt/novnc && \
     wget https://github.com/novnc/noVNC/archive/refs/heads/master.zip -O /tmp/novnc.zip && \
     unzip /tmp/novnc.zip -d /opt && \
     mv /opt/noVNC-master/* /opt/novnc && \
     rm -rf /tmp/novnc.zip
 
-# Copia codice del bot
+# === Bot code ===
 WORKDIR /app
 COPY . .
 
-# Installa dipendenze Python
+# === Copia wallpaper statico da repo ===
+COPY res/rekku_night.png /usr/share/backgrounds/rekku_night.png
+
+# === Python deps ===
 RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 
-# Copia script avvio VNC + bot
-COPY automation_tools/start-vnc.sh /start-vnc.sh
-RUN chmod +x /start-vnc.sh
-
+# === Script di avvio ===
+COPY automation_tools/desktop-setup.sh /desktop-setup.sh
+RUN chmod +x /desktop-setup.sh
 
 EXPOSE 5005
 
-CMD ["/start-vnc.sh"]
+CMD ["/desktop-setup.sh"]
