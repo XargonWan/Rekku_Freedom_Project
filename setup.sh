@@ -72,7 +72,7 @@ echo "✅ Immagine Docker aggiornata."
 
 echo ""
 echo "📦 Volume persistente consigliato per i cookie Selenium:"
-echo "    $NEEDS_SUDO docker run -v $(pwd)/selenium_profile:/app/selenium_profile $IMAGE_NAME"
+echo "    $NEEDS_SUDO docker run -v $(pwd)/rekku_home:/home/rekku $IMAGE_NAME"
 
 echo ""
 echo "🔁 Per avviare con log live:"

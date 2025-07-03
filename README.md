@@ -134,18 +134,12 @@ sudo apt install -y chromium chromium-driver
 python3 login_selenium.py
 ```
 
-4. Una volta completato il login, verrà creata la cartella `selenium_profile/`.
+4. Una volta completato il login, verrà creata la cartella `rekku_home/.config/google-chrome/`.
 
-5. Per trasferirla su un server remoto:
-
-```
-tar czf selenium_profile.tar.gz selenium_profile
-```
-
-Poi copia e decomprimi sul server:
+5. Per rendere persistente il profilo su un server remoto, monta la directory `rekku_home` nel container:
 
 ```
-tar xzf selenium_profile.tar.gz
+docker run -v $(pwd)/rekku_home:/home/rekku ...
 ```
 
 ---
@@ -155,6 +149,5 @@ tar xzf selenium_profile.tar.gz
 Nel file `.gitignore` assicurati che ci siano queste righe:
 
 ```
-selenium_profile/
-selenium_profile.tar.gz
+rekku_home/
 ```

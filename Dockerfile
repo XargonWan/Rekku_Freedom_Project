@@ -34,6 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgbm1 \
     libgtk-3-0 \
     libasound2 \
+    autocutsel \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
     libdrm2 \

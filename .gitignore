@@ -49,5 +49,4 @@ build/
 site/
 rekku.db
 logs/
-selenium_profile/
 rekku_home/

@@ -32,6 +32,8 @@ export XDG_SESSION_DESKTOP=XFCE
 
 # Avvia server VNC (condivisione e senza password)
 su -p rekku -c "x11vnc -display :0 -forever -nopw -shared -rfbport 5900 -bg -cursor arrow"
+# Sincronizza gli appunti tra host e VNC
+su -p rekku -c "autocutsel -fork"
 
 # Avvia noVNC sulla porta pubblica interna configurabile
 # Usa versione "vnc.html" che include UI completa
