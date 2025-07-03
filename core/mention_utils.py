@@ -1,4 +1,4 @@
-"""Utilities for detecting mentions of Rekku in free-form text."""
+"""Multilingual utilities for detecting mentions of Rekku in free-form text."""
 
 REKKU_ALIASES = [
     # Latin aliases
