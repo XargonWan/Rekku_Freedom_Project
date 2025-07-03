@@ -24,7 +24,7 @@ from core.message_sender import detect_media_type
 from core.message_sender import extract_response_target
 from core.config import get_active_llm, set_active_llm, list_available_llms
 from core.config import BOT_TOKEN, BOT_USERNAME, OWNER_ID
-# Utility to detect mentions of Rekku even without explicit @username
+# Import mention detector to recognize Rekku aliases even without explicit @username
 from core.mention_utils import is_rekku_mentioned
 import core.plugin_instance as plugin_instance
 from core.plugin_instance import load_plugin
