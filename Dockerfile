@@ -59,7 +59,12 @@ WORKDIR /app
 COPY . .
 
 # Installa dipendenze Python
-RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
+RUN python3 -m venv /opt/venv \
+    && /opt/venv/bin/pip install --upgrade pip \
+    && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+
+# Ensure the virtual environment is used for all commands
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Copia script avvio VNC + bot
 COPY desktop_setup.sh /start.sh

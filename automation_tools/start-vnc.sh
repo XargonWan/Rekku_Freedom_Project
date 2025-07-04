@@ -11,6 +11,7 @@ fi
 
 # Imposta HOME corretto per i processi avviati come rekku
 export HOME=/home/rekku
+export PATH="/opt/venv/bin:$PATH"
 
 # Ensure Desktop directory exists
 mkdir -p /home/rekku/Desktop

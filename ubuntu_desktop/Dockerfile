@@ -58,9 +58,13 @@ RUN useradd -m -s /bin/bash rekku \
 WORKDIR /app
 COPY . /app
 RUN chmod +x /app/ubuntu_desktop/start.sh \
- && pip3 install --no-cache-dir -r /app/requirements.txt \
+ && python3 -m venv /opt/venv \
+ && /opt/venv/bin/pip install --upgrade pip \
+ && /opt/venv/bin/pip install --no-cache-dir -r /app/requirements.txt \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/opt/venv/bin:$PATH"
 
 VOLUME ["/home/rekku"]
 EXPOSE 5005

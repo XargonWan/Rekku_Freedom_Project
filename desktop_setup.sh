@@ -4,6 +4,7 @@ set -e
 export DISPLAY=:0
 export HOME=/home/rekku
 export PYTHONPATH=/app
+export PATH="/opt/venv/bin:$PATH"
 WEBVIEW_PORT=${WEBVIEW_PORT:-5005}
 WEBVIEW_HOST=${WEBVIEW_HOST:-localhost}
 

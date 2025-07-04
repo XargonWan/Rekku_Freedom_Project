@@ -6,6 +6,7 @@ hostnamectl set-hostname luna-workstation 2>/dev/null || true
 export DISPLAY=:0
 export HOME=/home/rekku
 export PYTHONPATH=/app
+export PATH="/opt/venv/bin:$PATH"
 export LANG=en_US.UTF-8
 WEBVIEW_PORT=${WEBVIEW_PORT:-5005}
 WEBVIEW_HOST=${WEBVIEW_HOST:-localhost}
