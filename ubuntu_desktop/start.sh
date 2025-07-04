@@ -10,7 +10,19 @@ export LANG=en_US.UTF-8
 WEBVIEW_PORT=${WEBVIEW_PORT:-5005}
 WEBVIEW_HOST=${WEBVIEW_HOST:-localhost}
 
-# Ensure desktop shortcuts
+# Ensure Desktop directory exists
+mkdir -p /home/rekku/Desktop
+
+# Create chromium wrapper if only Google Chrome is installed
+if ! command -v chromium-browser >/dev/null 2>&1 && command -v google-chrome >/dev/null 2>&1; then
+cat <<'EOF' > /usr/local/bin/chromium-browser
+#!/bin/bash
+exec /usr/bin/google-chrome --no-sandbox "$@"
+EOF
+chmod +x /usr/local/bin/chromium-browser
+fi
+
+# Desktop shortcuts
 TERM_SRC="/usr/share/applications/xfce4-terminal.desktop"
 TERM_DST="/home/rekku/Desktop/xfce4-terminal.desktop"
 if [ -f "$TERM_SRC" ]; then
@@ -19,17 +31,22 @@ if [ -f "$TERM_SRC" ]; then
   chown rekku:rekku "$TERM_DST"
 fi
 
-if [ ! -f /usr/share/applications/google-chrome.desktop ]; then
-cat <<'EOF' > /usr/share/applications/google-chrome.desktop
+CHROME_SRC="/usr/share/applications/chromium-browser.desktop"
+CHROME_DST="/home/rekku/Desktop/chromium-browser.desktop"
+if [ ! -f "$CHROME_SRC" ]; then
+cat <<'EOF' > "$CHROME_SRC"
 [Desktop Entry]
-Name=Google Chrome
-Exec=/usr/bin/google-chrome --no-sandbox
-Icon=google-chrome
+Name=Chromium
+Exec=chromium-browser
+Icon=chromium-browser
 Type=Application
 Categories=Network;WebBrowser;
 EOF
-chmod 644 /usr/share/applications/google-chrome.desktop
+chmod 644 "$CHROME_SRC"
 fi
+cp "$CHROME_SRC" "$CHROME_DST"
+chmod +x "$CHROME_DST"
+chown rekku:rekku "$CHROME_DST"
 
 # Configure passwords if ROOT_PASSWORD is set
 if [ -n "$ROOT_PASSWORD" ]; then

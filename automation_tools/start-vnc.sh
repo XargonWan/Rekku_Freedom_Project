@@ -12,6 +12,18 @@ fi
 # Imposta HOME corretto per i processi avviati come rekku
 export HOME=/home/rekku
 
+# Ensure Desktop directory exists
+mkdir -p /home/rekku/Desktop
+
+# Create chromium wrapper if only Google Chrome is installed
+if ! command -v chromium-browser >/dev/null 2>&1 && command -v google-chrome >/dev/null 2>&1; then
+  cat <<'EOF' > /usr/local/bin/chromium-browser
+#!/bin/bash
+exec /usr/bin/google-chrome --no-sandbox "$@"
+EOF
+  chmod +x /usr/local/bin/chromium-browser
+fi
+
 # Ensure terminal launcher on desktop
 TERM_DESKTOP_SRC="/usr/share/applications/xfce4-terminal.desktop"
 TERM_DESKTOP_DST="/home/rekku/Desktop/xfce4-terminal.desktop"
@@ -21,18 +33,23 @@ if [ -f "$TERM_DESKTOP_SRC" ]; then
   chown rekku:rekku "$TERM_DESKTOP_DST"
 fi
 
-# Ensure Google Chrome desktop entry
-if [ ! -f /usr/share/applications/google-chrome.desktop ]; then
-cat <<'EOF' > /usr/share/applications/google-chrome.desktop
+# Ensure Chromium desktop entry
+CHROME_DESKTOP_SRC="/usr/share/applications/chromium-browser.desktop"
+CHROME_DESKTOP_DST="/home/rekku/Desktop/chromium-browser.desktop"
+if [ ! -f "$CHROME_DESKTOP_SRC" ]; then
+cat <<'EOF' > "$CHROME_DESKTOP_SRC"
 [Desktop Entry]
-Name=Google Chrome
-Exec=/usr/bin/google-chrome --no-sandbox
-Icon=google-chrome
+Name=Chromium
+Exec=chromium-browser
+Icon=chromium-browser
 Type=Application
 Categories=Network;WebBrowser;
 EOF
-chmod 644 /usr/share/applications/google-chrome.desktop
+chmod 644 "$CHROME_DESKTOP_SRC"
 fi
+cp "$CHROME_DESKTOP_SRC" "$CHROME_DESKTOP_DST"
+chmod +x "$CHROME_DESKTOP_DST"
+chown rekku:rekku "$CHROME_DESKTOP_DST"
 
 # Avvia display virtuale (Xvfb) con risoluzione standard
 su -p rekku -c "Xvfb :0 -screen 0 1280x720x24 &"
