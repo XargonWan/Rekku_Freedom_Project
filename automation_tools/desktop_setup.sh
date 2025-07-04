@@ -3,7 +3,7 @@
 # Imposta DISPLAY virtuale
 export DISPLAY=:0
 export HOME=/home/rekku
-export PYTHONPATH=/app
+export PYTHONPATH="/app:${PYTHONPATH}"
 
 # Imposta timezone corretto
 ln -sf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime
