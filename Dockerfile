@@ -1,7 +1,7 @@
-FROM debian:bookworm
+FROM ubuntu:22.04
 
-ENV CHROME_BIN=/usr/bin/chromium
-ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
+ENV CHROME_BIN=/usr/bin/google-chrome
+ENV CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
 ENV DISPLAY=:0
 ENV WEBVIEW_PORT=5005
 
@@ -14,37 +14,36 @@ RUN apt-get update && apt-get purge -y snapd && rm -rf /var/cache/snapd /snap /e
     python3 \
     python3-pip \
     python3-distutils \
-    chromium \
-    chromium-driver \
     xfce4 \
     xfce4-terminal \
     x11vnc \
     xvfb \
     dbus \
     dbus-x11 \
-    xinit \
     udev \
     websockify \
     wget \
     curl \
     unzip \
-    fonts-liberation \
-    fonts-dejavu-core \
     fonts-noto-color-emoji \
-    libnss3 \
-    libx11-6 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libgtk-3-0 \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libdrm2 \
-    libxss1 \
+    fonts-noto-cjk \
+    fonts-liberation \
     sudo \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Google Chrome
+RUN wget -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    && apt-get update && apt-get install -y --no-install-recommends /tmp/chrome.deb \
+    && rm /tmp/chrome.deb \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install ChromeDriver matching Chrome version
+RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1) \
+    && DRIVER_VERSION=$(curl -sS https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}) \
+    && wget -O /tmp/chromedriver.zip https://chromedriver.storage.googleapis.com/${DRIVER_VERSION}/chromedriver_linux64.zip \
+    && unzip /tmp/chromedriver.zip -d /usr/local/bin \
+    && chmod +x /usr/local/bin/chromedriver \
+    && rm /tmp/chromedriver.zip
 
 # Crea l'utente non privilegiato 'rekku' con sudo senza password
 RUN useradd -m -s /bin/bash rekku \
