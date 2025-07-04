@@ -47,11 +47,21 @@ Type=Application
 Icon=chromium-browser
 Categories=Network;WebBrowser;
 LAUNCHER
-chmod 644 "$CHROME_SRC"
+  chmod 644 "$CHROME_SRC"
 fi
 cp "$CHROME_SRC" "$CHROME_DST"
 chmod +x "$CHROME_DST"
 chown rekku:rekku "$CHROME_DST"
+
+# Ensure XFCE shows desktop icons and wallpaper if present
+if command -v xfconf-query >/dev/null 2>&1; then
+  su - rekku -c "DISPLAY=:0 xfconf-query --channel xfce4-desktop --property /desktop-icons/style --set THUNAR >/dev/null 2>&1 || true"
+  if [ -f /usr/share/backgrounds/rekku_night.png ]; then
+    su - rekku -c "DISPLAY=:0 xfconf-query --channel xfce4-desktop --property /backdrop/screen0/monitor0/image-path --set /usr/share/backgrounds/rekku_night.png >/dev/null 2>&1 || true"
+  fi
+  # Reload desktop to apply settings
+  su - rekku -c "DISPLAY=:0 xfdesktop --reload >/dev/null 2>&1 &"
+fi
 
 # Ensure X11 sockets
 mkdir -p /tmp/.X11-unix /tmp/.ICE-unix
