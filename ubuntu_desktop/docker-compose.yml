@@ -1,0 +1,13 @@
+version: '3.8'
+services:
+  rekku_desktop:
+    build: .
+    container_name: rekku_desktop
+    ports:
+      - "5006:5005"
+    volumes:
+      - ./rekku_home:/home/rekku
+    environment:
+      WEBVIEW_HOST: ${WEBVIEW_HOST}
+      WEBVIEW_PORT: ${WEBVIEW_PORT}
+    restart: always
