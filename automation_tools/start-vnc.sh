@@ -12,6 +12,28 @@ fi
 # Imposta HOME corretto per i processi avviati come rekku
 export HOME=/home/rekku
 
+# Ensure terminal launcher on desktop
+TERM_DESKTOP_SRC="/usr/share/applications/xfce4-terminal.desktop"
+TERM_DESKTOP_DST="/home/rekku/Desktop/xfce4-terminal.desktop"
+if [ -f "$TERM_DESKTOP_SRC" ]; then
+  cp "$TERM_DESKTOP_SRC" "$TERM_DESKTOP_DST"
+  chmod +x "$TERM_DESKTOP_DST"
+  chown rekku:rekku "$TERM_DESKTOP_DST"
+fi
+
+# Ensure Google Chrome desktop entry
+if [ ! -f /usr/share/applications/google-chrome.desktop ]; then
+cat <<'EOF' > /usr/share/applications/google-chrome.desktop
+[Desktop Entry]
+Name=Google Chrome
+Exec=/usr/bin/google-chrome --no-sandbox
+Icon=google-chrome
+Type=Application
+Categories=Network;WebBrowser;
+EOF
+chmod 644 /usr/share/applications/google-chrome.desktop
+fi
+
 # Avvia display virtuale (Xvfb) con risoluzione standard
 su -p rekku -c "Xvfb :0 -screen 0 1280x720x24 &"
 

@@ -10,6 +10,27 @@ export LANG=en_US.UTF-8
 WEBVIEW_PORT=${WEBVIEW_PORT:-5005}
 WEBVIEW_HOST=${WEBVIEW_HOST:-localhost}
 
+# Ensure desktop shortcuts
+TERM_SRC="/usr/share/applications/xfce4-terminal.desktop"
+TERM_DST="/home/rekku/Desktop/xfce4-terminal.desktop"
+if [ -f "$TERM_SRC" ]; then
+  cp "$TERM_SRC" "$TERM_DST"
+  chmod +x "$TERM_DST"
+  chown rekku:rekku "$TERM_DST"
+fi
+
+if [ ! -f /usr/share/applications/google-chrome.desktop ]; then
+cat <<'EOF' > /usr/share/applications/google-chrome.desktop
+[Desktop Entry]
+Name=Google Chrome
+Exec=/usr/bin/google-chrome --no-sandbox
+Icon=google-chrome
+Type=Application
+Categories=Network;WebBrowser;
+EOF
+chmod 644 /usr/share/applications/google-chrome.desktop
+fi
+
 # Configure passwords if ROOT_PASSWORD is set
 if [ -n "$ROOT_PASSWORD" ]; then
   echo "root:$ROOT_PASSWORD" | chpasswd
