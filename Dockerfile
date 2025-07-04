@@ -17,6 +17,7 @@ RUN apt-get update && apt-get purge -y snapd && rm -rf /var/cache/snapd /snap /e
     chromium \
     chromium-driver \
     xfce4 \
+    xfce4-terminal \
     x11vnc \
     xvfb \
     dbus \
