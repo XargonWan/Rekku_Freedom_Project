@@ -14,7 +14,7 @@ RUN apt-get update && apt-get purge -y snapd && rm -rf /var/cache/snapd /snap /v
 # Install base packages and XFCE desktop
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata locales sudo wget curl unzip \
-    python3 python3-pip python3-distutils \
+    python3 python3-pip python3-distutils python3-venv \
     xfce4 xfce4-terminal \
     x11vnc xvfb websockify autocutsel xdg-utils \
     dbus dbus-x11 udev \

@@ -12,7 +12,7 @@ RUN apt-get update && apt-get purge -y snapd && rm -rf /var/cache/snapd /snap /e
  && echo "alias snap='echo Snap is disabled'" > /etc/profile.d/no-snap.sh \
  && apt-get update && apt-get install -y --no-install-recommends \
     tzdata locales sudo wget curl ca-certificates \
-    python3 python3-pip \
+    python3 python3-pip python3-venv \
     xfce4-session xfce4-settings xfce4-panel xfce4-terminal xfdesktop4 \
     xfwm4 xfconf xfce4-notifyd thunar pm-utils \
     x11vnc xvfb websockify autocutsel xdg-utils exo-utils unzip \
