@@ -33,12 +33,14 @@ RUN wget -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-sta
  && rm -rf /var/lib/apt/lists/*
 
 # Install ChromeDriver matching Chrome version
-RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1) \
- && DRIVER_VERSION=$(curl -sS https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}) \
- && wget -O /tmp/chromedriver.zip https://chromedriver.storage.googleapis.com/${DRIVER_VERSION}/chromedriver_linux64.zip \
- && unzip /tmp/chromedriver.zip -d /usr/local/bin \
- && chmod +x /usr/local/bin/chromedriver \
- && rm /tmp/chromedriver.zip
+RUN set -e; \
+    CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1); \
+    DRIVER_VERSION=$(curl -fsSL https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION} || \
+                    curl -fsSL https://chromedriver.storage.googleapis.com/LATEST_RELEASE); \
+    wget -O /tmp/chromedriver.zip https://chromedriver.storage.googleapis.com/${DRIVER_VERSION}/chromedriver_linux64.zip; \
+    unzip /tmp/chromedriver.zip -d /usr/local/bin; \
+    chmod +x /usr/local/bin/chromedriver; \
+    rm /tmp/chromedriver.zip
 
 # Install noVNC
 RUN mkdir -p /usr/share/novnc \
