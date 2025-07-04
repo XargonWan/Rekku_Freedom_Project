@@ -5,30 +5,25 @@ ENV CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
 ENV DISPLAY=:0
 ENV WEBVIEW_PORT=5005
 
-# Installa Chrome + dipendenze + VNC stack
-RUN apt-get update && apt-get purge -y snapd && rm -rf /var/cache/snapd /snap /etc/systemd/system/snap* \
+# Remove snap and block future installations
+RUN apt-get update && apt-get purge -y snapd && rm -rf /var/cache/snapd /snap /var/snap /var/lib/snapd /etc/systemd/system/snap* \
     && printf '#!/bin/sh\necho "Snap is disabled"\n' > /usr/local/bin/snap \
     && chmod +x /usr/local/bin/snap \
-    && echo "alias snap='echo Snap is disabled'" > /etc/profile.d/no-snap.sh \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    python3-distutils \
-    xfce4 \
-    xfce4-terminal \
-    x11vnc \
-    xvfb \
-    dbus \
-    dbus-x11 \
-    udev \
-    websockify \
-    wget \
-    curl \
-    unzip \
-    fonts-noto-color-emoji \
-    fonts-noto-cjk \
-    fonts-liberation \
-    sudo \
+    && echo "alias snap='echo Snap is disabled'" > /etc/profile.d/no-snap.sh
+
+# Install base packages and XFCE desktop
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tzdata locales sudo wget curl unzip \
+    python3 python3-pip python3-distutils \
+    xfce4 xfce4-terminal \
+    x11vnc xvfb websockify autocutsel xdg-utils \
+    dbus dbus-x11 udev \
+    fonts-noto-color-emoji fonts-noto-cjk fonts-liberation \
+    && sed -i 's/# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
+    && locale-gen \
+    && ln -snf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime \
+    && echo 'Asia/Tokyo' > /etc/timezone \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome
@@ -65,12 +60,12 @@ COPY . .
 RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 
 # Copia script avvio VNC + bot
-COPY automation_tools/start-vnc.sh /start-vnc.sh
-RUN chmod +x /start-vnc.sh
+COPY desktop_setup.sh /start.sh
+RUN chmod +x /start.sh
 
 # VOLUME persistente (se desiderato)
-VOLUME ["/app/selenium_profile"]
+VOLUME ["/home/rekku"]
 
 EXPOSE 5005
 
-CMD ["/start-vnc.sh"]
+CMD ["/start.sh"]
