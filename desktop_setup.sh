@@ -7,6 +7,15 @@ export PYTHONPATH=/app
 WEBVIEW_PORT=${WEBVIEW_PORT:-5005}
 WEBVIEW_HOST=${WEBVIEW_HOST:-localhost}
 
+# Remove snap and prevent reinstall if somehow present
+if command -v snap >/dev/null 2>&1; then
+  apt-get purge -y snapd >/dev/null 2>&1 || true
+  rm -rf /var/cache/snapd /snap /var/snap /var/lib/snapd /etc/systemd/system/snap*
+  printf '#!/bin/sh\necho "Snap is disabled"\n' > /usr/local/bin/snap
+  chmod +x /usr/local/bin/snap
+  echo "alias snap='echo Snap is disabled'" > /etc/profile.d/no-snap.sh
+fi
+
 # Set passwords if provided
 if [ -n "$ROOT_PASSWORD" ]; then
   echo "root:$ROOT_PASSWORD" | chpasswd
@@ -17,7 +26,14 @@ fi
 mkdir -p /home/rekku/Desktop
 
 # Create chromium wrapper if only Google Chrome is installed
-if ! command -v chromium-browser >/dev/null 2>&1 && command -v google-chrome >/dev/null 2>&1; then
+if command -v chromium-browser >/dev/null 2>&1; then
+  CHROME_EXEC="$(command -v chromium-browser)"
+  cat <<EOF > /usr/local/bin/chromium-browser
+#!/bin/bash
+exec "$CHROME_EXEC" --no-sandbox "$@"
+EOF
+  chmod +x /usr/local/bin/chromium-browser
+elif command -v google-chrome >/dev/null 2>&1; then
   cat <<'EOF' > /usr/local/bin/chromium-browser
 #!/bin/bash
 exec /usr/bin/google-chrome --no-sandbox "$@"
@@ -52,6 +68,13 @@ fi
 cp "$CHROME_SRC" "$CHROME_DST"
 chmod +x "$CHROME_DST"
 chown rekku:rekku "$CHROME_DST"
+
+# Set Chromium as default browser
+if command -v xdg-settings >/dev/null 2>&1; then
+  if su - rekku -c "xdg-settings get default-web-browser" >/dev/null 2>&1; then
+    su - rekku -c "xdg-settings set default-web-browser chromium-browser.desktop" || true
+  fi
+fi
 
 # Ensure XFCE shows desktop icons and wallpaper if present
 if command -v xfconf-query >/dev/null 2>&1; then
