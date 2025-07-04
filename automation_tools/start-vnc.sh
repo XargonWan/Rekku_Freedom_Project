@@ -16,14 +16,12 @@ export PATH="/opt/venv/bin:$PATH"
 # Ensure Desktop directory exists
 mkdir -p /home/rekku/Desktop
 
-# Create chromium wrapper if only Google Chrome is installed
-if ! command -v chromium-browser >/dev/null 2>&1 && command -v google-chrome >/dev/null 2>&1; then
-  cat <<'EOF' > /usr/local/bin/chromium-browser
+# Wrapper to launch Chromium without sandbox issues
+cat <<'EOF' > /usr/local/bin/chromium-browser
 #!/bin/bash
-exec /usr/bin/google-chrome --no-sandbox "$@"
+exec /usr/bin/chromium-browser --no-sandbox "$@"
 EOF
-  chmod +x /usr/local/bin/chromium-browser
-fi
+chmod +x /usr/local/bin/chromium-browser
 
 # Ensure terminal launcher on desktop
 TERM_DESKTOP_SRC="/usr/share/applications/xfce4-terminal.desktop"

@@ -14,14 +14,12 @@ WEBVIEW_HOST=${WEBVIEW_HOST:-localhost}
 # Ensure Desktop directory exists
 mkdir -p /home/rekku/Desktop
 
-# Create chromium wrapper if only Google Chrome is installed
-if ! command -v chromium-browser >/dev/null 2>&1 && command -v google-chrome >/dev/null 2>&1; then
+# Wrapper for launching Chromium without sandbox
 cat <<'EOF' > /usr/local/bin/chromium-browser
 #!/bin/bash
-exec /usr/bin/google-chrome --no-sandbox "$@"
+exec /usr/bin/chromium-browser --no-sandbox "$@"
 EOF
 chmod +x /usr/local/bin/chromium-browser
-fi
 
 # Desktop shortcuts
 TERM_SRC="/usr/share/applications/xfce4-terminal.desktop"
@@ -76,7 +74,7 @@ fi
 su - rekku -c "dbus-launch --exit-with-session startxfce4 &" >/tmp/xfce.log 2>&1
 
 # Set Chrome as default browser
-su - rekku -c "xdg-settings set default-web-browser google-chrome.desktop" || true
+su - rekku -c "xdg-settings set default-web-browser chromium-browser.desktop" || true
 su - rekku -c "xdg-settings set default-terminal-emulator xfce4-terminal.desktop" || true
 
 # Apply wallpaper if present

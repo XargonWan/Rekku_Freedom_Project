@@ -25,22 +25,11 @@ RUN apt-get update && apt-get purge -y snapd && rm -rf /var/cache/snapd /snap /e
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-# Install Google Chrome
-RUN wget -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
- && apt-get update && apt-get install -y --no-install-recommends /tmp/chrome.deb \
- && rm /tmp/chrome.deb \
+# Install Chromium and matching driver from APT
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium-browser chromium-driver \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
-
-# Install ChromeDriver matching Chrome version
-RUN set -e; \
-    CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1); \
-    DRIVER_VERSION=$(curl -fsSL https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION} || \
-                    curl -fsSL https://chromedriver.storage.googleapis.com/LATEST_RELEASE); \
-    wget -O /tmp/chromedriver.zip https://chromedriver.storage.googleapis.com/${DRIVER_VERSION}/chromedriver_linux64.zip; \
-    unzip /tmp/chromedriver.zip -d /usr/local/bin; \
-    chmod +x /usr/local/bin/chromedriver; \
-    rm /tmp/chromedriver.zip
 
 # Install noVNC
 RUN mkdir -p /usr/share/novnc \

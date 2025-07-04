@@ -27,20 +27,11 @@ fi
 mkdir -p /home/rekku/Desktop
 
 # Create chromium wrapper if only Google Chrome is installed
-if command -v chromium-browser >/dev/null 2>&1; then
-  CHROME_EXEC="$(command -v chromium-browser)"
-  cat <<EOF > /usr/local/bin/chromium-browser
+cat <<'EOF' > /usr/local/bin/chromium-browser
 #!/bin/bash
-exec "$CHROME_EXEC" --no-sandbox "$@"
+exec /usr/bin/chromium-browser --no-sandbox "$@"
 EOF
-  chmod +x /usr/local/bin/chromium-browser
-elif command -v google-chrome >/dev/null 2>&1; then
-  cat <<'EOF' > /usr/local/bin/chromium-browser
-#!/bin/bash
-exec /usr/bin/google-chrome --no-sandbox "$@"
-EOF
-  chmod +x /usr/local/bin/chromium-browser
-fi
+chmod +x /usr/local/bin/chromium-browser
 
 # Desktop shortcuts
 TERM_SRC="/usr/share/applications/xfce4-terminal.desktop"
