@@ -6,7 +6,11 @@ ENV DISPLAY=:0
 ENV WEBVIEW_PORT=5005
 
 # Installa Chrome + dipendenze + VNC stack
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get purge -y snapd && rm -rf /var/cache/snapd /snap /etc/systemd/system/snap* \
+    && printf '#!/bin/sh\necho "Snap is disabled"\n' > /usr/local/bin/snap \
+    && chmod +x /usr/local/bin/snap \
+    && echo "alias snap='echo Snap is disabled'" > /etc/profile.d/no-snap.sh \
+    && apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-distutils \
@@ -43,7 +47,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Crea l'utente non privilegiato 'rekku' con sudo senza password
 RUN useradd -m -s /bin/bash rekku \
-    && echo 'rekku ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+    && echo 'rekku ALL=(ALL:ALL) ALL' > /etc/sudoers.d/rekku \
+    && chmod 0440 /etc/sudoers.d/rekku
 
 # Scarica noVNC
 RUN mkdir -p /opt/novnc && \
