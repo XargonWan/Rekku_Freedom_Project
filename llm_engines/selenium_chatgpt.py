@@ -118,7 +118,7 @@ def _get_driver():
     """Return a configured undetected Chrome driver."""
     _cleanup_profile_locks()
 
-    headless = os.getenv("REKKU_SELENIUM_HEADLESS", "1") != "0"
+    headless = os.getenv("REKKU_SELENIUM_HEADLESS", "0") != "0"
     options = uc.ChromeOptions()
     if headless:
         options.add_argument("--headless=new")
