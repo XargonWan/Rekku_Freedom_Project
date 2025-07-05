@@ -1,6 +1,6 @@
 FROM lscr.io/linuxserver/webtop:ubuntu-xfce
 
-# Disable Snap and remove leftovers
+# Disable Snap and clean up leftovers
 RUN apt-get update && \
     apt-get purge -y snapd && \
     rm -rf /var/cache/snapd /snap /var/snap /var/lib/snapd && \
@@ -8,37 +8,21 @@ RUN apt-get update && \
     chmod +x /usr/local/bin/snap && \
     echo "alias snap='echo Snap is disabled'" > /etc/profile.d/no-snap.sh
 
-# Install base tools and supervisor
+# Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        python3 python3-venv python3-pip git curl wget \
-        supervisor lsb-release ca-certificates unzip fonts-liberation && \
+        python3 python3-pip python3-venv git curl wget unzip \
+        lsb-release ca-certificates fonts-liberation \
+        fonts-noto-cjk fonts-noto-color-emoji && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Create virtual environment and install Python deps
+# Set up Python virtual environment and install dependencies
 RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir -U pip && \
     /app/venv/bin/pip install --no-cache-dir \
-        selenium undetected-chromedriver openai python-dotenv
-
-# Install Google Chrome and matching Chromedriver
-RUN wget -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
-    apt-get install -y --no-install-recommends /tmp/chrome.deb && \
-    rm /tmp/chrome.deb && \
-    CHROME_VERSION=$(google-chrome --version | grep -oP '\d+\.\d+\.\d+\.\d+' | cut -d. -f1) && \
-    echo "Chrome major version: $CHROME_VERSION" && \
-    DRIVER_VERSION=$(curl -sS https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}) && \
-    echo "Matching Chromedriver version: $DRIVER_VERSION" && \
-    wget -O /tmp/chromedriver.zip https://chromedriver.storage.googleapis.com/${DRIVER_VERSION}/chromedriver_linux64.zip && \
-    unzip /tmp/chromedriver.zip -d /usr/local/bin && \
-    chmod +x /usr/local/bin/chromedriver && \
-    rm /tmp/chromedriver.zip
-
-# Fonts for Japanese language and emoji
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        fonts-noto-cjk fonts-noto-color-emoji && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+        selenium undetected-chromedriver \
+        openai python-dotenv \
+        chromedriver-autoinstaller
 
 # Environment setup
 ENV PYTHONPATH=/app \
@@ -48,17 +32,10 @@ ENV PYTHONPATH=/app \
 WORKDIR /app
 COPY . /app
 
-# Imposta utente e password per accesso HTTP basic auth
+# HTTP Basic Auth (handled by webtop image)
 ARG ROOT_PASSWORD=rekku
 ENV CUSTOM_USER=rekku
 ENV PASSWORD=${ROOT_PASSWORD}
 
-# Supervisor config for the Rekku bot
-RUN mkdir -p /config/logs \
-    && chown abc:abc /config/logs \
-    && chmod 755 /config/logs
-
-COPY rekku.conf /etc/supervisor/conf.d/rekku.conf
-
-# CMD lasciato come da immagine base per usare /init
-CMD ["/init"]
+COPY automation_tools/rekku.sh /etc/cont-init.d/rekku
+RUN chmod +x /etc/cont-init.d/rekku

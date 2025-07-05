@@ -9,7 +9,7 @@ load_dotenv()
 
 OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 BOT_TOKEN = os.getenv("BOTFATHER_TOKEN") or os.getenv("TELEGRAM_TOKEN")
-BOT_USERNAME = "Rekku_the_bot"
+BOT_USERNAME = "rekku_freedom_project"
 LLM_MODE = os.getenv("LLM_MODE", "manual")
 SELENIUM_PROFILE_DIR = os.getenv("SELENIUM_PROFILE_DIR", "./selenium_profile")
 # Directory dove cercare eventuali estensioni da caricare con Selenium

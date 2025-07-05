@@ -1,3 +1,4 @@
+import chromedriver_autoinstaller
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
@@ -195,6 +196,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         if self.driver is None:
             try:
                 self.driver = _get_driver()
+                # Ensure the right ChromeDriver is available
+                chromedriver_autoinstaller.install()
             except Exception as e:
                 _notify_gui(f"❌ Errore Selenium: {e}. Apri")
                 raise

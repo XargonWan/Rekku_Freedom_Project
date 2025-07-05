@@ -10,7 +10,7 @@ for arg in "$@"; do
   fi
 done
 
-IMAGE_NAME="rekku_the_bot"
+IMAGE_NAME="rekku_freedom_project"
 NEEDS_SUDO=""
 
 if [ -f .env ]; then

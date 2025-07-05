@@ -1,6 +1,6 @@
 #!/bin/bash
 
-IMAGE_NAME="rekku_the_bot"
+IMAGE_NAME="rekku_freedom_project"
 ENV_FILE=".env"
 MODE="${1:-run}"  # Default: run
 
@@ -13,7 +13,8 @@ else
   exit 1
 fi
 
-PORT="${WEBVIEW_PORT:-5005}"
+PORT="${WEBVIEW_PORT:-3001}"
+INT_PORT="3001"
 # Determina l'host su cui esporre la GUI VNC
 HOST_IP=$(hostname -I | awk '{print $1}')
 WEBVIEW_HOST_ENV="${WEBVIEW_HOST:-$HOST_IP}"
@@ -36,14 +37,14 @@ fi
 # Crea la cartella logs se non esiste
 mkdir -p "$(pwd)/logs"
 
-# 🧹 Pulisce container avviati con /start-vnc.sh o immagine rekku_the_bot
+# 🧹 Pulisce container avviati con /start-vnc.sh o immagine rekku_freedom_project
 echo "🧹 Pulizia container Docker esistenti relativi a Rekku..."
-$DOCKER_CMD ps --format '{{.ID}} {{.Image}} {{.Command}}' | grep -E 'rekku_the_bot|start-vnc\.sh' | awk '{print $1}' | xargs -r $DOCKER_CMD kill
+$DOCKER_CMD ps --format '{{.ID}} {{.Image}} {{.Command}}' | grep -E 'rekku_freedom_project|start-vnc\.sh' | awk '{print $1}' | xargs -r $DOCKER_CMD kill
 
 # Rimuove eventuale container esistente con lo stesso nome
-if $DOCKER_CMD ps -a --format '{{.Names}}' | grep -q '^rekku_desktop$'; then
-  echo "🧹 Container 'rekku_desktop' già esistente, rimozione in corso..."
-  $DOCKER_CMD rm -f rekku_desktop > /dev/null
+if $DOCKER_CMD ps -a --format '{{.Names}}' | grep -q '^rekku_freedom_project$'; then
+  echo "🧹 Container 'rekku_freedom_project' già esistente, rimozione in corso..."
+  $DOCKER_CMD rm -f rekku_freedom_project > /dev/null
 fi
 
 if [ ! -d "$(pwd)/rekku_home" ]; then
@@ -59,28 +60,28 @@ case "$MODE" in
   run)
     echo "🚀 Avvio del bot Rekku in Docker sulla porta $PORT..."
     $DOCKER_CMD run --rm -it \
-      --name rekku_desktop \
+      --name rekku_freedom_project \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
-      -p $PORT:$PORT \
+      -p $PORT:$INT_PORT \
       "$IMAGE_NAME"
     ;;
 
   shell)
     echo "🐚 Accesso interattivo al container Rekku..."
     $DOCKER_CMD run --rm -it \
-      --name rekku_desktop \
+      --name rekku_freedom_project \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
-      -p $PORT:$PORT \
+      -p $PORT:$INT_PORT \
       "$IMAGE_NAME" \
       /bin/bash
     ;;
@@ -88,7 +89,7 @@ case "$MODE" in
   test_notify)
     echo "📡 Test notifica diretta dal container..."
     $DOCKER_CMD run --rm -it \
-      --name rekku_desktop \
+      --name rekku_freedom_project \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
@@ -96,7 +97,7 @@ case "$MODE" in
       -v "$(pwd)/rekku_home:/home/rekku" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
-      -p $PORT:$PORT \
+      -p $PORT:$INT_PORT \
       "$IMAGE_NAME" \
       python3 -c 'import asyncio; from telegram import Bot; from core.config import BOT_TOKEN, OWNER_ID; bot = Bot(token=BOT_TOKEN); asyncio.run(bot.send_message(chat_id=OWNER_ID, text="🔔 TEST: notifica diretta dal container"))'
     ;;
