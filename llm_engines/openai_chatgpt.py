@@ -55,14 +55,6 @@ class OpenAIPlugin(AIPluginBase):
         try:
             response_text = await self.generate_response(prompt)
 
-            if bot and message:
-                print(f"[DEBUG/openai] Invio risposta a chat_id={message.chat_id}")
-                await bot.send_message(
-                    chat_id=message.chat_id,
-                    text=response_text,
-                    reply_to_message_id=message.message_id
-                )
-
             return text_response(response_text)
 
         except Exception as e:
@@ -70,10 +62,7 @@ class OpenAIPlugin(AIPluginBase):
             notify_owner(f"❌ Errore OpenAI:\n```\n{e}\n```")
 
             if bot and message:
-                await bot.send_message(
-                    chat_id=message.chat_id,
-                    text="⚠️ Errore nella risposta LLM."
-                )
+                print(f"[ERROR/OpenAI] Failed to deliver reply: {e}")
             return text_response("⚠️ Errore durante la generazione della risposta.")
 
     async def generate_response(self, prompt):
@@ -109,46 +98,6 @@ class OpenAIPlugin(AIPluginBase):
         print(f"[DEBUG/openai] Invio a OpenAI con modello: {self._current_model}")
         response = openai.ChatCompletion.create(
             model=self._current_model,
-            messages=messages
-        )
-        return response.choices[0].message.content.strip()
-
-    async def generate_response(self, prompt):
-        openai.api_key = get_user_api_key()
-
-        # Adatta il prompt al formato richiesto dalle OpenAI API
-        messages = []
-
-        # Se vuoi, puoi aggiungere un messaggio system opzionale
-        messages.append({
-            "role": "system",
-            "content": "Sei un assistente utile, preciso e sintetico."
-        })
-
-        # Aggiungi i messaggi di contesto
-        for entry in prompt.get("context", []):
-            messages.append({
-                "role": "user",
-                "content": entry["text"]
-            })
-
-        # Aggiungi eventuali memorie (opzionale, come messaggi system/user)
-        if prompt.get("memories"):
-            memory_text = "\n".join(f"- {m}" for m in prompt["memories"])
-            messages.append({
-                "role": "system",
-                "content": f"[MEMORIE RILEVANTI]\n{memory_text}"
-            })
-
-        # Aggiungi il messaggio corrente dell'utente
-        messages.append({
-            "role": "user",
-            "content": prompt["message"]["text"]
-        })
-
-        # Richiesta al modello
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
             messages=messages
         )
         return response.choices[0].message.content.strip()

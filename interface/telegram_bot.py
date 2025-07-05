@@ -23,6 +23,7 @@ from core.message_sender import (
     send_content,
     detect_media_type,
     extract_response_target,
+    send_rekku_sticker,
 )
 from core.config import get_active_llm, set_active_llm, list_available_llms
 from core.config import BOT_TOKEN, BOT_USERNAME, OWNER_ID
@@ -336,7 +337,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # === Passa al plugin con fallback
     try:
-        await plugin_instance.handle_incoming_message(context.bot, message, context_memory)
+        result = await plugin_instance.handle_incoming_message(context.bot, message, context_memory)
+
+        if isinstance(result, dict):
+            if result.get("type") == "text":
+                await message.reply_text(result.get("content", ""))
+            elif result.get("type") == "sticker":
+                await send_rekku_sticker(
+                    context.bot,
+                    message.chat_id,
+                    result.get("emoji", ""),
+                    reply_to_message_id=message.message_id,
+                )
     except Exception as e:
         print(f"[ERROR] plugin_instance.handle_incoming_message fallito: {e}")
         await message.reply_text("⚠️ Il modulo LLM ha avuto un problema e non ha potuto rispondere.")
@@ -536,9 +548,20 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if target_chat:
         print(f"[DEBUG] Inoltro tramite plugin_instance.handle_incoming_message (chat_id={target_chat})")
         try:
-            await plugin_instance.handle_incoming_message(context.bot, message, context.user_data)
+            result = await plugin_instance.handle_incoming_message(context.bot, message, context.user_data)
             response_proxy.clear_target(OWNER_ID)
             say_proxy.clear(OWNER_ID)
+
+            if isinstance(result, dict):
+                if result.get("type") == "text":
+                    await message.reply_text(result.get("content", ""))
+                elif result.get("type") == "sticker":
+                    await send_rekku_sticker(
+                        context.bot,
+                        message.chat_id,
+                        result.get("emoji", ""),
+                        reply_to_message_id=message.message_id,
+                    )
         except Exception as e:
             print(f"[ERROR] Errore durante plugin_instance.handle_incoming_message in /say: {e}")
             await message.reply_text("❌ Errore durante l'invio del messaggio.")
