@@ -52,7 +52,31 @@ async def build_json_prompt(message, context_memory) -> dict:
         reply = message.reply_to_message
         reply_text = reply.text or getattr(reply, "caption", None)
         if not reply_text:
-            reply_text = "[Contenuto non testuale]"
+            if reply.sticker:
+                emoji = reply.sticker.emoji or "\U0001F5BC\ufe0f"
+                if getattr(reply.sticker, "is_animated", False):
+                    reply_text = f"\U0001F3AC [GIF Sticker: {emoji}]"
+                elif getattr(reply.sticker, "is_video", False):
+                    reply_text = f"\U0001F3AC [Video Sticker: {emoji}]"
+                else:
+                    reply_text = f"\U0001F5BC\ufe0f [Sticker: {emoji}]"
+            elif reply.photo:
+                reply_text = "\U0001F4F7 [Image]"
+            elif reply.voice:
+                reply_text = "\U0001F3B5 [Voice]"
+            elif reply.audio:
+                reply_text = "\U0001F3A7 [Audio]"
+            elif reply.video:
+                reply_text = "\U0001F39E\ufe0f [Video]"
+            elif reply.document:
+                mime = reply.document.mime_type or ""
+                filename = reply.document.file_name or ""
+                if mime.startswith("audio/") or filename.lower().endswith(".mp3"):
+                    reply_text = "\U0001F3A7 [Audio (Document)]"
+                else:
+                    reply_text = "\U0001F5C2\ufe0f [Document]"
+            else:
+                reply_text = "[Contenuto non testuale]"
 
         current_message["reply_to"] = {
             "username": reply.from_user.full_name,
