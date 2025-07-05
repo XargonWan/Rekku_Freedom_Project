@@ -21,17 +21,17 @@ RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir \
         selenium undetected-chromedriver openai python-dotenv
 
-# Install Google Chrome and matching Chromedriver
-RUN wget -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
-    apt-get install -y --no-install-recommends /tmp/chrome.deb && \
-    rm /tmp/chrome.deb && \
-    CHROME_VERSION=$(google-chrome --version | grep -oP '\d+\.\d+\.\d+\.\d+' | cut -d. -f1) && \
-    echo "Chrome major version: $CHROME_VERSION" && \
-    DRIVER_VERSION=$(curl -sS https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}) && \
-    echo "Matching Chromedriver version: $DRIVER_VERSION" && \
-    wget -O /tmp/chromedriver.zip https://chromedriver.storage.googleapis.com/${DRIVER_VERSION}/chromedriver_linux64.zip && \
-    unzip /tmp/chromedriver.zip -d /usr/local/bin && \
-    chmod +x /usr/local/bin/chromedriver && \
+# Install Google Chrome 115 and matching Chromedriver
+RUN set -e; \
+    wget -O /tmp/google-chrome.deb https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_115.0.5790.170-1_amd64.deb; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends /tmp/google-chrome.deb fonts-liberation; \
+    rm /tmp/google-chrome.deb; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*; \
+    wget -O /tmp/chromedriver.zip https://chromedriver.storage.googleapis.com/115.0.5790.170/chromedriver_linux64.zip; \
+    unzip -q /tmp/chromedriver.zip -d /usr/local/bin; \
+    chmod +x /usr/local/bin/chromedriver; \
     rm /tmp/chromedriver.zip
 
 # Fonts for Japanese language and emoji
