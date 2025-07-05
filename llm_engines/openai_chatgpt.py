@@ -4,6 +4,7 @@ from core.ai_plugin_base import AIPluginBase
 import json
 import openai  # Assicurati che sia installato
 from core.config import get_user_api_key
+from core.response_format import text_response, sticker_response
 
 class OpenAIPlugin(AIPluginBase):
 
@@ -46,22 +47,23 @@ class OpenAIPlugin(AIPluginBase):
         self.reply_map.pop(trainer_message_id, None)
 
     async def handle_incoming_message(self, bot, message, prompt):
+        """Generate a reply and return it using the unified format."""
         from core.notifier import notify_owner
 
         notify_owner("🚨 Sto generando la risposta...")
 
         try:
-            response = await self.generate_response(prompt)
+            response_text = await self.generate_response(prompt)
 
             if bot and message:
                 print(f"[DEBUG/openai] Invio risposta a chat_id={message.chat_id}")
                 await bot.send_message(
                     chat_id=message.chat_id,
-                    text=response,
+                    text=response_text,
                     reply_to_message_id=message.message_id
                 )
 
-            return response
+            return text_response(response_text)
 
         except Exception as e:
             print(f"[ERROR/OpenAI] Errore durante la risposta: {e}")
@@ -72,7 +74,7 @@ class OpenAIPlugin(AIPluginBase):
                     chat_id=message.chat_id,
                     text="⚠️ Errore nella risposta LLM."
                 )
-            return "⚠️ Errore durante la generazione della risposta."
+            return text_response("⚠️ Errore durante la generazione della risposta.")
 
     async def generate_response(self, prompt):
         from core.config import get_user_api_key

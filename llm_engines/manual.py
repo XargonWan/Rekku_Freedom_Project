@@ -5,6 +5,7 @@ from core.config import OWNER_ID
 from core.ai_plugin_base import AIPluginBase
 import json
 from telegram.constants import ParseMode
+from core.response_format import text_response
 
 class ManualAIPlugin(AIPluginBase):
 
@@ -46,7 +47,7 @@ class ManualAIPlugin(AIPluginBase):
             print(f"[DEBUG/manual] Invio da /say: chat_id={target_chat}")
             await bot.send_message(chat_id=target_chat, text=text)
             say_proxy.clear(user_id)
-            return
+            return text_response("📝 Messaggio inviato dal trainer.")
 
         # === Invia prompt JSON al trainer (OWNER_ID) ===
         import json
@@ -74,6 +75,7 @@ class ManualAIPlugin(AIPluginBase):
         )
         self.track_message(sent.message_id, message.chat_id, message.message_id)
         print(f"[DEBUG/manual] Messaggio inoltrato e tracciato")
+        return text_response("⌛ In attesa di risposta manuale.")
 
     async def generate_response(self, messages):
         """Nel caso manuale, la risposta non viene generata automaticamente."""
