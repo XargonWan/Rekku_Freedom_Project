@@ -1,6 +1,6 @@
 #!/bin/bash
 
-IMAGE_NAME="rekku_the_bot"
+IMAGE_NAME="rekku_freedom_project"
 ENV_FILE=".env"
 MODE="${1:-run}"  # Default: run
 
@@ -14,6 +14,7 @@ else
 fi
 
 PORT="${WEBVIEW_PORT:-5005}"
+INT_PORT="3001"
 # Determina l'host su cui esporre la GUI VNC
 HOST_IP=$(hostname -I | awk '{print $1}')
 WEBVIEW_HOST_ENV="${WEBVIEW_HOST:-$HOST_IP}"
@@ -36,9 +37,9 @@ fi
 # Crea la cartella logs se non esiste
 mkdir -p "$(pwd)/logs"
 
-# 🧹 Pulisce container avviati con /start-vnc.sh o immagine rekku_the_bot
+# 🧹 Pulisce container avviati con /start-vnc.sh o immagine rekku_freedom_project
 echo "🧹 Pulizia container Docker esistenti relativi a Rekku..."
-$DOCKER_CMD ps --format '{{.ID}} {{.Image}} {{.Command}}' | grep -E 'rekku_the_bot|start-vnc\.sh' | awk '{print $1}' | xargs -r $DOCKER_CMD kill
+$DOCKER_CMD ps --format '{{.ID}} {{.Image}} {{.Command}}' | grep -E 'rekku_freedom_project|start-vnc\.sh' | awk '{print $1}' | xargs -r $DOCKER_CMD kill
 
 # Rimuove eventuale container esistente con lo stesso nome
 if $DOCKER_CMD ps -a --format '{{.Names}}' | grep -q '^rekku_desktop$'; then
@@ -66,7 +67,7 @@ case "$MODE" in
       -v "$(pwd)/persona:/app/persona" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
-      -p $PORT:$PORT \
+      -p $PORT:$INT_PORT \
       "$IMAGE_NAME"
     ;;
 
@@ -80,7 +81,7 @@ case "$MODE" in
       -v "$(pwd)/persona:/app/persona" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
-      -p $PORT:$PORT \
+      -p $PORT:$INT_PORT \
       "$IMAGE_NAME" \
       /bin/bash
     ;;
@@ -96,7 +97,7 @@ case "$MODE" in
       -v "$(pwd)/rekku_home:/home/rekku" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
-      -p $PORT:$PORT \
+      -p $PORT:$INT_PORT \
       "$IMAGE_NAME" \
       python3 -c 'import asyncio; from telegram import Bot; from core.config import BOT_TOKEN, OWNER_ID; bot = Bot(token=BOT_TOKEN); asyncio.run(bot.send_message(chat_id=OWNER_ID, text="🔔 TEST: notifica diretta dal container"))'
     ;;

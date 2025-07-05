@@ -1,17 +1,33 @@
 services:
-  rekku_the_bot:
-    container_name: rekku_the_bot
-    image: rekku_the_bot:latest
+  rekku_freedom_project:
+    container_name: rekku_freedom_project
+    image: rekku_freedom_project:latest
     restart: on-failure
-    environment:
-      - TELEGRAM_TOKEN=${REKKU_TELEGRAM_TOKEN}
-      - OWNER_ID=${TELEGRAM_OWNER_ID}
-      - WEBVIEW_PORT=${REKKU_WEBVIEW_PORT:-5005}
-      - WEBVIEW_HOST=${REKKU_WEBVIEW_HOST:-localhost}
-    ports:
-      - "${REKKU_WEBVIEW_PORT:-5005}:${REKKU_WEBVIEW_PORT:-5005}"
+
     volumes:
+      - /home/videodrome/gits/Rekku_the_bot/persona:/app/persona:rw
       - ./logs:/app/debug_logs
       - ./selenium_profile:/app/selenium_profile
+
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+
+      # 🔑 Compatibilità e variabili essenziali
+      - TELEGRAM_TOKEN=${BOTHFATHER_TOKEN}      # legacy compat
+      - BOTFATHER_TOKEN=${BOTHFATHER_TOKEN}
+      - OWNER_ID=${TELEGRAM_OWNER_ID}
+      - ROOT_PASSWORD=${REKKU_ROOT_PASSWORD}
+
+      # 🧠 Funzioni bot
+      - REKKU_SELENIUM_HEADLESS=1
+      - WEATHER_LOCATION=${REKKU_WEATHER_LOCATION}
+      - WEBVIEW_PORT=5006
+      - WEBVIEW_HOST=localhost
+
+    ports:
+      - "5006:3001"
+
     env_file:
       - .env
