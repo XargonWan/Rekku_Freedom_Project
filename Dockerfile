@@ -23,10 +23,10 @@ RUN python3 -m venv /app/venv && \
 
 # Install Google Chrome 116 and matching Chromedriver
 RUN set -e; \
-    wget -O /tmp/google-chrome.deb https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_116.0.5845.96-1_amd64.deb; \
+    wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add -; \
+    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list; \
     apt-get update; \
-    apt-get install -y --no-install-recommends /tmp/google-chrome.deb fonts-liberation; \
-    rm /tmp/google-chrome.deb; \
+    apt-get install -y --no-install-recommends google-chrome-stable=116.0.5845.96-1 fonts-liberation; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*; \
     wget -O /tmp/chromedriver.zip https://chromedriver.storage.googleapis.com/116.0.5845.96/chromedriver_linux64.zip; \
