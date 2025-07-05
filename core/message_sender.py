@@ -1,17 +1,35 @@
 from core import response_proxy, say_proxy
 import core.plugin_instance as plugin_instance
 import traceback
+import os
+
+# Sticker set used for custom Rekku emoji
+TELEGRAM_STICKER_SET = os.getenv("TELEGRAM_STICKERS", "RekkuRetroDECKMascot")
 
 async def send_rekku_sticker(bot, chat_id, emoji: str, reply_to_message_id=None):
-    """Send a sticker by emoji using Telegram's built-in mapping."""
+    """Send a sticker from the configured set matching the given emoji."""
     try:
-        await bot.send_sticker(
+        sticker_set = await bot.get_sticker_set(TELEGRAM_STICKER_SET)
+        for sticker in sticker_set.stickers:
+            if sticker.emoji == emoji:
+                await bot.send_sticker(
+                    chat_id=chat_id,
+                    sticker=sticker.file_id,
+                    reply_to_message_id=reply_to_message_id,
+                )
+                return
+    except Exception as e:
+        print(f"[ERROR] Failed to load sticker set '{TELEGRAM_STICKER_SET}': {e}")
+
+    # Fallback: send the raw emoji as plain text
+    try:
+        await bot.send_message(
             chat_id=chat_id,
-            sticker=emoji,
+            text=emoji,
             reply_to_message_id=reply_to_message_id,
         )
     except Exception as e:
-        print(f"[ERROR] Failed to send sticker for emoji '{emoji}': {e}")
+        print(f"[ERROR] Fallback text send failed for emoji '{emoji}': {e}")
 
 async def send_content(bot, chat_id, message, content_type, reply_to_message_id=None):
     print(f"[DEBUG] Invio contenuto: {content_type}, reply_to={reply_to_message_id}")

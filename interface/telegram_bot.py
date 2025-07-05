@@ -189,7 +189,30 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
     content_type = target["type"]
 
     print(f"[DEBUG] Invio media_type={content_type} to chat_id={chat_id}, reply_to={reply_to}")
-    success, feedback = await send_content(context.bot, chat_id, message, content_type, reply_to)
+
+    # Gestione speciale per sticker: rimpiazza set Telegram predefiniti
+    if content_type == "sticker" and message.sticker:
+        set_name = message.sticker.set_name or ""
+        print(f"[DEBUG] Sticker set_name={set_name}")
+
+        if set_name.startswith("AnimatedEmoji"):
+            emoji = message.sticker.emoji or ""
+            print(f"[DEBUG] Mapping built-in sticker to custom set via emoji '{emoji}'")
+            await send_rekku_sticker(
+                context.bot,
+                chat_id,
+                emoji,
+                reply_to_message_id=reply_to,
+            )
+            success, feedback = True, "\u2705 Contenuto inviato con successo."
+        else:
+            success, feedback = await send_content(
+                context.bot, chat_id, message, content_type, reply_to
+            )
+    else:
+        success, feedback = await send_content(
+            context.bot, chat_id, message, content_type, reply_to
+        )
 
     await message.reply_text(feedback)
 
