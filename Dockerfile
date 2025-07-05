@@ -51,4 +51,3 @@ RUN mkdir -p /config/logs \
 
 COPY rekku.conf /etc/supervisor/conf.d/rekku.conf
 
-CMD ["/init"]
