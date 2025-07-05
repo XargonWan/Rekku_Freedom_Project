@@ -73,7 +73,7 @@ async def build_json_prompt(message, context_memory) -> dict:
         tz = pytz.utc
 
     now_local = datetime.now(tz)
-    date = now_local.strftime("%Y-%m-%d")
+    date = now_local.strftime("%a %Y-%m-%d")
     time = now_local.strftime("%H:%M")
 
     weather = core.weather.current_weather
