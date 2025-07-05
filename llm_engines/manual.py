@@ -78,8 +78,9 @@ class ManualAIPlugin(AIPluginBase):
         return text_response("⌛ In attesa di risposta manuale.")
 
     async def generate_response(self, messages):
-        """Nel caso manuale, la risposta non viene generata automaticamente."""
-        return "\U0001f570\ufe0f Risposta in attesa di input manuale."
+        """Manual mode should not generate a reply automatically."""
+        print("[DEBUG/manual] \u26a0\ufe0f generate_response() called unexpectedly in manual mode.")
+        return ""
 
 
 PLUGIN_CLASS = ManualAIPlugin
