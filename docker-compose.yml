@@ -19,6 +19,7 @@ services:
       - WEATHER_LOCATION=${REKKU_WEATHER_LOCATION}
       - DISPLAY_WIDTH=1280
       - DISPLAY_HEIGHT=720
+      - CUSTOM_USER=rekku
     ports:
       - 5001:3001   # Webtop access (HTTPS)
       - 5002:5006   # Webview del bot
