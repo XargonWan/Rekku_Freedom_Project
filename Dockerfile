@@ -12,7 +12,7 @@ RUN apt-get update && \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 python3-venv python3-pip git curl wget \
-        supervisor lsb-release ca-certificates unzip fonts-liberation && \
+        supervisor lsb-release ca-certificates unzip && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Create virtual environment and install Python deps
