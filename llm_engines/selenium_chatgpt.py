@@ -166,6 +166,11 @@ def _get_driver():
             raise
 
     try:
+        driver.execute_cdp_cmd("Network.setUserAgentOverride", {"userAgent": ua})
+    except Exception as e:
+        print(f"[WARN/selenium] UA override failed: {e}")
+
+    try:
         driver.execute_cdp_cmd(
             "Page.addScriptToEvaluateOnNewDocument",
             {"source": STEALTH_JS},
