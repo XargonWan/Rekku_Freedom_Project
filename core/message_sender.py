@@ -1,6 +1,40 @@
 from core import response_proxy, say_proxy
 import core.plugin_instance as plugin_instance
 import traceback
+import os
+
+# Sticker set used for custom Rekku emoji
+TELEGRAM_STICKERS = os.getenv("TELEGRAM_STICKERS", "RekkuRetroDECKMascot")
+
+async def send_rekku_sticker(bot, chat_id, emoji: str, reply_to_message_id=None):
+    """Send a sticker from the configured set matching the given emoji."""
+
+    print(f"[DEBUG/sticker] Searching for emoji '{emoji}' in set '{TELEGRAM_STICKERS}'")
+    try:
+        sticker_set = await bot.get_sticker_set(TELEGRAM_STICKERS)
+        print(f"[DEBUG/sticker] Loaded {len(sticker_set.stickers)} stickers")
+        for sticker in sticker_set.stickers:
+            if sticker.emoji == emoji:
+                print(f"[DEBUG/sticker] Found match: {sticker.file_id}")
+                await bot.send_sticker(
+                    chat_id=chat_id,
+                    sticker=sticker.file_id,
+                    reply_to_message_id=reply_to_message_id,
+                )
+                return
+        print(f"[DEBUG/sticker] No sticker match for '{emoji}'")
+    except Exception as e:
+        print(f"[ERROR/sticker] Failed to load sticker set: {e}")
+
+    # Fallback: send the raw emoji as plain text
+    try:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=emoji,
+            reply_to_message_id=reply_to_message_id,
+        )
+    except Exception as e:
+        print(f"[ERROR/sticker] Fallback text send failed for emoji '{emoji}': {e}")
 
 async def send_content(bot, chat_id, message, content_type, reply_to_message_id=None):
     print(f"[DEBUG] Invio contenuto: {content_type}, reply_to={reply_to_message_id}")
@@ -150,5 +184,6 @@ def extract_response_target(message, user_id):
 __all__ = [
     "send_content",
     "detect_media_type",
-    "extract_response_target"
+    "extract_response_target",
+    "send_rekku_sticker",
 ]

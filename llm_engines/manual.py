@@ -46,6 +46,7 @@ class ManualAIPlugin(AIPluginBase):
             print(f"[DEBUG/manual] Invio da /say: chat_id={target_chat}")
             await bot.send_message(chat_id=target_chat, text=text)
             say_proxy.clear(user_id)
+            print("[DEBUG/manual] Messaggio inviato tramite /say")
             return
 
         # === Invia prompt JSON al trainer (OWNER_ID) ===
@@ -74,10 +75,12 @@ class ManualAIPlugin(AIPluginBase):
         )
         self.track_message(sent.message_id, message.chat_id, message.message_id)
         print(f"[DEBUG/manual] Messaggio inoltrato e tracciato")
+        return
 
     async def generate_response(self, messages):
-        """Nel caso manuale, la risposta non viene generata automaticamente."""
-        return "\U0001f570\ufe0f Risposta in attesa di input manuale."
+        """Manual mode should not generate a reply automatically."""
+        print("[DEBUG/manual] \u26a0\ufe0f generate_response() called unexpectedly in manual mode.")
+        return ""
 
 
 PLUGIN_CLASS = ManualAIPlugin
