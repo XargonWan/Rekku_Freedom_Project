@@ -58,12 +58,34 @@ def test_reply_voice_label():
     assert prompt["message"]["reply_to"]["text"] == "\U0001F3B5 [Voice]"
 
 
+def test_reply_audio_label():
+    reply = make_message(text=None, audio=SimpleNamespace())
+    message = make_message("hi", reply_to_message=reply)
+    prompt = asyncio.run(build_json_prompt(message, {}))
+    assert prompt["message"]["reply_to"]["text"] == "\U0001F3A7 [Audio]"
+
+
+def test_reply_video_label():
+    reply = make_message(text=None, video=SimpleNamespace())
+    message = make_message("hi", reply_to_message=reply)
+    prompt = asyncio.run(build_json_prompt(message, {}))
+    assert prompt["message"]["reply_to"]["text"] == "\U0001F39E\ufe0f [Video]"
+
+
 def test_reply_audio_document_label():
     doc = SimpleNamespace(mime_type="audio/mpeg", file_name="sound.mp3")
     reply = make_message(text=None, document=doc)
     message = make_message("hi", reply_to_message=reply)
     prompt = asyncio.run(build_json_prompt(message, {}))
-    assert prompt["message"]["reply_to"]["text"] == "\U0001F3A7 [Audio]"
+    assert prompt["message"]["reply_to"]["text"] == "\U0001F3A7 [Audio (Document)]"
+
+
+def test_reply_document_label():
+    doc = SimpleNamespace(mime_type="application/pdf", file_name="file.pdf")
+    reply = make_message(text=None, document=doc)
+    message = make_message("hi", reply_to_message=reply)
+    prompt = asyncio.run(build_json_prompt(message, {}))
+    assert prompt["message"]["reply_to"]["text"] == "\U0001F5C2\ufe0f [Document]"
 
 
 def test_reply_sticker_label_with_emoji():
@@ -74,9 +96,25 @@ def test_reply_sticker_label_with_emoji():
     assert prompt["message"]["reply_to"]["text"] == "\U0001F5BC\ufe0f [Sticker: 😀]"
 
 
-def test_reply_animation_label():
-    reply = make_message(text=None, animation=SimpleNamespace())
+def test_reply_sticker_gif_label():
+    sticker = SimpleNamespace(is_animated=True, is_video=False, emoji="😎")
+    reply = make_message(text=None, sticker=sticker)
     message = make_message("hi", reply_to_message=reply)
     prompt = asyncio.run(build_json_prompt(message, {}))
-    assert prompt["message"]["reply_to"]["text"] == "\U0001F3AC [GIF]"
+    assert prompt["message"]["reply_to"]["text"] == "\U0001F3AC [GIF Sticker: 😎]"
+
+
+def test_reply_sticker_video_label():
+    sticker = SimpleNamespace(is_animated=False, is_video=True, emoji="😅")
+    reply = make_message(text=None, sticker=sticker)
+    message = make_message("hi", reply_to_message=reply)
+    prompt = asyncio.run(build_json_prompt(message, {}))
+    assert prompt["message"]["reply_to"]["text"] == "\U0001F3AC [Video Sticker: 😅]"
+
+
+def test_reply_unknown_fallback():
+    reply = make_message(text=None)
+    message = make_message("hi", reply_to_message=reply)
+    prompt = asyncio.run(build_json_prompt(message, {}))
+    assert prompt["message"]["reply_to"]["text"] == "[Contenuto non testuale]"
 
