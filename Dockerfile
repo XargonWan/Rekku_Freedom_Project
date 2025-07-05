@@ -21,7 +21,8 @@ RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir \
         selenium undetected-chromedriver openai python-dotenv
 
-# Install Google Chrome 116 and Chromedriver 116
+# Install Google Chrome 116 and matching Chromedriver
+# Pinned versions prevent 404 errors from upstream changes
 RUN set -e; \
     apt-get update; \
     apt-get install -y --no-install-recommends fonts-liberation; \
