@@ -44,4 +44,11 @@ ENV PYTHONPATH=/app \
 WORKDIR /app
 COPY . /app
 
+# Supervisor configuration to run the Rekku bot
+RUN mkdir -p /config/logs \
+    && chown abc:abc /config/logs \
+    && chmod 755 /config/logs
+
+COPY rekku.conf /etc/supervisor/conf.d/rekku.conf
+
 CMD ["/init"]
