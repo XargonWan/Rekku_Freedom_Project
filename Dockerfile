@@ -1,68 +1,47 @@
-FROM ubuntu:22.04
+FROM lscr.io/linuxserver/webtop:ubuntu-xfce
 
-ENV CHROME_BIN=/usr/bin/chromium-browser
-ENV CHROMEDRIVER_PATH=/usr/lib/chromium-browser/chromedriver
-ENV DISPLAY=:0
-ENV WEBVIEW_PORT=5005
+# Disable Snap and remove leftovers
+RUN apt-get update && \
+    apt-get purge -y snapd && \
+    rm -rf /var/cache/snapd /snap /var/snap /var/lib/snapd && \
+    printf '#!/bin/sh\necho "Snap is disabled"\n' > /usr/local/bin/snap && \
+    chmod +x /usr/local/bin/snap && \
+    echo "alias snap='echo Snap is disabled'" > /etc/profile.d/no-snap.sh && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Remove snap and block future installations
-RUN apt-get update && apt-get purge -y snapd && rm -rf /var/cache/snapd /snap /var/snap /var/lib/snapd /etc/systemd/system/snap* \
-    && printf '#!/bin/sh\necho "Snap is disabled"\n' > /usr/local/bin/snap \
-    && chmod +x /usr/local/bin/snap \
-    && echo "alias snap='echo Snap is disabled'" > /etc/profile.d/no-snap.sh
+# Install Python tools and create virtual environment
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 python3-venv python3-pip git curl wget && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    python3 -m venv /app/venv && \
+    /app/venv/bin/pip install --no-cache-dir -U pip && \
+    /app/venv/bin/pip install --no-cache-dir \
+        selenium undetected-chromedriver openai python-dotenv
 
-# Install base packages and XFCE desktop
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    tzdata locales sudo wget curl unzip \
-    python3 python3-pip python3-distutils python3-venv \
-    xfce4 xfce4-terminal \
-    x11vnc xvfb websockify autocutsel xdg-utils \
-    dbus dbus-x11 udev \
-    fonts-noto-color-emoji fonts-noto-cjk fonts-liberation \
-    && sed -i 's/# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
-    && locale-gen \
-    && ln -snf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime \
-    && echo 'Asia/Tokyo' > /etc/timezone \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Install Google Chrome and matching Chromedriver
+RUN wget -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
+    apt-get update && apt-get install -y --no-install-recommends /tmp/chrome.deb && \
+    rm /tmp/chrome.deb && \
+    CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1) && \
+    DRIVER_VERSION=$(curl -sS https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}) && \
+    wget -O /tmp/chromedriver.zip https://chromedriver.storage.googleapis.com/${DRIVER_VERSION}/chromedriver_linux64.zip && \
+    unzip /tmp/chromedriver.zip -d /usr/local/bin && \
+    chmod +x /usr/local/bin/chromedriver && \
+    rm /tmp/chromedriver.zip && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install Chromium and matching driver from APT
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium-browser chromium-driver \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Fonts for Japanese support
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        fonts-noto-cjk fonts-noto-color-emoji && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Crea l'utente non privilegiato 'rekku' con sudo senza password
-RUN useradd -m -s /bin/bash rekku \
-    && echo 'rekku ALL=(ALL:ALL) ALL' > /etc/sudoers.d/rekku \
-    && chmod 0440 /etc/sudoers.d/rekku
+ENV PYTHONPATH=/app \
+    TZ=Asia/Tokyo \
+    PATH=/app/venv/bin:$PATH
 
-# Scarica noVNC
-RUN mkdir -p /opt/novnc && \
-    wget https://github.com/novnc/noVNC/archive/refs/heads/master.zip -O /tmp/novnc.zip && \
-    unzip /tmp/novnc.zip -d /opt && \
-    mv /opt/noVNC-master/* /opt/novnc && \
-    rm -rf /tmp/novnc.zip
-
-# Copia codice del bot
 WORKDIR /app
-COPY . .
+COPY . /app
 
-# Installa dipendenze Python
-RUN python3 -m venv /opt/venv \
-    && /opt/venv/bin/pip install --upgrade pip \
-    && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
-
-# Ensure the virtual environment is used for all commands
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Copia script avvio VNC + bot
-COPY desktop_setup.sh /start.sh
-RUN chmod +x /start.sh
-
-# VOLUME persistente (se desiderato)
-VOLUME ["/home/rekku"]
-
-EXPOSE 5005
-
-CMD ["/start.sh"]
+CMD ["/init"]
