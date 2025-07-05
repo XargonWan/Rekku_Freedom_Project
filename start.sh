@@ -13,7 +13,7 @@ else
   exit 1
 fi
 
-PORT="${WEBVIEW_PORT:-5005}"
+PORT="${WEBVIEW_PORT:-3001}"
 INT_PORT="3001"
 # Determina l'host su cui esporre la GUI VNC
 HOST_IP=$(hostname -I | awk '{print $1}')
@@ -42,9 +42,9 @@ echo "🧹 Pulizia container Docker esistenti relativi a Rekku..."
 $DOCKER_CMD ps --format '{{.ID}} {{.Image}} {{.Command}}' | grep -E 'rekku_freedom_project|start-vnc\.sh' | awk '{print $1}' | xargs -r $DOCKER_CMD kill
 
 # Rimuove eventuale container esistente con lo stesso nome
-if $DOCKER_CMD ps -a --format '{{.Names}}' | grep -q '^rekku_desktop$'; then
-  echo "🧹 Container 'rekku_desktop' già esistente, rimozione in corso..."
-  $DOCKER_CMD rm -f rekku_desktop > /dev/null
+if $DOCKER_CMD ps -a --format '{{.Names}}' | grep -q '^rekku_freedom_project$'; then
+  echo "🧹 Container 'rekku_freedom_project' già esistente, rimozione in corso..."
+  $DOCKER_CMD rm -f rekku_freedom_project > /dev/null
 fi
 
 if [ ! -d "$(pwd)/rekku_home" ]; then
@@ -60,7 +60,7 @@ case "$MODE" in
   run)
     echo "🚀 Avvio del bot Rekku in Docker sulla porta $PORT..."
     $DOCKER_CMD run --rm -it \
-      --name rekku_desktop \
+      --name rekku_freedom_project \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
@@ -74,7 +74,7 @@ case "$MODE" in
   shell)
     echo "🐚 Accesso interattivo al container Rekku..."
     $DOCKER_CMD run --rm -it \
-      --name rekku_desktop \
+      --name rekku_freedom_project \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
@@ -89,7 +89,7 @@ case "$MODE" in
   test_notify)
     echo "📡 Test notifica diretta dal container..."
     $DOCKER_CMD run --rm -it \
-      --name rekku_desktop \
+      --name rekku_freedom_project \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
