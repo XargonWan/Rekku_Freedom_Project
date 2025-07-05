@@ -21,11 +21,12 @@ RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir \
         selenium undetected-chromedriver openai python-dotenv
 
-# Install Google Chrome 116 and matching Chromedriver
+# Install Google Chrome 116 and Chromedriver 116
 RUN set -e; \
-    wget -O /tmp/google-chrome.deb https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_116.0.5845.96-1_amd64.deb; \
     apt-get update; \
-    apt-get install -y --no-install-recommends /tmp/google-chrome.deb fonts-liberation; \
+    apt-get install -y --no-install-recommends fonts-liberation; \
+    wget -O /tmp/google-chrome.deb https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_116.0.5845.96-1_amd64.deb; \
+    apt-get install -y --no-install-recommends /tmp/google-chrome.deb; \
     rm /tmp/google-chrome.deb; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*; \
