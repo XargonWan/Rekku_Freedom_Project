@@ -45,8 +45,21 @@ async def build_json_prompt(message, context_memory) -> dict:
         "username": message.from_user.full_name,
         "usertag": f"@{message.from_user.username}" if message.from_user.username else "(nessun tag)",
         "text": text,
-        "timestamp": message.date.isoformat()
+        "timestamp": message.date.isoformat(),
     }
+
+    if message.reply_to_message:
+        reply = message.reply_to_message
+        reply_text = reply.text or getattr(reply, "caption", None)
+        if not reply_text:
+            reply_text = "[Contenuto non testuale]"
+
+        current_message["reply_to"] = {
+            "username": reply.from_user.full_name,
+            "usertag": f"@{reply.from_user.username}" if reply.from_user.username else "(nessun tag)",
+            "text": reply_text,
+            "timestamp": reply.date.isoformat(),
+        }
 
     # === Extra weather and time info ===
     location = os.getenv("WEATHER_LOCATION", "Kyoto")
