@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=rekku
 WorkingDirectory=/app
-ExecStart=/app/venv/bin/python3 /app/main.oy
+ExecStart=/app/venv/bin/python3 /app/main.py
 Restart=on-failure
 
 [Install]
