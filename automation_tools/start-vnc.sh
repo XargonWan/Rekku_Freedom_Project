@@ -73,12 +73,12 @@ export XDG_CURRENT_DESKTOP=XFCE
 export XDG_SESSION_DESKTOP=XFCE
 
 # Avvia server VNC (condivisione e senza password)
-su -p rekku -c "x11vnc -display :0 -forever -nopw -shared -rfbport 5900 -bg -cursor arrow -quiet > /dev/null 2>&1"
+su -p rekku -c "x11vnc -display :0 -forever -nopw -shared -rfbport 5900 -bg -cursor arrow -quiet -o /dev/null > /dev/null 2>&1"
 
 # Avvia noVNC sulla porta pubblica interna configurabile
 # Usa versione "vnc.html" che include UI completa
 WEB_PORT="${WEBVIEW_PORT:-5005}"
-su -p rekku -c "websockify --web=/opt/novnc \"$WEB_PORT\" localhost:5900 > /dev/null 2>&1 &"
+su -p rekku -c "websockify --web=/opt/novnc --log-file=/dev/null \"$WEB_PORT\" localhost:5900 > /dev/null 2>&1 &"
 
 # Stampa URL finale per debug
 HOST="${WEBVIEW_HOST:-localhost}"

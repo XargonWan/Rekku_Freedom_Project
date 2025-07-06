@@ -36,6 +36,11 @@ fi
 
 # Crea la cartella logs se non esiste
 mkdir -p "$(pwd)/logs"
+chown -R 1000:1000 "$(pwd)/logs"
+
+# Ensure additional volumes exist and are writable
+mkdir -p "$(pwd)/selenium_profile" "$(pwd)/persona"
+chown -R 1000:1000 "$(pwd)/selenium_profile" "$(pwd)/persona"
 
 # 🧹 Pulisce container avviati con /start-vnc.sh o immagine rekku_freedom_project
 echo "🧹 Pulizia container Docker esistenti relativi a Rekku..."
