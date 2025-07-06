@@ -61,6 +61,7 @@ case "$MODE" in
     echo "🚀 Avvio del bot Rekku in Docker sulla porta $PORT..."
     $DOCKER_CMD run --rm -it \
       --name rekku_freedom_project \
+      --hostname luna-workstation \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
@@ -76,6 +77,7 @@ case "$MODE" in
     echo "🐚 Accesso interattivo al container Rekku..."
     $DOCKER_CMD run --rm -it \
       --name rekku_freedom_project \
+      --hostname luna-workstation \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
@@ -92,6 +94,7 @@ case "$MODE" in
     echo "📡 Test notifica diretta dal container..."
     $DOCKER_CMD run --rm -it \
       --name rekku_freedom_project \
+      --hostname luna-workstation \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
