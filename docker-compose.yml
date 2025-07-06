@@ -1,9 +1,11 @@
 services:
   rekku_freedom_project:
     container_name: rekku_freedom_project
+    hostname: luna-workstation
     image: rekku_freedom_project:latest
     volumes:
       - persona:/app/persona:rw
+      - ./rekku_home:/home/rekku:rw
       - .env:/app/.env:ro
     environment:
       - PUID=${PUID}

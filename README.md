@@ -106,6 +106,9 @@ setup.sh
 start.sh
 ```
 
+La cartella `rekku_home/` viene montata nel container come `/home/rekku`,
+garantendo la persistenza dei dati tra diverse esecuzioni.
+
 Per eseguire il setup in modalità non interattiva (es. CI/CD) usare:
 ```bash
 setup.sh --cicd

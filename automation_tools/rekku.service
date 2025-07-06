@@ -1,0 +1,13 @@
+[Unit]
+Description=Rekku Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=rekku
+WorkingDirectory=/app
+ExecStart=/app/venv/bin/python3 /app/main.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
