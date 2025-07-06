@@ -37,5 +37,10 @@ ARG ROOT_PASSWORD=rekku
 ENV CUSTOM_USER=rekku
 ENV PASSWORD=${ROOT_PASSWORD}
 
-COPY automation_tools/rekku.sh /etc/cont-init.d/rekku
-RUN chmod +x /etc/cont-init.d/rekku
+RUN useradd -m -s /bin/bash rekku
+
+COPY automation_tools/start.sh /start.sh
+RUN chmod +x /start.sh && chown rekku:rekku /start.sh /app -R
+
+USER rekku
+ENTRYPOINT ["/start.sh"]
