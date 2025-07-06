@@ -2,4 +2,4 @@
 
 echo "[init] Starting Rekku bot..."
 source /app/.env
-exec /app/venv/bin/python3 /app/main.py
+exec /app/venv/bin/python3 /app/main.oy
