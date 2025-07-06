@@ -45,6 +45,6 @@ RUN chmod +x /start.sh && chown rekku:rekku /start.sh /app -R
 RUN pip install python-telegram-bot==20.6
 RUN pip install --upgrade pip setuptools
 
-# Run the bot as the unprivileged rekku user
-USER rekku
+# Start as root to fix volume permissions before dropping to rekku
+USER root
 ENTRYPOINT ["/start.sh"]
