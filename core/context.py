@@ -29,8 +29,6 @@ async def context_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
 
-    from core.context import get_context_state, set_context_state
-
     current = get_context_state()
     new_state = not current
     set_context_state(new_state)
@@ -39,3 +37,4 @@ async def context_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🧠 Modalità context {state_str}.")
 
     print(f"[DEBUG] Modalità context {state_str}.")
+

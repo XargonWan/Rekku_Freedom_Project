@@ -1,6 +1,5 @@
-from llm_engines.manual import ManualAIPlugin
 from core import response_proxy, say_proxy
-from core.plugin_instance import plugin
+import core.plugin_instance as plugin_instance
 import traceback
 
 async def send_content(bot, chat_id, message, content_type, reply_to_message_id=None):
@@ -119,12 +118,12 @@ def extract_response_target(message, user_id):
     if not target and message.reply_to_message:
         replied = message.reply_to_message
         print(f"[DEBUG] Risposta a messaggio: {replied.message_id}")
-        print(f"[DEBUG] reply_map = {plugin.reply_map}")
+        print("[DEBUG] Verifica mapping nel plugin")
 
         for attempt in [replied.message_id,
                         getattr(replied.reply_to_message, "message_id", None)]:
             if attempt:
-                tracked = plugin.get_target(attempt)
+                tracked = plugin_instance.get_target(attempt)
                 if tracked:
                     print(f"[DEBUG] Trovato target da reply: {tracked}")
                     return {

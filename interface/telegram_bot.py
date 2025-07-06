@@ -1,5 +1,9 @@
+# interface/telegram_bot.py
+
 import os
-from telegram import Update
+import re
+import asyncio
+from telegram import Update, Bot
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
@@ -11,24 +15,26 @@ from dotenv import load_dotenv
 from llm_engines.manual import ManualAIPlugin
 from core import blocklist
 from core import response_proxy
-from core import say_proxy, recent_chats
+from core import say_proxy, recent_chats, message_map
 from core.context import context_command
 from collections import deque
 import json
-from core.message_sender import send_content
-from core.message_sender import detect_media_type
-from core.message_sender import extract_response_target
+from core.message_sender import (
+    send_content,
+    detect_media_type,
+    extract_response_target,
+)
 from core.config import get_active_llm, set_active_llm, list_available_llms
 from core.config import BOT_TOKEN, BOT_USERNAME, OWNER_ID
-from core.plugin_instance import plugin, load_plugin
-
-load_plugin(get_active_llm()) 
+# Import mention detector to recognize Rekku aliases even without explicit @username
+from core.mention_utils import is_rekku_mentioned
+import core.plugin_instance as plugin_instance
+from core.plugin_instance import load_plugin
+from core.weather import start_weather_updater, update_weather
+import traceback
 
 # Carica variabili da .env
 load_dotenv()
-BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
-BOT_USERNAME = "Rekku_the_bot"
-OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 
 say_sessions = {}
 context_memory = {}
@@ -37,15 +43,17 @@ message_id = None
 
 from core.config import LLM_MODE
 
-if LLM_MODE == "manual":
-    from llm_engines.manual import ManualAIPlugin
-    plugin = ManualAIPlugin()
-elif LLM_MODE == "chatgpt":
-    from llm_engines.openai_chatgpt import OpenAIAIPlugin
-    plugin = OpenAIAIPlugin(api_key=os.getenv("OPENAI_API_KEY"))
-else:
-    raise ValueError(f"Modalità LLM non riconosciuta: {LLM_MODE}")
-
+async def ensure_plugin_loaded(update: Update):
+    """
+    Controlla che un plugin LLM sia stato caricato correttamente.
+    Se assente, risponde all'utente con un messaggio di errore e logga il problema.
+    """
+    if plugin_instance.plugin is None:
+        print("[ERROR] Nessun plugin LLM caricato.")
+        if update and update.message:
+            await update.message.reply_text("⚠️ Nessun plugin LLM attivo. Usa /llm per selezionarne uno.")
+        return False
+    return True
 
 def resolve_forwarded_target(message):
     """Dato un messaggio (presumibilmente reply a un messaggio inoltrato),
@@ -55,7 +63,7 @@ def resolve_forwarded_target(message):
         if message.forward_from_chat and message.forward_from_message_id:
             return message.forward_from_chat.id, message.forward_from_message_id
 
-    tracked = plugin.get_target(message.message_id)
+    tracked = plugin_instance.get_target(message.message_id)
     if tracked:
         return tracked["chat_id"], tracked["message_id"]
 
@@ -95,9 +103,27 @@ async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except (IndexError, ValueError):
         await update.message.reply_text("\u274c Usa: /unblock <user_id>")
 
-from core.message_sender import send_content, detect_media_type, extract_response_target
+async def purge_mappings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+    # Ensure table exists even if manual plugin never loaded
+    message_map.init_table()
+    try:
+        days = int(context.args[0]) if context.args else 7
+    except ValueError:
+        await update.message.reply_text("\u274c Usa: /purge_map [giorni]")
+        return
+    deleted = message_map.purge_old_entries(days * 86400)
+    await update.message.reply_text(
+        f"\U0001f5d1 Eliminati {deleted} mapping più vecchi di {days} giorni."
+    )
+
 
 async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not await ensure_plugin_loaded(update):
+        return
+
     if update.effective_user.id != OWNER_ID:
         print("[DEBUG] Messaggio ignorato: non da OWNER_ID")
         return
@@ -123,14 +149,14 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
             possible_ids.append(reply.reply_to_message.message_id)
 
         for mid in possible_ids:
-            tracked = plugin.get_target(mid)
+            tracked = plugin_instance.get_target(mid)
             if tracked:
                 target = {
                     "chat_id": tracked["chat_id"],
                     "message_id": tracked["message_id"],
                     "type": media_type
                 }
-                print(f"[DEBUG] Trovato target via plugin.get_target({mid}): {target}")
+                print(f"[DEBUG] Trovato target via plugin_instance.get_target({mid}): {target}")
                 break
         if not target:
             print("[DEBUG] ❌ Nessun mapping trovato nel plugin")
@@ -173,11 +199,14 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
     else:
         print("[ERROR] ❌ Invio fallito.")
 
-from core.message_sender import detect_media_type
 
 # === Comando generico per sticker/audio/photo/file/video ===
 
 async def handle_response_command(update: Update, context: ContextTypes.DEFAULT_TYPE, content_type: str):
+
+    if not await ensure_plugin_loaded(update):
+        return
+
     if update.effective_user.id != OWNER_ID:
         return
 
@@ -231,6 +260,10 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not await ensure_plugin_loaded(update):
+        return
+
     message = update.message
     if not message or not message.from_user:
         print("[DEBUG] Messaggio ignorato (vuoto o senza mittente)")
@@ -271,7 +304,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if message.chat.type == "private" and user_id == OWNER_ID and message.reply_to_message:
         reply_msg_id = message.reply_to_message.message_id
         print(f"[DEBUG] Risposta a trainer_message_id={reply_msg_id}")
-        original = plugin.get_target(reply_msg_id)
+        original = plugin_instance.get_target(reply_msg_id)
         if original:
             print(f"[DEBUG] Trainer risponde a messaggio {original}")
             await context.bot.send_message(
@@ -297,30 +330,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message.reply_to_message.from_user.username and
             message.reply_to_message.from_user.username.lower() == bot_username
         )
-        if not mentioned and not is_reply_to_bot:
-            print("[DEBUG] Ignoro messaggio: non menzionata né in risposta a me.")
+        if not mentioned and not is_reply_to_bot and not is_rekku_mentioned(text):
+            print("[DEBUG] Ignoro messaggio: nessuna forma di Rekku rilevata.")
             return
 
-    # === Passa al plugin
+    # === Passa al plugin con fallback
     try:
-        await plugin.handle_incoming_message(context.bot, message, context_memory)
+        await plugin_instance.handle_incoming_message(context.bot, message, context_memory)
     except Exception as e:
-        print(f"[ERROR] plugin.handle_incoming_message fallito: {e}")
-
-async def cancel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        return
-    if response_proxy.has_pending(OWNER_ID):
-        response_proxy.clear_target(OWNER_ID)
-        print("[DEBUG] Invio risposta annullato.")
-        await update.message.reply_text("\u274c Invio annullato.")
-    else:
-        await update.message.reply_text("\u26a0\ufe0f Nessun invio attivo da annullare.")
+        print(f"[ERROR] plugin_instance.handle_incoming_message fallito: {e}")
+        await message.reply_text("⚠️ Il modulo LLM ha avuto un problema e non ha potuto rispondere.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from core.context import get_context_state
     from core.config import get_active_llm
-    from core.plugin_instance import plugin
 
     if update.effective_user.id != OWNER_ID:
         return
@@ -347,11 +370,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # Aggiungi /model se supportato
-    if hasattr(plugin, "get_supported_models") and callable(getattr(plugin, "get_supported_models", None)):
+    try:
+        models = plugin_instance.get_supported_models()
+        if models:
+            current_model = plugin_instance.get_current_model() or models[0]
+            help_text += f"`/model` – Visualizza o imposta il modello attivo (attivo: `{current_model}`)\n"
+    except Exception:
+        pass
         current_model = None
-        if hasattr(plugin, "get_current_model") and callable(getattr(plugin, "get_current_model", None)):
+        try:
+            models = plugin_instance.get_supported_models()
+            if models:
+                current_model = plugin_instance.get_current_model() or models[0]
+                help_text += f"`/model` – Visualizza o imposta il modello attivo (attivo: `{current_model}`)\n"
+        except Exception:
+            pass
             try:
-                current_model = plugin.get_current_model()
+                current_model = plugin_instance.get_current_model()
             except Exception:
                 pass
 
@@ -363,9 +398,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text += (
         "\n*📋 Varie*\n"
         "`/last_chats` – Ultime chat attive\n"
+        "`/purge_map [giorni]` – Pulisce i vecchi mapping\n"
     )
 
     await update.message.reply_text(help_text, parse_mode="Markdown")
+
+def escape_markdown(text):
+    return re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', text)
 
 async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -376,7 +415,7 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("\u26a0\ufe0f Nessuna chat recente trovata.")
         return
 
-    lines = [f"[{name}](tg://user?id={cid}) — `{cid}`" for cid, name in entries]
+    lines = [f"[{escape_markdown(name)}](tg://user?id={cid}) — `{cid}`" for cid, name in entries]
     await update.message.reply_text(
         "\U0001f553 Ultime chat attive:\n" + "\n".join(lines),
         parse_mode="Markdown"
@@ -401,17 +440,55 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("\u274c Errore nell'invio.")
         return
 
-    # Caso 2: /say (senza argomenti) \u2192 mostra ultime chat
-    entries = await recent_chats.get_last_active_chats_verbose(10, bot)
+    # Caso 2: /say @username -> seleziona chat privata
+    if len(args) == 1 and args[0].startswith("@"):  # /say @username
+        username = args[0]
+        print(f"[DEBUG] Resolving username {username} via bot.get_chat")
+        try:
+            chat = await bot.get_chat(username)
+            print(
+                f"[DEBUG] Resolved to chat_id = {chat.id}, type = {chat.type}"
+            )
+            if chat.type == "private":
+                say_proxy.set_target(update.effective_user.id, chat.id)
+                context.user_data.pop("say_choices", None)
+                await update.message.reply_text(
+                    f"\u2709\ufe0f What do you want to send to {username}?",
+                    parse_mode="Markdown",
+                )
+            else:
+                await update.message.reply_text(
+                    f"\u274c Cannot send to {username}. They must start the chat with the bot first."
+                )
+        except Exception as e:
+            print(f"[ERROR] Errore /say @username: {e}")
+            await update.message.reply_text(
+                f"\u274c Cannot send to {username}. They must start the chat with the bot first."
+            )
+        return
+
+    # Caso 3: /say (senza argomenti) -> mostra ultime chat
+    all_entries = await recent_chats.get_last_active_chats_verbose(20, bot)
+    entries = all_entries[:10]
     if not entries:
         await update.message.reply_text("\u26a0\ufe0f Nessuna chat recente trovata.")
         return
 
     # Salva lista in memoria e mostra opzioni
-    buttons = [
-        [f"{i+1}. {name} \u2014 `{cid}`"] for i, (cid, name) in enumerate(entries)
-    ]
-    numbered = "\n".join(f"{i+1}. {name} \u2014 `{cid}`" for i, (cid, name) in enumerate(entries))
+    numbered = "\n".join(
+        f"{i+1}. {escape_markdown(name)} \u2014 `{cid}`"
+        for i, (cid, name) in enumerate(entries)
+    )
+
+    # Elenco aggiuntivo di chat private recenti
+    privates = [(cid, name) for cid, name in all_entries if cid > 0][:5]
+    if privates:
+        private_lines = "\n".join(
+            f"{i+1}. {escape_markdown(name)} \u2014 `{cid}`"
+            for i, (cid, name) in enumerate(privates)
+        )
+        numbered += "\n\n\U0001f512 Recent private chats:\n" + private_lines
+
     numbered += "\n\n\u270f\ufe0f Rispondi con il numero per scegliere la chat."
 
     say_proxy.clear(update.effective_user.id)  # Assicura pulizia prima della scelta
@@ -420,7 +497,9 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(numbered, parse_mode="Markdown")
 
 async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from core.plugin_instance import plugin
+
+    if not await ensure_plugin_loaded(update):
+        return
 
     user_id = update.effective_user.id
     message = update.message
@@ -455,13 +534,13 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Chat selezionata → inoltra il contenuto attraverso il plugin
     if target_chat:
-        print(f"[DEBUG] Inoltro tramite plugin.handle_incoming_message (chat_id={target_chat})")
+        print(f"[DEBUG] Inoltro tramite plugin_instance.handle_incoming_message (chat_id={target_chat})")
         try:
-            await plugin.handle_incoming_message(context.bot, message, context.user_data)
+            await plugin_instance.handle_incoming_message(context.bot, message, context.user_data)
             response_proxy.clear_target(OWNER_ID)
             say_proxy.clear(OWNER_ID)
         except Exception as e:
-            print(f"[ERROR] Errore durante plugin.handle_incoming_message in /say: {e}")
+            print(f"[ERROR] Errore durante plugin_instance.handle_incoming_message in /say: {e}")
             await message.reply_text("❌ Errore durante l'invio del messaggio.")
 
 async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -484,10 +563,8 @@ async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"\u274c LLM `{choice}` non trovato.")
         return
 
-    from core.plugin_instance import load_plugin
     try:
         load_plugin(choice)
-        set_active_llm(choice)
         await update.message.reply_text(f"\u2705 Modalità LLM aggiornata dinamicamente a `{choice}`.")
     except Exception as e:
         await update.message.reply_text(f"\u274c Errore nel caricamento del plugin: {e}")
@@ -496,81 +573,133 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
 
-    if not hasattr(plugin, "get_supported_models"):
-        await update.message.reply_text("⚠️ Questo plugin non supporta la selezione del modello.")
+    try:
+        models = plugin_instance.get_supported_models()
+    except Exception:
+        await update.message.reply_text("\u26a0\ufe0f Questo plugin non supporta la selezione del modello.")
         return
 
-    models = plugin.get_supported_models()
     if not models:
-        await update.message.reply_text("⚠️ Nessun modello disponibile per questo plugin.")
+        await update.message.reply_text("\u26a0\ufe0f Nessun modello disponibile per questo plugin.")
         return
 
-    # Nessun argomento → mostra lista
     if not context.args:
-        current = plugin.get_current_model()
-        current = current or models[0]
-        msg = f"*Modelli disponibili:*\n" + "\n".join(f"• `{m}`" for m in models)
+        current = plugin_instance.get_current_model() or models[0]
+        msg = f"*Modelli disponibili:*\n" + "\n".join(f"\u2022 `{m}`" for m in models)
         msg += f"\n\nModello attivo: `{current}`"
         msg += "\n\nPer cambiare: `/model <nome>`"
         await update.message.reply_text(msg, parse_mode="Markdown")
         return
 
-    # Con argomento → cambio modello
     choice = context.args[0]
     if choice not in models:
-        await update.message.reply_text(f"❌ Modello `{choice}` non valido.")
+        await update.message.reply_text(f"\u274c Modello `{choice}` non valido.")
         return
 
     try:
-        plugin.set_current_model(choice)
-        await update.message.reply_text(f"✅ Modello aggiornato a `{choice}`.")
+        plugin_instance.set_current_model(choice)
+        await update.message.reply_text(f"\u2705 Modello aggiornato a `{choice}`.")
     except Exception as e:
-        await update.message.reply_text(f"❌ Errore nel cambio modello: {e}")
+        await update.message.reply_text(f"\u274c Errore nel cambio modello: {e}")
+
+def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None):
+    import html
+    import re
+    from telegram import Bot
+    from telegram.error import TelegramError
+    from telegram.constants import ParseMode
+
+    print(f"[DEBUG/telegram_notify] → CHIAMATO con chat_id={chat_id}")
+    print(f"[DEBUG/telegram_notify] → MESSAGGIO:\n{message}")
+
+    bot = Bot(token=BOT_TOKEN)
+
+    # Rende cliccabili eventuali URL
+    url_pattern = re.compile(r"https?://\S+")
+    match = url_pattern.search(message or "")
+    formatted_message = None
+    if match:
+        def repl(m):
+            url = m.group(0)
+            return f'<a href="{html.escape(url)}">{html.escape(url)}</a>'
+
+        formatted_message = url_pattern.sub(repl, html.escape(message))
+
+    async def send():
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=formatted_message or message,
+                reply_to_message_id=reply_to_message_id,
+                parse_mode=ParseMode.HTML if formatted_message else None,
+                disable_web_page_preview=True,
+            )
+            print(f"[DEBUG/notify] ✅ Messaggio Telegram inviato a {chat_id}")
+        except TelegramError as e:
+            print(f"[ERROR/notify] ❌ Errore Telegram: {e}")
+        except Exception as e:
+            print(f"[ERROR/notify] ❌ Altro errore nel send(): {e}")
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        loop.create_task(send())
+    else:
+        asyncio.run(send())
 
 # === Avvio ===
 
 def start_bot():
-    
+
+
+    # 🔁 Passa la funzione di notifica corretta (per i plugin)
+    load_plugin(get_active_llm(), notify_fn=telegram_notify)
+
+    # 🌀 Weather fetch subito e loop periodico
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(update_weather())
+    start_weather_updater()
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("help", help_command))
-
     app.add_handler(CommandHandler("block", block_user))
     app.add_handler(CommandHandler("block_list", block_list))
     app.add_handler(CommandHandler("unblock", unblock_user))
-    
+    app.add_handler(CommandHandler("purge_map", purge_mappings))
     app.add_handler(CommandHandler("last_chats", last_chats_command))
     app.add_handler(CommandHandler("context", context_command))
     app.add_handler(CommandHandler("llm", llm_command))
-    if hasattr(plugin, "get_supported_models") and callable(plugin.get_supported_models) and plugin.get_supported_models():
-        app.add_handler(CommandHandler("model", model_command))
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    try:
+        if plugin_instance.get_supported_models():
+            app.add_handler(CommandHandler("model", model_command))
+    except Exception as e:
+        print(f"[WARNING] Il plugin attivo non supporta modelli: {e}")
 
     app.add_handler(CommandHandler("say", say_command))
+    app.add_handler(CommandHandler("cancel", cancel_response))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Prima gestisci /say step
     app.add_handler(MessageHandler(
         filters.Chat(OWNER_ID) & (
-            filters.TEXT | filters.PHOTO | filters.AUDIO | filters.VOICE | filters.VIDEO | filters.Document.ALL
+            filters.TEXT | filters.PHOTO | filters.AUDIO | filters.VOICE |
+            filters.VIDEO | filters.Document.ALL
         ),
         handle_say_step
     ))
 
-    # Poi gli altri messaggi media generici
     app.add_handler(MessageHandler(
         filters.Chat(OWNER_ID) & (
-            filters.Sticker.ALL |
-            filters.PHOTO |
-            filters.AUDIO |
-            filters.VOICE |
-            filters.VIDEO |
-            filters.Document.ALL
+            filters.Sticker.ALL | filters.PHOTO | filters.AUDIO |
+            filters.VOICE | filters.VIDEO | filters.Document.ALL
         ),
         handle_incoming_response
     ))
 
-    app.add_handler(CommandHandler("cancel", cancel_response))
-
     print("🧞‍♀️ Rekku è online.")
     app.run_polling()
+

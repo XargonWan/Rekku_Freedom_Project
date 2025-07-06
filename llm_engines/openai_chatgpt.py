@@ -1,68 +1,155 @@
-import openai
-from core.config import get_current_model, set_current_model
-from core.ai_plugin_base import AIPluginBase
+# llm_engines/openai_chatgpt.py
 
-class OpenAIAIPlugin(AIPluginBase):
-    def __init__(self, api_key, default_model="gpt-4"):
-        self.api_key = api_key
-        self.default_model = default_model
+from core.ai_plugin_base import AIPluginBase
+import json
+import openai  # Assicurati che sia installato
+from core.config import get_user_api_key
+
+class OpenAIPlugin(AIPluginBase):
+
+    def __init__(self, notify_fn=None):
+        from core.notifier import set_notifier
+        from core.config import get_current_model
+
         self.reply_map = {}
 
-    def track_message(self, trainer_message_id, original_chat_id, original_message_id):
-        self.reply_map[trainer_message_id] = {
-            "chat_id": original_chat_id,
-            "message_id": original_message_id
-        }
+        if notify_fn:
+            print("[DEBUG/openai] Uso funzione di notifica personalizzata.")
+            set_notifier(notify_fn)
+        else:
+            print("[DEBUG/openai] Nessuna funzione di notifica fornita, uso fallback.")
+            set_notifier(lambda chat_id, message: print(f"[NOTIFY fallback] {message}"))
+
+        self._current_model = get_current_model() or "gpt-3.5-turbo"
+
+    def get_supported_models(self):
+        return [
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-16k",
+            "gpt-4",
+            "gpt-4o",
+        ]
+
+    def get_current_model(self):
+        return self._current_model
+
+    def set_current_model(self, name):
+        if name not in self.get_supported_models():
+            raise ValueError(f"Modello non supportato: {name}")
+        self._current_model = name
+        print(f"[DEBUG/openai] Modello attivo aggiornato: {name}")
 
     def get_target(self, trainer_message_id):
         return self.reply_map.get(trainer_message_id)
 
     def clear(self, trainer_message_id):
-        if trainer_message_id in self.reply_map:
-            del self.reply_map[trainer_message_id]
+        self.reply_map.pop(trainer_message_id, None)
 
-    def get_supported_models(self) -> list[str]:
-        return ["gpt-3.5-turbo", "gpt-4", "gpt-4o"]
+    async def handle_incoming_message(self, bot, message, prompt):
+        from core.notifier import notify_owner
 
-    def set_current_model(self, model: str):
-        if model not in self.get_supported_models():
-            raise ValueError(f"Modello non supportato: {model}")
-        set_current_model(model)
+        notify_owner("🚨 Sto generando la risposta...")
 
-    def get_current_model(self) -> str:
-        return get_current_model() or self.default_model
-
-    async def generate_response(self, messages):
-        if not self.api_key:
-            raise ValueError("\u26a0\ufe0f Nessuna chiave API disponibile.")
-
-        openai.api_key = self.api_key
-        model = self.get_current_model()
-
-        response = openai.ChatCompletion.create(
-            model=model,
-            messages=messages,
-            temperature=0.9,           # 🔥 Creatività viva
-            top_p=1.0,                # 🌌 Massima libertà di scelta
-            presence_penalty=0.6,     # 🚫 Evita la monotonia nei temi
-            frequency_penalty=0.3     # 🔁 Riduce ripetizioni nella forma
-        )
-        return response.choices[0].message["content"]
-
-    async def handle_incoming_message(self, bot, message, context_memory):
-        text = message.text or ""
-        messages = [{"role": "user", "content": text}]
         try:
-            response = await self.generate_response(messages)
-            if response:
+            response = await self.generate_response(prompt)
+
+            if bot and message:
+                print(f"[DEBUG/openai] Invio risposta a chat_id={message.chat_id}")
                 await bot.send_message(
                     chat_id=message.chat_id,
                     text=response,
                     reply_to_message_id=message.message_id
                 )
+
+            return response
+
         except Exception as e:
-            print(f"[ERROR/chatgpt] Errore durante la generazione della risposta: {e}")
-            await bot.send_message(
-                chat_id=message.chat_id,
-                text="\u26a0\ufe0f Errore nella generazione della risposta. Verifica la tua API key o modello."
-            )
+            print(f"[ERROR/OpenAI] Errore durante la risposta: {e}")
+            notify_owner(f"❌ Errore OpenAI:\n```\n{e}\n```")
+
+            if bot and message:
+                await bot.send_message(
+                    chat_id=message.chat_id,
+                    text="⚠️ Errore nella risposta LLM."
+                )
+            return "⚠️ Errore durante la generazione della risposta."
+
+    async def generate_response(self, prompt):
+        from core.config import get_user_api_key
+
+        openai.api_key = get_user_api_key()
+
+        messages = []
+
+        messages.append({
+            "role": "system",
+            "content": "Sei un assistente utile, preciso e sintetico."
+        })
+
+        for entry in prompt.get("context", []):
+            messages.append({
+                "role": "user",
+                "content": entry["text"]
+            })
+
+        if prompt.get("memories"):
+            memory_text = "\n".join(f"- {m}" for m in prompt["memories"])
+            messages.append({
+                "role": "system",
+                "content": f"[MEMORIE RILEVANTI]\n{memory_text}"
+            })
+
+        messages.append({
+            "role": "user",
+            "content": prompt["message"]["text"]
+        })
+
+        print(f"[DEBUG/openai] Invio a OpenAI con modello: {self._current_model}")
+        response = openai.ChatCompletion.create(
+            model=self._current_model,
+            messages=messages
+        )
+        return response.choices[0].message.content.strip()
+
+    async def generate_response(self, prompt):
+        openai.api_key = get_user_api_key()
+
+        # Adatta il prompt al formato richiesto dalle OpenAI API
+        messages = []
+
+        # Se vuoi, puoi aggiungere un messaggio system opzionale
+        messages.append({
+            "role": "system",
+            "content": "Sei un assistente utile, preciso e sintetico."
+        })
+
+        # Aggiungi i messaggi di contesto
+        for entry in prompt.get("context", []):
+            messages.append({
+                "role": "user",
+                "content": entry["text"]
+            })
+
+        # Aggiungi eventuali memorie (opzionale, come messaggi system/user)
+        if prompt.get("memories"):
+            memory_text = "\n".join(f"- {m}" for m in prompt["memories"])
+            messages.append({
+                "role": "system",
+                "content": f"[MEMORIE RILEVANTI]\n{memory_text}"
+            })
+
+        # Aggiungi il messaggio corrente dell'utente
+        messages.append({
+            "role": "user",
+            "content": prompt["message"]["text"]
+        })
+
+        # Richiesta al modello
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=messages
+        )
+        return response.choices[0].message.content.strip()
+
+
+PLUGIN_CLASS = OpenAIPlugin
