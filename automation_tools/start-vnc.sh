@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Ensure writable permissions to application directory
+chown -R rekku:rekku /app
+
 # Imposta DISPLAY virtuale
 export DISPLAY=:0
 
@@ -12,6 +15,7 @@ fi
 # Imposta HOME corretto per i processi avviati come rekku
 export HOME=/home/rekku
 export PATH="/opt/venv/bin:$PATH"
+export QT_LOGGING_RULES="*=false"
 
 # Ensure Desktop directory exists
 mkdir -p /home/rekku/Desktop
@@ -51,15 +55,15 @@ chmod +x "$CHROME_DESKTOP_DST"
 chown rekku:rekku "$CHROME_DESKTOP_DST"
 
 # Avvia display virtuale (Xvfb) con risoluzione standard
-su -p rekku -c "Xvfb :0 -screen 0 1280x720x24 &"
+su -p rekku -c "Xvfb :0 -screen 0 1280x720x24 > /dev/null 2>&1 &"
 
 # Avvia servizi di sistema per un ambiente desktop più realistico
 /lib/udev/udevd --daemon >/dev/null 2>&1 || udevd --daemon >/dev/null 2>&1
-udevadm trigger &
-dbus-daemon --system --fork
+udevadm trigger > /dev/null 2>&1 &
+dbus-daemon --system --fork > /dev/null 2>&1
 
 # Avvia l'ambiente desktop XFCE completo
-su -p rekku -c "dbus-launch --exit-with-session startxfce4 &"
+su -p rekku -c "dbus-launch --exit-with-session startxfce4 > /dev/null 2>&1 &"
 
 # Assicura che Selenium sia avviato con interfaccia grafica
 export REKKU_SELENIUM_HEADLESS=0
@@ -69,12 +73,12 @@ export XDG_CURRENT_DESKTOP=XFCE
 export XDG_SESSION_DESKTOP=XFCE
 
 # Avvia server VNC (condivisione e senza password)
-su -p rekku -c "x11vnc -display :0 -forever -nopw -shared -rfbport 5900 -bg -cursor arrow"
+su -p rekku -c "x11vnc -display :0 -forever -nopw -shared -rfbport 5900 -bg -cursor arrow -quiet > /dev/null 2>&1"
 
 # Avvia noVNC sulla porta pubblica interna configurabile
 # Usa versione "vnc.html" che include UI completa
 WEB_PORT="${WEBVIEW_PORT:-5005}"
-su -p rekku -c "websockify --web=/opt/novnc \"$WEB_PORT\" localhost:5900 &"
+su -p rekku -c "websockify --web=/opt/novnc \"$WEB_PORT\" localhost:5900 > /dev/null 2>&1 &"
 
 # Stampa URL finale per debug
 HOST="${WEBVIEW_HOST:-localhost}"

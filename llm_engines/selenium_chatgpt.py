@@ -189,6 +189,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     def __init__(self, notify_fn=None):
         """Initialize the plugin without starting Selenium yet."""
         self.driver = None
+        self._queue: asyncio.Queue = asyncio.Queue()
+        self._worker_task = asyncio.create_task(self._worker_loop())
         if notify_fn:
             set_notifier(notify_fn)
 
@@ -213,34 +215,45 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             return False
         return True
 
-    async def handle_incoming_message(self, bot, message, prompt_data):
-        print("[DEBUG/selenium] Prompt ricevuto:", prompt_data)
+    async def handle_incoming_message(self, bot, message, prompt):
+        """Queue the message to be processed sequentially."""
+        await self._queue.put((bot, message, prompt))
 
-        try:
-            if self.driver is None:
-                self._init_driver()
-            if not self._ensure_logged_in():
-                return
-
-            # Vai nella chat corretta (puoi estendere questa logica)
-            await asyncio.sleep(1)
-            self.driver.get("https://chat.openai.com")
-            await asyncio.sleep(1)
+    async def _worker_loop(self):
+        while True:
+            bot, message, prompt = await self._queue.get()
             try:
-                self.driver.find_element(By.TAG_NAME, "aside")
-            except NoSuchElementException:
-                print("[DEBUG/selenium] Sidebar assente, notifica il proprietario")
-                _notify_gui("❌ Errore Selenium: Sidebar non trovata. Apri")
-                return
+                await self._process_message(bot, message, prompt)
+            except Exception as e:
+                _notify_gui(f"❌ Errore Selenium: {e}. Apri")
+            finally:
+                self._queue.task_done()
 
-            # Simula risposta finta
-            await bot.send_message(
-                chat_id=message.chat_id,
-                text="🤖 (Risposta finta: plugin Selenium operativo)"
-            )
+    async def _process_message(self, bot, message, prompt):
+        print("[DEBUG/selenium] Prompt ricevuto:", prompt)
 
-        except Exception as e:
-            _notify_gui(f"❌ Errore Selenium: {e}. Apri")
+        if self.driver is None:
+            self._init_driver()
+        if not self._ensure_logged_in():
+            return
+
+        # Vai nella chat corretta (puoi estendere questa logica)
+        await asyncio.sleep(1)
+        self.driver.get("https://chat.openai.com")
+        await asyncio.sleep(1)
+        try:
+            self.driver.find_element(By.TAG_NAME, "aside")
+        except NoSuchElementException:
+            print("[DEBUG/selenium] Sidebar assente, notifica il proprietario")
+            _notify_gui("❌ Errore Selenium: Sidebar non trovata. Apri")
+            return
+
+        # Simula risposta finta
+        await bot.send_message(
+            chat_id=message.chat_id,
+            text="🤖 (Risposta finta: plugin Selenium operativo)"
+        )
+
 
     def get_supported_models(self):
         return []  # nessun modello per ora
