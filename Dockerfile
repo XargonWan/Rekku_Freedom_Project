@@ -45,5 +45,6 @@ RUN chmod +x /start.sh && chown rekku:rekku /start.sh /app -R
 RUN pip install python-telegram-bot==20.6
 RUN pip install --upgrade pip setuptools
 
-USER rekku
+# Run entrypoint as root so it can adjust permissions
+USER root
 ENTRYPOINT ["/start.sh"]
