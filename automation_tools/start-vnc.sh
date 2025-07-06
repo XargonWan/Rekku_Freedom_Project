@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Ensure writable permissions to application directory
+chown -R rekku:rekku /app
+
 # Imposta DISPLAY virtuale
 export DISPLAY=:0
 
