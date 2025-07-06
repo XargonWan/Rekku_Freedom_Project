@@ -11,6 +11,44 @@ fi
 
 # Imposta HOME corretto per i processi avviati come rekku
 export HOME=/home/rekku
+export PATH="/opt/venv/bin:$PATH"
+
+# Ensure Desktop directory exists
+mkdir -p /home/rekku/Desktop
+
+# Wrapper to launch Chromium without sandbox issues
+cat <<'EOF' > /usr/local/bin/chromium-browser
+#!/bin/bash
+exec /usr/bin/chromium-browser --no-sandbox "$@"
+EOF
+chmod +x /usr/local/bin/chromium-browser
+
+# Ensure terminal launcher on desktop
+TERM_DESKTOP_SRC="/usr/share/applications/xfce4-terminal.desktop"
+TERM_DESKTOP_DST="/home/rekku/Desktop/xfce4-terminal.desktop"
+if [ -f "$TERM_DESKTOP_SRC" ]; then
+  cp "$TERM_DESKTOP_SRC" "$TERM_DESKTOP_DST"
+  chmod +x "$TERM_DESKTOP_DST"
+  chown rekku:rekku "$TERM_DESKTOP_DST"
+fi
+
+# Ensure Chromium desktop entry
+CHROME_DESKTOP_SRC="/usr/share/applications/chromium-browser.desktop"
+CHROME_DESKTOP_DST="/home/rekku/Desktop/chromium-browser.desktop"
+if [ ! -f "$CHROME_DESKTOP_SRC" ]; then
+cat <<'EOF' > "$CHROME_DESKTOP_SRC"
+[Desktop Entry]
+Name=Chromium
+Exec=chromium-browser
+Icon=chromium-browser
+Type=Application
+Categories=Network;WebBrowser;
+EOF
+chmod 644 "$CHROME_DESKTOP_SRC"
+fi
+cp "$CHROME_DESKTOP_SRC" "$CHROME_DESKTOP_DST"
+chmod +x "$CHROME_DESKTOP_DST"
+chown rekku:rekku "$CHROME_DESKTOP_DST"
 
 # Avvia display virtuale (Xvfb) con risoluzione standard
 su -p rekku -c "Xvfb :0 -screen 0 1280x720x24 &"

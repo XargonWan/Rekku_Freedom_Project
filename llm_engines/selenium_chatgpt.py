@@ -1,3 +1,4 @@
+import chromedriver_autoinstaller
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
@@ -118,7 +119,7 @@ def _get_driver():
     """Return a configured undetected Chrome driver."""
     _cleanup_profile_locks()
 
-    headless = os.getenv("REKKU_SELENIUM_HEADLESS", "1") != "0"
+    headless = os.getenv("REKKU_SELENIUM_HEADLESS", "0") != "0"
     options = uc.ChromeOptions()
     if headless:
         options.add_argument("--headless=new")
@@ -166,6 +167,11 @@ def _get_driver():
             raise
 
     try:
+        driver.execute_cdp_cmd("Network.setUserAgentOverride", {"userAgent": ua})
+    except Exception as e:
+        print(f"[WARN/selenium] UA override failed: {e}")
+
+    try:
         driver.execute_cdp_cmd(
             "Page.addScriptToEvaluateOnNewDocument",
             {"source": STEALTH_JS},
@@ -190,6 +196,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         if self.driver is None:
             try:
                 self.driver = _get_driver()
+                # Ensure the right ChromeDriver is available
+                chromedriver_autoinstaller.install()
             except Exception as e:
                 _notify_gui(f"❌ Errore Selenium: {e}. Apri")
                 raise
