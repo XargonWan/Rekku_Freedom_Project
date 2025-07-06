@@ -65,6 +65,7 @@ case "$MODE" in
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
+      -v "$(pwd)/rekku_home:/home/rekku" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
       -p $PORT:$INT_PORT \
@@ -79,6 +80,7 @@ case "$MODE" in
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
+      -v "$(pwd)/rekku_home:/home/rekku" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
       -p $PORT:$INT_PORT \

@@ -4,6 +4,7 @@ services:
     image: rekku_freedom_project:latest
     volumes:
       - persona:/app/persona:rw
+      - ./rekku_home:/home/rekku:rw
       - .env:/app/.env:ro
     environment:
       - PUID=${PUID}
