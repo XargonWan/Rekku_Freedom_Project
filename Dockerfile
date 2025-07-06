@@ -43,6 +43,7 @@ COPY automation_tools/start.sh /start.sh
 RUN chmod +x /start.sh && chown rekku:rekku /start.sh /app -R
 
 RUN pip install python-telegram-bot==20.6
+RUN pip install --upgrade pip setuptools
 
 USER rekku
 ENTRYPOINT ["/start.sh"]
