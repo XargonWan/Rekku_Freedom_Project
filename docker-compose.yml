@@ -9,7 +9,7 @@ services:
       - ./rekku_home:/home/rekku:rw
       - .env:/app/.env:ro
     ports:
-      - 5001:3000   # Webtop access (HTTP)
+      - ${WEBVIEW_PORT:-5006}:3000   # Webtop access (HTTP)
       - 5002:5006   # Webview del bot
     restart: on-failure
     environment:
