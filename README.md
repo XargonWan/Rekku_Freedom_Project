@@ -1,25 +1,27 @@
-## 🧞‍♀️ Rekku\_the\_bot
+## 🧞‍♀️ Rekku_the_bot
 
-Un bot Telegram progettato per gestire interazioni conversazionali non lineari, pensiero spontaneo e assistenza manuale tramite un "trainer".
+A Telegram bot designed to manage non-linear conversations, spontaneous thought and manual assistance through a dedicated "trainer".
+
+An optional [Telethon](https://github.com/LonamiWebs/Telethon) userbot is available in `interface/telethon_userbot.py` for advanced scenarios.
 
 <img src="res/wink.webp" alt="Rekku Wink" width="300" />
 
 ---
 
-## 📤 Comportamento automatico
+## 📤 Automatic behavior
 
-Rekku inoltra automaticamente i messaggi al trainer (`OWNER_ID`) quando:
+Rekku automatically forwards messages to the trainer (`OWNER_ID`) when:
 
-* Viene **menzionata** in un gruppo (`@Rekku_the_bot`)
-* Riceve una **risposta a un suo messaggio**
-* Si trova in un **gruppo con solo due membri**
-* Riceve un messaggio in **chat privata** da un utente non bloccato
+* She is **mentioned** in a group (`@Rekku_the_bot`)
+* She receives a **reply to one of her messages**
+* She is in a **group with only two members**
+* She receives a message in **private chat** from a user who isn't blocked
 
 ---
 
-## 🧠 Modalità Context
+## 🧠 Context mode
 
-Quando la modalità context è attiva, ogni messaggio inoltrato include anche una cronologia in formato JSON dei **10 messaggi più recenti** nella stessa chat, ad esempio:
+When context mode is active, every forwarded message also includes a JSON history of the **last 10 messages** in the same chat, for example:
 
 ```json
 [
@@ -34,128 +36,130 @@ Quando la modalità context è attiva, ogni messaggio inoltrato include anche un
 ]
 ```
 
-### Comandi disponibili (solo `OWNER_ID`):
+### Available commands (only `OWNER_ID`):
 
-| Comando    | Descrizione                          |
-| ---------- | ------------------------------------ |
-| `/context` | Attiva/disattiva la modalità context |
+| Command    | Description                     |
+| ---------- | ------------------------------- |
+| `/context` | Toggle context mode on or off   |
 
-⚠️ Il context viene mantenuto in memoria finché il bot è acceso. Non viene salvato su file.
-
----
-
-## 🧩 Modalità Manuale
-
-### 🎭 Risposte gestite manualmente
-
-Il trainer può rispondere a messaggi inoltrati via Telegram, e Rekku risponderà per suo conto nella chat d'origine.
-
-Può anche rispondere con **contenuti multimediali** (sticker, immagini, audio, video, file, ecc.):
-
-* Basta **rispondere a un messaggio inoltrato** con il contenuto desiderato
-* Rekku inoltrerà automaticamente nella chat d'origine
-* Non è più necessario usare comandi come `/sticker`, `/photo`, ecc.
-
-| Comando   | Descrizione                |
-| --------- | -------------------------- |
-| `/cancel` | Annulla un invio in attesa |
+⚠️ The context remains in memory while the bot is running. It isn't saved to file.
 
 ---
 
-## 🧱 Gestione utenti (solo `OWNER_ID`)
+## 🧩 Manual mode
 
-| Comando              | Descrizione                                 |
-| -------------------- | ------------------------------------------- |
-| `/block <user_id>`   | Blocca un utente (ignora messaggi futuri)   |
-| `/unblock <user_id>` | Sblocca un utente                           |
-| `/block_list`        | Mostra la lista utenti attualmente bloccati |
+### 🎭 Manually handled replies
 
----
+The trainer can respond to forwarded messages via Telegram and Rekku will answer back in the original chat on their behalf.
 
-## ✏️ Comando `/say`
+The trainer may also reply with **multimedia content** (stickers, images, audio, video, files, etc.):
 
-| Comando             | Descrizione                                           |
-| ------------------- | ----------------------------------------------------- |
-| `/say`              | Mostra le ultime chat attive (da selezionare)         |
-| `/say <id> <testo>` | Invia direttamente il messaggio a una chat tramite ID |
+* Simply **reply to a forwarded message** with the desired content
+* Rekku automatically forwards it back to the original chat
+* No need to use commands like `/sticker`, `/photo`, etc.
 
-Dopo la selezione, puoi inviare **qualsiasi contenuto** (testo, foto, audio, file, video, sticker).
-Rekku lo inoltrerà alla chat selezionata.
+| Command   | Description            |
+| --------- | ---------------------- |
+| `/cancel` | Cancel a pending send  |
 
 ---
 
-## 🧪 Aiuto e comandi
+## 🧱 User management (only `OWNER_ID`)
 
-| Comando | Descrizione                             |
-| ------- | --------------------------------------- |
-| `/help` | Mostra l'elenco dei comandi disponibili |
+| Command              | Description                                |
+| -------------------- | ------------------------------------------ |
+| `/block <user_id>`   | Block a user (ignore future messages)      |
+| `/unblock <user_id>` | Unblock a user                             |
+| `/block_list`        | Show the list of currently blocked users   |
 
 ---
 
-## 🐳 Docker: Avvio rapido
+## ⚙️ LLM plugins
 
-### ✅ Prerequisiti
+Rekku can switch between different language model backends using the `/llm` command.
+Built-in choices are:
 
-* File `.env` configurato con i dati richiest, visionare `env.example` per utleriori informazioni.
+* `manual` – forwards every message for manual replies.
+* `openai_chatgpt` – uses the OpenAI API (`OPENAI_API_KEY` required).
+* `selenium_chatgpt` – drives ChatGPT through a real browser session.
 
-### ▶️ Build e avvio
+When supported by the plugin you can also change the active model with `/model`.
 
-Avviare il servizio e vedere l'output su terminale:
+---
+
+## ✏️ `/say` command
+
+| Command             | Description                                              |
+| ------------------- | -------------------------------------------------------- |
+| `/say`              | Show the latest active chats (choose one)               |
+| `/say <id> <text>`  | Send a message directly to a chat by ID                 |
+
+After the selection you can send **any content** (text, photo, audio, file, video, sticker). Rekku forwards it to the chosen chat.
+
+---
+
+## 🧪 Help and commands
+
+| Command          | Description                          |
+| ---------------- | ------------------------------------ |
+| `/help`          | Display a list of available commands |
+| `/last_chats`    | Show recent active chats            |
+| `/purge_map [d]` | Purge stored message mappings       |
+
+---
+
+## 🐳 Docker: Quick start
+
+### ✅ Requirements
+
+* Configure a `.env` file with the required values. See `env.example` for more information.
+
+### ▶️ Build and run
+
+Start the service and watch the output on the terminal:
 ```bash
 setup.sh
 start.sh
 ```
 
-La cartella `rekku_home/` viene montata nel container come `/home/rekku`,
-garantendo la persistenza dei dati tra diverse esecuzioni.
+The `rekku_home/` folder is mounted inside the container as `/home/rekku`, ensuring data persistence between runs.
 
-Per eseguire il setup in modalità non interattiva (es. CI/CD) usare:
+To run the setup in non-interactive mode (e.g., CI/CD) use:
 ```bash
 setup.sh --cicd
 ```
 
-Tuttavia si consiglia di esegurlo via `docker compose`.
+However running it through `docker compose` is recommended.
 
 ---
 
-## 🔐 Login manuale per plugin Selenium
+## 🔐 Manual login for Selenium plugin
 
-Il plugin `selenium_chatgpt` richiede che l'utente sia già loggato su ChatGPT. Per motivi di sicurezza, il login va effettuato **manualmente e una sola volta** in ambiente con interfaccia grafica.
+The `selenium_chatgpt` plugin requires the user to be logged in to ChatGPT already. For security reasons, the login must be performed **manually and only once** in an environment with a graphical interface.
 
-### ✅ Preparazione del profilo
+### ✅ Preparing the profile
 
-1. Assicurati di avere Chromium e ChromeDriver installati sul tuo sistema.
-Se non li hai, installali con:
+1. Ensure Chromium and ChromeDriver are installed on your system. If not, install them with:
 ```bash
 sudo apt update
 sudo apt install -y chromium chromium-driver
 ```
 
-3. Avvia lo script in locale (fuori da Docker):
+3. Run `automation_tools/prepare_profile.sh` on a machine with a GUI. The script
+   downloads a portable Chrome build and opens ChatGPT for login.
 
-```
-python3 login_selenium.py
-```
+4. After logging in, a `selenium_profile.tar.gz` archive will be created.
 
-4. Una volta completato il login, verrà creata la cartella `selenium_profile/`.
-
-5. Per trasferirla su un server remoto:
-
-```
-tar czf selenium_profile.tar.gz selenium_profile
-```
-
-Poi copia e decomprimi sul server:
-
-```
+5. Copy `selenium_profile.tar.gz` to the server and extract it:
+```bash
 tar xzf selenium_profile.tar.gz
 ```
 
 ---
 
-### 📁 Ignora il profilo in Git
+### 📁 Ignore the profile in Git
 
-Nel file `.gitignore` assicurati che ci siano queste righe:
+Make sure these lines are in your `.gitignore` file:
 
 ```
 selenium_profile/
