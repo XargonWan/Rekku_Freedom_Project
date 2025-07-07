@@ -8,91 +8,87 @@ import json
 
 
 async def build_json_prompt(message, context_memory) -> dict:
+    """Build the JSON prompt expected by plugins.
+
+    Parameters
+    ----------
+    message : telegram.Message
+        Incoming message object from telegram bot.
+    context_memory : dict[int, deque]
+        Dictionary storing last messages per chat.
+    """
+
     import core.weather
-    from datetime import datetime
     import pytz
-    import os
 
     chat_id = message.chat_id
     text = message.text or ""
 
-    # === 1. Context ===
-    context_list = list(context_memory.get(chat_id, []))[-10:]
+    # === 1. Context messages ===
+    messages = list(context_memory.get(chat_id, []))[-10:]
 
-    # === 2. Tags e memories ===
+    # === 2. Tags and memory lookup ===
     tags = extract_tags(text)
-    expanded = expand_tags(tags)
-
+    expanded_tags = expand_tags(tags)
     memories = []
-    if expanded:
-        placeholders = ",".join("?" for _ in expanded)
-        query = f"""
-            SELECT content FROM memories
-            WHERE json_valid(tags)
-              AND EXISTS (
-                  SELECT 1
-                  FROM json_each(memories.tags)
-                  WHERE json_each.value IN ({placeholders})
-              )
-            ORDER BY timestamp DESC LIMIT 5
-        """
-        with get_db() as db:
-            rows = db.execute(query, expanded).fetchall()
-            memories = [row["content"] for row in rows]
+    if expanded_tags:
+        memories = search_memories(tags=expanded_tags, limit=5)
 
-    # === 3. Messaggio attuale ===
-    current_message = {
-        "username": message.from_user.full_name,
-        "usertag": f"@{message.from_user.username}" if message.from_user.username else "(nessun tag)",
+    # === 3. Temporal and weather info ===
+    location = os.getenv("WEATHER_LOCATION", "Kyoto")
+    try:
+        tz = pytz.timezone("Asia/Tokyo")
+    except Exception:
+        tz = pytz.utc
+    now_local = datetime.now(tz)
+    date = now_local.strftime("%Y-%m-%d")
+    time = now_local.strftime("%H:%M")
+    weather = core.weather.current_weather
+
+    context_section = {
+        "messages": messages,
+        "memories": memories,
+        "location": location,
+        "weather": weather if weather else "Unavailable",
+        "date": date,
+        "time": time,
+    }
+
+    # === 4. Input payload ===
+    input_payload = {
         "text": text,
+        "source": {
+            "chat_id": chat_id,
+            "message_id": message.message_id,
+            "username": message.from_user.full_name,
+            "usertag": f"@{message.from_user.username}" if message.from_user.username else "(no tag)",
+        },
         "timestamp": message.date.isoformat(),
+        "privacy": "default",
+        "scope": "local",
     }
 
     if message.reply_to_message:
         reply = message.reply_to_message
         reply_text = reply.text or getattr(reply, "caption", None)
         if not reply_text:
-            reply_text = "[Contenuto non testuale]"
-
-        current_message["reply_to"] = {
-            "username": reply.from_user.full_name,
-            "usertag": f"@{reply.from_user.username}" if reply.from_user.username else "(nessun tag)",
+            reply_text = "[Non-text content]"
+        input_payload["reply_to"] = {
             "text": reply_text,
             "timestamp": reply.date.isoformat(),
+            "from": {
+                "username": reply.from_user.full_name,
+                "usertag": f"@{reply.from_user.username}" if reply.from_user.username else "(no tag)",
+            },
         }
 
-    # === Extra weather and time info ===
-    location = os.getenv("WEATHER_LOCATION", "Kyoto")
-    tz_map = {
-        "Kyoto": "Asia/Tokyo",
-    }
-    tz_name = tz_map.get(location, "UTC")
-    try:
-        tz = pytz.timezone(tz_name)
-    except Exception:
-        tz = pytz.utc
+    input_section = {"type": "message", "payload": input_payload}
 
-    now_local = datetime.now(tz)
-    date = now_local.strftime("%a %Y-%m-%d")
-    time = now_local.strftime("%H:%M")
+    # Debug output for both sections
+    print("[DEBUG/json_prompt] context = " + json.dumps(context_section, ensure_ascii=False))
+    print("[DEBUG/json_prompt] input = " + json.dumps(input_section, ensure_ascii=False))
 
-    weather = core.weather.current_weather
-    print(f"[DEBUG/prompt] Weather injected in prompt: {weather}")
-
-    # === 4. JSON prompt finale ===
-    prompt = {
-        "context": context_list,
-        "memories": memories,
-        "message": current_message,
-    }
-    prompt["location"] = location
-    prompt["weather"] = weather if weather else "Unavailable"
-    prompt["date"] = date
-    prompt["time"] = time
-
-    print(f"[DEBUG] Prompt enriched with: {location=} {weather=} {date=} {time=}")
-
-    return prompt
+    return {"context": context_section, "input": input_section}
 
 def load_identity_prompt() -> str:
     try:
