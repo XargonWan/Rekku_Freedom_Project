@@ -38,10 +38,6 @@ fi
 mkdir -p "$(pwd)/logs"
 chown -R 1000:1000 "$(pwd)/logs"
 
-# Ensure additional volumes exist and are writable
-mkdir -p "$(pwd)/selenium_profile" "$(pwd)/persona"
-chown -R 1000:1000 "$(pwd)/selenium_profile" "$(pwd)/persona"
-
 # 🧹 Pulisce container avviati con /start-vnc.sh o immagine rekku_freedom_project
 echo "🧹 Pulizia container Docker esistenti relativi a Rekku..."
 $DOCKER_CMD ps --format '{{.ID}} {{.Image}} {{.Command}}' | grep -E 'rekku_freedom_project|start-vnc\.sh' | awk '{print $1}' | xargs -r $DOCKER_CMD kill
@@ -69,7 +65,6 @@ case "$MODE" in
       --hostname luna-workstation \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
-      -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
       -v "$(pwd)/rekku_home:/home/rekku" \
       -e WEBVIEW_PORT=$PORT \
@@ -85,7 +80,6 @@ case "$MODE" in
       --hostname luna-workstation \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
-      -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
       -v "$(pwd)/rekku_home:/home/rekku" \
       -e WEBVIEW_PORT=$PORT \
@@ -102,7 +96,6 @@ case "$MODE" in
       --hostname luna-workstation \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
-      -v "$(pwd)/selenium_profile:/app/selenium_profile" \
       -v "$(pwd)/persona:/app/persona" \
       -v "$(pwd)/rekku_home:/home/rekku" \
       -e WEBVIEW_PORT=$PORT \

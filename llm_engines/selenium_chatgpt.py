@@ -6,7 +6,6 @@ from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import NoSuchElementException
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
-from core.config import SELENIUM_PROFILE_DIR, SELENIUM_EXTENSIONS_DIR
 import asyncio
 import os
 import subprocess
@@ -33,19 +32,6 @@ def _build_vnc_url() -> str:
     url = f"http://{host}:{port}/vnc.html"
     print(f"[DEBUG/selenium] VNC URL built: {url}")
     return url
-
-# Path assoluto per il profilo Selenium montato dall'host
-PROFILE_DIR = os.path.abspath(SELENIUM_PROFILE_DIR)
-
-
-def _cleanup_profile_locks():
-    """Remove Chrome profile lock files that prevent reuse."""
-    try:
-        for path in glob.glob(os.path.join(PROFILE_DIR, "Singleton*")):
-            os.remove(path)
-    except Exception:
-        pass
-
 
 def _install_webstore_extension(ext_id: str, name: str) -> str | None:
     """Download and unpack a Chrome Web Store extension if missing.
@@ -117,7 +103,6 @@ AudioBuffer.prototype.getChannelData = function(){
 
 def _get_driver():
     """Return a configured undetected Chrome driver."""
-    _cleanup_profile_locks()
 
     headless = os.getenv("REKKU_SELENIUM_HEADLESS", "0") != "0"
     options = uc.ChromeOptions()
