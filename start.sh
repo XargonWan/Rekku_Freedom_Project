@@ -14,8 +14,8 @@ else
 fi
 
 # Define ports
-PORT="${WEBVIEW_PORT:-3001}"
-INT_PORT="3001"
+PORT="${WEBVIEW_PORT:-5001}"
+INT_PORT="3000"
 HOST_IP=$(hostname -I | awk '{print $1}')
 WEBVIEW_HOST_ENV="${WEBVIEW_HOST:-$HOST_IP}"
 
@@ -70,6 +70,7 @@ case "$MODE" in
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/persona:/app/persona" \
       -v "$REKKU_HOME:/home/rekku" \
+      -v "$(pwd)/.env:/app/.env:ro" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
       -p $PORT:$INT_PORT \
@@ -85,6 +86,7 @@ case "$MODE" in
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/persona:/app/persona" \
       -v "$REKKU_HOME:/home/rekku" \
+      -v "$(pwd)/.env:/app/.env:ro" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
       -p $PORT:$INT_PORT \
@@ -101,6 +103,7 @@ case "$MODE" in
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/persona:/app/persona" \
       -v "$REKKU_HOME:/home/rekku" \
+      -v "$(pwd)/.env:/app/.env:ro" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
       -p $PORT:$INT_PORT \
