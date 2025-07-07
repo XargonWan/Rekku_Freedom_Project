@@ -9,47 +9,47 @@ from core.db import (
 )
 from core.trigger_processor import process_triggers_for_emotion
 
-# ⚙️ Configurazione comportamento
+# ⚙️ Behaviour configuration
 presence_config = {
-    "normal_interval": 1800,   # 30 minuti
+    "normal_interval": 1800,   # 30 minutes
     "cooldown_per_user": {"replies": 3, "per_minutes": 10},
     "jay_override": True
 }
 
-# 🧠 Emozione → rivalutazione + cristallizzazione
+# 🧠 Emotion → re-evaluation + crystallization
 async def evaluate_emotions():
     emotions = get_active_emotions()
     now = datetime.now(timezone.utc)
 
     for em in emotions:
         check_time = datetime.fromisoformat(em["next_check"].replace("Z", "+00:00"))
-        print(f"[PresenceManager] Rivaluto emozione {em['id']} ({em['emotion']})")
+        print(f"[PresenceManager] Reassessing emotion {em['id']} ({em['emotion']})")
 
-        delta = process_triggers_for_emotion(em)  # ritorna +1, -1, 0, ecc.
+        delta = process_triggers_for_emotion(em)  # returns +1, -1, 0, etc.
         update_emotion_intensity(em["id"], delta)
 
-        # 💀 Se intensità finita → resolved
+        # 💀 If intensity reaches zero → resolved
         if em["intensity"] + delta <= 0:
             mark_emotion_resolved(em["id"])
-            print(f"[PresenceManager] Emozione risolta: {em['id']}")
+            print(f"[PresenceManager] Emotion resolved: {em['id']}")
 
-        # 💎 Cristallizzazione automatica se intensità alta
+        # 💎 Automatic crystallization if intensity is high
         elif em["intensity"] + delta >= 10:
             crystallize_emotion(em["id"])
-            print(f"[PresenceManager] 💎 Emozione cristallizzata: {em['emotion']} ({em['id']})")
+            print(f"[PresenceManager] 💎 Emotion crystallized: {em['emotion']} ({em['id']})")
 
         apply_emotion_decay(em)
 
-# ♻️ Loop principale
+# ♻️ Main loop
 async def presence_loop():
     while True:
-        print("[PresenceManager] Check ciclico in corso...")
+        print("[PresenceManager] Cyclic check running...")
         await evaluate_emotions()
         await asyncio.sleep(presence_config["normal_interval"])
 
-# 💭 Riflesso trasformativo
+# 💭 Transformative reflection
 async def reflect_on_recent_responses():
-    # Assunto: funzione definita altrove nel core
+    # Assumption: function defined elsewhere in the core
     from core.llm_logic import evaluate_transformative_by_llm
 
     responses = get_recent_responses(limit=10)
@@ -66,12 +66,12 @@ async def reflect_on_recent_responses():
                 intensity=meta["intensity"],
                 emotion_state=meta["emotion_state"]
             )
-            print(f"[REKKU] 💭 Riflesso trasformativo salvato.")
+            print(f"[REKKU] 💭 Transformative reflection saved.")
 
 def get_transformative_metadata(response_text: str) -> dict:
     """
-    Rekku valuta i metadati da assegnare a una risposta trasformativa.
-    In futuro: delegabile a LLM o configurabile da file.
+    Rekku evaluates which metadata to assign to a transformative response.
+    In the future this might be delegated to the LLM or loaded from a file.
     """
     return {
         "tags": "transformative,internal",
@@ -84,8 +84,8 @@ def get_transformative_metadata(response_text: str) -> dict:
 
 def apply_emotion_decay(emotion: dict):
     """
-    Riduce lentamente l’intensità se l’emozione non viene rinforzata.
-    Solo se `decay_enabled` è attivo.
+    Slowly reduces the intensity if the emotion is not reinforced.
+    Only works if `decay_enabled` is on.
     """
     if emotion.get("state") != "active":
         return
@@ -95,8 +95,8 @@ def apply_emotion_decay(emotion: dict):
     intensity = emotion.get("intensity", 0)
     if intensity > 0:
         update_emotion_intensity(emotion["id"], delta=-1)
-        print(f"[Decay] 🕯️ Emozione {emotion['id']} decrescente: {intensity} → {intensity - 1}")
+        print(f"[Decay] 🕯️ Emotion {emotion['id']} decreasing: {intensity} → {intensity - 1}")
 
         if intensity - 1 <= 0:
             mark_emotion_resolved(emotion["id"])
-            print(f"[Decay] 💤 Emozione risolta per esaurimento: {emotion['id']}")
+            print(f"[Decay] 💤 Emotion resolved due to depletion: {emotion['id']}")

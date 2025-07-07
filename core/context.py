@@ -33,8 +33,8 @@ async def context_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_state = not current
     set_context_state(new_state)
 
-    state_str = "attiva" if new_state else "disattivata"
-    await update.message.reply_text(f"🧠 Modalità context {state_str}.")
+    state_str = "enabled" if new_state else "disabled"
+    await update.message.reply_text(f"🧠 Context mode {state_str}.")
 
-    print(f"[DEBUG] Modalità context {state_str}.")
+    print(f"[DEBUG] Context mode {state_str}.")
 

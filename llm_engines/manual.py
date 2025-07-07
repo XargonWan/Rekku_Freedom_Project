@@ -11,14 +11,14 @@ class ManualAIPlugin(AIPluginBase):
     def __init__(self, notify_fn=None):
         from core.notifier import set_notifier
 
-        # Inizializza la tabella di mapping persistente
+        # Initialize the persistent mapping table
         message_map.init_table()
 
         if notify_fn:
-            print("[DEBUG/manual] Uso funzione di notifica personalizzata.")
+            print("[DEBUG/manual] Using custom notification function.")
             set_notifier(notify_fn)
         else:
-            print("[DEBUG/manual] Nessuna funzione di notifica fornita, uso fallback.")
+            print("[DEBUG/manual] No notification function provided, using fallback.")
             set_notifier(lambda chat_id, message: print(f"[NOTIFY fallback] {message}"))
 
     def track_message(self, trainer_message_id, original_chat_id, original_message_id):
@@ -34,11 +34,11 @@ class ManualAIPlugin(AIPluginBase):
     async def handle_incoming_message(self, bot, message, prompt):
         from core.notifier import notify_owner
 
-        notify_owner("🚨 Sto generando la risposta...")
+        notify_owner("🚨 Generating the reply...")
 
         user_id = message.from_user.id
         text = message.text or ""
-        print(f"[DEBUG/manual] Messaggio ricevuto in modalità manuale da chat_id={message.chat_id}")
+        print(f"[DEBUG/manual] Message received in manual mode from chat_id={message.chat_id}")
 
         # === Caso speciale: /say attivo ===
         target_chat = say_proxy.get_target(user_id)
@@ -58,7 +58,7 @@ class ManualAIPlugin(AIPluginBase):
 
         await bot.send_message(
             chat_id=OWNER_ID,
-            text=f"\U0001f4e6 *Prompt JSON generato:*\n```json\n{prompt_json}\n```",
+            text=f"\U0001f4e6 *Generated JSON prompt:*\n```json\n{prompt_json}\n```",
             parse_mode=ParseMode.MARKDOWN
         )
 
@@ -73,11 +73,11 @@ class ManualAIPlugin(AIPluginBase):
             message_id=message.message_id
         )
         self.track_message(sent.message_id, message.chat_id, message.message_id)
-        print(f"[DEBUG/manual] Messaggio inoltrato e tracciato")
+        print(f"[DEBUG/manual] Message forwarded and tracked")
 
     async def generate_response(self, messages):
-        """Nel caso manuale, la risposta non viene generata automaticamente."""
-        return "\U0001f570\ufe0f Risposta in attesa di input manuale."
+        """In manual mode the reply is not generated automatically."""
+        return "\U0001f570\ufe0f Waiting for manual input."
 
 
 PLUGIN_CLASS = ManualAIPlugin

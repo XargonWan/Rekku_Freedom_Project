@@ -24,14 +24,14 @@ def get_last_active_chats(n=10):
             ORDER BY last_active DESC
             LIMIT ?
         """, (n,))
-        return [row[0] for row in rows]  # oppure row["chat_id"] se hai row_factory
+        return [row[0] for row in rows]  # or row["chat_id"] if using row_factory
 
 def format_chat_entry(chat):
     name = chat.title or chat.username or chat.first_name or str(chat.id)
     safe_name = escape_markdown(name)
 
     if chat.username:
-        # Pubblico: link cliccabile
+        # Public: clickable link
         link = f"https://t.me/{chat.username}"
         return f"[{safe_name}]({link}) — `{chat.id}`"
     else:
@@ -42,14 +42,14 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     bot = context.bot
-    lines = ["\U0001f553 *Ultime chat attive:*"]
+    lines = ["\U0001f553 *Last active chats:*"]
 
     for chat_id in get_last_active_chats():
         try:
             chat = await bot.get_chat(chat_id)
             lines.append("- " + format_chat_entry(chat))
         except Exception as e:
-            print(f"[DEBUG] Errore recuperando chat {chat_id}: {e}")
+            print(f"[DEBUG] Error retrieving chat {chat_id}: {e}")
             lines.append(f"- `{chat_id}`")
 
 
@@ -71,7 +71,7 @@ async def get_last_active_chats_verbose(n=10, bot=None):
 
 def escape_markdown(text: str) -> str:
     """
-    Escapa caratteri Markdown v1 per evitare errori o malformazioni.
+    Escape Markdown v1 characters to avoid errors or malformed output.
     """
     escape_chars = r'\_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)

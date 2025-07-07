@@ -24,9 +24,9 @@ def set_notifier(fn: Callable[[int, str], None]):
     _pending.clear()
 
 def notify(chat_id: int, message: str):
-    print(f"[DEBUG/notifier] Inviando messaggio a {chat_id}: {message}")
+    print(f"[DEBUG/notifier] Sending message to {chat_id}: {message}")
     _notify_impl(chat_id, message)
 
 def notify_owner(message: str):
-    print(f"[DEBUG/notifier] Notifica per OWNER_ID={OWNER_ID}: {message}")
+    print(f"[DEBUG/notifier] Notification for OWNER_ID={OWNER_ID}: {message}")
     notify(OWNER_ID, message)
