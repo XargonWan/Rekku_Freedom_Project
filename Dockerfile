@@ -50,11 +50,19 @@ RUN set -eux; \
     if getent group 1000 >/dev/null; then \
         grp=$(getent group 1000 | cut -d: -f1); \
         if [ "$grp" != "rekku" ]; then groupmod -n rekku "$grp"; fi; \
+    elif getent group rekku >/dev/null; then \
+        groupmod -g 1000 rekku; \
     else \
         groupadd -g 1000 rekku; \
     fi; \
-    if id -u rekku >/dev/null 2>&1; then \
-        usermod -d /home/rekku -s /bin/bash -u 1000 -g 1000 rekku; \
+    if getent passwd 1000 >/dev/null; then \
+        usr=$(getent passwd 1000 | cut -d: -f1); \
+        if [ "$usr" != "rekku" ]; then \
+            usermod -l rekku -d /home/rekku -m "$usr"; \
+        fi; \
+        usermod -u 1000 -g 1000 -s /bin/bash rekku; \
+    elif id -u rekku >/dev/null 2>&1; then \
+        usermod -u 1000 -g 1000 -d /home/rekku -s /bin/bash -m rekku; \
     else \
         useradd -m -u 1000 -g 1000 -s /bin/bash rekku; \
     fi; \
