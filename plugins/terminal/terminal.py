@@ -1,4 +1,4 @@
-# llm_engines/terminal_plugin.py
+# plugins/terminal.py
 
 import asyncio
 from core.ai_plugin_base import AIPluginBase
