@@ -35,9 +35,9 @@ RUN python3 -m venv /app/venv && \
 # Variables
 ENV PYTHONPATH=/app \
     TZ=Asia/Tokyo \
-    PATH=/app/venv/bin:$PATH \
-    USER=rekku \
-    HOME=/home/rekku
+    PATH=/app/venv/bin:$PATH
+ENV USER=rekku
+ENV HOME=/home/rekku
 
 WORKDIR /app
 
@@ -45,15 +45,21 @@ WORKDIR /app
 COPY automation_tools/start.sh /start.sh
 RUN chmod +x /start.sh
 
-# Create user rekku with fixed UID/GID
+# Create or update rekku user safely
 RUN set -eux; \
-    if getent group rekku >/dev/null 2>&1; then groupdel rekku; fi; \
-    groupadd -g 1000 rekku; \
-    if id -u rekku >/dev/null 2>&1; then userdel -rf rekku; fi; \
-    useradd -m -u 1000 -g 1000 -s /bin/bash rekku
-
-# Ensure permissions for application folders
-RUN chown -R rekku:rekku /app /start.sh /home/rekku
+    if getent group 1000 >/dev/null; then \
+        grp=$(getent group 1000 | cut -d: -f1); \
+        if [ "$grp" != "rekku" ]; then groupmod -n rekku "$grp"; fi; \
+    else \
+        groupadd -g 1000 rekku; \
+    fi; \
+    if id -u rekku >/dev/null 2>&1; then \
+        usermod -d /home/rekku -s /bin/bash -u 1000 -g 1000 rekku; \
+    else \
+        useradd -m -u 1000 -g 1000 -s /bin/bash rekku; \
+    fi; \
+    mkdir -p /home/rekku; \
+    chown -R 1000:1000 /app /start.sh /home/rekku
 
 USER rekku
 ENTRYPOINT ["/start.sh"]
