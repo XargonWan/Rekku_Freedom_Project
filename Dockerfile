@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Remove user abc if exists
-RUN id abc && userdel -rf abc || echo "User abc not present"
+RUN if id -u abc >/dev/null 2>&1; then userdel -rf abc; fi
 
 # 🔄 FIRST copy all the code
 COPY . /app
@@ -30,8 +30,8 @@ RUN python3 -m venv /app/venv && \
 ENV PYTHONPATH=/app \
     TZ=Asia/Tokyo \
     PATH=/app/venv/bin:$PATH \
-    HOME=/home/rekku \
-    USER=rekku
+    USER=rekku \
+    HOME=/home/rekku
 
 WORKDIR /app
 
@@ -39,10 +39,15 @@ WORKDIR /app
 COPY automation_tools/start.sh /start.sh
 RUN chmod +x /start.sh
 
-# Create user rekku
-RUN useradd -m -s /bin/bash rekku && \
-    chown -R rekku:rekku /app /start.sh /home/rekku
+# Create user rekku with fixed UID/GID
+RUN set -eux; \
+    if getent group rekku >/dev/null 2>&1; then groupdel rekku; fi; \
+    groupadd -g 1000 rekku; \
+    if id -u rekku >/dev/null 2>&1; then userdel -rf rekku; fi; \
+    useradd -m -u 1000 -g 1000 -s /bin/bash rekku
 
-# Start as root to fix volume permissions before dropping to rekku
-USER root
+# Ensure permissions for application folders
+RUN chown -R rekku:rekku /app /start.sh /home/rekku
+
+USER rekku
 ENTRYPOINT ["/start.sh"]
