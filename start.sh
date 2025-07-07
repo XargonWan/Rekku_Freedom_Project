@@ -2,71 +2,74 @@
 
 IMAGE_NAME="rekku_freedom_project"
 ENV_FILE=".env"
-MODE="${1:-run}"  # Default: run
+MODE="${1:-run}"  # Default mode is "run"
 
-# Carica variabili da .env solo se esiste
+# Load environment variables
 if [[ -f "$ENV_FILE" ]]; then
   source "$ENV_FILE"
-  echo "✅ Variabili d'ambiente caricate da $ENV_FILE"
+  echo "✅ Environment variables loaded from $ENV_FILE"
 else
-  echo "❌ Errore: file .env mancante."
+  echo "❌ Error: .env file is missing."
   exit 1
 fi
 
+# Define ports
 PORT="${WEBVIEW_PORT:-3001}"
 INT_PORT="3001"
-# Determina l'host su cui esporre la GUI VNC
 HOST_IP=$(hostname -I | awk '{print $1}')
 WEBVIEW_HOST_ENV="${WEBVIEW_HOST:-$HOST_IP}"
 
-# Controllo variabile BOTFATHER_TOKEN
+# Check required token
 if [[ -z "$BOTFATHER_TOKEN" ]]; then
-  echo "❌ Errore: la variabile d'ambiente BOTFATHER_TOKEN non è impostata."
-  echo "ℹ️  Usa: BOTFATHER_TOKEN=... ./start.sh"
+  echo "❌ Error: BOTFATHER_TOKEN is not set."
+  echo "ℹ️  Usage: BOTFATHER_TOKEN=... ./start.sh"
   exit 1
 fi
 
-# Verifica se l'utente può usare docker senza sudo
+# Determine Docker command (with or without sudo)
 if docker info > /dev/null 2>&1; then
   DOCKER_CMD="docker"
 else
-  echo "⚠️  Esecuzione con sudo (nessun accesso diretto al socket Docker)"
+  echo "⚠️  Running with sudo (no direct Docker access)"
   DOCKER_CMD="sudo docker"
 fi
 
-# Crea la cartella logs se non esiste
+# Ensure logs directory exists with correct permissions
 mkdir -p "$(pwd)/logs"
 chown -R 1000:1000 "$(pwd)/logs"
 
-# 🧹 Pulisce container avviati con /start-vnc.sh o immagine rekku_freedom_project
-echo "🧹 Pulizia container Docker esistenti relativi a Rekku..."
+# Clean up existing Rekku-related containers
+echo "🧹 Cleaning up existing Rekku containers..."
 $DOCKER_CMD ps --format '{{.ID}} {{.Image}} {{.Command}}' | grep -E 'rekku_freedom_project|start-vnc\.sh' | awk '{print $1}' | xargs -r $DOCKER_CMD kill
 
-# Rimuove eventuale container esistente con lo stesso nome
+# Remove container if it exists
 if $DOCKER_CMD ps -a --format '{{.Names}}' | grep -q '^rekku_freedom_project$'; then
-  echo "🧹 Container 'rekku_freedom_project' già esistente, rimozione in corso..."
+  echo "🧹 Removing existing container 'rekku_freedom_project'..."
   $DOCKER_CMD rm -f rekku_freedom_project > /dev/null
 fi
 
-if [ ! -d "$(pwd)/rekku_home" ]; then
-  echo "📂 Creazione della cartella 'rekku_home' per i dati persistenti..."
-  mkdir -p "$(pwd)/rekku_home"
-  chown -R 1000:1000 "$(pwd)/rekku_home"
-  chmod u+rw "$(pwd)/rekku_home"
+# Prepare persistent home directory
+REKKU_HOME="$(pwd)/rekku_home"
+if [ ! -d "$REKKU_HOME" ]; then
+  echo "📂 Creating persistent Rekku home directory..."
+  mkdir -p "$REKKU_HOME"
+  chown -R 1000:1000 "$REKKU_HOME"
+  chmod u+rw "$REKKU_HOME"
 else
-  echo "📂 Cartella 'rekku_home' già esistente, verrà utilizzata." 
+  echo "📂 Using existing Rekku home directory."
 fi
 
+# Execute selected mode
 case "$MODE" in
   run)
-    echo "🚀 Avvio del bot Rekku in Docker sulla porta $PORT..."
+    echo "🚀 Starting Rekku container in bot mode on port $PORT..."
     $DOCKER_CMD run --rm -it \
       --name rekku_freedom_project \
       --hostname luna-workstation \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/persona:/app/persona" \
-      -v "$(pwd)/rekku_home:/home/rekku" \
+      -v "$REKKU_HOME:/home/rekku" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
       -p $PORT:$INT_PORT \
@@ -74,14 +77,14 @@ case "$MODE" in
     ;;
 
   shell)
-    echo "🐚 Accesso interattivo al container Rekku..."
+    echo "🐚 Launching interactive shell into Rekku container..."
     $DOCKER_CMD run --rm -it \
       --name rekku_freedom_project \
       --hostname luna-workstation \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/persona:/app/persona" \
-      -v "$(pwd)/rekku_home:/home/rekku" \
+      -v "$REKKU_HOME:/home/rekku" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
       -p $PORT:$INT_PORT \
@@ -90,24 +93,24 @@ case "$MODE" in
     ;;
 
   test_notify)
-    echo "📡 Test notifica diretta dal container..."
+    echo "📡 Testing direct notification from the container..."
     $DOCKER_CMD run --rm -it \
       --name rekku_freedom_project \
       --hostname luna-workstation \
       --env-file "$ENV_FILE" \
       -v "$(pwd)/logs:/app/debug_logs" \
       -v "$(pwd)/persona:/app/persona" \
-      -v "$(pwd)/rekku_home:/home/rekku" \
+      -v "$REKKU_HOME:/home/rekku" \
       -e WEBVIEW_PORT=$PORT \
       -e WEBVIEW_HOST=$WEBVIEW_HOST_ENV \
       -p $PORT:$INT_PORT \
       "$IMAGE_NAME" \
-      python3 -c 'import asyncio; from telegram import Bot; from core.config import BOT_TOKEN, OWNER_ID; bot = Bot(token=BOT_TOKEN); asyncio.run(bot.send_message(chat_id=OWNER_ID, text="🔔 TEST: notifica diretta dal container"))'
+      python3 -c 'import asyncio; from telegram import Bot; from core.config import BOT_TOKEN, OWNER_ID; bot = Bot(token=BOT_TOKEN); asyncio.run(bot.send_message(chat_id=OWNER_ID, text="🔔 TEST: direct notification from container"))'
     ;;
 
   *)
-    echo "❌ Modalità sconosciuta: $MODE"
-    echo "Usa: ./start.sh [run|shell|test_notify]"
+    echo "❌ Unknown mode: $MODE"
+    echo "Usage: ./start.sh [run|shell|test_notify]"
     exit 1
     ;;
 esac

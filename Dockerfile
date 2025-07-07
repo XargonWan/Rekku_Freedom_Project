@@ -1,6 +1,6 @@
 FROM lscr.io/linuxserver/webtop:ubuntu-xfce
 
-# Disabilita snap
+# Disable snap
 RUN apt-get update && \
     apt-get purge -y snapd && \
     rm -rf /var/cache/snapd /snap /var/snap /var/lib/snapd && \
@@ -8,33 +8,38 @@ RUN apt-get update && \
     chmod +x /usr/local/bin/snap && \
     echo "alias snap='echo Snap is disabled'" > /etc/profile.d/no-snap.sh
 
-# Pacchetti di base
+# Basic packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv git curl wget unzip \
     lsb-release ca-certificates fonts-liberation \
     fonts-noto-cjk fonts-noto-color-emoji && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# 🔄 PRIMA copia tutto il codice
+# Remove user abc if exists
+RUN id abc && userdel -rf abc || echo "User abc not present"
+
+# 🔄 FIRST copy all the code
 COPY . /app
 
-# Virtualenv + installazione pacchetti
+# Virtualenv + package installation
 RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir --upgrade pip setuptools && \
     /app/venv/bin/pip install --no-cache-dir -r /app/requirements.txt
 
-# Variabili
+# Variables
 ENV PYTHONPATH=/app \
     TZ=Asia/Tokyo \
-    PATH=/app/venv/bin:$PATH
+    PATH=/app/venv/bin:$PATH \
+    HOME=/home/rekku \
+    USER=rekku
 
 WORKDIR /app
 
-# Copia script di avvio
+# Copy startup script
 COPY automation_tools/start.sh /start.sh
 RUN chmod +x /start.sh
 
-# Crea utente rekku e assegna permessi
+# Create user rekku
 RUN useradd -m -s /bin/bash rekku && \
     chown -R rekku:rekku /app /start.sh /home/rekku
 

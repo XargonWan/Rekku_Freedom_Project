@@ -3,26 +3,14 @@ services:
     container_name: rekku_freedom_project
     hostname: luna-workstation
     image: rekku_freedom_project:latest
+    user: "1000:1000"
     volumes:
       - persona:/app/persona:rw
       - ./rekku_home:/home/rekku:rw
       - .env:/app/.env:ro
-    environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
-      - TELEGRAM_TOKEN=${BOTHFATHER_TOKEN}
-      - BOTFATHER_TOKEN=${BOTHFATHER_TOKEN}
-      - OWNER_ID=${TELEGRAM_OWNER_ID}
-      - REKKU_SELENIUM_HEADLESS=1
-      - WEBVIEW_PORT=5006
-      - WEBVIEW_HOST=localhost
-      - ROOT_PASSWORD=${REKKU_ROOT_PASSWORD}
-      - WEATHER_LOCATION=${REKKU_WEATHER_LOCATION}
-      - DISPLAY_WIDTH=1280
-      - DISPLAY_HEIGHT=720
-      - CUSTOM_USER=rekku
     ports:
       - 5001:3001   # Webtop access (HTTPS)
       - 5002:5006   # Webview del bot
     restart: on-failure
+    env_file:
+      - .env
