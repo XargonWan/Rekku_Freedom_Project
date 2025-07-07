@@ -38,5 +38,6 @@ RUN chmod +x /start.sh
 RUN useradd -m -s /bin/bash rekku && \
     chown -R rekku:rekku /app /start.sh /home/rekku
 
-USER rekku
+# Start as root to fix volume permissions before dropping to rekku
+USER root
 ENTRYPOINT ["/start.sh"]
