@@ -6,7 +6,6 @@ from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import NoSuchElementException
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
-from core.config import SELENIUM_PROFILE_DIR, SELENIUM_EXTENSIONS_DIR
 import asyncio
 import os
 import subprocess
@@ -15,6 +14,14 @@ import time
 import zipfile
 import urllib.request
 import shutil
+import tempfile
+
+PROFILE_DIR = os.path.join(tempfile.gettempdir(), "rekku_chrome_profile")
+SELENIUM_EXTENSIONS_DIR = os.path.join(PROFILE_DIR, "extensions")
+SELENIUM_PROFILE_ARCHIVE = os.getenv(
+    "SELENIUM_PROFILE_ARCHIVE",
+    os.path.join(os.getcwd(), "chrome_profile.tar.gz"),
+)
 
 def _build_vnc_url() -> str:
     """Return the URL to access the noVNC interface."""
@@ -33,19 +40,6 @@ def _build_vnc_url() -> str:
     url = f"http://{host}:{port}/vnc.html"
     print(f"[DEBUG/selenium] VNC URL built: {url}")
     return url
-
-# Path assoluto per il profilo Selenium montato dall'host
-PROFILE_DIR = os.path.abspath(SELENIUM_PROFILE_DIR)
-
-
-def _cleanup_profile_locks():
-    """Remove Chrome profile lock files that prevent reuse."""
-    try:
-        for path in glob.glob(os.path.join(PROFILE_DIR, "Singleton*")):
-            os.remove(path)
-    except Exception:
-        pass
-
 
 def _install_webstore_extension(ext_id: str, name: str) -> str | None:
     """Download and unpack a Chrome Web Store extension if missing.
@@ -117,7 +111,6 @@ AudioBuffer.prototype.getChannelData = function(){
 
 def _get_driver():
     """Return a configured undetected Chrome driver."""
-    _cleanup_profile_locks()
 
     headless = os.getenv("REKKU_SELENIUM_HEADLESS", "0") != "0"
     options = uc.ChromeOptions()
@@ -141,12 +134,33 @@ def _get_driver():
     # 'excludeSwitches'. We prefer not to set them to avoid startup errors
     # that would prevent the VNC notification.
 
-    os.makedirs(PROFILE_DIR, exist_ok=True)
+    profile_override = os.getenv("REKKU_SELENIUM_PROFILE_OVERRIDE")
+    if profile_override and os.path.isdir(profile_override):
+        profile_dir = profile_override
+        print(f"[DEBUG/selenium] Using local Chrome profile from {profile_dir}")
+    else:
+        profile_dir = PROFILE_DIR
+        print(
+            f"[DEBUG/selenium] Extracting {SELENIUM_PROFILE_ARCHIVE} to {profile_dir}"
+        )
+        os.makedirs(profile_dir, exist_ok=True)
+        if os.path.isfile(SELENIUM_PROFILE_ARCHIVE):
+            subprocess.run(
+                ["tar", "-xzf", SELENIUM_PROFILE_ARCHIVE, "-C", profile_dir],
+                check=False,
+            )
+            for lock in glob.glob(os.path.join(profile_dir, "**/Singleton*"), recursive=True):
+                try:
+                    os.remove(lock)
+                except Exception:
+                    pass
+        else:
+            print(f"[WARN/selenium] Profile archive {SELENIUM_PROFILE_ARCHIVE} missing")
 
     try:
         driver = uc.Chrome(
             options=options,
-            user_data_dir=PROFILE_DIR,
+            user_data_dir=profile_dir,
             headless=headless,
             log_level=3,
         )
@@ -157,7 +171,7 @@ def _get_driver():
             options.experimental_options.pop("useAutomationExtension", None)
             driver = uc.Chrome(
                 options=options,
-                user_data_dir=PROFILE_DIR,
+                user_data_dir=profile_dir,
                 headless=headless,
                 log_level=3,
             )
