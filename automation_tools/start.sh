@@ -1,9 +1,13 @@
 #!/bin/bash
+set -e
 
-# Ensure application directory is owned by the bot user
-chown -R rekku:rekku /app
+echo "[START] Running as $(whoami)"
 
-# Run the bot as the rekku user
+# Fix permessi se siamo root
+if [ "$(id -u)" = "0" ]; then
+  echo "[FIX] Chown dinamico a rekku su /app e /home/rekku"
+  chown -R rekku:rekku /app /home/rekku || echo "[WARN] chown fallito"
+fi
+
 cd /app
-echo "Current user: $(whoami)"
 exec python3 main.py

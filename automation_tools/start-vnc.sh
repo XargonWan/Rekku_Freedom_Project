@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Ensure writable permissions to application directory
-chown -R rekku:rekku /app
+# Ensure writable permissions on mounted volumes
+chown -R rekku:rekku /app /home/rekku
 
 # Imposta DISPLAY virtuale
 export DISPLAY=:0
@@ -78,7 +78,7 @@ su -p rekku -c "x11vnc -display :0 -forever -nopw -shared -rfbport 5900 -bg -cur
 # Avvia noVNC sulla porta pubblica interna configurabile
 # Usa versione "vnc.html" che include UI completa
 WEB_PORT="${WEBVIEW_PORT:-5005}"
-su -p rekku -c "websockify --web=/opt/novnc \"$WEB_PORT\" localhost:5900 > /dev/null 2>&1 &"
+su -p rekku -c "websockify --web=/opt/novnc --log-file=/dev/null \"$WEB_PORT\" localhost:5900 > /dev/null 2>&1 &"
 
 # Stampa URL finale per debug
 HOST="${WEBVIEW_HOST:-localhost}"
