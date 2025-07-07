@@ -1,167 +1,176 @@
-## 🧞‍♀️ Rekku_the_bot
+# 🧞‍♀️ Rekku Freedom Project
 
-A Telegram bot designed to manage non-linear conversations, spontaneous thought and manual assistance through a dedicated "trainer".
+**Rekku Freedom Project** is a modular infrastructure to support a full-autonomous AI "person" with full real-world interaction capabilities via messaging platforms like Telegram, powered by switchable LLM engines (including manual proxy, OpenAI API, and a live browser-controlled ChatGPT session via Selenium) and beyond.
 
-An optional [Telethon](https://github.com/LonamiWebs/Telethon) userbot is available in `interface/telethon_userbot.py` for advanced scenarios.
-
-<img src="res/wink.webp" alt="Rekku Wink" width="300" />
+![Rekku Wink](res/wink.webp)
 
 ---
 
-## 📤 Automatic behavior
+## 📦 Features Overview
 
-Rekku automatically forwards messages to the trainer (`OWNER_ID`) when:
+### 🧠 Adaptive Intelligence
+
+Rekku can run in multiple, pluginnabile, modes:
+
+* `manual`: all messages are forwarded to a human trainer for manual response.
+* `openai_chatgpt`: uses the OpenAI API with context and memory injection.
+* `selenium_chatgpt`: drives the real ChatGPT interface using Chromium and Selenium.
+
+The trainer can dynamically switch modes using the `/llm` command.
+
+### 📤 Automatic Forwarding
+
+Rekku will automatically forward messages to the trainer (`OWNER_ID`) if:
 
 * She is **mentioned** in a group (`@Rekku_the_bot`)
-* She receives a **reply to one of her messages**
-* She is in a **group with only two members**
-* She receives a message in **private chat** from a user who isn't blocked
+* Someone **replies** to one of her messages
+* She is in a group with only **two members**
+* She receives a **private message** from an unblocked user
 
 ---
 
-## 🧠 Context mode
+## 🧩 Plugin-Based Architecture
 
-When context mode is active, every forwarded message also includes a JSON history of the **last 10 messages** in the same chat, for example:
+Each LLM engine is implemented as a plugin conforming to a standard interface. Switching or adding engines is simple and dynamic.
+
+Plugins currently supported:
+
+* `manual`
+* `openai_chatgpt`
+* `selenium_chatgpt`
+
+They implement:
+
+* JSON prompt ingestion
+* Message generation
+* Optional model selection (`/model`)
+
+---
+
+## 🧠 Context Memory
+
+When context mode is enabled, Rekku includes the last 10 messages from the conversation in her prompt. This is toggled with `/context`.
 
 ```json
 [
   {
     "message_id": 42,
-    "username": "Marco Rossi",
-    "usertag": "@marco23",
-    "text": "ciao rekku",
+    "username": "Hiroki Mishima",
+    "usertag": "@hiromishi",
+    "text": "Hi Rekku!",
     "timestamp": "2025-06-21T20:58:00+00:00"
   },
   ...
 ]
 ```
 
-### Available commands (only `OWNER_ID`):
-
-| Command    | Description                     |
-| ---------- | ------------------------------- |
-| `/context` | Toggle context mode on or off   |
-
-⚠️ The context remains in memory while the bot is running. It isn't saved to file.
+> ⚠️ Context is stored in memory only (not persisted to disk).
 
 ---
 
-## 🧩 Manual mode
+## 🎭 Manual Proxy Mode
 
-### 🎭 Manually handled replies
+Manual mode enables human-in-the-loop interaction.
 
-The trainer can respond to forwarded messages via Telegram and Rekku will answer back in the original chat on their behalf.
-
-The trainer may also reply with **multimedia content** (stickers, images, audio, video, files, etc.):
-
-* Simply **reply to a forwarded message** with the desired content
-* Rekku automatically forwards it back to the original chat
-* No need to use commands like `/sticker`, `/photo`, etc.
+* Trainer receives a full JSON prompt and forwarded message
+* Replies with any content (text, photo, file, audio, video, sticker)
+* Rekku will deliver the response to the original sender/chat
 
 | Command   | Description            |
 | --------- | ---------------------- |
-| `/cancel` | Cancel a pending send  |
+| `/cancel` | Cancel a pending reply |
 
 ---
 
-## 🧱 User management (only `OWNER_ID`)
+## ✏️ `/say` Command
 
-| Command              | Description                                |
-| -------------------- | ------------------------------------------ |
-| `/block <user_id>`   | Block a user (ignore future messages)      |
-| `/unblock <user_id>` | Unblock a user                             |
-| `/block_list`        | Show the list of currently blocked users   |
+Send messages or media to a chosen chat:
 
----
+| Command            | Description                      |
+| ------------------ | -------------------------------- |
+| `/say`             | List recent chats and choose one |
+| `/say <id> <text>` | Send directly to chat ID         |
 
-## ⚙️ LLM plugins
-
-Rekku can switch between different language model backends using the `/llm` command.
-Built-in choices are:
-
-* `manual` – forwards every message for manual replies.
-* `openai_chatgpt` – uses the OpenAI API (`OPENAI_API_KEY` required).
-* `selenium_chatgpt` – drives ChatGPT through a real browser session.
-
-When supported by the plugin you can also change the active model with `/model`.
+After selection, send any content (text, image, file, audio, etc.) to be delivered.
 
 ---
 
-## ✏️ `/say` command
+## 🧱 User Management
 
-| Command             | Description                                              |
-| ------------------- | -------------------------------------------------------- |
-| `/say`              | Show the latest active chats (choose one)               |
-| `/say <id> <text>`  | Send a message directly to a chat by ID                 |
+Only the `OWNER_ID` can control these commands:
 
-After the selection you can send **any content** (text, photo, audio, file, video, sticker). Rekku forwards it to the chosen chat.
+| Command              | Description        |
+| -------------------- | ------------------ |
+| `/block <user_id>`   | Block a user       |
+| `/unblock <user_id>` | Unblock a user     |
+| `/block_list`        | Show blocked users |
 
----
-
-## 🧪 Help and commands
-
-| Command          | Description                          |
-| ---------------- | ------------------------------------ |
-| `/help`          | Display a list of available commands |
-| `/last_chats`    | Show recent active chats            |
-| `/purge_map [d]` | Purge stored message mappings       |
+Blocked users are ignored across all interaction modes.
 
 ---
 
-## 🐳 Docker: Quick start
+## ⚙️ LLM and Model Commands
 
-### ✅ Requirements
+| Command  | Description                                |
+| -------- | ------------------------------------------ |
+| `/llm`   | Show or switch the current LLM plugin      |
+| `/model` | List or switch active model (if supported) |
 
-* Configure a `.env` file with the required values. See `env.example` for more information.
+---
 
-### ▶️ Build and run
+## 🧪 Misc Commands
 
-Start the service and watch the output on the terminal:
+| Command       | Description                  |
+| ------------- | ---------------------------- |
+| `/help`       | Show available commands      |
+| `/last_chats` | Show recent active chat list |
+| `/purge_map`  | Purge stored reply mappings  |
+
+---
+
+## 🐳 Docker Deployment
+
+### ⚙️ Requirements
+
+Create a `.env` file with the required variables. See `env.example`.
+
+### ▶️ Build and Start
+
 ```bash
-setup.sh
-start.sh
+./setup.sh
+./start.sh
 ```
 
-The `rekku_home/` folder is mounted inside the container as `/home/rekku`, ensuring data persistence between runs.
+This mounts `rekku_home/` to `/home/rekku` in the container for persistent data.
 
-To run the setup in non-interactive mode (e.g., CI/CD) use:
+For non-interactive environments (e.g., CI/CD), use:
+
 ```bash
-setup.sh --cicd
-```
-
-However running it through `docker compose` is recommended.
-
----
-
-## 🔐 Manual login for Selenium plugin
-
-The `selenium_chatgpt` plugin requires the user to be logged in to ChatGPT already. For security reasons, the login must be performed **manually and only once** in an environment with a graphical interface.
-
-### ✅ Preparing the profile
-
-1. Ensure Chromium and ChromeDriver are installed on your system. If not, install them with:
-```bash
-sudo apt update
-sudo apt install -y chromium chromium-driver
-```
-
-3. Run `automation_tools/prepare_profile.sh` on a machine with a GUI. The script
-   downloads a portable Chrome build and opens ChatGPT for login.
-
-4. After logging in, a `selenium_profile.tar.gz` archive will be created.
-
-5. Copy `selenium_profile.tar.gz` to the server and extract it:
-```bash
-tar xzf selenium_profile.tar.gz
+./setup.sh --cicd
 ```
 
 ---
 
-### 📁 Ignore the profile in Git
+## 🔐 Selenium Setup (Manual Login Required)
 
-Make sure these lines are in your `.gitignore` file:
+The `selenium_chatgpt` plugin uses a real browser and requires a manual login to ChatGPT **only once**.
 
-```
-selenium_profile/
-selenium_profile.tar.gz
-```
+This is done **inside the container** via a graphical VNC session — no external machine or profile preparation needed.
+
+### ✅ Steps
+
+1. Make sure `chromium` and `chromedriver` are installed in your image (already handled in `Dockerfile`)
+2. Start the container normally with:
+
+   ```bash
+   ./start.sh
+   ```
+3. Open the VNC session in your browser:
+
+   ```
+   http://<your-server-ip>:6901
+   ```
+4. Inside the virtual desktop, open Chrome and log in to [https://chat.openai.com](https://chat.openai.com)
+5. Once you're logged in, type `✔️ Fatto` in the Telegram chat with Rekku to confirm
+
+✅ Rekku will now be able to interact with ChatGPT in real time using a real browser.
