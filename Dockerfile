@@ -15,8 +15,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-cjk fonts-noto-color-emoji && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Remove user abc if exists
-RUN if id -u abc >/dev/null 2>&1; then userdel -rf abc; fi
+# Remove default abc user and its home if present
+RUN set -eux; \
+    if id -u abc >/dev/null 2>&1; then \
+        abc_home=$(getent passwd abc | cut -d: -f6); \
+        userdel abc; \
+        groupdel abc || true; \
+        rm -rf "$abc_home" || true; \
+    fi
 
 # 🔄 FIRST copy all the code
 COPY . /app
