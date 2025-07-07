@@ -84,7 +84,7 @@ async def last_chats_command(event):
         return
     entries = await recent_chats.get_last_active_chats_verbose(10, client)
     if not entries:
-        await event.reply("\u26a0\ufe0f Nessuna chat recente trovata.")
+        await event.reply("\u26a0\ufe0f No recent chat found.")
         return
     lines = [f"[{escape_markdown(name)}](tg://user?id={cid}) — `{cid}`" for cid, name in entries]
     await event.reply(
@@ -158,15 +158,15 @@ async def say_command(event):
             await event.reply("\u2705 Messaggio inviato.")
         except Exception as e:
             print(f"[ERROR] Errore .say diretto: {e}")
-            await event.reply("\u274c Errore nell'invio.")
+            await event.reply("\u274c Error during sending.")
         return
     # Caso 2: .say (senza argomenti)
     entries = await recent_chats.get_last_active_chats_verbose(10, client)
     if not entries:
-        await event.reply("\u26a0\ufe0f Nessuna chat recente trovata.")
+        await event.reply("\u26a0\ufe0f No recent chat found.")
         return
     numbered = "\n".join(f"{i+1}. {name} — `{cid}`" for i, (cid, name) in enumerate(entries))
-    numbered += "\n\n\u270f\ufe0f Rispondi con il numero per scegliere la chat."
+    numbered += "\n\n\u270f\ufe0f Reply with the number to choose the chat."
     say_proxy.clear(event.sender_id)
     say_sessions[event.sender_id] = entries
     await event.reply(numbered)
@@ -235,7 +235,7 @@ def main():
         import asyncio
         asyncio.create_task(send())
     plugin_instance.load_plugin(get_active_llm(), notify_fn=telegram_notify)
-    print("🧞‍♀️ Rekku Userbot (Telethon) è online.")
+    print("🧞‍♀️ Rekku Userbot (Telethon) is online.")
     client.run_until_disconnected()
 
 if __name__ == "__main__":

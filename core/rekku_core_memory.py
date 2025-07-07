@@ -3,8 +3,8 @@ import logging
 from datetime import datetime
 import json
 
-# === Setup logging memoria ===
-os.makedirs("logs", exist_ok=True)  # Assicura esistenza cartella log
+# === Memory logging setup ===
+os.makedirs("logs", exist_ok=True)  # Ensure log directory exists
 
 memory_logger = logging.getLogger("rekku.memory")
 if not memory_logger.handlers:
@@ -15,7 +15,7 @@ if not memory_logger.handlers:
     memory_logger.addHandler(handler)
 
 
-# Configurazioni interne statiche (espandibili)
+# Static internal configuration (expandable)
 DEFAULT_TAGS = json.dumps(["auto", "interazione"])
 DEFAULT_SCOPE = "general"
 DEFAULT_SOURCE = "chat"
@@ -24,8 +24,8 @@ REMEMBER_KEYWORDS = []
 
 def should_remember(user_text: str, response_text: str) -> bool:
     """
-    Rekku valuta autonomamente se l'interazione � memorabile.
-    Questa decisione � completamente interna, non visibile all'utente.
+    Rekku autonomously evaluates whether the interaction is memorable.
+    This decision is entirely internal and not visible to the user.
     """
     text = (user_text + " " + response_text).lower()
 
@@ -46,11 +46,11 @@ def silently_record_memory(
     source: str = DEFAULT_SOURCE
 ):
     """
-    Rekku salva internamente ciò che ha deciso di ricordare.
-    Nessun feedback viene dato all'esterno.
+    Rekku internally stores what it decided to remember.
+    No feedback is provided externally.
     """
 
-    # Se tags è una lista, converti in JSON
+    # If tags is a list, convert to JSON
     if isinstance(tags, list):
         tags = json.dumps(tags)
 
@@ -65,11 +65,11 @@ def silently_record_memory(
         emotion_state=None
     )
 
-    print("[REKKU_CORE] 🧠 Memoria salvata autonomamente.")
+    print("[REKKU_CORE] 🧠 Memory saved autonomously.")
 
     memory_logger.info(
-        f"[MEMORIA] Salvata da Rekku\n"
+        f"[MEMORY] Saved by Rekku\n"
         f"→ Input: {user_text}\n"
-        f"→ Risposta: {response_text}\n"
+        f"→ Response: {response_text}\n"
         f"→ Tags: {tags} | Scope: {scope} | Source: {source}"
     )

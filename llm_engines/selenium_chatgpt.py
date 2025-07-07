@@ -27,11 +27,11 @@ def _build_vnc_url() -> str:
                 shell=True,
             ).decode().strip()
         except Exception as e:
-            print(f"[WARN/selenium] Impossibile determinare host: {e}")
+            print(f"[WARN/selenium] Unable to determine host: {e}")
         if not host:
             host = "localhost"
     url = f"http://{host}:{port}/vnc.html"
-    print(f"[DEBUG/selenium] VNC URL costruita: {url}")
+    print(f"[DEBUG/selenium] VNC URL built: {url}")
     return url
 
 # Path assoluto per il profilo Selenium montato dall'host
@@ -72,11 +72,11 @@ def _install_webstore_extension(ext_id: str, name: str) -> str | None:
         with zipfile.ZipFile(crx_path) as zf:
             zf.extractall(target_dir)
         os.remove(crx_path)
-        print(f"[DEBUG/selenium] Estensione {name} installata")
+        print(f"[DEBUG/selenium] Extension {name} installed")
         return target_dir
     except Exception as e:
-        print(f"[ERROR/selenium] Impossibile installare {name}: {e}")
-        # Elimina eventuali file parziali per evitare errori di caricamento
+        print(f"[ERROR/selenium] Unable to install {name}: {e}")
+        # Remove partial files to avoid loading errors
         try:
             shutil.rmtree(target_dir)
         except Exception:
@@ -137,9 +137,9 @@ def _get_driver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-infobars")
     options.add_argument("--disable-extensions")
-    # Alcune versioni di Chrome non accettano le opzioni experimental
-    # come 'excludeSwitches'. Preferiamo non impostarle per evitare errori
-    # di avvio che impedirebbero l'invio della notifica VNC.
+    # Some Chrome versions do not accept experimental options such as
+    # 'excludeSwitches'. We prefer not to set them to avoid startup errors
+    # that would prevent the VNC notification.
 
     os.makedirs(PROFILE_DIR, exist_ok=True)
 
@@ -152,7 +152,7 @@ def _get_driver():
         )
     except Exception as e:
         if "excludeSwitches" in str(e):
-            print(f"[WARN/selenium] excludeSwitches non supportato: {e}. Retry senza.")
+            print(f"[WARN/selenium] excludeSwitches not supported: {e}. Retrying without it.")
             options.experimental_options.pop("excludeSwitches", None)
             options.experimental_options.pop("useAutomationExtension", None)
             driver = uc.Chrome(
@@ -244,8 +244,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         try:
             self.driver.find_element(By.TAG_NAME, "aside")
         except NoSuchElementException:
-            print("[DEBUG/selenium] Sidebar assente, notifica il proprietario")
-            _notify_gui("❌ Errore Selenium: Sidebar non trovata. Apri")
+            print("[DEBUG/selenium] Sidebar missing, notifying owner")
+            _notify_gui("❌ Selenium error: Sidebar not found. Open UI")
             return
 
         # Simula risposta finta

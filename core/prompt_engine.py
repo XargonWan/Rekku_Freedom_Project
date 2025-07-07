@@ -90,7 +90,7 @@ async def build_json_prompt(message, context_memory) -> dict:
     prompt["date"] = date
     prompt["time"] = time
 
-    print(f"[DEBUG] Prompt arricchito con: {location=} {weather=} {date=} {time=}")
+    print(f"[DEBUG] Prompt enriched with: {location=} {weather=} {date=} {time=}")
 
     return prompt
 
@@ -99,7 +99,7 @@ def load_identity_prompt() -> str:
         with open("persona/prompt.txt", "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        print("[WARN] prompt.txt non trovato. Prompt caratteriale non caricato.")
+        print("[WARN] prompt.txt not found. Identity prompt not loaded.")
         return ""
 
 def search_memories(tags=None, scope=None, limit=5):
@@ -128,15 +128,15 @@ def search_memories(tags=None, scope=None, limit=5):
     query += " ORDER BY timestamp DESC LIMIT ?"
     params.append(limit)
 
-    print("[DEBUG] Query robusta:")
+    print("[DEBUG] Query:")
     print(query)
-    print("[DEBUG] Parametri:", params)
+    print("[DEBUG] Parameters:", params)
 
     try:
         with get_db() as db:
             return [row[0] for row in db.execute(query, params)]
     except Exception as e:
-        print(f"[ERROR] Query fallita: {e}")
+        print(f"[ERROR] Query failed: {e}")
         return []
 
 def build_prompt(
@@ -151,7 +151,7 @@ def build_prompt(
     expanded_tags = expand_tags(tags) if tags else []
     memories = search_memories_fn(tags=expanded_tags, limit=limit) if search_memories_fn else []
 
-    memory_block = "\n".join(f"- {mem}" for mem in memories) if memories else "Nessuna memoria rilevante trovata."
+    memory_block = "\n".join(f"- {mem}" for mem in memories) if memories else "No relevant memory found."
 
     messages = []
 
@@ -170,18 +170,18 @@ def build_prompt(
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         timestamp = datetime.utcnow().isoformat()
         with open(log_path, "a", encoding="utf-8") as log_file:
-            log_file.write(f"\n[{timestamp}] --- CICLO DI RAGIONAMENTO ---\n")
-            log_file.write(f"> Testo utente: {user_text.strip()}\n")
-            log_file.write(f"> Tag estratti: {tags}\n")
-            log_file.write(f"> Tag espansi: {expanded_tags}\n")
-            log_file.write(f"> Memorie trovate: {len(memories)}\n")
+            log_file.write(f"\n[{timestamp}] --- REASONING CYCLE ---\n")
+            log_file.write(f"> User text: {user_text.strip()}\n")
+            log_file.write(f"> Extracted tags: {tags}\n")
+            log_file.write(f"> Expanded tags: {expanded_tags}\n")
+            log_file.write(f"> Memories found: {len(memories)}\n")
             for msg in messages:
                 role = msg.get("role", "").upper()
                 content = msg.get("content", "").strip()
                 log_file.write(f"[{role}]\n{content}\n\n")
-            log_file.write("----------- FINE -----------\n")
+            log_file.write("----------- END -----------\n")
     except Exception as e:
-        print(f"[WARN] Errore nel logging del prompt: {e}")
+        print(f"[WARN] Error logging prompt: {e}")
 
     return messages
 

@@ -12,15 +12,15 @@ BOT_TOKEN = os.getenv("BOTFATHER_TOKEN") or os.getenv("TELEGRAM_TOKEN")
 BOT_USERNAME = "rekku_freedom_project"
 LLM_MODE = os.getenv("LLM_MODE", "manual")
 SELENIUM_PROFILE_DIR = os.getenv("SELENIUM_PROFILE_DIR", "./selenium_profile")
-# Directory dove cercare eventuali estensioni da caricare con Selenium
+# Directory where any extensions to load with Selenium will be searched
 SELENIUM_EXTENSIONS_DIR = os.getenv("SELENIUM_EXTENSIONS_DIR", "./extensions")
 
 if not BOT_TOKEN:
-    raise RuntimeError("❌ BOTFATHER_TOKEN mancante. Impostalo in .env o come variabile d'ambiente.")
+    raise RuntimeError("❌ BOTFATHER_TOKEN missing. Set it in .env or as an environment variable.")
 
-# === LLM mode persistente ===
+# === Persistent LLM mode ===
 
-_active_llm = None  # variabile globale locale
+_active_llm = None  # local global variable
 
 def get_active_llm():
     global _active_llm
@@ -30,27 +30,27 @@ def get_active_llm():
                 row = db.execute("SELECT value FROM settings WHERE key = 'active_llm'").fetchone()
                 if row:
                     _active_llm = row[0]
-                    print(f"[DEBUG/config] 🧠 Plugin LLM attivo caricato da DB: {_active_llm}")
+                    print(f"[DEBUG/config] 🧠 Active LLM plugin loaded from DB: {_active_llm}")
                 else:
                     _active_llm = "manual"
         except Exception as e:
-            print(f"[ERROR/config] ❌ Errore get_active_llm(): {e}")
+            print(f"[ERROR/config] ❌ Error in get_active_llm(): {e}")
             _active_llm = "manual"
     return _active_llm
 
 def set_active_llm(name: str):
     global _active_llm
     if name == _active_llm:
-        print(f"[DEBUG/config] 🔄 LLM già impostato: {name}, nessun aggiornamento necessario.")
+        print(f"[DEBUG/config] 🔄 LLM already set: {name}, no update needed.")
         return
     _active_llm = name
     try:
         with get_db() as db:
             db.execute("REPLACE INTO settings (key, value) VALUES (?, ?)", ("active_llm", name))
             db.commit()
-            print(f"[DEBUG/config] 💾 Salvato plugin attivo nel DB: {name}")
+            print(f"[DEBUG/config] 💾 Saved active plugin in DB: {name}")
     except Exception as e:
-        print(f"[ERROR/config] ❌ Errore set_active_llm(): {e}")
+        print(f"[ERROR/config] ❌ Error in set_active_llm(): {e}")
 
 def list_available_llms():
     engines_dir = os.path.join(os.path.dirname(__file__), "../llm_engines")
@@ -64,7 +64,7 @@ def list_available_llms():
 def get_user_api_key():
     return os.getenv("OPENAI_API_KEY")
 
-# === Gestione modello globale ===
+# === Global model management ===
 MODEL_FILE = os.path.join(os.path.dirname(__file__), "model_config.json")
 
 def get_current_model():
@@ -81,5 +81,5 @@ def set_current_model(model: str):
         with open(MODEL_FILE, "w", encoding="utf-8") as f:
             json.dump({"model": model}, f, indent=2)
     except Exception as e:
-        print(f"[ERROR] Impossibile salvare il modello: {e}")
+        print(f"[ERROR] Unable to save model: {e}")
         

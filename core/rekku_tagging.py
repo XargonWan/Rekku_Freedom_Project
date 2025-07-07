@@ -15,8 +15,8 @@ def extract_tags(text: str) -> list[str]:
 
 def expand_tags(tags: list[str]) -> list[str]:
     """
-    Estende i tag forniti basandosi sulle relazioni definite nella tabella `tag_links`.
-    Le relazioni sono considerate simmetriche (tag → related_tag e viceversa).
+    Expand the provided tags based on relationships defined in the `tag_links` table.
+    Relationships are considered symmetrical (tag → related_tag and vice versa).
     """
     expanded = set(tags)
 

@@ -45,13 +45,13 @@ from core.config import LLM_MODE
 
 async def ensure_plugin_loaded(update: Update):
     """
-    Controlla che un plugin LLM sia stato caricato correttamente.
-    Se assente, risponde all'utente con un messaggio di errore e logga il problema.
+    Check that an LLM plugin has been loaded correctly.
+    If absent, reply to the user with an error message and log the issue.
     """
     if plugin_instance.plugin is None:
-        print("[ERROR] Nessun plugin LLM caricato.")
+        print("[ERROR] No LLM plugin loaded.")
         if update and update.message:
-            await update.message.reply_text("⚠️ Nessun plugin LLM attivo. Usa /llm per selezionarne uno.")
+            await update.message.reply_text("⚠️ No LLM plugin active. Use /llm to select one.")
         return False
     return True
 
@@ -77,8 +77,8 @@ async def block_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         to_block = int(context.args[0])
         blocklist.block_user(to_block)
-        print(f"[DEBUG] Utente {to_block} bloccato.")
-        await update.message.reply_text(f"\U0001f6ab Utente {to_block} bloccato.")
+        print(f"[DEBUG] User {to_block} blocked.")
+        await update.message.reply_text(f"\U0001f6ab User {to_block} blocked.")
     except (IndexError, ValueError):
         await update.message.reply_text("\u274c Usa: /block <user_id>")
 
@@ -86,11 +86,11 @@ async def block_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
     blocked = blocklist.get_block_list()
-    print(f"[DEBUG] Lista utenti bloccati richiesta.")
+    print(f"[DEBUG] Blocked users list requested.")
     if not blocked:
-        await update.message.reply_text("\u2705 Nessun utente bloccato.")
+        await update.message.reply_text("\u2705 No users blocked.")
     else:
-        await update.message.reply_text("\U0001f6ab Utenti bloccati:\n" + "\n".join(map(str, blocked)))
+        await update.message.reply_text("\U0001f6ab Blocked users:\n" + "\n".join(map(str, blocked)))
 
 async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -98,8 +98,8 @@ async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         to_unblock = int(context.args[0])
         blocklist.unblock_user(to_unblock)
-        print(f"[DEBUG] Utente {to_unblock} sbloccato.")
-        await update.message.reply_text(f"\u2705 Utente {to_unblock} sbloccato.")
+        print(f"[DEBUG] User {to_unblock} unblocked.")
+        await update.message.reply_text(f"\u2705 User {to_unblock} unblocked.")
     except (IndexError, ValueError):
         await update.message.reply_text("\u274c Usa: /unblock <user_id>")
 
@@ -115,7 +115,7 @@ async def purge_mappings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     deleted = message_map.purge_old_entries(days * 86400)
     await update.message.reply_text(
-        f"\U0001f5d1 Eliminati {deleted} mapping più vecchi di {days} giorni."
+        f"\U0001f5d1 Removed {deleted} mappings older than {days} days."
     )
 
 
@@ -130,7 +130,7 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
 
     message = update.message
     if not message:
-        print("[DEBUG] ❌ Nessun message presente, esco.")
+        print("[DEBUG] ❌ No message present, aborting.")
         return
 
     media_type = detect_media_type(message)
@@ -159,7 +159,7 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
                 print(f"[DEBUG] Trovato target via plugin_instance.get_target({mid}): {target}")
                 break
         if not target:
-            print("[DEBUG] ❌ Nessun mapping trovato nel plugin")
+            print("[DEBUG] ❌ No mapping found in plugin")
 
     # === 3. Fallback da /say
     if not target:
@@ -173,13 +173,13 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
             }
             print(f"[DEBUG] Target impostato da say_proxy: {target}")
         elif fallback == "EXPIRED":
-            await message.reply_text("⏳ Tempo scaduto, rifai /say.")
+            await message.reply_text("⏳ Timeout expired, run /say again.")
             return
 
     # === 4. Se ancora niente, abort
     if not target:
-        print("[ERROR] ❌ Nessun target trovato per l'invio.")
-        await message.reply_text("⚠️ Nessun destinatario rilevato. Usa /say o rispondi a un messaggio inoltrato.")
+        print("[ERROR] ❌ No target found for sending.")
+        await message.reply_text("⚠️ No recipient detected. Use /say or reply to a forwarded message.")
         return
 
     # === 5. Invia contenuto
@@ -234,10 +234,10 @@ async def cancel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if response_proxy.has_pending(OWNER_ID):
         response_proxy.clear_target(OWNER_ID)
         say_proxy.clear(OWNER_ID)
-        print("[DEBUG] Invio risposta annullato.")
-        await update.message.reply_text("\u274c Invio annullato.")
+        print("[DEBUG] Response sending cancelled.")
+        await update.message.reply_text("\u274c Sending cancelled.")
     else:
-        await update.message.reply_text("\u26a0\ufe0f Nessun invio attivo da annullare.")
+        await update.message.reply_text("\u26a0\ufe0f No active send to cancel.")
 
 
 async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -250,12 +250,12 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     entries = await recent_chats.get_last_active_chats_verbose(10, context.bot)
     if not entries:
-        await update.message.reply_text("\u26a0\ufe0f Nessuna chat recente trovata.")
+        await update.message.reply_text("\u26a0\ufe0f No recent chat found.")
         return
 
     lines = [f"[{name}](tg://user?id={cid}) — `{cid}`" for cid, name in entries]
     await update.message.reply_text(
-        "\U0001f553 Ultime chat attive:\n" + "\n".join(lines),
+        "\U0001f553 Last active chats:\n" + "\n".join(lines),
         parse_mode="Markdown"
     )
 
@@ -295,9 +295,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     print(f"[DEBUG] Messaggio da {user_id} ({message.chat.type}): {text}")
 
-    # Utente bloccato
+    # Blocked user
     if blocklist.is_blocked(user_id) and user_id != OWNER_ID:
-        print(f"[DEBUG] Utente {user_id} è bloccato. Ignoro messaggio.")
+        print(f"[DEBUG] User {user_id} is blocked. Ignoring message.")
         return
 
     # Risposta owner a messaggio inoltrato
@@ -312,9 +312,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text=message.text,
                 reply_to_message_id=original["message_id"]
             )
-            await message.reply_text("✅ Risposta inviata.")
+            await message.reply_text("✅ Reply sent.")
         else:
-            await message.reply_text("⚠️ Nessun messaggio da rispondere trovato.")
+            await message.reply_text("⚠️ No message found to reply to.")
         return
 
     # === FILTRO: Rispondi solo se menzionata o in risposta
@@ -331,7 +331,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message.reply_to_message.from_user.username.lower() == bot_username
         )
         if not mentioned and not is_reply_to_bot and not is_rekku_mentioned(text):
-            print("[DEBUG] Ignoro messaggio: nessuna forma di Rekku rilevata.")
+            print("[DEBUG] Ignoring message: no Rekku mention detected.")
             return
 
     # === Passa al plugin con fallback
@@ -396,9 +396,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             help_text += "`/model` – Visualizza o imposta il modello attivo\n"
 
     help_text += (
-        "\n*📋 Varie*\n"
-        "`/last_chats` – Ultime chat attive\n"
-        "`/purge_map [giorni]` – Pulisce i vecchi mapping\n"
+        "\n*📋 Misc*\n"
+        "`/last_chats` – Last active chats\n"
+        "`/purge_map [days]` – Purge old mappings\n"
     )
 
     await update.message.reply_text(help_text, parse_mode="Markdown")
@@ -417,7 +417,7 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     lines = [f"[{escape_markdown(name)}](tg://user?id={cid}) — `{cid}`" for cid, name in entries]
     await update.message.reply_text(
-        "\U0001f553 Ultime chat attive:\n" + "\n".join(lines),
+        "\U0001f553 Last active chats:\n" + "\n".join(lines),
         parse_mode="Markdown"
     )
 
@@ -700,6 +700,6 @@ def start_bot():
         handle_incoming_response
     ))
 
-    print("🧞‍♀️ Rekku è online.")
+    print("🧞‍♀️ Rekku is online.")
     app.run_polling()
 
