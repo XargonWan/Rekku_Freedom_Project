@@ -14,6 +14,14 @@ import time
 import zipfile
 import urllib.request
 import shutil
+import tempfile
+
+PROFILE_DIR = os.path.join(tempfile.gettempdir(), "rekku_chrome_profile")
+SELENIUM_EXTENSIONS_DIR = os.path.join(PROFILE_DIR, "extensions")
+SELENIUM_PROFILE_ARCHIVE = os.getenv(
+    "SELENIUM_PROFILE_ARCHIVE",
+    os.path.join(os.getcwd(), "chrome_profile.tar.gz"),
+)
 
 def _build_vnc_url() -> str:
     """Return the URL to access the noVNC interface."""
@@ -126,12 +134,33 @@ def _get_driver():
     # 'excludeSwitches'. We prefer not to set them to avoid startup errors
     # that would prevent the VNC notification.
 
-    os.makedirs(PROFILE_DIR, exist_ok=True)
+    profile_override = os.getenv("REKKU_SELENIUM_PROFILE_OVERRIDE")
+    if profile_override and os.path.isdir(profile_override):
+        profile_dir = profile_override
+        print(f"[DEBUG/selenium] Using local Chrome profile from {profile_dir}")
+    else:
+        profile_dir = PROFILE_DIR
+        print(
+            f"[DEBUG/selenium] Extracting {SELENIUM_PROFILE_ARCHIVE} to {profile_dir}"
+        )
+        os.makedirs(profile_dir, exist_ok=True)
+        if os.path.isfile(SELENIUM_PROFILE_ARCHIVE):
+            subprocess.run(
+                ["tar", "-xzf", SELENIUM_PROFILE_ARCHIVE, "-C", profile_dir],
+                check=False,
+            )
+            for lock in glob.glob(os.path.join(profile_dir, "**/Singleton*"), recursive=True):
+                try:
+                    os.remove(lock)
+                except Exception:
+                    pass
+        else:
+            print(f"[WARN/selenium] Profile archive {SELENIUM_PROFILE_ARCHIVE} missing")
 
     try:
         driver = uc.Chrome(
             options=options,
-            user_data_dir=PROFILE_DIR,
+            user_data_dir=profile_dir,
             headless=headless,
             log_level=3,
         )
@@ -142,7 +171,7 @@ def _get_driver():
             options.experimental_options.pop("useAutomationExtension", None)
             driver = uc.Chrome(
                 options=options,
-                user_data_dir=PROFILE_DIR,
+                user_data_dir=profile_dir,
                 headless=headless,
                 log_level=3,
             )
