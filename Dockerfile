@@ -41,9 +41,9 @@ ENV HOME=/home/rekku
 
 WORKDIR /app
 
-# Copy startup script
-COPY automation_tools/start.sh /start.sh
-RUN chmod +x /start.sh
+# Copy cont-init script so Webtop can start normally
+COPY automation_tools/start.sh /etc/cont-init.d/99-rekku.sh
+RUN chmod +x /etc/cont-init.d/99-rekku.sh
 
 # Create or update rekku user safely
 RUN set -eux; \
@@ -67,7 +67,7 @@ RUN set -eux; \
         useradd -m -u 1000 -g 1000 -s /bin/bash rekku; \
     fi; \
     mkdir -p /home/rekku; \
-    chown -R 1000:1000 /app /start.sh /home/rekku
+    chown -R 1000:1000 /app /home/rekku
 
 USER rekku
-ENTRYPOINT ["/start.sh"]
+

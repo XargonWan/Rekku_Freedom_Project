@@ -1,13 +1,14 @@
 #!/bin/bash
 set -e
 
-echo "[START] Running as $(whoami)"
+echo "[99-rekku.sh] Running as $(whoami)"
 
-# Fix permessi se siamo root
+# Fix permissions if executed by root
 if [ "$(id -u)" = "0" ]; then
-  echo "[FIX] Chown dinamico a rekku su /app e /home/rekku"
-  chown -R rekku:rekku /app /home/rekku || echo "[WARN] chown fallito"
+  echo "[99-rekku.sh] Setting ownership on /app and /home/rekku"
+  chown -R rekku:rekku /app /home/rekku || echo "[99-rekku.sh] chown failed"
 fi
 
 cd /app
-exec python3 main.py
+su -s /bin/bash rekku -c "python3 /app/main.py" &
+
