@@ -5,7 +5,8 @@ import json
 from dotenv import load_dotenv
 from core.db import get_db
 
-load_dotenv()
+# ✅ Load all environment variables from .env
+load_dotenv(dotenv_path="/app/.env", override=False)
 
 OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 BOT_TOKEN = os.getenv("BOTFATHER_TOKEN") or os.getenv("TELEGRAM_TOKEN")
