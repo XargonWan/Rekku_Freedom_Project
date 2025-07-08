@@ -1,4 +1,10 @@
-import chromedriver_autoinstaller
+try:
+    import chromedriver_autoinstaller
+except ImportError as e:
+    print(
+        "[ERROR] chromedriver_autoinstaller not installed. Please run 'pip install chromedriver-autoinstaller'"
+    )
+    raise
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
@@ -214,6 +220,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 self.driver = _get_driver()
                 # Ensure the right ChromeDriver is available
                 chromedriver_autoinstaller.install()
+                print(
+                    "[DEBUG] chromedriver_autoinstaller installed ChromeDriver for",
+                    chromedriver_autoinstaller.get_chrome_version(),
+                )
             except Exception as e:
                 _notify_gui(f"❌ Errore Selenium: {e}. Apri")
                 raise

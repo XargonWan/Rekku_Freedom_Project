@@ -20,7 +20,7 @@ WORKDIR /app
 # Python venv
 RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir --upgrade pip setuptools && \
-    /app/venv/bin/pip install --no-cache-dir -r /app/requirements.txt
+    /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # ENV
 ENV PYTHONPATH=/app \
