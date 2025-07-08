@@ -31,14 +31,18 @@ ENV PYTHONPATH=/app \
 # LinuxServer hooks
 COPY automation_tools/rekku.sh /etc/cont-init.d/99-rekku.sh
 COPY automation_tools/01-password.sh /etc/cont-init.d/01-password.sh
+COPY automation_tools/init-selkies.sh /etc/s6-overlay/s6-rc.d/init-selkies/run
+COPY automation_tools/init-selkies.type /etc/s6-overlay/s6-rc.d/init-selkies/type
 RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
-    && mkdir -p /home/rekku /config \
+        /etc/s6-overlay/s6-rc.d/init-selkies/run \
+    && mkdir -p /home/rekku /config /etc/s6-overlay/s6-rc.d/user/contents.d \
+    && ln -s ../init-selkies /etc/s6-overlay/s6-rc.d/user/contents.d/init-selkies \
     && chown -R 1000:1000 /app /home/rekku /config
 
 USER root
 
 # Install tools for generating basic auth
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends apache2-utils && \
+    apt-get install -y --no-install-recommends apache2-utils websockify openssl && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
