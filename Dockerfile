@@ -10,7 +10,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       python3 python3-pip python3-venv git curl wget unzip \
       lsb-release ca-certificates fonts-liberation \
-      fonts-noto-cjk fonts-noto-color-emoji && \
+      fonts-noto-cjk fonts-noto-color-emoji xfonts-base && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Copy project code
