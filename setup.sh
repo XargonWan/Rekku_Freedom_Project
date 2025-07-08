@@ -43,7 +43,8 @@ if ! docker info > /dev/null 2>&1; then
   echo "⚠️  User $(whoami) lacks Docker permissions. Add to group? [y/N]"
   if [ "$AUTO_YES" = true ]; then addgroup="y"; else read -r addgroup; fi
   if [[ "$addgroup" =~ ^[Yy]$ ]]; then
-    sudo usermod -aG docker "$USER"
+    HOST_USER=$(whoami)
+    sudo usermod -aG docker "$HOST_USER"
     echo "✅ Added to docker group. Re-login recommended."
     NEEDS_SUDO="sudo"
   else

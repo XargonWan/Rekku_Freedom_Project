@@ -30,7 +30,8 @@ ENV PYTHONPATH=/app \
     HOME=/home/rekku
 
 # LinuxServer hooks
-COPY automation_tools/start.sh     /etc/cont-init.d/99-rekku.sh
+COPY automation_tools/rekku.sh     /etc/cont-init.d/99-rekku.sh
+COPY automation_tools/00-rename.sh /etc/cont-init.d/00-rename.sh
 RUN chmod +x /etc/cont-init.d/*.sh
 
 USER abc
