@@ -59,7 +59,7 @@ asyncio.run(bot.send_message(chat_id=OWNER_ID, text="🔔 TEST: direct notificat
 
   *)
     echo "❌ Unknown mode: $MODE"
-    echo "Usage: ./start.sh [run|shell|test_notify|stop]"
+    echo "Usage: ./rekku.sh [run|shell|test_notify|stop]"
     exit 1
     ;;
 esac
