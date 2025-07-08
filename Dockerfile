@@ -44,6 +44,7 @@ RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
         /etc/s6-overlay/s6-rc.d/svc-rekku/run \
     && mkdir -p /home/rekku /config /etc/s6-overlay/s6-rc.d/user/contents.d \
     && ln -sfn ../init-selkies /etc/s6-overlay/s6-rc.d/user/contents.d/init-selkies \
+    && ln -sfn ../svc-rekku /etc/s6-overlay/s6-rc.d/user/contents.d/svc-rekku \
     && chown -R 1000:1000 /app /home/rekku /config
 
 USER root

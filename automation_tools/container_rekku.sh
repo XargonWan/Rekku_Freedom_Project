@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -e
 
+log() { echo "[rekku.sh] $*"; }
+
+log "Launcher invoked: $*"
+
 cd /app
 ENV_FILE="/app/.env"
 if [ -f "$ENV_FILE" ]; then
@@ -10,19 +14,22 @@ if [ -f "$ENV_FILE" ]; then
     set +a
 fi
 
-CMD="${1:-help}"
+MODE="${1:-run}"
 shift || true
 
-usage() {
-    echo "Usage: $0 {run [--as-service]|notify}" >&2
-    exit 1
-}
-
-case "$CMD" in
+case "$MODE" in
     run)
-        exec python3 /app/main.py "$@"
+        if [ "${1:-}" = "--as-service" ]; then
+            shift
+            log "Running main.py in service mode"
+            exec python3 /app/main.py --service "$@"
+        else
+            log "Running main.py interactively"
+            exec python3 /app/main.py "$@"
+        fi
         ;;
     notify)
+        log "Sending test notification"
         python3 - <<'PY'
 import asyncio
 from telegram import Bot
@@ -34,6 +41,8 @@ asyncio.run(main())
 PY
         ;;
     *)
-        usage
+        echo "Usage: $0 {run [--as-service]|notify}" >&2
+        exit 1
         ;;
 esac
+
