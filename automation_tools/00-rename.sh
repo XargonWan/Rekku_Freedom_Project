@@ -1,19 +1,32 @@
 #!/usr/bin/with-contenv bash
-set -eux
+set -e
 
-# Rename the abc user (created from PUID/PGID) to rekku
-CUR_USER=$(getent passwd 1000 | cut -d: -f1 || true)
+PUID=${PUID:-1000}
+PGID=${PGID:-1000}
+USER_NAME=rekku
+GROUP_NAME=rekku
 
-if [[ "$CUR_USER" != "rekku" && -n "$CUR_USER" ]]; then
-  echo "[INFO] Renaming user '$CUR_USER' \u2192 rekku"
-  usermod -l rekku "$CUR_USER"
-  groupmod -n rekku "$CUR_USER"
-  usermod -d /home/rekku -m rekku
+# Create or rename group
+if getent group "$PGID" >/dev/null 2>&1; then
+    CUR_GROUP=$(getent group "$PGID" | cut -d: -f1)
+    if [ "$CUR_GROUP" != "$GROUP_NAME" ]; then
+        groupmod -n "$GROUP_NAME" "$CUR_GROUP"
+    fi
 else
-  echo "[INFO] User is already named 'rekku' or UID 1000 not found"
+    groupadd -g "$PGID" "$GROUP_NAME"
 fi
 
-# Ensure home exists and has correct ownership
-mkdir -p /home/rekku
-chown -R 1000:1000 /home/rekku || echo "[WARN] Could not chown /home/rekku (may be mounted)"
-chown -R 1000:1000 /app || echo "[WARN] Could not chown /app (may be mounted)"
+# Create or rename user
+if getent passwd "$PUID" >/dev/null 2>&1; then
+    CUR_USER=$(getent passwd "$PUID" | cut -d: -f1)
+    if [ "$CUR_USER" != "$USER_NAME" ]; then
+        usermod -l "$USER_NAME" "$CUR_USER"
+    fi
+    usermod -d "/home/$USER_NAME" -m "$USER_NAME"
+    usermod -g "$GROUP_NAME" "$USER_NAME"
+else
+    useradd -u "$PUID" -g "$PGID" -s /bin/bash -m -d "/home/$USER_NAME" "$USER_NAME"
+fi
+
+mkdir -p "/home/$USER_NAME"
+chown -R "$PUID:$PGID" "/home/$USER_NAME"

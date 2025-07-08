@@ -1,15 +1,10 @@
-#!/bin/bash
+#!/usr/bin/with-contenv bash
 set -e
 
-echo "[start.sh] Running as $(whoami)"
+echo "[99-rekku] Starting Rekku bot as user rekku"
 
-# Fix permissions if executed by root
 if [ "$(id -u)" = "0" ]; then
-  echo "[start.sh] Setting ownership on /app and /home/rekku"
-  chown -R rekku:rekku /app /home/rekku || echo "[start.sh] chown failed"
+    chown -R rekku:rekku /app /home/rekku || true
 fi
 
-cd /app
-echo "[start.sh] Rekku main.py started..."
-python3 /app/main.py &
-
+s6-setuidgid rekku python3 /app/main.py &
