@@ -1,11 +1,11 @@
 services:
   rekku_freedom_project:
+    build: .
     image: rekku_freedom_project:latest
     container_name: rekku_freedom_project
     hostname: luna-workstation
     ports:
       - "${WEBVIEW_PORT:-5006}:3000"
-      - "5002:5006"
     volumes:
       - ./persona:/app/persona
       - ./rekku_home:/home/rekku
@@ -13,11 +13,9 @@ services:
     environment:
       - PUID=1000
       - PGID=1000
-      - CUSTOM_USER=rekku
       - PASSWORD=${REKKU_PASSWORD}
       - SECURE_CONNECTION=0
-    env_file:
-      - .env
+      - HOME=/home/rekku
     restart: unless-stopped
     stdin_open: true
     tty: true

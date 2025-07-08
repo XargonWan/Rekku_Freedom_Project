@@ -26,14 +26,13 @@ RUN python3 -m venv /app/venv && \
 ENV PYTHONPATH=/app \
     TZ=Asia/Tokyo \
     PATH=/app/venv/bin:$PATH \
-    USER=rekku \
     HOME=/home/rekku
 
 # LinuxServer hooks
-COPY automation_tools/rekku.sh     /etc/cont-init.d/99-rekku.sh
-COPY automation_tools/00-rename.sh /etc/cont-init.d/00-rename.sh
-RUN chmod +x /etc/cont-init.d/*.sh \
-    && rm -f /etc/cont-init.d/10-adduser
+COPY automation_tools/rekku.sh /etc/cont-init.d/99-rekku.sh
+RUN chmod +x /etc/cont-init.d/99-rekku.sh \
+    && mkdir -p /home/rekku \
+    && chown -R 1000:1000 /app /home/rekku
 
 USER root
 
