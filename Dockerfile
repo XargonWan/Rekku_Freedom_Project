@@ -36,3 +36,11 @@ RUN chmod +x /etc/cont-init.d/99-rekku.sh \
 
 USER root
 
+# Install tools for generating basic auth and create .htpasswd
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends apache2-utils && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    password=$(grep -E '^PASSWORD=' /app/.env | cut -d '=' -f2- | tr -d '"\r') && \
+    htpasswd -cb /config/.htpasswd rekku "$password" && \
+    chmod 600 /config/.htpasswd
+
