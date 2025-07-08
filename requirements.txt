@@ -7,3 +7,4 @@ undetected-chromedriver
 webdriver-manager
 setuptools
 pytz
+chromedriver-autoinstaller>=0.7.1
