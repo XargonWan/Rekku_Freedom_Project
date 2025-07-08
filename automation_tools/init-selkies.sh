@@ -26,7 +26,7 @@ HTPASS=/etc/nginx/.htpasswd
 if [ ! -f "$HTPASS" ] || ! grep -q '^abc:' "$HTPASS"; then
     echo "[init-selkies] generating $HTPASS" >&2
     htpasswd -cb "$HTPASS" abc "$PASSWORD"
-    chmod 600 "$HTPASS"
+    chmod 644 "$HTPASS"
 else
     echo "[init-selkies] existing $HTPASS found" >&2
 fi
