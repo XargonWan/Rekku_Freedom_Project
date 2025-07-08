@@ -3,7 +3,6 @@ services:
     image: rekku_freedom_project:latest
     container_name: rekku_freedom_project
     hostname: luna-workstation
-    user: "1000:1000"
     ports:
       - "${WEBVIEW_PORT:-5006}:3000"
       - "5002:5006"
