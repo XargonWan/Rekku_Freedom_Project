@@ -15,6 +15,7 @@ RUN apt-get update && \
 
 # Copy project code
 COPY . /app
+COPY .env /app/.env
 WORKDIR /app
 
 # Python venv
@@ -36,15 +37,11 @@ COPY automation_tools/01-password.sh /etc/cont-init.d/01-password.sh
 COPY automation_tools/init-selkies.sh /etc/s6-overlay/s6-rc.d/init-selkies/run
 COPY automation_tools/init-selkies.type /etc/s6-overlay/s6-rc.d/init-selkies/type
 COPY automation_tools/container_rekku.sh /app/rekku.sh
-COPY automation_tools/svc-rekku/run /etc/s6-overlay/s6-rc.d/svc-rekku/run
-COPY automation_tools/svc-rekku/type /etc/s6-overlay/s6-rc.d/svc-rekku/type
 RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
         /etc/s6-overlay/s6-rc.d/init-selkies/run \
         /app/rekku.sh \
-        /etc/s6-overlay/s6-rc.d/svc-rekku/run \
     && mkdir -p /home/rekku /config /etc/s6-overlay/s6-rc.d/user/contents.d \
     && ln -sfn ../init-selkies /etc/s6-overlay/s6-rc.d/user/contents.d/init-selkies \
-    && ln -sfn ../svc-rekku /etc/s6-overlay/s6-rc.d/user/contents.d/svc-rekku \
     && chown -R 1000:1000 /app /home/rekku /config
 
 USER root

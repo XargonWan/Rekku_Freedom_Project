@@ -8,6 +8,15 @@ chown -R "${PUID:-1000}:${PGID:-1000}" /config || true
 
 if [ ! -f "$HTPASSWD_FILE" ]; then
     USERNAME=${USER:-abc}
-    htpasswd -bc "$HTPASSWD_FILE" "$USERNAME" "$PASSWORD"
+    if [ -z "${PASSWORD:-}" ]; then
+        echo "[01-password] ERROR: PASSWORD not set" >&2
+        exit 1
+    fi
+    htpasswd -cb "$HTPASSWD_FILE" "$USERNAME" "$PASSWORD"
     chmod 644 "$HTPASSWD_FILE"
+fi
+
+# Link for nginx if missing
+if [ ! -e /etc/nginx/.htpasswd ]; then
+    ln -s "$HTPASSWD_FILE" /etc/nginx/.htpasswd
 fi

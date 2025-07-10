@@ -9,9 +9,7 @@ services:
     volumes:
       - ./persona:/app/persona
       - ./rekku_home:/home/rekku
-      - .env:/app/.env:ro
-    # Albeit these variables are in the env file
-    # they must be defined here for Docker to use them
+    env_file: .env
     environment:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
