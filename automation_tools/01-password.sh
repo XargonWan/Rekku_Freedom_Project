@@ -13,8 +13,8 @@ if [ ! -f "$HTPASSWD_FILE" ]; then
         exit 1
     fi
     htpasswd -cb "$HTPASSWD_FILE" "$USERNAME" "$PASSWORD"
-    chmod 644 "$HTPASSWD_FILE"
 fi
+chmod 644 "$HTPASSWD_FILE"
 
 # Link for nginx if missing
 if [ ! -e /etc/nginx/.htpasswd ]; then

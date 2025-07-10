@@ -9,6 +9,12 @@ fi
 
 echo "[init-selkies] starting" >&2
 
+# launch x11vnc in the background for VNC access
+echo "[init-selkies] starting x11vnc" >&2
+x11vnc -display "${DISPLAY:-:0}" -forever -rfbport 5900 -passwd "$PASSWORD" -shared &
+VNC_PID=$!
+trap 'kill $VNC_PID' EXIT
+
 # ensure we can modify required files
 if [ ! -w /etc/nginx ]; then
     echo "[init-selkies] ERROR: cannot write to /etc/nginx" >&2
@@ -46,4 +52,5 @@ fi
 
 # 4. Start websockify
 echo "[init-selkies] launching websockify" >&2
-exec websockify 127.0.0.1:8082 127.0.0.1:5900
+pkill -f "websockify.*8082" 2>/dev/null || true
+exec websockify 0.0.0.0:8082 127.0.0.1:5900

@@ -48,6 +48,6 @@ USER root
 
 # Install tools for generating basic auth
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends apache2-utils websockify openssl && \
+    apt-get install -y --no-install-recommends apache2-utils websockify openssl x11vnc && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
