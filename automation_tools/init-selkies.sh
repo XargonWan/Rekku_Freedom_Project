@@ -2,55 +2,31 @@
 set -Eeuo pipefail
 
 LOGFILE=/var/log/selkies.log
-# Redirect stdout and stderr to logfile if possible
-if touch "$LOGFILE" 2>/dev/null; then
-    exec > >(tee -a "$LOGFILE") 2>&1
-fi
+exec >>"$LOGFILE" 2>&1
 
-echo "[init-selkies] starting" >&2
+echo "[init-selkies] starting"
 
-# launch x11vnc in the background for VNC access
-echo "[init-selkies] starting x11vnc" >&2
-x11vnc -display "${DISPLAY:-:0}" -forever -rfbport 5900 -passwd "$PASSWORD" -shared &
-VNC_PID=$!
-trap 'kill $VNC_PID' EXIT
-
-# ensure we can modify required files
-if [ ! -w /etc/nginx ]; then
-    echo "[init-selkies] ERROR: cannot write to /etc/nginx" >&2
-    exit 1
-fi
-
-# 1. Read PASSWORD
+# require PASSWORD for VNC access
 if [ -z "${PASSWORD:-}" ]; then
     echo "[init-selkies] ERROR: PASSWORD not set" >&2
     exit 1
 fi
 
-# 2. Generate or update htpasswd for user abc
-HTPASS=/etc/nginx/.htpasswd
-if [ ! -f "$HTPASS" ] || ! grep -q '^abc:' "$HTPASS"; then
-    echo "[init-selkies] generating $HTPASS" >&2
-    htpasswd -cb "$HTPASS" abc "$PASSWORD"
-    chmod 644 "$HTPASS"
-else
-    echo "[init-selkies] existing $HTPASS found" >&2
+# Start x11vnc if nothing is listening on :5900
+if ! ss -lnt | grep -q ':5900'; then
+    echo "[init-selkies] launching x11vnc on :5900"
+    x11vnc -display "${DISPLAY:-:0}" -forever -rfbport 5900 -passwd "$PASSWORD" -shared &
+    sleep 2
 fi
 
-# 3. SSL certificate generation
-SSL_DIR=/config/ssl
-CERT="$SSL_DIR/cert.pem"
-KEY="$SSL_DIR/cert.key"
-mkdir -p "$SSL_DIR"
-if [ ! -f "$CERT" ] || [ ! -f "$KEY" ]; then
-    echo "[init-selkies] generating self-signed certificates" >&2
-    openssl req -new -x509 -nodes -days 3650 -subj "/CN=selkies" -out "$CERT" -keyout "$KEY"
-    chmod 600 "$CERT" "$KEY"
-else
-    echo "[init-selkies] using existing certificates" >&2
+# Ensure websockify can bind to 8082
+if lsof -i TCP:8082 >/dev/null 2>&1; then
+    echo "[init-selkies] port 8082 busy, killing existing instance"
+    pkill -f 'websockify.*8082' || true
+    sleep 1
 fi
 
-# 4. Start websockify
-echo "[init-selkies] launching websockify" >&2
-pkill -f "websockify.*8082" 2>/dev/null || true
-exec websockify 0.0.0.0:8082 127.0.0.1:5900
+echo "[init-selkies] starting websockify"
+nohup websockify 0.0.0.0:8082 127.0.0.1:5900 &
+
+echo "[init-selkies] done"
