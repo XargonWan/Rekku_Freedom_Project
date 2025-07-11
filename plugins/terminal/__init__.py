@@ -1,14 +1,15 @@
 from core.plugin_base import PluginBase
+from logging_utils import log_debug, log_info, log_warning, log_error
 
 
 class ExamplePlugin(PluginBase):
     """A sample plugin used for demonstration."""
 
     def start(self):
-        print("[example_plugin] started")
+        log_info("[example_plugin] started")
 
     def stop(self):
-        print("[example_plugin] stopped")
+        log_info("[example_plugin] stopped")
 
     def get_metadata(self) -> dict:
         return {

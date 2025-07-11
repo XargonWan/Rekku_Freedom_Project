@@ -5,6 +5,7 @@ from core.config import OWNER_ID
 from core.ai_plugin_base import AIPluginBase
 import json
 from telegram.constants import ParseMode
+from logging_utils import log_debug, log_info, log_warning, log_error
 
 class ManualAIPlugin(AIPluginBase):
 
@@ -15,11 +16,11 @@ class ManualAIPlugin(AIPluginBase):
         message_map.init_table()
 
         if notify_fn:
-            print("[DEBUG/manual] Using custom notification function.")
+            log_debug("[manual] Using custom notification function.")
             set_notifier(notify_fn)
         else:
-            print("[DEBUG/manual] No notification function provided, using fallback.")
-            set_notifier(lambda chat_id, message: print(f"[NOTIFY fallback] {message}"))
+            log_debug("[manual] No notification function provided, using fallback.")
+            set_notifier(lambda chat_id, message: log_info(f"[NOTIFY fallback] {message}"))
 
     def track_message(self, trainer_message_id, original_chat_id, original_message_id):
         """Persist the mapping for a forwarded message."""
@@ -38,12 +39,12 @@ class ManualAIPlugin(AIPluginBase):
 
         user_id = message.from_user.id
         text = message.text or ""
-        print(f"[DEBUG/manual] Message received in manual mode from chat_id={message.chat_id}")
+        log_debug(f"[manual] Message received in manual mode from chat_id={message.chat_id}")
 
         # === Caso speciale: /say attivo ===
         target_chat = say_proxy.get_target(user_id)
         if target_chat and target_chat != "EXPIRED":
-            print(f"[DEBUG/manual] Invio da /say: chat_id={target_chat}")
+            log_debug(f"[manual] Invio da /say: chat_id={target_chat}")
             await bot.send_message(chat_id=target_chat, text=text)
             say_proxy.clear(user_id)
             return
@@ -73,7 +74,7 @@ class ManualAIPlugin(AIPluginBase):
             message_id=message.message_id
         )
         self.track_message(sent.message_id, message.chat_id, message.message_id)
-        print(f"[DEBUG/manual] Message forwarded and tracked")
+        log_debug("[manual] Message forwarded and tracked")
 
     async def generate_response(self, messages):
         """In manual mode the reply is not generated automatically."""

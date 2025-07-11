@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from core.db import get_db
 import json
+from logging_utils import log_debug, log_info, log_warning, log_error
 
 
 async def build_json_prompt(message, context_memory) -> dict:
@@ -85,8 +86,8 @@ async def build_json_prompt(message, context_memory) -> dict:
     input_section = {"type": "message", "payload": input_payload}
 
     # Debug output for both sections
-    print("[DEBUG/json_prompt] context = " + json.dumps(context_section, ensure_ascii=False))
-    print("[DEBUG/json_prompt] input = " + json.dumps(input_section, ensure_ascii=False))
+    log_debug("[json_prompt] context = " + json.dumps(context_section, ensure_ascii=False))
+    log_debug("[json_prompt] input = " + json.dumps(input_section, ensure_ascii=False))
 
     return {"context": context_section, "input": input_section}
 
@@ -95,7 +96,7 @@ def load_identity_prompt() -> str:
         with open("persona/prompt.txt", "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        print("[WARN] prompt.txt not found. Identity prompt not loaded.")
+        log_warning("prompt.txt not found. Identity prompt not loaded.")
         return ""
 
 def search_memories(tags=None, scope=None, limit=5):
@@ -124,15 +125,15 @@ def search_memories(tags=None, scope=None, limit=5):
     query += " ORDER BY timestamp DESC LIMIT ?"
     params.append(limit)
 
-    print("[DEBUG] Query:")
-    print(query)
-    print("[DEBUG] Parameters:", params)
+    log_debug("Query:")
+    log_debug(query)
+    log_debug(f"Parameters: {params}")
 
     try:
         with get_db() as db:
             return [row[0] for row in db.execute(query, params)]
     except Exception as e:
-        print(f"[ERROR] Query failed: {e}")
+        log_error(f"Query failed: {e}")
         return []
 
 def build_prompt(
@@ -177,7 +178,7 @@ def build_prompt(
                 log_file.write(f"[{role}]\n{content}\n\n")
             log_file.write("----------- END -----------\n")
     except Exception as e:
-        print(f"[WARN] Error logging prompt: {e}")
+        log_warning(f"Error logging prompt: {e}")
 
     return messages
 

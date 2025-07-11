@@ -4,6 +4,7 @@
 
 import time
 from core.db import get_db
+from logging_utils import log_debug, log_info, log_warning, log_error
 
 
 def init_table():
@@ -33,7 +34,7 @@ def add_mapping(trainer_message_id: int, chat_id: int, message_id: int):
             """,
             (trainer_message_id, chat_id, message_id, ts),
         )
-    print(f"[DEBUG/message_map] Stored mapping {trainer_message_id} -> {chat_id}/{message_id}")
+    log_debug(f"[message_map] Stored mapping {trainer_message_id} -> {chat_id}/{message_id}")
 
 
 def get_mapping(trainer_message_id: int):
@@ -45,9 +46,9 @@ def get_mapping(trainer_message_id: int):
         ).fetchone()
     if row:
         result = {"chat_id": row["chat_id"], "message_id": row["message_id"]}
-        print(f"[DEBUG/message_map] Found mapping for {trainer_message_id}: {result}")
+        log_debug(f"[message_map] Found mapping for {trainer_message_id}: {result}")
         return result
-    print(f"[DEBUG/message_map] No mapping for {trainer_message_id}")
+    log_debug(f"[message_map] No mapping for {trainer_message_id}")
     return None
 
 
@@ -55,7 +56,7 @@ def delete_mapping(trainer_message_id: int):
     """Remove a mapping."""
     with get_db() as db:
         db.execute("DELETE FROM message_map WHERE trainer_message_id = ?", (trainer_message_id,))
-    print(f"[DEBUG/message_map] Deleted mapping for {trainer_message_id}")
+    log_debug(f"[message_map] Deleted mapping for {trainer_message_id}")
 
 
 def purge_old_entries(max_age_seconds: int) -> int:
@@ -67,5 +68,5 @@ def purge_old_entries(max_age_seconds: int) -> int:
             (cutoff,),
         )
         deleted = cur.rowcount
-    print(f"[DEBUG/message_map] Purged {deleted} entries older than {max_age_seconds} seconds")
+    log_debug(f"[message_map] Purged {deleted} entries older than {max_age_seconds} seconds")
     return deleted

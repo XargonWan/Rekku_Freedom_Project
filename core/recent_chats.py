@@ -4,6 +4,7 @@ from core.db import get_db
 import time
 import os
 import re
+from logging_utils import log_debug, log_info, log_warning, log_error
 
 OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 MAX_ENTRIES = 100
@@ -49,7 +50,7 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             chat = await bot.get_chat(chat_id)
             lines.append("- " + format_chat_entry(chat))
         except Exception as e:
-            print(f"[DEBUG] Error retrieving chat {chat_id}: {e}")
+            log_debug(f"Error retrieving chat {chat_id}: {e}")
             lines.append(f"- `{chat_id}`")
 
 

@@ -40,6 +40,9 @@ REKKU_ALIASES = [
 REKKU_ALIASES_LOWER = [alias.lower() for alias in REKKU_ALIASES]
 
 
+from logging_utils import log_debug
+
+
 def is_rekku_mentioned(text: str) -> bool:
     """Return ``True`` if ``text`` contains any alias for Rekku."""
     if not text:
@@ -47,6 +50,6 @@ def is_rekku_mentioned(text: str) -> bool:
     lowered = text.lower()
     for alias in REKKU_ALIASES_LOWER:
         if alias in lowered:
-            print(f"[DEBUG/mention] Rekku alias matched: '{alias}'")
+            log_debug(f"[mention] Rekku alias matched: '{alias}'")
             return True
     return False

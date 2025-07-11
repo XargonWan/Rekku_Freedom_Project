@@ -19,6 +19,7 @@ from core import say_proxy, recent_chats, message_map
 from core.context import context_command
 from collections import deque
 import json
+from logging_utils import log_debug, log_info, log_warning, log_error
 from core.message_sender import (
     send_content,
     detect_media_type,
@@ -49,7 +50,7 @@ async def ensure_plugin_loaded(update: Update):
     If absent, reply to the user with an error message and log the issue.
     """
     if plugin_instance.plugin is None:
-        print("[ERROR] No LLM plugin loaded.")
+        log_error("No LLM plugin loaded.")
         if update and update.message:
             await update.message.reply_text("⚠️ No LLM plugin active. Use /llm to select one.")
         return False
@@ -77,7 +78,7 @@ async def block_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         to_block = int(context.args[0])
         blocklist.block_user(to_block)
-        print(f"[DEBUG] User {to_block} blocked.")
+        log_debug(f"User {to_block} blocked.")
         await update.message.reply_text(f"\U0001f6ab User {to_block} blocked.")
     except (IndexError, ValueError):
         await update.message.reply_text("\u274c Usa: /block <user_id>")
@@ -86,7 +87,7 @@ async def block_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
     blocked = blocklist.get_block_list()
-    print(f"[DEBUG] Blocked users list requested.")
+    log_debug("Blocked users list requested.")
     if not blocked:
         await update.message.reply_text("\u2705 No users blocked.")
     else:
@@ -98,7 +99,7 @@ async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         to_unblock = int(context.args[0])
         blocklist.unblock_user(to_unblock)
-        print(f"[DEBUG] User {to_unblock} unblocked.")
+        log_debug(f"User {to_unblock} unblocked.")
         await update.message.reply_text(f"\u2705 User {to_unblock} unblocked.")
     except (IndexError, ValueError):
         await update.message.reply_text("\u274c Usa: /unblock <user_id>")
@@ -125,25 +126,25 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
         return
 
     if update.effective_user.id != OWNER_ID:
-        print("[DEBUG] Messaggio ignorato: non da OWNER_ID")
+        log_debug("Messaggio ignorato: non da OWNER_ID")
         return
 
     message = update.message
     if not message:
-        print("[DEBUG] ❌ No message present, aborting.")
+        log_debug("❌ No message present, aborting.")
         return
 
     media_type = detect_media_type(message)
-    print(f"[DEBUG] ✅ handle_incoming_response: media_type = {media_type}; reply_to = {bool(message.reply_to_message)}")
+    log_debug(f"✅ handle_incoming_response: media_type = {media_type}; reply_to = {bool(message.reply_to_message)}")
 
     # === 1. Prova target da response_proxy (es. /say)
     target = response_proxy.get_target(OWNER_ID)
-    print(f"[DEBUG] Target iniziale da response_proxy = {target}")
+    log_debug(f"Target iniziale da response_proxy = {target}")
 
     # === 2. Se risponde a un messaggio, cerca nel plugin mapping
     if not target and message.reply_to_message:
         reply = message.reply_to_message
-        print(f"[DEBUG] Risposta a trainer_message_id={reply.message_id}")
+        log_debug(f"Risposta a trainer_message_id={reply.message_id}")
         possible_ids = [reply.message_id]
         if reply.reply_to_message:
             possible_ids.append(reply.reply_to_message.message_id)
@@ -156,29 +157,29 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
                     "message_id": tracked["message_id"],
                     "type": media_type
                 }
-                print(f"[DEBUG] Trovato target via plugin_instance.get_target({mid}): {target}")
+                log_debug(f"Trovato target via plugin_instance.get_target({mid}): {target}")
                 break
         if not target:
-            print("[DEBUG] ❌ No mapping found in plugin")
+            log_debug("❌ No mapping found in plugin")
 
     # === 3. Fallback da /say
     if not target:
         fallback = say_proxy.get_target(OWNER_ID)
-        print(f"[DEBUG] Fallback da say_proxy = {fallback}")
+        log_debug(f"Fallback da say_proxy = {fallback}")
         if fallback and fallback != "EXPIRED":
             target = {
                 "chat_id": fallback,
                 "message_id": None,
                 "type": media_type
             }
-            print(f"[DEBUG] Target impostato da say_proxy: {target}")
+            log_debug(f"Target impostato da say_proxy: {target}")
         elif fallback == "EXPIRED":
             await message.reply_text("⏳ Timeout expired, run /say again.")
             return
 
     # === 4. Se ancora niente, abort
     if not target:
-        print("[ERROR] ❌ No target found for sending.")
+        log_error("No target found for sending.")
         await message.reply_text("⚠️ No recipient detected. Use /say or reply to a forwarded message.")
         return
 
@@ -187,17 +188,17 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
     reply_to = target["message_id"]
     content_type = target["type"]
 
-    print(f"[DEBUG] Invio media_type={content_type} to chat_id={chat_id}, reply_to={reply_to}")
+    log_debug(f"Invio media_type={content_type} to chat_id={chat_id}, reply_to={reply_to}")
     success, feedback = await send_content(context.bot, chat_id, message, content_type, reply_to)
 
     await message.reply_text(feedback)
 
     if success:
-        print("[DEBUG] ✅ Invio avvenuto con successo. Pulizia proxy.")
+        log_debug("✅ Invio avvenuto con successo. Pulizia proxy.")
         response_proxy.clear_target(OWNER_ID)
         say_proxy.clear(OWNER_ID)
     else:
-        print("[ERROR] ❌ Invio fallito.")
+        log_error("Invio fallito.")
 
 
 # === Comando generico per sticker/audio/photo/file/video ===
@@ -222,7 +223,7 @@ async def handle_response_command(update: Update, context: ContextTypes.DEFAULT_
         return
 
     response_proxy.set_target(OWNER_ID, chat_id, message_id, content_type)
-    print(f"[DEBUG] Target {content_type} impostato: chat_id={chat_id}, message_id={message_id}")
+    log_debug(f"Target {content_type} impostato: chat_id={chat_id}, message_id={message_id}")
     await context.bot.send_message(
         chat_id=OWNER_ID,
         text=f"\U0001f4ce Inviami ora il file {content_type.upper()} da usare come risposta."
@@ -234,14 +235,14 @@ async def cancel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if response_proxy.has_pending(OWNER_ID):
         response_proxy.clear_target(OWNER_ID)
         say_proxy.clear(OWNER_ID)
-        print("[DEBUG] Response sending cancelled.")
+        log_debug("Response sending cancelled.")
         await update.message.reply_text("\u274c Sending cancelled.")
     else:
         await update.message.reply_text("\u26a0\ufe0f No active send to cancel.")
 
 
 async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print("[DEBUG] /test ricevuto")
+    log_debug("/test ricevuto")
     await update.message.reply_text("✅ Test OK")
 
 async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -266,7 +267,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     message = update.message
     if not message or not message.from_user:
-        print("[DEBUG] Messaggio ignorato (vuoto o senza mittente)")
+        log_debug("Messaggio ignorato (vuoto o senza mittente)")
         return
 
     user = message.from_user
@@ -286,27 +287,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "timestamp": message.date.isoformat()
     })
     recent_chats.track_chat(message.chat_id)
-    print(f"[DEBUG] context_memory[{message.chat_id}] = {list(context_memory[message.chat_id])}")
+    log_debug(f"context_memory[{message.chat_id}] = {list(context_memory[message.chat_id])}")
 
     # Step interattivo /say
     if message.chat.type == "private" and user_id == OWNER_ID and context.user_data.get("say_choices"):
         await handle_say_step(update, context)
         return
 
-    print(f"[DEBUG] Messaggio da {user_id} ({message.chat.type}): {text}")
+    log_debug(f"Messaggio da {user_id} ({message.chat.type}): {text}")
 
     # Blocked user
     if blocklist.is_blocked(user_id) and user_id != OWNER_ID:
-        print(f"[DEBUG] User {user_id} is blocked. Ignoring message.")
+        log_debug(f"User {user_id} is blocked. Ignoring message.")
         return
 
     # Risposta owner a messaggio inoltrato
     if message.chat.type == "private" and user_id == OWNER_ID and message.reply_to_message:
         reply_msg_id = message.reply_to_message.message_id
-        print(f"[DEBUG] Risposta a trainer_message_id={reply_msg_id}")
+        log_debug(f"Risposta a trainer_message_id={reply_msg_id}")
         original = plugin_instance.get_target(reply_msg_id)
         if original:
-            print(f"[DEBUG] Trainer risponde a messaggio {original}")
+            log_debug(f"Trainer risponde a messaggio {original}")
             await context.bot.send_message(
                 chat_id=original["chat_id"],
                 text=message.text,
@@ -331,14 +332,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message.reply_to_message.from_user.username.lower() == bot_username
         )
         if not mentioned and not is_reply_to_bot and not is_rekku_mentioned(text):
-            print("[DEBUG] Ignoring message: no Rekku mention detected.")
+            log_debug("Ignoring message: no Rekku mention detected.")
             return
 
     # === Passa al plugin con fallback
     try:
         await plugin_instance.handle_incoming_message(context.bot, message, context_memory)
     except Exception as e:
-        print(f"[ERROR] plugin_instance.handle_incoming_message fallito: {e}")
+        log_error(f"plugin_instance.handle_incoming_message fallito: {e}")
         await message.reply_text("⚠️ Il modulo LLM ha avuto un problema e non ha potuto rispondere.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -436,18 +437,18 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await bot.send_message(chat_id=chat_id, text=text)
             await update.message.reply_text("\u2705 Messaggio inviato.")
         except Exception as e:
-            print(f"[ERROR] Errore /say diretto: {e}")
+            log_error(f"Errore /say diretto: {e}")
             await update.message.reply_text("\u274c Errore nell'invio.")
         return
 
     # Caso 2: /say @username -> seleziona chat privata
     if len(args) == 1 and args[0].startswith("@"):  # /say @username
         username = args[0]
-        print(f"[DEBUG] Resolving username {username} via bot.get_chat")
+        log_debug(f"Resolving username {username} via bot.get_chat")
         try:
             chat = await bot.get_chat(username)
-            print(
-                f"[DEBUG] Resolved to chat_id = {chat.id}, type = {chat.type}"
+            log_debug(
+                f"Resolved to chat_id = {chat.id}, type = {chat.type}"
             )
             if chat.type == "private":
                 say_proxy.set_target(update.effective_user.id, chat.id)
@@ -461,7 +462,7 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"\u274c Cannot send to {username}. They must start the chat with the bot first."
                 )
         except Exception as e:
-            print(f"[ERROR] Errore /say @username: {e}")
+            log_error(f"Errore /say @username: {e}")
             await update.message.reply_text(
                 f"\u274c Cannot send to {username}. They must start the chat with the bot first."
             )
@@ -534,13 +535,13 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Chat selezionata → inoltra il contenuto attraverso il plugin
     if target_chat:
-        print(f"[DEBUG] Inoltro tramite plugin_instance.handle_incoming_message (chat_id={target_chat})")
+        log_debug(f"Inoltro tramite plugin_instance.handle_incoming_message (chat_id={target_chat})")
         try:
             await plugin_instance.handle_incoming_message(context.bot, message, context.user_data)
             response_proxy.clear_target(OWNER_ID)
             say_proxy.clear(OWNER_ID)
         except Exception as e:
-            print(f"[ERROR] Errore durante plugin_instance.handle_incoming_message in /say: {e}")
+            log_error(f"Errore durante plugin_instance.handle_incoming_message in /say: {e}")
             await message.reply_text("❌ Errore durante l'invio del messaggio.")
 
 async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -609,8 +610,8 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
     from telegram.error import TelegramError
     from telegram.constants import ParseMode
 
-    print(f"[DEBUG/telegram_notify] → CHIAMATO con chat_id={chat_id}")
-    print(f"[DEBUG/telegram_notify] → MESSAGGIO:\n{message}")
+    log_debug(f"[telegram_notify] → CHIAMATO con chat_id={chat_id}")
+    log_debug(f"[telegram_notify] → MESSAGGIO:\n{message}")
 
     bot = Bot(token=BOT_TOKEN)
 
@@ -634,11 +635,11 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
                 parse_mode=ParseMode.HTML if formatted_message else None,
                 disable_web_page_preview=True,
             )
-            print(f"[DEBUG/notify] ✅ Messaggio Telegram inviato a {chat_id}")
+            log_debug(f"[notify] ✅ Messaggio Telegram inviato a {chat_id}")
         except TelegramError as e:
-            print(f"[ERROR/notify] ❌ Errore Telegram: {e}")
+            log_error(f"[notify] ❌ Errore Telegram: {e}")
         except Exception as e:
-            print(f"[ERROR/notify] ❌ Altro errore nel send(): {e}")
+            log_error(f"[notify] ❌ Altro errore nel send(): {e}")
 
     try:
         loop = asyncio.get_running_loop()
@@ -678,7 +679,7 @@ def start_bot():
         if plugin_instance.get_supported_models():
             app.add_handler(CommandHandler("model", model_command))
     except Exception as e:
-        print(f"[WARNING] Il plugin attivo non supporta modelli: {e}")
+        log_warning(f"Il plugin attivo non supporta modelli: {e}")
 
     app.add_handler(CommandHandler("say", say_command))
     app.add_handler(CommandHandler("cancel", cancel_response))
@@ -700,6 +701,6 @@ def start_bot():
         handle_incoming_response
     ))
 
-    print("🧞‍♀️ Rekku is online.")
+    log_info("🧞‍♀️ Rekku is online.")
     app.run_polling()
 

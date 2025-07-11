@@ -6,6 +6,7 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timezone
+from logging_utils import log_debug, log_info, log_warning, log_error
 
 DB_PATH = Path(
     os.getenv(
@@ -18,7 +19,7 @@ DB_PATH = Path(
 def get_db():
     first_time = not DB_PATH.exists()
     if first_time:
-        print(f"[WARN] {DB_PATH.name} not found, creating new database")
+        log_warning(f"{DB_PATH.name} not found, creating new database")
 
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row  # ✅ key-based access

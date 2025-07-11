@@ -3,6 +3,7 @@ from telegram.ext import ContextTypes
 from core.config import OWNER_ID
 import json
 import os
+from logging_utils import log_debug, log_info, log_warning, log_error
 
 CONFIG_PATH = "config/rekku_config.json"
 
@@ -36,5 +37,5 @@ async def context_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state_str = "enabled" if new_state else "disabled"
     await update.message.reply_text(f"🧠 Context mode {state_str}.")
 
-    print(f"[DEBUG] Context mode {state_str}.")
+    log_debug(f"Context mode {state_str}.")
 
