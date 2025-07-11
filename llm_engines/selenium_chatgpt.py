@@ -1,33 +1,14 @@
-try:
-    import chromedriver_autoinstaller
-except ImportError as e:
-    print(
-        "[ERROR] chromedriver_autoinstaller not installed. Please run 'pip install chromedriver-autoinstaller'"
-    )
-    raise
-import undetected_chromedriver as uc
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import NoSuchElementException
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
 import asyncio
 import os
 import subprocess
-import glob
-import time
-import zipfile
-import urllib.request
-import shutil
-import tempfile
 
-PROFILE_DIR = os.path.join(tempfile.gettempdir(), "rekku_chrome_profile")
-SELENIUM_EXTENSIONS_DIR = os.path.join(PROFILE_DIR, "extensions")
-SELENIUM_PROFILE_ARCHIVE = os.getenv(
-    "SELENIUM_PROFILE_ARCHIVE",
-    os.path.join(os.getcwd(), "chrome_profile.tar.gz"),
-)
 
 def _build_vnc_url() -> str:
     """Return the URL to access the noVNC interface."""
@@ -47,43 +28,6 @@ def _build_vnc_url() -> str:
     print(f"[DEBUG/selenium] VNC URL built: {url}")
     return url
 
-def _install_webstore_extension(ext_id: str, name: str) -> str | None:
-    """Download and unpack a Chrome Web Store extension if missing.
-
-    Returns the directory path containing the unpacked extension or ``None`` if
-    the download fails. The function never raises to avoid breaking Selenium
-    startup when network access is unavailable.
-    """
-    target_dir = os.path.join(SELENIUM_EXTENSIONS_DIR, name)
-    manifest = os.path.join(target_dir, "manifest.json")
-    if os.path.isfile(manifest):
-        print(f"[DEBUG/selenium] Estensione {name} già presente")
-        return target_dir
-
-    os.makedirs(target_dir, exist_ok=True)
-    url = (
-        "https://clients2.google.com/service/update2/crx?response=redirect"
-        f"&prodversion=123.0&x=id%3D{ext_id}%26installsource%3Dondemand%26uc"
-    )
-    crx_path = os.path.join(target_dir, f"{ext_id}.crx")
-    try:
-        print(f"[DEBUG/selenium] Scaricamento estensione {name} da {url}")
-        urllib.request.urlretrieve(url, crx_path)
-        with zipfile.ZipFile(crx_path) as zf:
-            zf.extractall(target_dir)
-        os.remove(crx_path)
-        print(f"[DEBUG/selenium] Extension {name} installed")
-        return target_dir
-    except Exception as e:
-        print(f"[ERROR/selenium] Unable to install {name}: {e}")
-        # Remove partial files to avoid loading errors
-        try:
-            shutil.rmtree(target_dir)
-        except Exception:
-            pass
-        return None
-
-
 def _notify_gui(message: str = ""):
     """Send a notification with the VNC URL, optionally prefixed."""
     url = _build_vnc_url()
@@ -95,114 +39,7 @@ def _notify_gui(message: str = ""):
         print(f"[ERROR/selenium] notify_owner failed: {e}")
 
 
-STEALTH_JS = """
-Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
-Object.defineProperty(navigator, 'languages', {get: () => ['en-US','en']});
-window.chrome = { runtime: {} };
-const getParameter = WebGLRenderingContext.prototype.getParameter;
-WebGLRenderingContext.prototype.getParameter = function(p){
-  if(p === 37445) return 'Intel Inc.';
-  if(p === 37446) return 'Intel Iris OpenGL Engine';
-  return getParameter.call(this,p);
-};
-const getChannelData = AudioBuffer.prototype.getChannelData;
-AudioBuffer.prototype.getChannelData = function(){
-  const data = getChannelData.apply(this, arguments);
-  for(let i=0;i<data.length;i+=100){data[i]+=0.0000001;}
-  return data;
-};
-"""
 
-
-def _get_driver():
-    """Return a configured undetected Chrome driver."""
-
-    headless = os.getenv("REKKU_SELENIUM_HEADLESS", "0") != "0"
-    options = uc.ChromeOptions()
-    if headless:
-        options.add_argument("--headless=new")
-
-    ua = os.getenv(
-        "SELENIUM_USER_AGENT",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    )
-    options.add_argument(f"--user-agent={ua}")
-
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--start-maximized")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-infobars")
-    options.add_argument("--disable-extensions")
-    # Some Chrome versions do not accept experimental options such as
-    # 'excludeSwitches'. We prefer not to set them to avoid startup errors
-    # that would prevent the VNC notification.
-
-    profile_override = os.getenv("REKKU_SELENIUM_PROFILE_OVERRIDE")
-    if profile_override and os.path.isdir(profile_override):
-        profile_dir = profile_override
-        print(f"[DEBUG/selenium] Using local Chrome profile from {profile_dir}")
-    else:
-        profile_dir = PROFILE_DIR
-        print(
-            f"[DEBUG/selenium] Extracting {SELENIUM_PROFILE_ARCHIVE} to {profile_dir}"
-        )
-        os.makedirs(profile_dir, exist_ok=True)
-        if os.path.isfile(SELENIUM_PROFILE_ARCHIVE):
-            subprocess.run(
-                ["tar", "-xzf", SELENIUM_PROFILE_ARCHIVE, "-C", profile_dir],
-                check=False,
-            )
-            for lock in glob.glob(os.path.join(profile_dir, "**/Singleton*"), recursive=True):
-                try:
-                    os.remove(lock)
-                except Exception:
-                    pass
-        else:
-            print(f"[WARN/selenium] Profile archive {SELENIUM_PROFILE_ARCHIVE} missing")
-
-    try:
-        driver = uc.Chrome(
-            options=options,
-            user_data_dir=profile_dir,
-            headless=headless,
-            log_level=3,
-        )
-    except Exception as e:
-        if "excludeSwitches" in str(e):
-            print(f"[WARN/selenium] excludeSwitches not supported: {e}. Retrying without it.")
-            options.experimental_options.pop("excludeSwitches", None)
-            options.experimental_options.pop("useAutomationExtension", None)
-            driver = uc.Chrome(
-                options=options,
-                user_data_dir=profile_dir,
-                headless=headless,
-                log_level=3,
-            )
-        else:
-            print(f"[ERROR/selenium] Errore avvio Chrome: {e}")
-            _notify_gui(f"❌ Errore Selenium: {e}. Apri")
-            raise
-
-    try:
-        driver.execute_cdp_cmd("Network.setUserAgentOverride", {"userAgent": ua})
-    except Exception as e:
-        print(f"[WARN/selenium] UA override failed: {e}")
-
-    try:
-        driver.execute_cdp_cmd(
-            "Page.addScriptToEvaluateOnNewDocument",
-            {"source": STEALTH_JS},
-        )
-    except Exception as e:
-        print(f"[WARN/selenium] Patch fingerprint fallita: {e}")
-
-    if not headless:
-        _notify_gui("🔎 Interfaccia grafica disponibile su")
-
-    return driver
 
 
 class SeleniumChatGPTPlugin(AIPluginBase):
@@ -217,13 +54,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     def _init_driver(self):
         if self.driver is None:
             try:
-                self.driver = _get_driver()
-                # Ensure the right ChromeDriver is available
-                chromedriver_autoinstaller.install()
-                print(
-                    "[DEBUG] chromedriver_autoinstaller installed ChromeDriver for",
-                    chromedriver_autoinstaller.get_chrome_version(),
-                )
+                options = Options()
+                options.add_argument('--headless')
+                options.add_argument('--no-sandbox')
+                options.add_argument('--disable-dev-shm-usage')
+                options.add_argument('--disable-gpu')
+                options.add_argument('--remote-debugging-port=9222')
+                options.add_argument('--window-size=1280,720')
+
+                service = Service('/usr/local/bin/chromedriver')
+                self.driver = webdriver.Chrome(service=service, options=options)
             except Exception as e:
                 _notify_gui(f"❌ Errore Selenium: {e}. Apri")
                 raise
