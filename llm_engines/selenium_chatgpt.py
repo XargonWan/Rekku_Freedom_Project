@@ -3,6 +3,7 @@ from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
+from logging_utils import log_debug, log_info, log_warning, log_error
 import asyncio
 import os
 import subprocess
@@ -19,22 +20,22 @@ def _build_vnc_url() -> str:
                 shell=True,
             ).decode().strip()
         except Exception as e:
-            print(f"[WARN/selenium] Unable to determine host: {e}")
+            log_warning(f"[selenium] Unable to determine host: {e}")
         if not host:
             host = "localhost"
     url = f"http://{host}:{port}/vnc.html"
-    print(f"[DEBUG/selenium] VNC URL built: {url}")
+    log_debug(f"[selenium] VNC URL built: {url}")
     return url
 
 def _notify_gui(message: str = ""):
     """Send a notification with the VNC URL, optionally prefixed."""
     url = _build_vnc_url()
     text = f"{message} {url}".strip()
-    print(f"[DEBUG/selenium] Invio notifica VNC: {text}")
+    log_debug(f"[selenium] Invio notifica VNC: {text}")
     try:
         notify_owner(text)
     except Exception as e:
-        print(f"[ERROR/selenium] notify_owner failed: {e}")
+        log_error(f"[selenium] notify_owner failed: {e}")
 
 
 
@@ -74,7 +75,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     user_data_dir=profile_dir,
                 )
             except Exception as e:
-                print(f"[ERROR/selenium] Failed to start Chrome: {e}")
+                log_error(f"[selenium] Failed to start Chrome: {e}")
                 _notify_gui(f"❌ Errore Selenium: {e}. Apri")
                 raise SystemExit(1)
 
@@ -84,7 +85,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except Exception:
             current_url = ""
         if current_url and ("login" in current_url or "auth0" in current_url):
-            print("[DEBUG/selenium] Login richiesto, notifico l'utente")
+            log_debug("[selenium] Login richiesto, notifico l'utente")
             _notify_gui("🔐 Login necessario. Apri")
             return False
         return True
@@ -104,7 +105,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 self._queue.task_done()
 
     async def _process_message(self, bot, message, prompt):
-        print("[DEBUG/selenium] Prompt ricevuto:", prompt)
+        log_debug(f"[selenium] Prompt ricevuto: {prompt}")
 
         if self.driver is None:
             self._init_driver()
@@ -118,7 +119,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         try:
             self.driver.find_element(By.TAG_NAME, "aside")
         except NoSuchElementException:
-            print("[DEBUG/selenium] Sidebar missing, notifying owner")
+            log_debug("[selenium] Sidebar missing, notifying owner")
             _notify_gui("❌ Selenium error: Sidebar not found. Open UI")
             return
 

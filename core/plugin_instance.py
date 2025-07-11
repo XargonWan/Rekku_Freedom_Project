@@ -5,6 +5,7 @@ from core.prompt_engine import load_identity_prompt
 import json
 from core.prompt_engine import build_json_prompt
 import asyncio
+from logging_utils import log_debug, log_info, log_warning, log_error
 
 plugin = None
 rekku_identity_prompt = None
@@ -16,25 +17,25 @@ def load_plugin(name: str, notify_fn=None):
     if plugin is not None:
         current_plugin_name = plugin.__class__.__module__.split(".")[-1]
         if current_plugin_name != name:
-            print(f"[DEBUG/plugin] 🔄 Cambio plugin da {current_plugin_name} a {name}")
+            log_debug(f"[plugin] 🔄 Cambio plugin da {current_plugin_name} a {name}")
         else:
             # 🔁 Even if it's the same plugin, update notify_fn if provided
             if notify_fn and hasattr(plugin, "set_notify_fn"):
                 try:
                     plugin.set_notify_fn(notify_fn)
-                    print("[DEBUG/plugin] ✅ notify_fn updated dynamically")
+                    log_debug("[plugin] ✅ notify_fn updated dynamically")
                 except Exception as e:
-                    print(f"[ERROR/plugin] ❌ Unable to update notify_fn: {e}")
+                    log_error(f"[plugin] ❌ Unable to update notify_fn: {e}")
             else:
-                print(f"[DEBUG/plugin] ⚠️ Plugin already loaded: {plugin.__class__.__name__}")
+                log_debug(f"[plugin] ⚠️ Plugin already loaded: {plugin.__class__.__name__}")
             return
 
     try:
         import importlib
         module = importlib.import_module(f"llm_engines.{name}")
-        print(f"[DEBUG/plugin] Module llm_engines.{name} imported successfully.")
+        log_debug(f"[plugin] Module llm_engines.{name} imported successfully.")
     except ModuleNotFoundError as e:
-        print(f"[ERROR/plugin] ❌ Unable to import llm_engines.{name}: {e}")
+        log_error(f"[plugin] ❌ Unable to import llm_engines.{name}: {e}")
         raise ValueError(f"Invalid LLM plugin: {name}")
 
     if not hasattr(module, "PLUGIN_CLASS"):
@@ -43,9 +44,9 @@ def load_plugin(name: str, notify_fn=None):
     plugin_class = getattr(module, "PLUGIN_CLASS")
 
     if notify_fn:
-        print("[DEBUG/plugin] notify_fn function passed to plugin.")
+        log_debug("[plugin] notify_fn function passed to plugin.")
     else:
-        print("[DEBUG/plugin] ⚠️ No notify_fn function provided.")
+        log_debug("[plugin] ⚠️ No notify_fn function provided.")
 
     try:
         plugin_args = plugin_class.__init__.__code__.co_varnames
@@ -54,11 +55,11 @@ def load_plugin(name: str, notify_fn=None):
         else:
             plugin_instance = plugin_class()
     except Exception as e:
-        print(f"[ERROR/plugin] ❌ Error during plugin initialization: {e}")
+        log_error(f"[plugin] ❌ Error during plugin initialization: {e}")
         raise
 
     plugin = plugin_instance
-    print(f"[DEBUG/plugin] Plugin initialized: {plugin.__class__.__name__}")
+    log_debug(f"[plugin] Plugin initialized: {plugin.__class__.__name__}")
 
     if hasattr(plugin, "start"):
         try:
@@ -74,13 +75,13 @@ def load_plugin(name: str, notify_fn=None):
                     asyncio.run(start_fn())
             else:
                 start_fn()
-            print("[DEBUG/plugin] Plugin start executed.")
+            log_debug("[plugin] Plugin start executed.")
         except Exception as e:
-            print(f"[ERROR/plugin] Error during plugin start: {e}")
+            log_error(f"[plugin] Error during plugin start: {e}")
 
     if name != "manual":
         rekku_identity_prompt = load_identity_prompt()
-        print("[DEBUG/plugin] Identity prompt loaded.")
+        log_debug("[plugin] Identity prompt loaded.")
 
     # Default model
     if hasattr(plugin, "get_supported_models"):
@@ -91,9 +92,9 @@ def load_plugin(name: str, notify_fn=None):
                 current = get_current_model()
                 if not current:
                     set_current_model(models[0])
-                    print(f"[DEBUG/plugin] Default model set: {models[0]}")
+                    log_debug(f"[plugin] Default model set: {models[0]}")
         except Exception as e:
-            print(f"[WARNING/plugin] Error during model setup: {e}")
+            log_warning(f"[plugin] Error during model setup: {e}")
 
     set_active_llm(name)
 
@@ -103,8 +104,8 @@ async def handle_incoming_message(bot, message, context_memory):
 
     prompt = await build_json_prompt(message, context_memory)
 
-    print("[DEBUG] \U0001f310 JSON PROMPT built for the plugin:")
-    print(json.dumps(prompt, indent=2, ensure_ascii=False))
+    log_debug("🌐 JSON PROMPT built for the plugin:")
+    log_debug(json.dumps(prompt, indent=2, ensure_ascii=False))
 
     return await plugin.handle_incoming_message(bot, message, prompt)
 

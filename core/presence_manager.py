@@ -8,6 +8,7 @@ from core.db import (
     crystallize_emotion
 )
 from core.trigger_processor import process_triggers_for_emotion
+from logging_utils import log_debug, log_info, log_warning, log_error
 
 # ⚙️ Behaviour configuration
 presence_config = {
@@ -23,7 +24,7 @@ async def evaluate_emotions():
 
     for em in emotions:
         check_time = datetime.fromisoformat(em["next_check"].replace("Z", "+00:00"))
-        print(f"[PresenceManager] Reassessing emotion {em['id']} ({em['emotion']})")
+        log_debug(f"[PresenceManager] Reassessing emotion {em['id']} ({em['emotion']})")
 
         delta = process_triggers_for_emotion(em)  # returns +1, -1, 0, etc.
         update_emotion_intensity(em["id"], delta)
@@ -31,19 +32,19 @@ async def evaluate_emotions():
         # 💀 If intensity reaches zero → resolved
         if em["intensity"] + delta <= 0:
             mark_emotion_resolved(em["id"])
-            print(f"[PresenceManager] Emotion resolved: {em['id']}")
+            log_debug(f"[PresenceManager] Emotion resolved: {em['id']}")
 
         # 💎 Automatic crystallization if intensity is high
         elif em["intensity"] + delta >= 10:
             crystallize_emotion(em["id"])
-            print(f"[PresenceManager] 💎 Emotion crystallized: {em['emotion']} ({em['id']})")
+            log_debug(f"[PresenceManager] 💎 Emotion crystallized: {em['emotion']} ({em['id']})")
 
         apply_emotion_decay(em)
 
 # ♻️ Main loop
 async def presence_loop():
     while True:
-        print("[PresenceManager] Cyclic check running...")
+        log_debug("[PresenceManager] Cyclic check running...")
         await evaluate_emotions()
         await asyncio.sleep(presence_config["normal_interval"])
 
@@ -66,7 +67,7 @@ async def reflect_on_recent_responses():
                 intensity=meta["intensity"],
                 emotion_state=meta["emotion_state"]
             )
-            print(f"[REKKU] 💭 Transformative reflection saved.")
+            log_info("[REKKU] 💭 Transformative reflection saved.")
 
 def get_transformative_metadata(response_text: str) -> dict:
     """
@@ -95,8 +96,8 @@ def apply_emotion_decay(emotion: dict):
     intensity = emotion.get("intensity", 0)
     if intensity > 0:
         update_emotion_intensity(emotion["id"], delta=-1)
-        print(f"[Decay] 🕯️ Emotion {emotion['id']} decreasing: {intensity} → {intensity - 1}")
+        log_debug(f"[Decay] 🕯️ Emotion {emotion['id']} decreasing: {intensity} → {intensity - 1}")
 
         if intensity - 1 <= 0:
             mark_emotion_resolved(emotion["id"])
-            print(f"[Decay] 💤 Emotion resolved due to depletion: {emotion['id']}")
+            log_debug(f"[Decay] 💤 Emotion resolved due to depletion: {emotion['id']}")

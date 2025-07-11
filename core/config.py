@@ -2,8 +2,13 @@
 
 import os
 import json
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover - fallback when dotenv not installed
+    def load_dotenv(*args, **kwargs):
+        return False
 from core.db import get_db
+from logging_utils import log_debug, log_info, log_warning, log_error
 
 # ✅ Load all environment variables from .env
 load_dotenv(dotenv_path="/app/.env", override=False)
@@ -28,27 +33,27 @@ def get_active_llm():
                 row = db.execute("SELECT value FROM settings WHERE key = 'active_llm'").fetchone()
                 if row:
                     _active_llm = row[0]
-                    print(f"[DEBUG/config] 🧠 Active LLM plugin loaded from DB: {_active_llm}")
+                    log_debug(f"[config] 🧠 Active LLM plugin loaded from DB: {_active_llm}")
                 else:
                     _active_llm = "manual"
         except Exception as e:
-            print(f"[ERROR/config] ❌ Error in get_active_llm(): {e}")
+            log_error(f"[config] ❌ Error in get_active_llm(): {e}")
             _active_llm = "manual"
     return _active_llm
 
 def set_active_llm(name: str):
     global _active_llm
     if name == _active_llm:
-        print(f"[DEBUG/config] 🔄 LLM already set: {name}, no update needed.")
+        log_debug(f"[config] 🔄 LLM already set: {name}, no update needed.")
         return
     _active_llm = name
     try:
         with get_db() as db:
             db.execute("REPLACE INTO settings (key, value) VALUES (?, ?)", ("active_llm", name))
             db.commit()
-            print(f"[DEBUG/config] 💾 Saved active plugin in DB: {name}")
+            log_debug(f"[config] 💾 Saved active plugin in DB: {name}")
     except Exception as e:
-        print(f"[ERROR/config] ❌ Error in set_active_llm(): {e}")
+        log_error(f"[config] ❌ Error in set_active_llm(): {e}")
 
 def list_available_llms():
     engines_dir = os.path.join(os.path.dirname(__file__), "../llm_engines")
@@ -79,5 +84,5 @@ def set_current_model(model: str):
         with open(MODEL_FILE, "w", encoding="utf-8") as f:
             json.dump({"model": model}, f, indent=2)
     except Exception as e:
-        print(f"[ERROR] Unable to save model: {e}")
+        log_error(f"Unable to save model: {e}")
         

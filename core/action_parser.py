@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 
 from core.action_validator import validate_action
 import core.plugin_instance as plugin_instance
+from logging_utils import log_debug, log_info, log_warning, log_error
 
 
 # Cache for discovered action plugins
@@ -35,14 +36,14 @@ def _load_action_plugins() -> List[Any]:
             try:
                 module = importlib.import_module(module_name)
             except Exception as e:
-                print(f"[action_parser] Failed to import {module_name}: {e}")
+                log_error(f"[action_parser] Failed to import {module_name}: {e}")
                 continue
             for _name, obj in inspect.getmembers(module, inspect.isclass):
                 if hasattr(obj, "get_supported_actions"):
                     try:
                         instance = obj()
                     except Exception as e:
-                        print(f"[action_parser] Failed to init {obj}: {e}")
+                        log_error(f"[action_parser] Failed to init {obj}: {e}")
                         continue
                     _ACTION_PLUGINS.append(instance)
     return _ACTION_PLUGINS
@@ -56,14 +57,14 @@ def _plugins_for(action_type: str) -> List[Any]:
             if action_type in supported:
                 plugins.append(plugin)
         except Exception as e:
-            print(f"[action_parser] Error querying plugin {plugin}: {e}")
+            log_error(f"[action_parser] Error querying plugin {plugin}: {e}")
     return plugins
 
 
 async def _handle_message_action(action: Dict[str, Any], context: Dict[str, Any], bot, original_message):
     payload = action.get("payload", {})
     text = payload.get("text", "")
-    print(f"[action_parser] Handling message action: {text}")
+    log_debug(f"[action_parser] Handling message action: {text}")
 
     # Build fake message object mimicking telegram.Message
     msg = SimpleNamespace()
@@ -81,12 +82,12 @@ async def _handle_message_action(action: Dict[str, Any], context: Dict[str, Any]
     try:
         await plugin_instance.handle_incoming_message(bot, msg, context_memory)
     except Exception as e:
-        print(f"[action_parser] Error in _handle_message_action: {e}")
+        log_error(f"[action_parser] Error in _handle_message_action: {e}")
 
 
 async def _handle_event_action(action: Dict[str, Any], _context: Dict[str, Any], _bot, _original_message):
     payload = action.get("payload", {})
-    print(f"[action_parser] EVENT placeholder: {payload}")
+    log_debug(f"[action_parser] EVENT placeholder: {payload}")
 
 
 async def _handle_plugin_action(action: Dict[str, Any], context: Dict[str, Any], bot, original_message):
@@ -98,11 +99,11 @@ async def _handle_plugin_action(action: Dict[str, Any], context: Dict[str, Any],
                 if inspect.iscoroutine(result):
                     await result
             except Exception as e:
-                print(f"[action_parser] Error executing {action_type} with {plugin}: {e}")
+                log_error(f"[action_parser] Error executing {action_type} with {plugin}: {e}")
         else:
-            print(f"[action_parser] Plugin {plugin} has no execute_action()")
+            log_warning(f"[action_parser] Plugin {plugin} has no execute_action()")
     if not _plugins_for(action_type):
-        print(f"[action_parser] No plugin supports action type '{action_type}'")
+        log_warning(f"[action_parser] No plugin supports action type '{action_type}'")
 
 
 async def run_action(action: Any, context: Dict[str, Any], bot, original_message):
@@ -114,7 +115,7 @@ async def run_action(action: Any, context: Dict[str, Any], bot, original_message
 
     valid, errors = validate_action(action)
     if not valid:
-        print(f"[action_parser] Invalid action: {errors}")
+        log_warning(f"[action_parser] Invalid action: {errors}")
         return
 
     action_type = action.get("type")
@@ -139,19 +140,19 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
     if isinstance(actions, dict):
         actions = [actions]
     elif not isinstance(actions, list):
-        print("[action_parser] run_actions expects a list or dict")
+        log_error("[action_parser] run_actions expects a list or dict")
         return
 
     for idx, action in enumerate(actions):
         try:
             valid, errors = validate_action(action)
             if not valid:
-                print(f"[action_parser] Skipping invalid action {idx}: {errors}")
+                log_warning(f"[action_parser] Skipping invalid action {idx}: {errors}")
                 continue
-            print(f"[action_parser] Running action {idx}: {action.get('type')}")
+            log_debug(f"[action_parser] Running action {idx}: {action.get('type')}")
             await run_action(action, context, bot, original_message)
         except Exception as e:
-            print(f"[action_parser] Error executing action {idx}: {e}")
+            log_error(f"[action_parser] Error executing action {idx}: {e}")
 
 
 __all__ = ["run_action", "run_actions"]

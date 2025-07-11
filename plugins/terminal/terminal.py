@@ -3,6 +3,7 @@
 import asyncio
 from core.ai_plugin_base import AIPluginBase
 from telegram.constants import ParseMode
+from logging_utils import log_debug, log_info, log_warning, log_error
 
 
 class TerminalPlugin(AIPluginBase):
@@ -21,7 +22,7 @@ class TerminalPlugin(AIPluginBase):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
-            print("[DEBUG/terminal] Shell subprocess started")
+            log_debug("[terminal] Shell subprocess started")
 
     async def _send_command(self, cmd: str) -> str:
         """Send ``cmd`` to the shell and return its output."""
@@ -34,7 +35,7 @@ class TerminalPlugin(AIPluginBase):
             self.process.stdin.write(full_cmd.encode())
             await self.process.stdin.drain()
         except Exception as e:
-            print(f"[ERROR/terminal] Failed to write to shell: {e}")
+            log_error(f"[terminal] Failed to write to shell: {e}")
             self.process = None
             return "⚠️ Unable to send command to shell."
 
@@ -61,7 +62,7 @@ class TerminalPlugin(AIPluginBase):
             prompt.get("action", {}).get("input")
             or prompt.get("message", {}).get("text", "")
         )
-        print(f"[DEBUG/terminal] Executing: {cmd}")
+        log_debug(f"[terminal] Executing: {cmd}")
         output = await self._send_command(cmd)
 
         if bot and message:

@@ -7,6 +7,7 @@ import os
 from typing import Dict
 
 from core.plugin_base import PluginBase
+from logging_utils import log_debug, log_info, log_warning, log_error
 
 PLUGIN_REGISTRY: Dict[str, PluginBase] = {}
 
@@ -29,12 +30,12 @@ def load_plugins(path: str = "plugins") -> Dict[str, PluginBase]:
         try:
             module = importlib.import_module(module_name)
         except Exception as e:
-            print(f"[plugin_loader] Failed to import {module_name}: {e}")
+            log_error(f"[plugin_loader] Failed to import {module_name}: {e}")
             continue
 
         plugin_cls = getattr(module, "PLUGIN_CLASS", None)
         if plugin_cls is None:
-            print(f"[plugin_loader] {name} missing PLUGIN_CLASS, skipping")
+            log_warning(f"[plugin_loader] {name} missing PLUGIN_CLASS, skipping")
             continue
 
         config = {}
@@ -44,7 +45,7 @@ def load_plugins(path: str = "plugins") -> Dict[str, PluginBase]:
                 with open(cfg_path, "r", encoding="utf-8") as f:
                     config = json.load(f)
             except Exception as e:
-                print(f"[plugin_loader] Error reading config for {name}: {e}")
+                log_warning(f"[plugin_loader] Error reading config for {name}: {e}")
 
         try:
             plugin = plugin_cls(config=config)
@@ -54,7 +55,7 @@ def load_plugins(path: str = "plugins") -> Dict[str, PluginBase]:
         try:
             plugin.start()
         except Exception as e:
-            print(f"[plugin_loader] Error starting {name}: {e}")
+            log_error(f"[plugin_loader] Error starting {name}: {e}")
 
         PLUGIN_REGISTRY[name] = plugin
 
@@ -72,5 +73,5 @@ def stop_plugins() -> None:
         try:
             plugin.stop()
         except Exception as e:
-            print(f"[plugin_loader] Error stopping plugin: {e}")
+            log_error(f"[plugin_loader] Error stopping plugin: {e}")
     PLUGIN_REGISTRY.clear()
