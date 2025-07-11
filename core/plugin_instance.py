@@ -4,6 +4,7 @@ from core.config import get_active_llm, set_active_llm
 from core.prompt_engine import load_identity_prompt
 import json
 from core.prompt_engine import build_json_prompt
+import asyncio
 
 plugin = None
 rekku_identity_prompt = None
@@ -58,6 +59,24 @@ def load_plugin(name: str, notify_fn=None):
 
     plugin = plugin_instance
     print(f"[DEBUG/plugin] Plugin initialized: {plugin.__class__.__name__}")
+
+    if hasattr(plugin, "start"):
+        try:
+            start_fn = plugin.start
+            if asyncio.iscoroutinefunction(start_fn):
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                if loop and loop.is_running():
+                    loop.create_task(start_fn())
+                else:
+                    asyncio.run(start_fn())
+            else:
+                start_fn()
+            print("[DEBUG/plugin] Plugin start executed.")
+        except Exception as e:
+            print(f"[ERROR/plugin] Error during plugin start: {e}")
 
     if name != "manual":
         rekku_identity_prompt = load_identity_prompt()

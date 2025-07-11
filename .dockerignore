@@ -2,5 +2,5 @@ __pycache__/
 *.pyc
 !.env
 logs/
-rekku_home/
+persona
 .ICEauthority
