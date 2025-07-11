@@ -10,7 +10,7 @@ import re
 from collections import deque
 import core.plugin_instance as plugin_instance
 from core.plugin_instance import load_plugin
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.message_sender import detect_media_type, extract_response_target
 from core.config import get_active_llm, set_active_llm, list_available_llms
 from core.config import OWNER_ID

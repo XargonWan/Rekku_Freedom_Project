@@ -6,7 +6,7 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timezone
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 DB_PATH = Path(
     os.getenv(

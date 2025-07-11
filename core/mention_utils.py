@@ -40,7 +40,7 @@ REKKU_ALIASES = [
 REKKU_ALIASES_LOWER = [alias.lower() for alias in REKKU_ALIASES]
 
 
-from logging_utils import log_debug
+from core.logging_utils import log_debug
 
 
 def is_rekku_mentioned(text: str) -> bool:

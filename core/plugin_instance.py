@@ -5,7 +5,7 @@ from core.prompt_engine import load_identity_prompt
 import json
 from core.prompt_engine import build_json_prompt
 import asyncio
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 plugin = None
 rekku_identity_prompt = None

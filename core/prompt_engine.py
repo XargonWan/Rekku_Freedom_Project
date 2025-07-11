@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 from core.db import get_db
 import json
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 
 async def build_json_prompt(message, context_memory) -> dict:

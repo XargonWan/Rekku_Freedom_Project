@@ -4,7 +4,7 @@ from core.ai_plugin_base import AIPluginBase
 import json
 import openai  # Assicurati che sia installato
 from core.config import get_user_api_key
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 class OpenAIPlugin(AIPluginBase):
 

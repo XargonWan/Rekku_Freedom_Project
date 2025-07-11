@@ -1,7 +1,7 @@
 from core import response_proxy, say_proxy
 import core.plugin_instance as plugin_instance
 import traceback
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 async def send_content(bot, chat_id, message, content_type, reply_to_message_id=None):
     log_debug(f"Sending content: {content_type}, reply_to={reply_to_message_id}")

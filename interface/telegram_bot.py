@@ -23,7 +23,7 @@ from core import say_proxy, recent_chats, message_map
 from core.context import context_command
 from collections import deque
 import json
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.message_sender import (
     send_content,
     detect_media_type,

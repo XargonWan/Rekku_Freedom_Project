@@ -3,7 +3,7 @@
 import asyncio
 from core.ai_plugin_base import AIPluginBase
 from telegram.constants import ParseMode
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 
 class TerminalPlugin(AIPluginBase):

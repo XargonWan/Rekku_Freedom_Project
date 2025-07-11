@@ -12,7 +12,7 @@ from typing import Any, Dict, List
 
 from core.action_validator import validate_action
 import core.plugin_instance as plugin_instance
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 
 # Cache for discovered action plugins

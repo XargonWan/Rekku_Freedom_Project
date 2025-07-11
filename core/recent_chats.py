@@ -4,7 +4,7 @@ from core.db import get_db
 import time
 import os
 import re
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 MAX_ENTRIES = 100

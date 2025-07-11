@@ -2,7 +2,7 @@ from core.db import insert_memory
 import logging
 from datetime import datetime
 import json
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 # === Memory logging setup ===
 os.makedirs("logs", exist_ok=True)  # Ensure log directory exists

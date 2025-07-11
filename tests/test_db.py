@@ -8,7 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from importlib import reload
 import logging
 import core.db as db_module
-from logging_utils import setup_logging
+from core.logging_utils import setup_logging
 
 
 def test_get_db_creates_db(tmp_path, caplog):

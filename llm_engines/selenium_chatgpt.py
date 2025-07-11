@@ -3,7 +3,7 @@ from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 import asyncio
 import os
 import subprocess

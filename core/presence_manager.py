@@ -8,7 +8,7 @@ from core.db import (
     crystallize_emotion
 )
 from core.trigger_processor import process_triggers_for_emotion
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 # ⚙️ Behaviour configuration
 presence_config = {

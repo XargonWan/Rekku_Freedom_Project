@@ -2,7 +2,7 @@
 
 from core.config import OWNER_ID
 from typing import Callable, List, Tuple
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 _pending: List[Tuple[int, str]] = []
 

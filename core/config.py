@@ -8,7 +8,7 @@ except Exception:  # pragma: no cover - fallback when dotenv not installed
     def load_dotenv(*args, **kwargs):
         return False
 from core.db import get_db
-from logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 # ✅ Load all environment variables from .env
 load_dotenv(dotenv_path="/app/.env", override=False)
