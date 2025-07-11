@@ -47,6 +47,5 @@ htmlcov/
 dist/
 build/
 site/
-rekku.db
 logs/
-rekku_home/
+persona/
