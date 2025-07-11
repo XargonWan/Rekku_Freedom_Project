@@ -2,7 +2,11 @@
 
 import os
 import json
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover - fallback when dotenv not installed
+    def load_dotenv(*args, **kwargs):
+        return False
 from core.db import get_db
 from logging_utils import log_debug, log_info, log_warning, log_error
 

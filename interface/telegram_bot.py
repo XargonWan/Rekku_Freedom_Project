@@ -11,7 +11,11 @@ from telegram.ext import (
     CommandHandler,
     filters,
 )
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover - fallback if python-dotenv not installed
+    def load_dotenv(*args, **kwargs):
+        return False
 from llm_engines.manual import ManualAIPlugin
 from core import blocklist
 from core import response_proxy

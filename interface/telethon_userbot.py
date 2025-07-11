@@ -1,6 +1,10 @@
 from telethon import TelegramClient, events, Button
 from telethon.tl.types import PeerUser, PeerChat, PeerChannel
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover - fallback if python-dotenv not installed
+    def load_dotenv(*args, **kwargs):
+        return False
 import os
 import re
 from collections import deque
