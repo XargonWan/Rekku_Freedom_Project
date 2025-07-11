@@ -35,7 +35,7 @@ class TerminalPlugin(AIPluginBase):
             self.process.stdin.write(full_cmd.encode())
             await self.process.stdin.drain()
         except Exception as e:
-            log_error(f"[terminal] Failed to write to shell: {e}")
+            log_error(f"[terminal] Failed to write to shell: {e}", e)
             self.process = None
             return "⚠️ Unable to send command to shell."
 

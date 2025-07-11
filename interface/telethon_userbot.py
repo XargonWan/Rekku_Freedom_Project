@@ -162,7 +162,7 @@ async def say_command(event):
             await client.send_message(chat_id, text)
             await event.reply("\u2705 Messaggio inviato.")
         except Exception as e:
-            log_error(f"Errore .say diretto: {e}")
+            log_error(f"Errore .say diretto: {e}", e)
             await event.reply("\u274c Error during sending.")
         return
     # Caso 2: .say (senza argomenti)
@@ -223,7 +223,10 @@ async def handle_message(event):
     try:
         await plugin_instance.handle_incoming_message(client, message, context_memory)
     except Exception as e:
-        log_error(f"plugin_instance.handle_incoming_message fallito: {e}")
+        log_error(
+            f"plugin_instance.handle_incoming_message fallito: {e}",
+            e,
+        )
 
 def main():
     def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None):
@@ -236,7 +239,7 @@ def main():
                 )
                 log_debug(f"[notify] Messaggio Telegram inviato a {chat_id}")
             except Exception as e:
-                log_error(f"[notify] Fallito invio messaggio Telegram: {e}")
+                log_error(f"[notify] Fallito invio messaggio Telegram: {e}", e)
         import asyncio
         asyncio.create_task(send())
     plugin_instance.load_plugin(get_active_llm(), notify_fn=telegram_notify)

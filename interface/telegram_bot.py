@@ -343,7 +343,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await plugin_instance.handle_incoming_message(context.bot, message, context_memory)
     except Exception as e:
-        log_error(f"plugin_instance.handle_incoming_message fallito: {e}")
+        log_error(f"plugin_instance.handle_incoming_message fallito: {e}", e)
         await message.reply_text("⚠️ Il modulo LLM ha avuto un problema e non ha potuto rispondere.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -441,7 +441,7 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await bot.send_message(chat_id=chat_id, text=text)
             await update.message.reply_text("\u2705 Messaggio inviato.")
         except Exception as e:
-            log_error(f"Errore /say diretto: {e}")
+            log_error(f"Errore /say diretto: {e}", e)
             await update.message.reply_text("\u274c Errore nell'invio.")
         return
 
@@ -466,7 +466,7 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"\u274c Cannot send to {username}. They must start the chat with the bot first."
                 )
         except Exception as e:
-            log_error(f"Errore /say @username: {e}")
+            log_error(f"Errore /say @username: {e}", e)
             await update.message.reply_text(
                 f"\u274c Cannot send to {username}. They must start the chat with the bot first."
             )
@@ -545,7 +545,10 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response_proxy.clear_target(OWNER_ID)
             say_proxy.clear(OWNER_ID)
         except Exception as e:
-            log_error(f"Errore durante plugin_instance.handle_incoming_message in /say: {e}")
+            log_error(
+                f"Errore durante plugin_instance.handle_incoming_message in /say: {e}",
+                e,
+            )
             await message.reply_text("❌ Errore durante l'invio del messaggio.")
 
 async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -641,9 +644,9 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
             )
             log_debug(f"[notify] ✅ Messaggio Telegram inviato a {chat_id}")
         except TelegramError as e:
-            log_error(f"[notify] ❌ Errore Telegram: {e}")
+            log_error(f"[notify] ❌ Errore Telegram: {e}", e)
         except Exception as e:
-            log_error(f"[notify] ❌ Altro errore nel send(): {e}")
+            log_error(f"[notify] ❌ Altro errore nel send(): {e}", e)
 
     try:
         loop = asyncio.get_running_loop()

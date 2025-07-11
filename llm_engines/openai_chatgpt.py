@@ -65,7 +65,7 @@ class OpenAIPlugin(AIPluginBase):
             return response
 
         except Exception as e:
-            log_error(f"[OpenAI] Error while responding: {e}")
+            log_error(f"[OpenAI] Error while responding: {e}", e)
             notify_owner(f"❌ OpenAI error:\n```\n{e}\n```")
 
             if bot and message:
