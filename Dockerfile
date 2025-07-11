@@ -15,6 +15,7 @@ RUN apt-get update && \
 
 # Copy project code
 COPY . /app
+COPY .env /app/.env
 WORKDIR /app
 
 # Python venv
@@ -26,21 +27,27 @@ RUN python3 -m venv /app/venv && \
 ENV PYTHONPATH=/app \
     TZ=Asia/Tokyo \
     PATH=/app/venv/bin:$PATH \
-    HOME=/home/rekku
+    HOME=/home/rekku \
+    PUID=1000 \
+    PGID=1000
 
 # LinuxServer hooks
 COPY automation_tools/rekku.sh /etc/cont-init.d/99-rekku.sh
-RUN chmod +x /etc/cont-init.d/99-rekku.sh \
-    && mkdir -p /home/rekku \
-    && chown -R 1000:1000 /app /home/rekku
+COPY automation_tools/01-password.sh /etc/cont-init.d/01-password.sh
+COPY automation_tools/init-selkies.sh /etc/s6-overlay/s6-rc.d/init-selkies/run
+COPY automation_tools/init-selkies.type /etc/s6-overlay/s6-rc.d/init-selkies/type
+COPY automation_tools/container_rekku.sh /app/rekku.sh
+RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
+        /etc/s6-overlay/s6-rc.d/init-selkies/run \
+        /app/rekku.sh \
+    && mkdir -p /home/rekku /config /etc/s6-overlay/s6-rc.d/user/contents.d \
+    && ln -sfn ../init-selkies /etc/s6-overlay/s6-rc.d/user/contents.d/init-selkies \
+    && chown -R 1000:1000 /app /home/rekku /config
 
 USER root
 
-# Install tools for generating basic auth and create .htpasswd
+# Install tools for generating basic auth
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends apache2-utils && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    password=$(grep -E '^PASSWORD=' /app/.env | cut -d '=' -f2- | tr -d '"\r') && \
-    htpasswd -cb /config/.htpasswd rekku "$password" && \
-    chmod 600 /config/.htpasswd
+    apt-get install -y --no-install-recommends apache2-utils websockify openssl x11vnc && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 

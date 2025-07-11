@@ -1,6 +1,6 @@
 __pycache__/
 *.pyc
-.env
+!.env
 logs/
 rekku_home/
 .ICEauthority
