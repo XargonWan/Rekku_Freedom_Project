@@ -25,7 +25,7 @@ def load_plugin(name: str, notify_fn=None):
                     plugin.set_notify_fn(notify_fn)
                     log_debug("[plugin] ✅ notify_fn updated dynamically")
                 except Exception as e:
-                    log_error(f"[plugin] ❌ Unable to update notify_fn: {e}")
+                    log_error(f"[plugin] ❌ Unable to update notify_fn: {e}", e)
             else:
                 log_debug(f"[plugin] ⚠️ Plugin already loaded: {plugin.__class__.__name__}")
             return
@@ -35,7 +35,7 @@ def load_plugin(name: str, notify_fn=None):
         module = importlib.import_module(f"llm_engines.{name}")
         log_debug(f"[plugin] Module llm_engines.{name} imported successfully.")
     except ModuleNotFoundError as e:
-        log_error(f"[plugin] ❌ Unable to import llm_engines.{name}: {e}")
+        log_error(f"[plugin] ❌ Unable to import llm_engines.{name}: {e}", e)
         raise ValueError(f"Invalid LLM plugin: {name}")
 
     if not hasattr(module, "PLUGIN_CLASS"):
@@ -55,7 +55,7 @@ def load_plugin(name: str, notify_fn=None):
         else:
             plugin_instance = plugin_class()
     except Exception as e:
-        log_error(f"[plugin] ❌ Error during plugin initialization: {e}")
+        log_error(f"[plugin] ❌ Error during plugin initialization: {e}", e)
         raise
 
     plugin = plugin_instance
@@ -77,7 +77,7 @@ def load_plugin(name: str, notify_fn=None):
                 start_fn()
             log_debug("[plugin] Plugin start executed.")
         except Exception as e:
-            log_error(f"[plugin] Error during plugin start: {e}")
+            log_error(f"[plugin] Error during plugin start: {e}", e)
 
     if name != "manual":
         rekku_identity_prompt = load_identity_prompt()
@@ -101,6 +101,12 @@ def load_plugin(name: str, notify_fn=None):
 async def handle_incoming_message(bot, message, context_memory):
     if plugin is None:
         raise RuntimeError("No LLM plugin loaded.")
+
+    user_id = message.from_user.id if message.from_user else "unknown"
+    text = message.text or ""
+    log_debug(
+        f"[plugin] Incoming for {plugin.__class__.__name__}: chat_id={message.chat_id}, user_id={user_id}, text={text!r}"
+    )
 
     prompt = await build_json_prompt(message, context_memory)
 

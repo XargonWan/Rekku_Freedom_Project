@@ -35,7 +35,7 @@ def _notify_gui(message: str = ""):
     try:
         notify_owner(text)
     except Exception as e:
-        log_error(f"[selenium] notify_owner failed: {e}")
+        log_error(f"[selenium] notify_owner failed: {e}", e)
 
 
 
@@ -57,6 +57,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
     def _init_driver(self):
         if self.driver is None:
+            log_debug("[selenium] [STEP] Initializing Chrome driver")
             chrome_path = "/usr/bin/google-chrome-stable"
             profile_dir = os.path.expanduser("/home/rekku/.ucd-profile")
             os.makedirs(profile_dir, exist_ok=True)
@@ -74,8 +75,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     browser_executable_path=chrome_path,
                     user_data_dir=profile_dir,
                 )
+                log_debug("[selenium] Chrome driver started")
             except Exception as e:
-                log_error(f"[selenium] Failed to start Chrome: {e}")
+                log_error(f"[selenium] Failed to start Chrome: {e}", e)
                 _notify_gui(f"❌ Errore Selenium: {e}. Apri")
                 raise SystemExit(1)
 
@@ -84,25 +86,39 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             current_url = self.driver.current_url
         except Exception:
             current_url = ""
+        log_debug(f"[selenium] [STEP] Checking login state at {current_url}")
         if current_url and ("login" in current_url or "auth0" in current_url):
             log_debug("[selenium] Login richiesto, notifico l'utente")
             _notify_gui("🔐 Login necessario. Apri")
             return False
+        log_debug("[selenium] Logged in and ready")
         return True
 
     async def handle_incoming_message(self, bot, message, prompt):
         """Queue the message to be processed sequentially."""
+        user_id = message.from_user.id if message.from_user else "unknown"
+        text = message.text or ""
+        log_debug(
+            f"[selenium] [ENTRY] chat_id={message.chat_id} user_id={user_id} text={text!r}"
+        )
         await self._queue.put((bot, message, prompt))
+        log_debug("[selenium] Message queued for processing")
 
     async def _worker_loop(self):
+        log_debug("[selenium] Worker loop started")
         while True:
             bot, message, prompt = await self._queue.get()
+            log_debug(
+                f"[selenium] [WORKER] Processing chat_id={message.chat_id} message_id={message.message_id}"
+            )
             try:
                 await self._process_message(bot, message, prompt)
             except Exception as e:
+                log_error("[selenium] Worker error", e)
                 _notify_gui(f"❌ Errore Selenium: {e}. Apri")
             finally:
                 self._queue.task_done()
+                log_debug("[selenium] [WORKER] Task completed")
 
     async def _process_message(self, bot, message, prompt):
         log_debug(f"[selenium] Prompt ricevuto: {prompt}")
@@ -111,9 +127,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             self._init_driver()
         if not self._ensure_logged_in():
             return
+        log_debug("[selenium] Browser ready for prompt")
 
         # Vai nella chat corretta (puoi estendere questa logica)
         await asyncio.sleep(1)
+        log_debug("[selenium] Navigating to https://chat.openai.com")
         self.driver.get("https://chat.openai.com")
         await asyncio.sleep(1)
         try:
@@ -128,6 +146,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             chat_id=message.chat_id,
             text="🤖 (Risposta finta: plugin Selenium operativo)"
         )
+        log_debug(
+            f"[selenium] [RESPONSE] Sent to chat_id={message.chat_id}"
+        )
 
 
     def get_supported_models(self):
@@ -139,6 +160,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             try:
                 self._init_driver()
             except Exception as e:
+                log_error("[selenium] set_notify_fn initialization error", e)
                 _notify_gui(f"❌ Errore Selenium: {e}. Apri")
 
 PLUGIN_CLASS = SeleniumChatGPTPlugin
