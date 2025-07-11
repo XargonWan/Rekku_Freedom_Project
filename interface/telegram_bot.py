@@ -673,6 +673,18 @@ def start_bot():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # 🚀 Now that the loop is running, ensure plugin worker is started
+    plugin_obj = plugin_instance.get_plugin()
+    if plugin_obj and hasattr(plugin_obj, "start"):
+        try:
+            if asyncio.iscoroutinefunction(plugin_obj.start):
+                app.create_task(plugin_obj.start())
+            else:
+                plugin_obj.start()
+            log_debug("[plugin] Plugin start scheduled from start_bot.")
+        except Exception as e:
+            log_error(f"[plugin] Error starting plugin in start_bot: {e}", e)
+
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("block", block_user))
     app.add_handler(CommandHandler("block_list", block_list))

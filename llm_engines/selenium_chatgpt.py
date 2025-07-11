@@ -52,8 +52,35 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
     async def start(self):
         """Start the background worker loop."""
-        if self._worker_task is None:
-            self._worker_task = asyncio.create_task(self._worker_loop())
+        log_debug("[selenium] start() invoked")
+        if self.is_worker_running():
+            log_debug("[selenium] Worker already running")
+            return
+        if self._worker_task is not None and self._worker_task.done():
+            log_warning("[selenium] Previous worker task ended, restarting")
+        self._worker_task = asyncio.create_task(
+            self._worker_loop(), name="selenium_worker"
+        )
+        self._worker_task.add_done_callback(self._handle_worker_done)
+        log_debug("[selenium] Worker task created")
+
+    def is_worker_running(self) -> bool:
+        return self._worker_task is not None and not self._worker_task.done()
+
+    def _handle_worker_done(self, fut: asyncio.Future):
+        if fut.cancelled():
+            log_warning("[selenium] Worker task cancelled")
+        elif fut.exception():
+            log_error(
+                f"[selenium] Worker task crashed: {fut.exception()}", fut.exception()
+            )
+        # Attempt restart if needed
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                loop.create_task(self.start())
+        except RuntimeError:
+            pass
 
     def _init_driver(self):
         if self.driver is None:
@@ -103,6 +130,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         )
         await self._queue.put((bot, message, prompt))
         log_debug("[selenium] Message queued for processing")
+        if self._queue.qsize() > 10:
+            log_warning(
+                f"[selenium] Queue size high ({self._queue.qsize()}). Worker might be stalled"
+            )
 
     async def _worker_loop(self):
         log_debug("[selenium] Worker loop started")

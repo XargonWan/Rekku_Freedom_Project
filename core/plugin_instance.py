@@ -71,11 +71,14 @@ def load_plugin(name: str, notify_fn=None):
                     loop = None
                 if loop and loop.is_running():
                     loop.create_task(start_fn())
+                    log_debug("[plugin] Plugin start executed on running loop.")
                 else:
-                    asyncio.run(start_fn())
+                    log_debug(
+                        "[plugin] No running loop; plugin start will be invoked later."
+                    )
             else:
                 start_fn()
-            log_debug("[plugin] Plugin start executed.")
+                log_debug("[plugin] Plugin start executed.")
         except Exception as e:
             log_error(f"[plugin] Error during plugin start: {e}", e)
 
