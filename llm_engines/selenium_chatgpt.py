@@ -6,7 +6,6 @@ from core.notifier import notify_owner, set_notifier
 import asyncio
 import os
 import subprocess
-import shutil
 
 
 def _build_vnc_url() -> str:
@@ -57,26 +56,22 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
     def _init_driver(self):
         if self.driver is None:
-            chrome_path = shutil.which("google-chrome-stable") or shutil.which("google-chrome") or "google-chrome"
+            chrome_path = "/usr/bin/google-chrome-stable"
             profile_dir = os.path.expanduser("/home/rekku/.ucd-profile")
             os.makedirs(profile_dir, exist_ok=True)
 
-            headless_flag = os.getenv("REKKU_SELENIUM_HEADLESS")
-            headless = "new" if headless_flag and headless_flag != "0" else False
-
             options = uc.ChromeOptions()
-            if headless:
-                options.add_argument("--headless=new")
             options.add_argument("--disable-blink-features=AutomationControlled")
             options.add_argument("--no-sandbox")
+            options.add_argument("--disable-setuid-sandbox")
             options.add_argument("--disable-dev-shm-usage")
-            options.add_argument(f"--user-data-dir={profile_dir}")
 
             try:
                 self.driver = uc.Chrome(
                     options=options,
-                    headless=headless,
+                    headless=False,
                     browser_executable_path=chrome_path,
+                    user_data_dir=profile_dir,
                 )
             except Exception as e:
                 print(f"[ERROR/selenium] Failed to start Chrome: {e}")
