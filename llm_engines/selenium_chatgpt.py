@@ -46,9 +46,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         """Initialize the plugin without starting Selenium yet."""
         self.driver = None
         self._queue: asyncio.Queue = asyncio.Queue()
-        self._worker_task = asyncio.create_task(self._worker_loop())
+        self._worker_task = None
         if notify_fn:
             set_notifier(notify_fn)
+
+    async def start(self):
+        """Start the background worker loop."""
+        if self._worker_task is None:
+            self._worker_task = asyncio.create_task(self._worker_loop())
 
     def _init_driver(self):
         if self.driver is None:
