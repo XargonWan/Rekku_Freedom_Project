@@ -51,36 +51,53 @@ def _notify_gui(message: str = ""):
         log_error(f"[selenium] notify_owner failed: {e}", e)
 
 
-def wait_for_response_change(driver, previous_text: str, timeout: int = 40) -> str:
-    """Wait for the last markdown block to change compared to ``previous_text``.
+def wait_for_response_change(
+    driver, previous_text: str, timeout: int = 40
+) -> Optional[str]:
+    """Wait until the last markdown block has new content.
 
-    Args:
-        driver: Selenium WebDriver instance.
-        previous_text: The last seen markdown text content.
-        timeout: Maximum time to wait in seconds.
+    Parameters
+    ----------
+    driver : WebDriver
+        Active Selenium driver instance.
+    previous_text : str
+        Text from the previously observed markdown block.
+    timeout : int, optional
+        How long to wait for a change, by default 40 seconds.
 
-    Returns:
-        The new markdown text if changed, or ``previous_text`` on timeout.
+    Returns
+    -------
+    Optional[str]
+        The new text content if it changed within ``timeout``; otherwise ``None``.
     """
+
     log_debug("🕓 Waiting for new markdown content...")
     end_time = time.time() + timeout
+
+    # Wait for at least one markdown element to be present before polling
+    try:
+        WebDriverWait(driver, timeout).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.markdown"))
+        )
+    except TimeoutException:
+        log_warning("❌ Timeout while waiting for new response")
+        return None
+
     while time.time() < end_time:
         try:
-            elements = WebDriverWait(driver, 5).until(
-                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.markdown"))
-            )
-            new_text = elements[-1].get_attribute("textContent")
-            if new_text != previous_text:
-                log_debug("🟢 New markdown found")
-                return new_text
-            log_debug("🟡 Still same text, retrying...")
-        except TimeoutException:
-            log_debug("🟡 Waiting for markdown element...")
+            elements = driver.find_elements(By.CSS_SELECTOR, "div.markdown")
+            if elements:
+                latest_text = elements[-1].get_attribute("textContent").strip()
+                if latest_text and latest_text != previous_text:
+                    log_debug("🟢 New markdown found and different from previous.")
+                    return latest_text
+                log_debug("🟡 Still same text, waiting...")
         except Exception as e:
-            log_warning(f"[selenium][ERROR] wait_for_response_change: {e}")
+            log_warning(f"❌ Error during markdown check: {e}")
         time.sleep(1)
+
     log_warning("❌ Timeout while waiting for new response")
-    return previous_text
+    return None
 
 
 def process_prompt_in_chat(driver, chat_id: str, prompt_text: str) -> Optional[str]:
@@ -121,6 +138,9 @@ def process_prompt_in_chat(driver, chat_id: str, prompt_text: str) -> Optional[s
         response_text = wait_for_response_change(driver, previous_text)
     except Exception as e:
         log_error(f"[selenium][ERROR] waiting for response failed: {e}", e)
+        return None
+
+    if response_text is None:
         return None
     if response_text == previous_text:
         return None
