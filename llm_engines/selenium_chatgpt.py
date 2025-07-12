@@ -1,6 +1,9 @@
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+import json
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
 from core.logging_utils import log_debug, log_info, log_warning, log_error
@@ -171,15 +174,50 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             log_debug("[selenium] Sidebar missing, notifying owner")
             _notify_gui("❌ Selenium error: Sidebar not found. Open UI")
             return
+        try:
+            textarea = WebDriverWait(self.driver, 10).until(
+                lambda d: d.find_element(By.TAG_NAME, "textarea")
+            )
+            textarea.clear()
 
-        # Simula risposta finta
-        await bot.send_message(
-            chat_id=message.chat_id,
-            text="🤖 (Risposta finta: plugin Selenium operativo)"
-        )
-        log_debug(
-            f"[selenium] [RESPONSE] Sent to chat_id={message.chat_id}"
-        )
+            prompt_text = json.dumps(prompt, ensure_ascii=False)
+            textarea.send_keys(prompt_text)
+            textarea.send_keys(Keys.ENTER)
+
+            prev_count = len(self.driver.find_elements(By.CSS_SELECTOR, ".markdown"))
+
+            WebDriverWait(self.driver, 30).until(
+                lambda d: len(d.find_elements(By.CSS_SELECTOR, ".markdown")) > prev_count
+            )
+
+            bubbles = self.driver.find_elements(By.CSS_SELECTOR, ".markdown")
+            response_text = bubbles[-1].text if bubbles else ""
+
+            if response_text:
+                await bot.send_message(
+                    chat_id=message.chat_id,
+                    text=response_text
+                )
+            else:
+                await bot.send_message(
+                    chat_id=message.chat_id,
+                    text="⚠️ No response received from ChatGPT."
+                )
+            log_debug(
+                f"[selenium] [RESPONSE] Sent to chat_id={message.chat_id}"
+            )
+        except TimeoutException:
+            log_warning("[selenium] Timeout waiting for ChatGPT response")
+            await bot.send_message(
+                chat_id=message.chat_id,
+                text="⚠️ Timeout waiting for ChatGPT."
+            )
+        except Exception as e:
+            log_error(f"[selenium] Error during interaction: {e}", e)
+            await bot.send_message(
+                chat_id=message.chat_id,
+                text="⚠️ Selenium interaction error."
+            )
 
 
     def get_supported_models(self):
