@@ -82,7 +82,7 @@ def wait_for_response_change(
 
     try:
         WebDriverWait(driver, timeout).until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, "div.markdown"))
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.markdown"))
         )
     except TimeoutException:
         log_warning("❌ Timeout while waiting for new response")
