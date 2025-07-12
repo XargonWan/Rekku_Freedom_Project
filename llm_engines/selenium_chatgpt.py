@@ -43,6 +43,11 @@ def has_response_changed(chat_id: int, new_text: str) -> bool:
     return old != new_text
 
 
+def strip_non_bmp(text: str) -> str:
+    """Return ``text`` with characters above the BMP removed."""
+    return "".join(ch for ch in text if ord(ch) <= 0xFFFF)
+
+
 def _build_vnc_url() -> str:
     """Return the URL to access the noVNC interface."""
     port = os.getenv("WEBVIEW_PORT", "5005")
@@ -125,7 +130,7 @@ def process_prompt_in_chat(
         textarea.click()
         textarea.send_keys(Keys.CONTROL + "a")
         textarea.send_keys(Keys.DELETE)
-        textarea.send_keys(prompt_text)
+        textarea.send_keys(strip_non_bmp(prompt_text))
 
         submit_btn = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.ID, "composer-submit-button"))
@@ -317,7 +322,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             )
             rename_input.send_keys(Keys.CONTROL + "a")
             rename_input.send_keys(Keys.BACK_SPACE)
-            rename_input.send_keys(new_title)
+            rename_input.send_keys(strip_non_bmp(new_title))
             rename_input.send_keys(Keys.ENTER)
         except Exception as e:
             log_warning(f"[selenium][ERROR] rename failed: {e}")
