@@ -659,6 +659,21 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
 
 # === Avvio ===
 
+
+async def plugin_startup_callback(application):
+    """Launch plugin start() once the bot's event loop is ready."""
+    plugin_obj = plugin_instance.get_plugin()
+    if plugin_obj and hasattr(plugin_obj, "start"):
+        try:
+            if asyncio.iscoroutinefunction(plugin_obj.start):
+                await plugin_obj.start()
+            else:
+                plugin_obj.start()
+            log_debug("[plugin] Plugin start executed via post_init.")
+        except Exception as e:
+            log_error(f"[plugin] Error during post_init start: {e}", e)
+
+
 def start_bot():
 
 
@@ -671,7 +686,12 @@ def start_bot():
     loop.run_until_complete(update_weather())
     start_weather_updater()
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .post_init(plugin_startup_callback)
+        .build()
+    )
 
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("block", block_user))
