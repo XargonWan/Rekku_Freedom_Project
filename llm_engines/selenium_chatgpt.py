@@ -9,9 +9,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import json
-import time
-import pyperclip
-from typing import Dict
+from typing import Dict, Optional
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
 from core.logging_utils import log_debug, log_info, log_warning, log_error
@@ -19,8 +17,8 @@ import asyncio
 import os
 import subprocess
 
-# Cache the last response per Telegram chat to avoid duplicates
-previous_responses: Dict[int, str] = {}
+# Cache the last response per ChatGPT chat to avoid duplicates
+previous_responses: Dict[str, str] = {}
 
 
 def _build_vnc_url() -> str:
@@ -77,11 +75,69 @@ def wait_for_response(driver, before_count: int, timeout: int = 60):
         parent = new_btn.find_element(By.XPATH, "./ancestor::div[contains(@class,'group')]")
         return parent
     except TimeoutException:
-        log_warning("[selenium][ERROR] wait_for_response timeout")
+        log_warning("[selenium][ERROR] No copy button found (timeout)")
         return None
     except Exception as e:
         log_error(f"[selenium][ERROR] wait_for_response failed: {e}", e)
         return None
+
+
+def process_prompt_in_chat(driver, chat_id: str, prompt_text: str) -> Optional[str]:
+    """Send a prompt to the given ChatGPT chat and return the new response text."""
+    log_debug(f"[selenium][STEP] Opening chat {chat_id}")
+    driver.get(f"https://chat.openai.com/chat/{chat_id}")
+
+    try:
+        textarea = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.ID, "prompt-textarea"))
+        )
+    except TimeoutException:
+        log_error("[selenium][ERROR] prompt textarea not found")
+        return None
+
+    before_count = len(
+        driver.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
+    )
+
+    try:
+        textarea.click()
+        textarea.send_keys(prompt_text + Keys.ENTER)
+        log_debug("[selenium][STEP] Prompt submitted")
+    except ElementNotInteractableException as e:
+        log_warning(f"[selenium][ERROR] textarea not interactable: {e}")
+        return None
+    except Exception as e:
+        log_error(f"[selenium][ERROR] failed to send prompt: {e}", e)
+        return None
+
+    container = wait_for_response(driver, before_count, timeout=20)
+    if container is None:
+        log_warning("[selenium][ERROR] No copy button found (timeout)")
+        return None
+
+    try:
+        # Last visible markdown element within the new response container
+        md_elem = container.find_elements(By.CSS_SELECTOR, "div.markdown")
+        if md_elem:
+            response_elem = md_elem[-1]
+        else:
+            # Fallback: last markdown on page
+            response_elem = driver.find_elements(By.CSS_SELECTOR, "div.markdown")[-1]
+        response_text = response_elem.get_attribute("textContent").strip()
+        log_debug("[selenium][STEP] Response element found")
+        log_debug(f"[selenium][STEP] Response text retrieved: {response_text[:50]}")
+    except Exception as e:
+        log_error(f"[selenium][ERROR] failed to extract response text: {e}", e)
+        return None
+
+    previous = previous_responses.get(chat_id)
+    matched = response_text == previous
+    log_debug(f"[selenium][STEP] Chat ID {chat_id} matched previous response: {matched}")
+    if matched:
+        log_debug("[selenium][STEP] Response unchanged")
+        return None
+    previous_responses[chat_id] = response_text
+    return response_text
 
 
 
@@ -208,10 +264,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
         driver = self.driver
 
-        log_debug("[selenium][STEP] opening chat.openai.com")
-        driver.get("https://chat.openai.com")
+        log_debug("[selenium][STEP] opening ChatGPT")
 
         try:
+            driver.get("https://chat.openai.com")
             WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.TAG_NAME, "main"))
             )
@@ -251,70 +307,15 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except Exception as e:
             log_warning(f"[selenium][ERROR] rename failed: {e}")
 
-        # === Send prompt ===
+        # === Send prompt and read response ===
         try:
-            before_count = len(
-                driver.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
-            )
-            textarea = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.ID, "prompt-textarea"))
-            )
-            textarea.click()
             prompt_text = json.dumps(prompt, ensure_ascii=False)
-            textarea.send_keys(prompt_text)
-
-            send_btn = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.ID, "composer-submit-button"))
-            )
-            send_btn.click()
-            log_debug("[selenium][STEP] prompt submitted")
-        except ElementNotInteractableException as e:
-            log_warning(f"[selenium][ERROR] textarea not interactable: {e}")
-            return
+            response_text = process_prompt_in_chat(driver, "new", prompt_text)
         except Exception as e:
-            log_error(f"[selenium][ERROR] failed to submit prompt: {e}", e)
-            return
-
-        log_debug("[selenium][STEP] Waiting 10 seconds to allow ChatGPT to generate response")
-        time.sleep(10)
-
-        # === Wait for response ===
-        response_text = ""
-        try:
-            container = wait_for_response(driver, before_count)
-            if container is None:
-                response_text = "⚠️ No response received"
-            else:
-                copy_buttons = driver.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
-                if not copy_buttons:
-                    log_error("[selenium][ERROR] No copy buttons found (data-testid='copy-turn-action-button')")
-                    raise RuntimeError("No response copy button detected")
-                log_debug(f"[selenium][INFO] {len(copy_buttons)} response copy buttons found")
-                try:
-                    copy_buttons[-1].click()
-                    log_debug("[selenium][STEP] Last copy button clicked successfully")
-                except Exception as e:
-                    log_error(f"[selenium][ERROR] Failed to click copy button: {e}")
-                    raise
-                try:
-                    response_text = pyperclip.paste()
-                    log_debug(f"[selenium][STEP] Clipboard read successful, content length: {len(response_text)}")
-                except Exception as e:
-                    log_error(f"[selenium][ERROR] Clipboard read failed: {e}")
-                    raise
-                previous = previous_responses.get(message.chat_id)
-                if response_text == previous:
-                    log_warning(
-                        f"[selenium][WARN] Received response is identical to cached one for chat_id={message.chat_id}"
-                    )
-                    raise TimeoutError("No new response detected")
-                previous_responses[message.chat_id] = response_text
-                log_debug(f"[selenium][STEP] Response stored in cache for chat_id={message.chat_id}")
-            if not response_text:
-                response_text = "⚠️ Empty response"
-        except Exception as e:
-            log_error(f"[selenium][ERROR] failed to read response: {e}", e)
+            log_error(f"[selenium][ERROR] failed to process prompt: {e}", e)
             response_text = "⚠️ Error reading response"
+        if not response_text:
+            response_text = "⚠️ No response received"
 
         # === Forward to Telegram ===
         try:
