@@ -6,6 +6,7 @@ from selenium.common.exceptions import (
     ElementNotInteractableException,
 )
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
@@ -111,11 +112,14 @@ def wait_for_response_change(
 
 
 def process_prompt_in_chat(
-    driver, chat_id: str, prompt_text: str, previous_text: str
+    driver, chat_id: str | None, prompt_text: str, previous_text: str
 ) -> Optional[str]:
     """Send a prompt to a ChatGPT chat and return the newly generated text."""
-    log_debug(f"[selenium][STEP] Opening chat {chat_id}")
-    driver.get(f"https://chat.openai.com/chat/{chat_id}")
+    if chat_id:
+        log_debug(f"[selenium][STEP] Opening chat {chat_id}")
+        driver.get(f"https://chat.openai.com/chat/{chat_id}")
+    else:
+        log_debug("[selenium][STEP] Using currently open chat")
 
     try:
         textarea = WebDriverWait(driver, 10).until(
@@ -130,7 +134,17 @@ def process_prompt_in_chat(
         textarea.click()
         textarea.send_keys(Keys.CONTROL + "a")
         textarea.send_keys(Keys.DELETE)
-        textarea.send_keys(strip_non_bmp(prompt_text))
+
+        clean_text = strip_non_bmp(prompt_text)
+        textarea.send_keys(clean_text)
+
+        current_value = textarea.get_attribute("value") or ""
+        if current_value != clean_text:
+            log_warning("[selenium][WARN] Textarea mismatch, retrying with ActionChains")
+            ActionChains(driver).click(textarea).send_keys(clean_text).perform()
+            current_value = textarea.get_attribute("value") or ""
+            if current_value != clean_text:
+                log_error("[selenium][ERROR] Prompt text truncated after send_keys")
 
         submit_btn = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.ID, "composer-submit-button"))
@@ -307,23 +321,42 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             new_title = f"⚙️{chat_emoji} Telegram/{chat_name}{thread_part} - 1"
             log_debug(f"[selenium][STEP] renaming chat to: {new_title}")
 
+            # open latest chat entry
+            latest_link = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "a.group.__menu-item.hoverable"))
+            )
+            latest_link.click()
+
             options_btn = WebDriverWait(driver, 5).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='history-item-0-options']"))
             )
             options_btn.click()
 
-            rename_btn = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Rename')]"))
-            )
-            rename_btn.click()
+            try:
+                menu_items = WebDriverWait(driver, 5).until(
+                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div[data-testid='share-chat-menu-item']"))
+                )
+                rename_item = None
+                for item in menu_items:
+                    if item.text.strip().lower() == "rename":
+                        rename_item = item
+                        break
+                if not rename_item:
+                    log_error("[ERROR] Rename menu not found")
+                    return
+                ActionChains(driver).move_to_element(rename_item).click().perform()
+                log_debug("[DEBUG] Rename menu opened")
+            except Exception as e:
+                log_error(f"[ERROR] Rename menu not found: {e}")
+                return
 
             rename_input = WebDriverWait(driver, 5).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "textarea"))
             )
-            rename_input.send_keys(Keys.CONTROL + "a")
-            rename_input.send_keys(Keys.BACK_SPACE)
+            rename_input.clear()
             rename_input.send_keys(strip_non_bmp(new_title))
             rename_input.send_keys(Keys.ENTER)
+            log_debug("[DEBUG] Rename field found and edited")
         except Exception as e:
             log_warning(f"[selenium][ERROR] rename failed: {e}")
 
@@ -331,7 +364,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         try:
             prompt_text = json.dumps(prompt, ensure_ascii=False)
             prev = get_previous_response(message.chat_id)
-            response_text = process_prompt_in_chat(driver, "new", prompt_text, prev)
+            response_text = process_prompt_in_chat(driver, None, prompt_text, prev)
         except Exception as e:
             log_error(f"[selenium][ERROR] failed to process prompt: {e}", e)
             response_text = "⚠️ Error reading response"
