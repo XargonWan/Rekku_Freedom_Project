@@ -333,12 +333,13 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         self.driver = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task = None
+        log_debug(f"[selenium] notify_fn passed: {bool(notify_fn)}")
         if notify_fn:
             set_notifier(notify_fn)
 
     async def start(self):
         """Start the background worker loop."""
-        log_debug("[selenium] start() invoked")
+        log_debug("[selenium] \U0001F7E2 start() called")
         if self.is_worker_running():
             log_debug("[selenium] Worker already running")
             return
