@@ -103,12 +103,11 @@ def _notify_gui(message: str = ""):
 
 
 def wait_for_response_change(
-    driver, previous_text: str, timeout: int = 40
+    driver, previous_text: str, timeout: int = 30
 ) -> Optional[str]:
-    """Poll the last markdown block until its text differs from ``previous_text``."""
+    """Return new markdown text once it stays unchanged for 2 seconds."""
 
     log_debug("🕓 Waiting for new markdown content...")
-    end_time = time.time() + timeout
 
     try:
         WebDriverWait(driver, timeout).until(
@@ -118,18 +117,44 @@ def wait_for_response_change(
         log_warning("❌ Timeout while waiting for new response")
         return None
 
+    end_time = time.time() + timeout
+    last_seen_text = previous_text
+    last_change = time.time()
+
     while time.time() < end_time:
         try:
             elements = driver.find_elements(By.CSS_SELECTOR, "div.markdown")
-            if elements:
-                latest_text = elements[-1].get_attribute("textContent").strip()
-                if latest_text and latest_text != previous_text:
-                    log_debug("🟢 New markdown found and different from previous.")
+            if not elements:
+                time.sleep(0.5)
+                continue
+
+            latest_text = elements[-1].get_attribute("textContent") or ""
+            latest_text = latest_text.strip()
+
+            changed = latest_text != last_seen_text
+            log_debug(
+                f"[selenium][DEBUG] len={len(latest_text)} changed={changed}"
+            )
+
+            if changed:
+                last_seen_text = latest_text
+                last_change = time.time()
+            else:
+                if (
+                    latest_text
+                    and latest_text != previous_text
+                    and time.time() - last_change >= 2
+                ):
+                    log_debug(
+                        f"🟢 Response stabilized with length {len(latest_text)}"
+                    )
+                    log_debug(f"[selenium][DEBUG] final text: {latest_text[:120]}...")
                     return latest_text
-                log_debug("🟡 Still same text, waiting...")
+
         except Exception as e:
             log_warning(f"❌ Error during markdown check: {e}")
-        time.sleep(1)
+
+        time.sleep(0.5)
 
     log_warning("❌ Timeout while waiting for new response")
     return None
