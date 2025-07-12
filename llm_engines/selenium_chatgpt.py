@@ -60,6 +60,8 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
         "arguments[0].focus();"
         "arguments[0].innerText = arguments[1];"
         "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
+        "arguments[0].dispatchEvent(new KeyboardEvent('keydown', {bubbles: true}));"
+        "arguments[0].dispatchEvent(new KeyboardEvent('keyup', {bubbles: true}));"
     )
     driver.execute_script(script, textarea, clean_text)
 
