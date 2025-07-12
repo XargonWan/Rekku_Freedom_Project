@@ -3,6 +3,7 @@ from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import json
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
@@ -167,10 +168,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         await asyncio.sleep(1)
         log_debug("[selenium] Navigating to https://chat.openai.com")
         self.driver.get("https://chat.openai.com")
-        await asyncio.sleep(1)
+
         try:
-            self.driver.find_element(By.TAG_NAME, "aside")
-        except NoSuchElementException:
+            WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.TAG_NAME, "aside"))
+            )
+        except TimeoutException:
             log_debug("[selenium] Sidebar missing, notifying owner")
             _notify_gui("❌ Selenium error: Sidebar not found. Open UI")
             return
@@ -185,15 +188,15 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             new_title = f"[⚙️][{chat_emoji}] Telegram/{chat_name}{thread_part} - 1"
 
             menu_btn = WebDriverWait(self.driver, 5).until(
-                lambda d: d.find_element(By.CSS_SELECTOR, "nav [aria-haspopup='menu']")
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "nav [aria-haspopup='menu']"))
             )
             menu_btn.click()
             rename_btn = WebDriverWait(self.driver, 5).until(
-                lambda d: d.find_element(By.XPATH, "//div[contains(text(),'Rename')]")
+                EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Rename')]"))
             )
             rename_btn.click()
             rename_input = WebDriverWait(self.driver, 5).until(
-                lambda d: d.find_element(By.CSS_SELECTOR, "textarea")
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "textarea"))
             )
             rename_input.send_keys(Keys.CONTROL + "a")
             rename_input.send_keys(Keys.BACKSPACE)
@@ -205,7 +208,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
         try:
             textarea = WebDriverWait(self.driver, 10).until(
-                lambda d: d.find_element(By.TAG_NAME, "textarea")
+                EC.element_to_be_clickable((By.TAG_NAME, "textarea"))
             )
             textarea.click()
 
@@ -220,17 +223,19 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             )
 
             bubbles = self.driver.find_elements(By.CSS_SELECTOR, ".markdown")
-            response_text = bubbles[-1].text if bubbles else ""
+            response_text = bubbles[-1].text.strip() if bubbles else ""
 
             if response_text:
                 await bot.send_message(
                     chat_id=message.chat_id,
-                    text=response_text
+                    text=response_text,
+                    reply_to_message_id=message.message_id,
                 )
             else:
                 await bot.send_message(
                     chat_id=message.chat_id,
-                    text="⚠️ No response received from ChatGPT."
+                    text="⚠️ No response received from ChatGPT.",
+                    reply_to_message_id=message.message_id,
                 )
             log_debug(
                 f"[selenium] [RESPONSE] Sent to chat_id={message.chat_id}"
@@ -239,13 +244,15 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             log_warning("[selenium] Timeout waiting for ChatGPT response")
             await bot.send_message(
                 chat_id=message.chat_id,
-                text="⚠️ Timeout waiting for ChatGPT."
+                text="⚠️ Timeout waiting for ChatGPT.",
+                reply_to_message_id=message.message_id,
             )
         except Exception as e:
             log_error(f"[selenium] Error during interaction: {e}", e)
             await bot.send_message(
                 chat_id=message.chat_id,
-                text="⚠️ Selenium interaction error."
+                text="⚠️ Selenium interaction error.",
+                reply_to_message_id=message.message_id,
             )
 
 
