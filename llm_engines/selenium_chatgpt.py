@@ -1,6 +1,10 @@
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    TimeoutException,
+    ElementNotInteractableException,
+)
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -156,104 +160,107 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 log_debug("[selenium] [WORKER] Task completed")
 
     async def _process_message(self, bot, message, prompt):
-        log_debug(f"[selenium] Prompt ricevuto: {prompt}")
+        """Send the prompt to ChatGPT and forward the response."""
+        log_debug(f"[selenium][STEP] processing prompt: {prompt}")
 
         if self.driver is None:
             self._init_driver()
         if not self._ensure_logged_in():
             return
-        log_debug("[selenium] Browser ready for prompt")
 
-        # Vai nella chat corretta (puoi estendere questa logica)
-        await asyncio.sleep(1)
-        log_debug("[selenium] Navigating to https://chat.openai.com")
-        self.driver.get("https://chat.openai.com")
+        driver = self.driver
+
+        log_debug("[selenium][STEP] opening chat.openai.com")
+        driver.get("https://chat.openai.com")
 
         try:
-            WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.TAG_NAME, "aside"))
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.TAG_NAME, "main"))
             )
         except TimeoutException:
-            log_debug("[selenium] Sidebar missing, notifying owner")
-            _notify_gui("❌ Selenium error: Sidebar not found. Open UI")
+            log_warning("[selenium][ERROR] ChatGPT UI failed to load")
+            _notify_gui("❌ Selenium error: ChatGPT UI not ready. Open UI")
             return
 
         # === Rename conversation tab ===
         try:
-            chat_emoji = "📩" if message.chat.type == "private" else "💬"
             chat_name = message.chat.title or getattr(message.chat, "full_name", "") or str(message.chat_id)
+            is_group = message.chat.type in ("group", "supergroup")
+            chat_emoji = "💬" if is_group else "📩"
             thread_part = (
                 f"/Thread {message.message_thread_id}" if getattr(message, "message_thread_id", None) else ""
             )
-            new_title = f"[⚙️][{chat_emoji}] Telegram/{chat_name}{thread_part} - 1"
+            new_title = f"⚙️{chat_emoji} Telegram/{chat_name}{thread_part} - 1"
+            log_debug(f"[selenium][STEP] renaming chat to: {new_title}")
 
-            menu_btn = WebDriverWait(self.driver, 5).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "nav [aria-haspopup='menu']"))
+            options_btn = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='history-item-0-options']"))
             )
-            menu_btn.click()
-            rename_btn = WebDriverWait(self.driver, 5).until(
-                EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Rename')]"))
+            options_btn.click()
+
+            rename_btn = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Rename')]"))
             )
             rename_btn.click()
-            rename_input = WebDriverWait(self.driver, 5).until(
+
+            rename_input = WebDriverWait(driver, 5).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "textarea"))
             )
             rename_input.send_keys(Keys.CONTROL + "a")
-            rename_input.send_keys(Keys.BACKSPACE)
+            rename_input.send_keys(Keys.BACK_SPACE)
             rename_input.send_keys(new_title)
             rename_input.send_keys(Keys.ENTER)
-            log_debug(f"[selenium] Chat renamed to: {new_title}")
         except Exception as e:
-            log_debug(f"[selenium] Chat rename failed: {e}")
+            log_warning(f"[selenium][ERROR] rename failed: {e}")
 
+        # === Send prompt ===
         try:
-            textarea = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.TAG_NAME, "textarea"))
+            textarea = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "prompt-textarea"))
             )
             textarea.click()
-
             prompt_text = json.dumps(prompt, ensure_ascii=False)
             textarea.send_keys(prompt_text)
-            textarea.send_keys(Keys.ENTER)
 
-            prev_count = len(self.driver.find_elements(By.CSS_SELECTOR, ".markdown"))
-
-            WebDriverWait(self.driver, 30).until(
-                lambda d: len(d.find_elements(By.CSS_SELECTOR, ".markdown")) > prev_count
+            send_btn = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "composer-submit-button"))
             )
-
-            bubbles = self.driver.find_elements(By.CSS_SELECTOR, ".markdown")
-            response_text = bubbles[-1].text.strip() if bubbles else ""
-
-            if response_text:
-                await bot.send_message(
-                    chat_id=message.chat_id,
-                    text=response_text,
-                    reply_to_message_id=message.message_id,
-                )
-            else:
-                await bot.send_message(
-                    chat_id=message.chat_id,
-                    text="⚠️ No response received from ChatGPT.",
-                    reply_to_message_id=message.message_id,
-                )
-            log_debug(
-                f"[selenium] [RESPONSE] Sent to chat_id={message.chat_id}"
-            )
-        except TimeoutException:
-            log_warning("[selenium] Timeout waiting for ChatGPT response")
-            await bot.send_message(
-                chat_id=message.chat_id,
-                text="⚠️ Timeout waiting for ChatGPT.",
-                reply_to_message_id=message.message_id,
-            )
+            send_btn.click()
+            log_debug("[selenium][STEP] prompt submitted")
+        except ElementNotInteractableException as e:
+            log_warning(f"[selenium][ERROR] textarea not interactable: {e}")
+            return
         except Exception as e:
-            log_error(f"[selenium] Error during interaction: {e}", e)
+            log_error(f"[selenium][ERROR] failed to submit prompt: {e}", e)
+            return
+
+        # === Wait for response ===
+        response_text = ""
+        try:
+            prev_count = len(driver.find_elements(By.CSS_SELECTOR, "div.markdown"))
+            WebDriverWait(driver, 30).until(
+                lambda d: len(d.find_elements(By.CSS_SELECTOR, "div.markdown")) > prev_count
+            )
+            bubbles = driver.find_elements(By.CSS_SELECTOR, "div.markdown")
+            if bubbles:
+                response_text = bubbles[-1].text.strip()
+        except TimeoutException:
+            log_warning("[selenium][ERROR] timeout waiting for response")
+            response_text = "⚠️ No response received"
+        except Exception as e:
+            log_error(f"[selenium][ERROR] failed to read response: {e}", e)
+            response_text = "⚠️ Error reading response"
+
+        # === Forward to Telegram ===
+        try:
             await bot.send_message(
                 chat_id=message.chat_id,
-                text="⚠️ Selenium interaction error.",
+                text=response_text,
                 reply_to_message_id=message.message_id,
             )
+            log_debug(f"[selenium][STEP] response forwarded to {message.chat_id}")
+        except Exception as e:
+            log_error(f"[selenium][ERROR] failed to send Telegram message: {e}", e)
 
 
     def get_supported_models(self):
