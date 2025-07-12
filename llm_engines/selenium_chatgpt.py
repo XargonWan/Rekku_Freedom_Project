@@ -1,12 +1,76 @@
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    TimeoutException,
+    ElementNotInteractableException,
+)
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import time
+import json
+from typing import Dict, Optional
+import threading
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 import asyncio
 import os
 import subprocess
+
+# Cache the last response per Telegram chat to avoid duplicates
+previous_responses: Dict[int, str] = {}
+response_cache_lock = threading.Lock()
+
+
+def get_previous_response(chat_id: int) -> str:
+    """Return the cached response for the given Telegram chat."""
+    with response_cache_lock:
+        return previous_responses.get(chat_id, "")
+
+
+def update_previous_response(chat_id: int, new_text: str) -> None:
+    """Store ``new_text`` for ``chat_id`` inside the cache."""
+    with response_cache_lock:
+        previous_responses[chat_id] = new_text
+
+
+def has_response_changed(chat_id: int, new_text: str) -> bool:
+    """Return True if ``new_text`` is different from the cached value."""
+    with response_cache_lock:
+        old = previous_responses.get(chat_id)
+    return old != new_text
+
+
+def strip_non_bmp(text: str) -> str:
+    """Return ``text`` with characters above the BMP removed."""
+    return "".join(ch for ch in text if ord(ch) <= 0xFFFF)
+
+
+def _send_text_to_textarea(driver, textarea, text: str) -> None:
+    """Inject ``text`` into the ChatGPT prompt area via JavaScript."""
+    clean_text = strip_non_bmp(text)
+    log_debug(f"[DEBUG] Length before sending: {len(clean_text)}")
+    preview = clean_text[:120] + ("..." if len(clean_text) > 120 else "")
+    log_debug(f"[DEBUG] Text preview: {preview}")
+
+    script = (
+        "arguments[0].focus();"
+        "arguments[0].innerText = arguments[1];"
+        "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
+        "arguments[0].dispatchEvent(new KeyboardEvent('keydown', {bubbles: true}));"
+        "arguments[0].dispatchEvent(new KeyboardEvent('keyup', {bubbles: true}));"
+    )
+    driver.execute_script(script, textarea, clean_text)
+
+    actual = driver.execute_script("return arguments[0].innerText;", textarea) or ""
+    log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
+    if actual != clean_text:
+        log_error(
+            f"[ERROR] Text truncated: expected {len(clean_text)} chars, found {len(actual)}"
+        )
 
 
 def _build_vnc_url() -> str:
@@ -36,6 +100,194 @@ def _notify_gui(message: str = ""):
         notify_owner(text)
     except Exception as e:
         log_error(f"[selenium] notify_owner failed: {e}", e)
+
+
+def wait_for_response_change(
+    driver, previous_text: str, timeout: int = 30
+) -> Optional[str]:
+    """Return new markdown text once it stays unchanged for 2 seconds."""
+
+    log_debug("🕓 Waiting for new markdown content...")
+
+    try:
+        WebDriverWait(driver, timeout).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.markdown"))
+        )
+    except TimeoutException:
+        log_warning("❌ Timeout while waiting for new response")
+        return None
+
+    end_time = time.time() + timeout
+    last_seen_text = previous_text
+    last_change = time.time()
+
+    while time.time() < end_time:
+        try:
+            elements = driver.find_elements(By.CSS_SELECTOR, "div.markdown")
+            if not elements:
+                time.sleep(0.5)
+                continue
+
+            latest_text = elements[-1].get_attribute("textContent") or ""
+            latest_text = latest_text.strip()
+
+            changed = latest_text != last_seen_text
+            log_debug(
+                f"[selenium][DEBUG] len={len(latest_text)} changed={changed}"
+            )
+
+            if changed:
+                last_seen_text = latest_text
+                last_change = time.time()
+            else:
+                if (
+                    latest_text
+                    and latest_text != previous_text
+                    and time.time() - last_change >= 2
+                ):
+                    log_debug(
+                        f"🟢 Response stabilized with length {len(latest_text)}"
+                    )
+                    log_debug(f"[selenium][DEBUG] final text: {latest_text[:120]}...")
+                    return latest_text
+
+        except Exception as e:
+            log_warning(f"❌ Error during markdown check: {e}")
+
+        time.sleep(0.5)
+
+    log_warning("❌ Timeout while waiting for new response")
+    return None
+
+
+def process_prompt_in_chat(
+    driver, chat_id: str | None, prompt_text: str, previous_text: str
+) -> Optional[str]:
+    """Send a prompt to a ChatGPT chat and return the newly generated text."""
+    if chat_id:
+        log_debug(f"[selenium][STEP] Opening chat {chat_id}")
+        driver.get(f"https://chat.openai.com/chat/{chat_id}")
+    else:
+        log_debug("[selenium][STEP] Using currently open chat")
+
+    try:
+        textarea = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.ID, "prompt-textarea"))
+        )
+    except TimeoutException:
+        log_error("[selenium][ERROR] prompt textarea not found")
+        return None
+
+
+    try:
+        textarea.click()
+        textarea.send_keys(Keys.CONTROL + "a")
+        textarea.send_keys(Keys.DELETE)
+
+        clean_text = strip_non_bmp(prompt_text)
+        textarea.send_keys(clean_text)
+
+        current_value = textarea.get_attribute("value") or ""
+        if current_value != clean_text:
+            log_warning("[selenium][WARN] Textarea mismatch, retrying with ActionChains")
+            ActionChains(driver).click(textarea).send_keys(clean_text).perform()
+            current_value = textarea.get_attribute("value") or ""
+            if current_value != clean_text:
+                log_error("[selenium][ERROR] Prompt text truncated after send_keys")
+
+        submit_btn = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.ID, "composer-submit-button"))
+        )
+        submit_btn.click()
+        log_debug("📨 Prompt sent")
+    except ElementNotInteractableException as e:
+        log_warning(f"[selenium][ERROR] textarea not interactable: {e}")
+        return None
+    except Exception as e:
+        log_error(f"[selenium][ERROR] failed to send prompt: {e}", e)
+        return None
+
+    log_debug("🔍 Waiting for response block...")
+    try:
+        response_text = wait_for_response_change(driver, previous_text)
+    except Exception as e:
+        log_error(f"[selenium][ERROR] waiting for response failed: {e}", e)
+        return None
+
+    if response_text is None:
+        return None
+    if not response_text or response_text == previous_text:
+        log_debug("🟡 No new response, skipping")
+        return None
+    log_debug("📝 New response text extracted")
+    return response_text.strip()
+
+
+def rename_and_send_prompt(driver, chat_info, prompt_text: str) -> Optional[str]:
+    """Rename the active chat and send ``prompt_text``. Return the new response."""
+    try:
+        chat_name = (
+            chat_info.chat.title
+            or getattr(chat_info.chat, "full_name", "")
+            or str(chat_info.chat_id)
+        )
+        is_group = chat_info.chat.type in ("group", "supergroup")
+        emoji = "💬" if is_group else "💌"
+        thread = (
+            f"/Thread {chat_info.message_thread_id}" if getattr(chat_info, "message_thread_id", None) else ""
+        )
+        new_title = f"⚙️{emoji} Telegram/{chat_name}{thread} - 1"
+        log_debug(f"[selenium][STEP] renaming chat to: {new_title}")
+
+        options_btn = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='history-item-0-options']"))
+        )
+        options_btn.click()
+        script = (
+            "const buttons = Array.from(document.querySelectorAll('[data-testid=\"share-chat-menu-item\"]'));"
+            " const rename = buttons.find(b => b.innerText.trim() === 'Rename');"
+            " if (rename) rename.click();"
+        )
+        driver.execute_script(script)
+        rename_input = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "[role='textbox']"))
+        )
+        rename_input.clear()
+        rename_input.send_keys(strip_non_bmp(new_title))
+        rename_input.send_keys(Keys.ENTER)
+        log_debug("[DEBUG] Rename field found and edited")
+    except Exception as e:
+        log_warning(f"[selenium][ERROR] rename failed: {e}")
+
+    try:
+        textarea = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.ID, "prompt-textarea"))
+        )
+    except TimeoutException:
+        log_error("[selenium][ERROR] prompt textarea not found")
+        return None
+
+    try:
+        _send_text_to_textarea(driver, textarea, prompt_text)
+        textarea.send_keys(Keys.ENTER)
+    except Exception as e:
+        log_error(f"[selenium][ERROR] failed to send prompt: {e}")
+        return None
+
+    previous_text = get_previous_response(chat_info.chat_id)
+    log_debug("🔍 Waiting for response block...")
+    try:
+        response_text = wait_for_response_change(driver, previous_text)
+    except Exception as e:
+        log_error(f"[selenium][ERROR] waiting for response failed: {e}")
+        return None
+
+    if not response_text:
+        log_debug("🟡 No new response, skipping")
+        return None
+    update_previous_response(chat_info.chat_id, response_text)
+    log_debug("📝 New response text extracted")
+    return response_text.strip()
 
 
 
@@ -152,34 +404,47 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 log_debug("[selenium] [WORKER] Task completed")
 
     async def _process_message(self, bot, message, prompt):
-        log_debug(f"[selenium] Prompt ricevuto: {prompt}")
+        """Send the prompt to ChatGPT and forward the response."""
+        log_debug(f"[selenium][STEP] processing prompt: {prompt}")
 
         if self.driver is None:
             self._init_driver()
         if not self._ensure_logged_in():
             return
-        log_debug("[selenium] Browser ready for prompt")
 
-        # Vai nella chat corretta (puoi estendere questa logica)
-        await asyncio.sleep(1)
-        log_debug("[selenium] Navigating to https://chat.openai.com")
-        self.driver.get("https://chat.openai.com")
-        await asyncio.sleep(1)
+        driver = self.driver
+
+        log_debug("[selenium][STEP] opening ChatGPT")
+
         try:
-            self.driver.find_element(By.TAG_NAME, "aside")
-        except NoSuchElementException:
-            log_debug("[selenium] Sidebar missing, notifying owner")
-            _notify_gui("❌ Selenium error: Sidebar not found. Open UI")
+            driver.get("https://chat.openai.com")
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.TAG_NAME, "main"))
+            )
+        except TimeoutException:
+            log_warning("[selenium][ERROR] ChatGPT UI failed to load")
+            _notify_gui("❌ Selenium error: ChatGPT UI not ready. Open UI")
             return
 
-        # Simula risposta finta
-        await bot.send_message(
-            chat_id=message.chat_id,
-            text="🤖 (Risposta finta: plugin Selenium operativo)"
-        )
-        log_debug(
-            f"[selenium] [RESPONSE] Sent to chat_id={message.chat_id}"
-        )
+        try:
+            prompt_text = json.dumps(prompt, ensure_ascii=False)
+            response_text = rename_and_send_prompt(driver, message, prompt_text)
+        except Exception as e:
+            log_error(f"[selenium][ERROR] failed to send prompt: {e}", e)
+            response_text = "⚠️ Error reading response"
+        if not response_text:
+            response_text = "⚠️ No response received"
+
+        # === Forward to Telegram ===
+        try:
+            await bot.send_message(
+                chat_id=message.chat_id,
+                text=response_text,
+                reply_to_message_id=message.message_id,
+            )
+            log_debug(f"[selenium][STEP] response forwarded to {message.chat_id}")
+        except Exception as e:
+            log_error(f"[selenium][ERROR] failed to send Telegram message: {e}", e)
 
 
     def get_supported_models(self):
