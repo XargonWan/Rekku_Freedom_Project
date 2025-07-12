@@ -8,6 +8,7 @@ from selenium.common.exceptions import (
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+import time
 import json
 from typing import Dict, Optional
 from core.ai_plugin_base import AIPluginBase
@@ -50,36 +51,36 @@ def _notify_gui(message: str = ""):
         log_error(f"[selenium] notify_owner failed: {e}", e)
 
 
-def wait_for_response(driver, before_count: int, timeout: int = 60):
-    """Wait for a new ChatGPT response identified by a new copy button.
+def wait_for_response_change(driver, previous_text: str, timeout: int = 40) -> str:
+    """Wait for the last markdown block to change compared to ``previous_text``.
 
     Args:
         driver: Selenium WebDriver instance.
-        before_count: Number of copy buttons visible before waiting.
+        previous_text: The last seen markdown text content.
         timeout: Maximum time to wait in seconds.
 
     Returns:
-        The parent WebElement containing the response text or None if timeout.
+        The new markdown text if changed, or ``previous_text`` on timeout.
     """
-    log_debug(f"[selenium][STEP] wait_for_response starting (count={before_count})")
-    try:
-        WebDriverWait(driver, timeout).until(
-            lambda d: len(
-                d.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
+    log_debug("🕓 Waiting for new markdown content...")
+    end_time = time.time() + timeout
+    while time.time() < end_time:
+        try:
+            elements = WebDriverWait(driver, 5).until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.markdown"))
             )
-            > before_count
-        )
-        buttons = driver.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
-        new_btn = buttons[-1]
-        log_debug("[selenium][STEP] new copy button detected")
-        parent = new_btn.find_element(By.XPATH, "./ancestor::div[contains(@class,'group')]")
-        return parent
-    except TimeoutException:
-        log_warning("[selenium][ERROR] No copy button found (timeout)")
-        return None
-    except Exception as e:
-        log_error(f"[selenium][ERROR] wait_for_response failed: {e}", e)
-        return None
+            new_text = elements[-1].get_attribute("textContent")
+            if new_text != previous_text:
+                log_debug("🟢 New markdown found")
+                return new_text
+            log_debug("🟡 Still same text, retrying...")
+        except TimeoutException:
+            log_debug("🟡 Waiting for markdown element...")
+        except Exception as e:
+            log_warning(f"[selenium][ERROR] wait_for_response_change: {e}")
+        time.sleep(1)
+    log_warning("❌ Timeout while waiting for new response")
+    return previous_text
 
 
 def process_prompt_in_chat(driver, chat_id: str, prompt_text: str) -> Optional[str]:
@@ -95,18 +96,12 @@ def process_prompt_in_chat(driver, chat_id: str, prompt_text: str) -> Optional[s
         log_error("[selenium][ERROR] prompt textarea not found")
         return None
 
-    # Count existing copy buttons to detect a new response later
-    before_count = len(
-        driver.find_elements(By.CSS_SELECTOR, "div.markdown button[data-testid='copy-turn-action-button']")
-    )
+    previous_text = previous_responses.get(chat_id, "")
 
     try:
         textarea.click()
-        try:
-            textarea.clear()
-        except Exception:
-            textarea.send_keys(Keys.CONTROL + "a")
-            textarea.send_keys(Keys.DELETE)
+        textarea.send_keys(Keys.CONTROL + "a")
+        textarea.send_keys(Keys.DELETE)
         textarea.send_keys(prompt_text)
 
         submit_btn = WebDriverWait(driver, 10).until(
@@ -123,36 +118,20 @@ def process_prompt_in_chat(driver, chat_id: str, prompt_text: str) -> Optional[s
 
     log_debug("🔍 Waiting for response block...")
     try:
-        WebDriverWait(driver, 30).until(
-            lambda d: len(
-                d.find_elements(By.CSS_SELECTOR, "div.markdown button[data-testid='copy-turn-action-button']")
-            )
-            > before_count
-        )
-        log_debug("✅ Copy button found and response detected")
-    except TimeoutException:
-        log_warning("❌ Timeout waiting for response (fallback)")
-        return None
-
-    try:
-        blocks = driver.find_elements(By.CSS_SELECTOR, "div.markdown")
-        if not blocks:
-            log_warning("[selenium][ERROR] No markdown blocks found")
-            return None
-        response_elem = blocks[-1]
-        response_text = response_elem.get_attribute("textContent").strip()
-        log_debug("📝 New response text extracted")
+        response_text = wait_for_response_change(driver, previous_text)
     except Exception as e:
-        log_error(f"[selenium][ERROR] failed to extract response text: {e}", e)
+        log_error(f"[selenium][ERROR] waiting for response failed: {e}", e)
         return None
+    if response_text == previous_text:
+        return None
+    log_debug("📝 New response text extracted")
 
-    previous = previous_responses.get(chat_id)
-    if response_text == previous:
+    if response_text == previous_responses.get(chat_id):
         log_debug("🟡 No new response, skipping")
         return None
 
     previous_responses[chat_id] = response_text
-    return response_text
+    return response_text.strip()
 
 
 
