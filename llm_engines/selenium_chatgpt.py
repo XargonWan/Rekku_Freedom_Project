@@ -49,6 +49,33 @@ def strip_non_bmp(text: str) -> str:
     return "".join(ch for ch in text if ord(ch) <= 0xFFFF)
 
 
+def _send_text_to_textarea(driver, textarea, text: str) -> None:
+    """Type ``text`` into ``textarea`` with logging and truncation checks."""
+    clean_text = strip_non_bmp(text)
+    log_debug(f"[DEBUG] Length before sending: {len(clean_text)}")
+    preview = clean_text[:120]
+    if len(clean_text) > 120:
+        preview += "..."
+    log_debug(f"[DEBUG] Text preview: {preview}")
+
+    # Select all and delete existing text
+    ActionChains(driver).click(textarea).key_down(Keys.CONTROL).send_keys("a").key_up(Keys.CONTROL).send_keys(Keys.DELETE).perform()
+    textarea.send_keys(clean_text)
+
+    actual = textarea.get_attribute("value") or ""
+    log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
+    if actual != clean_text:
+        log_error(f"[ERROR] Text truncated: expected {len(clean_text)} chars, found {len(actual)}")
+        # Retry using chunks
+        ActionChains(driver).click(textarea).key_down(Keys.CONTROL).send_keys("a").key_up(Keys.CONTROL).send_keys(Keys.DELETE).perform()
+        for i in range(0, len(clean_text), 150):
+            ActionChains(driver).send_keys(clean_text[i:i+150]).perform()
+        actual = textarea.get_attribute("value") or ""
+        log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
+        if actual != clean_text:
+            log_error(f"[ERROR] Text truncated: expected {len(clean_text)} chars, found {len(actual)}")
+
+
 def _build_vnc_url() -> str:
     """Return the URL to access the noVNC interface."""
     port = os.getenv("WEBVIEW_PORT", "5005")
@@ -170,6 +197,73 @@ def process_prompt_in_chat(
     if not response_text or response_text == previous_text:
         log_debug("🟡 No new response, skipping")
         return None
+    log_debug("📝 New response text extracted")
+    return response_text.strip()
+
+
+def rename_and_send_prompt(driver, chat_info, prompt_text: str) -> Optional[str]:
+    """Rename the active chat and send ``prompt_text``. Return the new response."""
+    try:
+        chat_name = (
+            chat_info.chat.title
+            or getattr(chat_info.chat, "full_name", "")
+            or str(chat_info.chat_id)
+        )
+        is_group = chat_info.chat.type in ("group", "supergroup")
+        emoji = "💬" if is_group else "💌"
+        thread = (
+            f"/Thread {chat_info.message_thread_id}" if getattr(chat_info, "message_thread_id", None) else ""
+        )
+        new_title = f"⚙️{emoji} Telegram/{chat_name}{thread} - 1"
+        log_debug(f"[selenium][STEP] renaming chat to: {new_title}")
+
+        options_btn = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='history-item-0-options']"))
+        )
+        options_btn.click()
+        script = (
+            "const buttons = Array.from(document.querySelectorAll('[data-testid=\"share-chat-menu-item\"]'));"
+            " const rename = buttons.find(b => b.innerText.trim() === 'Rename');"
+            " if (rename) rename.click();"
+        )
+        driver.execute_script(script)
+        rename_input = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "[role='textbox']"))
+        )
+        rename_input.clear()
+        rename_input.send_keys(strip_non_bmp(new_title))
+        rename_input.send_keys(Keys.ENTER)
+        log_debug("[DEBUG] Rename field found and edited")
+    except Exception as e:
+        log_warning(f"[selenium][ERROR] rename failed: {e}")
+
+    try:
+        textarea = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.ID, "prompt-textarea"))
+        )
+    except TimeoutException:
+        log_error("[selenium][ERROR] prompt textarea not found")
+        return None
+
+    try:
+        _send_text_to_textarea(driver, textarea, prompt_text)
+        textarea.send_keys(Keys.ENTER)
+    except Exception as e:
+        log_error(f"[selenium][ERROR] failed to send prompt: {e}")
+        return None
+
+    previous_text = get_previous_response(chat_info.chat_id)
+    log_debug("🔍 Waiting for response block...")
+    try:
+        response_text = wait_for_response_change(driver, previous_text)
+    except Exception as e:
+        log_error(f"[selenium][ERROR] waiting for response failed: {e}")
+        return None
+
+    if not response_text:
+        log_debug("🟡 No new response, skipping")
+        return None
+    update_previous_response(chat_info.chat_id, response_text)
     log_debug("📝 New response text extracted")
     return response_text.strip()
 
@@ -310,67 +404,13 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             _notify_gui("❌ Selenium error: ChatGPT UI not ready. Open UI")
             return
 
-        # === Rename conversation tab ===
-        try:
-            chat_name = message.chat.title or getattr(message.chat, "full_name", "") or str(message.chat_id)
-            is_group = message.chat.type in ("group", "supergroup")
-            chat_emoji = "💬" if is_group else "📩"
-            thread_part = (
-                f"/Thread {message.message_thread_id}" if getattr(message, "message_thread_id", None) else ""
-            )
-            new_title = f"⚙️{chat_emoji} Telegram/{chat_name}{thread_part} - 1"
-            log_debug(f"[selenium][STEP] renaming chat to: {new_title}")
-
-            # open latest chat entry
-            latest_link = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "a.group.__menu-item.hoverable"))
-            )
-            latest_link.click()
-
-            options_btn = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='history-item-0-options']"))
-            )
-            options_btn.click()
-
-            try:
-                menu_items = WebDriverWait(driver, 5).until(
-                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div[data-testid='share-chat-menu-item']"))
-                )
-                rename_item = None
-                for item in menu_items:
-                    if item.text.strip().lower() == "rename":
-                        rename_item = item
-                        break
-                if not rename_item:
-                    log_error("[ERROR] Rename menu not found")
-                    return
-                ActionChains(driver).move_to_element(rename_item).click().perform()
-                log_debug("[DEBUG] Rename menu opened")
-            except Exception as e:
-                log_error(f"[ERROR] Rename menu not found: {e}")
-                return
-
-            rename_input = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "textarea"))
-            )
-            rename_input.clear()
-            rename_input.send_keys(strip_non_bmp(new_title))
-            rename_input.send_keys(Keys.ENTER)
-            log_debug("[DEBUG] Rename field found and edited")
-        except Exception as e:
-            log_warning(f"[selenium][ERROR] rename failed: {e}")
-
-        # === Send prompt and read response ===
         try:
             prompt_text = json.dumps(prompt, ensure_ascii=False)
-            prev = get_previous_response(message.chat_id)
-            response_text = process_prompt_in_chat(driver, None, prompt_text, prev)
+            response_text = rename_and_send_prompt(driver, message, prompt_text)
         except Exception as e:
-            log_error(f"[selenium][ERROR] failed to process prompt: {e}", e)
+            log_error(f"[selenium][ERROR] failed to send prompt: {e}", e)
             response_text = "⚠️ Error reading response"
-        if response_text:
-            update_previous_response(message.chat_id, response_text)
-        else:
+        if not response_text:
             response_text = "⚠️ No response received"
 
         # === Forward to Telegram ===
