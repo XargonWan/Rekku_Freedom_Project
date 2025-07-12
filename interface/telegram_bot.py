@@ -669,7 +669,7 @@ async def plugin_startup_callback(application):
                 await plugin_obj.start()
             else:
                 plugin_obj.start()
-            log_debug("[plugin] Plugin start executed via post_init.")
+            log_debug("[plugin] Plugin start executed")
         except Exception as e:
             log_error(f"[plugin] Error during post_init start: {e}", e)
 
@@ -729,5 +729,18 @@ def start_bot():
     ))
 
     log_info("🧞‍♀️ Rekku is online.")
+
+    # Fallback: ensure plugin.start() invoked in case post_init failed
+    plugin_obj = plugin_instance.get_plugin()
+    if plugin_obj and hasattr(plugin_obj, "start"):
+        try:
+            if asyncio.iscoroutinefunction(plugin_obj.start):
+                asyncio.get_event_loop().create_task(plugin_obj.start())
+            else:
+                plugin_obj.start()
+            log_debug("[plugin] Plugin start scheduled from start_bot")
+        except Exception as e:
+            log_error(f"[plugin] Fallback start error: {e}", e)
+
     app.run_polling()
 

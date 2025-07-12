@@ -114,6 +114,19 @@ def init_db():
             """
         )
 
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chatgpt_links (
+                telegram_chat_id INTEGER NOT NULL,
+                thread_id INTEGER,
+                chatgpt_chat_id TEXT NOT NULL,
+                is_full INTEGER DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (telegram_chat_id, thread_id)
+            )
+            """
+        )
+
 # 🧠 Insert a new memory into the database
 def insert_memory(
     content: str,
