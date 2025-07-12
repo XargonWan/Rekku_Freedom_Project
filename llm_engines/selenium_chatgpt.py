@@ -46,6 +46,38 @@ def _notify_gui(message: str = ""):
         log_error(f"[selenium] notify_owner failed: {e}", e)
 
 
+def wait_for_response(driver, before_count: int, timeout: int = 60):
+    """Wait for a new ChatGPT response identified by a new copy button.
+
+    Args:
+        driver: Selenium WebDriver instance.
+        before_count: Number of copy buttons visible before waiting.
+        timeout: Maximum time to wait in seconds.
+
+    Returns:
+        The parent WebElement containing the response text or None if timeout.
+    """
+    log_debug(f"[selenium][STEP] wait_for_response starting (count={before_count})")
+    try:
+        WebDriverWait(driver, timeout).until(
+            lambda d: len(
+                d.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
+            )
+            > before_count
+        )
+        buttons = driver.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
+        new_btn = buttons[-1]
+        log_debug("[selenium][STEP] new copy button detected")
+        parent = new_btn.find_element(By.XPATH, "./ancestor::div[contains(@class,'group')]")
+        return parent
+    except TimeoutException:
+        log_warning("[selenium][ERROR] wait_for_response timeout")
+        return None
+    except Exception as e:
+        log_error(f"[selenium][ERROR] wait_for_response failed: {e}", e)
+        return None
+
+
 
 
 
@@ -240,29 +272,25 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             before_count = len(
                 driver.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
             )
-            WebDriverWait(driver, 30).until(
-                lambda d: len(
-                    d.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
-                )
-                > before_count
-            )
-
-            copy_buttons = driver.find_elements(
-                By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']"
-            )
-            new_btn = copy_buttons[-1]
-            WebDriverWait(driver, 10).until(EC.element_to_be_clickable(new_btn))
-            new_btn.click()
-
-            response_text = driver.execute_async_script(
-                "const done = arguments[0]; navigator.clipboard.readText().then(done).catch(() => done(''));"
-            )
-            response_text = (response_text or "").strip()
+            container = wait_for_response(driver, before_count)
+            if container is None:
+                response_text = "⚠️ No response received"
+            else:
+                try:
+                    copy_btn = container.find_element(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
+                    WebDriverWait(driver, 10).until(EC.element_to_be_clickable(copy_btn))
+                    copy_btn.click()
+                    response_text = driver.execute_async_script(
+                        "const done = arguments[0]; navigator.clipboard.readText().then(done).catch(() => done(''));"
+                    )
+                    response_text = (response_text or "").strip()
+                    if not response_text:
+                        response_text = container.text.strip()
+                except Exception as e:
+                    log_error(f"[selenium][ERROR] clipboard failed: {e}", e)
+                    response_text = container.text.strip()
             if not response_text:
                 response_text = "⚠️ Empty response"
-        except TimeoutException:
-            log_warning("[selenium][ERROR] timeout waiting for response")
-            response_text = "⚠️ No response received"
         except Exception as e:
             log_error(f"[selenium][ERROR] failed to read response: {e}", e)
             response_text = "⚠️ Error reading response"
