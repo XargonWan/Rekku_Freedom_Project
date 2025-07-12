@@ -83,7 +83,7 @@ def wait_for_response(driver, before_count: int, timeout: int = 60):
 
 
 def process_prompt_in_chat(driver, chat_id: str, prompt_text: str) -> Optional[str]:
-    """Send a prompt to the given ChatGPT chat and return the new response text."""
+    """Send a prompt to a ChatGPT chat and return the newly generated text."""
     log_debug(f"[selenium][STEP] Opening chat {chat_id}")
     driver.get(f"https://chat.openai.com/chat/{chat_id}")
 
@@ -95,14 +95,25 @@ def process_prompt_in_chat(driver, chat_id: str, prompt_text: str) -> Optional[s
         log_error("[selenium][ERROR] prompt textarea not found")
         return None
 
+    # Count existing copy buttons to detect a new response later
     before_count = len(
-        driver.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
+        driver.find_elements(By.CSS_SELECTOR, "div.markdown button[data-testid='copy-turn-action-button']")
     )
 
     try:
         textarea.click()
-        textarea.send_keys(prompt_text + Keys.ENTER)
-        log_debug("[selenium][STEP] Prompt submitted")
+        try:
+            textarea.clear()
+        except Exception:
+            textarea.send_keys(Keys.CONTROL + "a")
+            textarea.send_keys(Keys.DELETE)
+        textarea.send_keys(prompt_text)
+
+        submit_btn = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.ID, "composer-submit-button"))
+        )
+        submit_btn.click()
+        log_debug("📨 Prompt sent")
     except ElementNotInteractableException as e:
         log_warning(f"[selenium][ERROR] textarea not interactable: {e}")
         return None
@@ -110,32 +121,36 @@ def process_prompt_in_chat(driver, chat_id: str, prompt_text: str) -> Optional[s
         log_error(f"[selenium][ERROR] failed to send prompt: {e}", e)
         return None
 
-    container = wait_for_response(driver, before_count, timeout=20)
-    if container is None:
-        log_warning("[selenium][ERROR] No copy button found (timeout)")
+    log_debug("🔍 Waiting for response block...")
+    try:
+        WebDriverWait(driver, 30).until(
+            lambda d: len(
+                d.find_elements(By.CSS_SELECTOR, "div.markdown button[data-testid='copy-turn-action-button']")
+            )
+            > before_count
+        )
+        log_debug("✅ Copy button found and response detected")
+    except TimeoutException:
+        log_warning("❌ Timeout waiting for response (fallback)")
         return None
 
     try:
-        # Last visible markdown element within the new response container
-        md_elem = container.find_elements(By.CSS_SELECTOR, "div.markdown")
-        if md_elem:
-            response_elem = md_elem[-1]
-        else:
-            # Fallback: last markdown on page
-            response_elem = driver.find_elements(By.CSS_SELECTOR, "div.markdown")[-1]
+        blocks = driver.find_elements(By.CSS_SELECTOR, "div.markdown")
+        if not blocks:
+            log_warning("[selenium][ERROR] No markdown blocks found")
+            return None
+        response_elem = blocks[-1]
         response_text = response_elem.get_attribute("textContent").strip()
-        log_debug("[selenium][STEP] Response element found")
-        log_debug(f"[selenium][STEP] Response text retrieved: {response_text[:50]}")
+        log_debug("📝 New response text extracted")
     except Exception as e:
         log_error(f"[selenium][ERROR] failed to extract response text: {e}", e)
         return None
 
     previous = previous_responses.get(chat_id)
-    matched = response_text == previous
-    log_debug(f"[selenium][STEP] Chat ID {chat_id} matched previous response: {matched}")
-    if matched:
-        log_debug("[selenium][STEP] Response unchanged")
+    if response_text == previous:
+        log_debug("🟡 No new response, skipping")
         return None
+
     previous_responses[chat_id] = response_text
     return response_text
 
