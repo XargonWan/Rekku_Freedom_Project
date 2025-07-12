@@ -237,13 +237,29 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         # === Wait for response ===
         response_text = ""
         try:
-            prev_count = len(driver.find_elements(By.CSS_SELECTOR, "div.markdown"))
-            WebDriverWait(driver, 30).until(
-                lambda d: len(d.find_elements(By.CSS_SELECTOR, "div.markdown")) > prev_count
+            before_count = len(
+                driver.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
             )
-            bubbles = driver.find_elements(By.CSS_SELECTOR, "div.markdown")
-            if bubbles:
-                response_text = bubbles[-1].text.strip()
+            WebDriverWait(driver, 30).until(
+                lambda d: len(
+                    d.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
+                )
+                > before_count
+            )
+
+            copy_buttons = driver.find_elements(
+                By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']"
+            )
+            new_btn = copy_buttons[-1]
+            WebDriverWait(driver, 10).until(EC.element_to_be_clickable(new_btn))
+            new_btn.click()
+
+            response_text = driver.execute_async_script(
+                "const done = arguments[0]; navigator.clipboard.readText().then(done).catch(() => done(''));"
+            )
+            response_text = (response_text or "").strip()
+            if not response_text:
+                response_text = "⚠️ Empty response"
         except TimeoutException:
             log_warning("[selenium][ERROR] timeout waiting for response")
             response_text = "⚠️ No response received"
