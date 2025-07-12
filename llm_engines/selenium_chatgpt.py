@@ -174,11 +174,40 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             log_debug("[selenium] Sidebar missing, notifying owner")
             _notify_gui("❌ Selenium error: Sidebar not found. Open UI")
             return
+
+        # === Rename conversation tab ===
+        try:
+            chat_emoji = "📩" if message.chat.type == "private" else "💬"
+            chat_name = message.chat.title or getattr(message.chat, "full_name", "") or str(message.chat_id)
+            thread_part = (
+                f"/Thread {message.message_thread_id}" if getattr(message, "message_thread_id", None) else ""
+            )
+            new_title = f"[⚙️][{chat_emoji}] Telegram/{chat_name}{thread_part} - 1"
+
+            menu_btn = WebDriverWait(self.driver, 5).until(
+                lambda d: d.find_element(By.CSS_SELECTOR, "nav [aria-haspopup='menu']")
+            )
+            menu_btn.click()
+            rename_btn = WebDriverWait(self.driver, 5).until(
+                lambda d: d.find_element(By.XPATH, "//div[contains(text(),'Rename')]")
+            )
+            rename_btn.click()
+            rename_input = WebDriverWait(self.driver, 5).until(
+                lambda d: d.find_element(By.CSS_SELECTOR, "textarea")
+            )
+            rename_input.send_keys(Keys.CONTROL + "a")
+            rename_input.send_keys(Keys.BACKSPACE)
+            rename_input.send_keys(new_title)
+            rename_input.send_keys(Keys.ENTER)
+            log_debug(f"[selenium] Chat renamed to: {new_title}")
+        except Exception as e:
+            log_debug(f"[selenium] Chat rename failed: {e}")
+
         try:
             textarea = WebDriverWait(self.driver, 10).until(
                 lambda d: d.find_element(By.TAG_NAME, "textarea")
             )
-            textarea.clear()
+            textarea.click()
 
             prompt_text = json.dumps(prompt, ensure_ascii=False)
             textarea.send_keys(prompt_text)
