@@ -9,12 +9,18 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import json
+import time
+import pyperclip
+from typing import Dict
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 import asyncio
 import os
 import subprocess
+
+# Cache the last response per Telegram chat to avoid duplicates
+previous_responses: Dict[int, str] = {}
 
 
 def _build_vnc_url() -> str:
@@ -247,6 +253,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
         # === Send prompt ===
         try:
+            before_count = len(
+                driver.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
+            )
             textarea = WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.ID, "prompt-textarea"))
             )
@@ -266,29 +275,41 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             log_error(f"[selenium][ERROR] failed to submit prompt: {e}", e)
             return
 
+        log_debug("[selenium][STEP] Waiting 10 seconds to allow ChatGPT to generate response")
+        time.sleep(10)
+
         # === Wait for response ===
         response_text = ""
         try:
-            before_count = len(
-                driver.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
-            )
             container = wait_for_response(driver, before_count)
             if container is None:
                 response_text = "⚠️ No response received"
             else:
+                copy_buttons = driver.find_elements(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
+                if not copy_buttons:
+                    log_error("[selenium][ERROR] No copy buttons found (data-testid='copy-turn-action-button')")
+                    raise RuntimeError("No response copy button detected")
+                log_debug(f"[selenium][INFO] {len(copy_buttons)} response copy buttons found")
                 try:
-                    copy_btn = container.find_element(By.CSS_SELECTOR, "button[data-testid='copy-turn-action-button']")
-                    WebDriverWait(driver, 10).until(EC.element_to_be_clickable(copy_btn))
-                    copy_btn.click()
-                    response_text = driver.execute_async_script(
-                        "const done = arguments[0]; navigator.clipboard.readText().then(done).catch(() => done(''));"
-                    )
-                    response_text = (response_text or "").strip()
-                    if not response_text:
-                        response_text = container.text.strip()
+                    copy_buttons[-1].click()
+                    log_debug("[selenium][STEP] Last copy button clicked successfully")
                 except Exception as e:
-                    log_error(f"[selenium][ERROR] clipboard failed: {e}", e)
-                    response_text = container.text.strip()
+                    log_error(f"[selenium][ERROR] Failed to click copy button: {e}")
+                    raise
+                try:
+                    response_text = pyperclip.paste()
+                    log_debug(f"[selenium][STEP] Clipboard read successful, content length: {len(response_text)}")
+                except Exception as e:
+                    log_error(f"[selenium][ERROR] Clipboard read failed: {e}")
+                    raise
+                previous = previous_responses.get(message.chat_id)
+                if response_text == previous:
+                    log_warning(
+                        f"[selenium][WARN] Received response is identical to cached one for chat_id={message.chat_id}"
+                    )
+                    raise TimeoutError("No new response detected")
+                previous_responses[message.chat_id] = response_text
+                log_debug(f"[selenium][STEP] Response stored in cache for chat_id={message.chat_id}")
             if not response_text:
                 response_text = "⚠️ Empty response"
         except Exception as e:
