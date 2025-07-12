@@ -50,30 +50,25 @@ def strip_non_bmp(text: str) -> str:
 
 
 def _send_text_to_textarea(driver, textarea, text: str) -> None:
-    """Type ``text`` into ``textarea`` with logging and truncation checks."""
+    """Inject ``text`` into the ChatGPT prompt area via JavaScript."""
     clean_text = strip_non_bmp(text)
     log_debug(f"[DEBUG] Length before sending: {len(clean_text)}")
-    preview = clean_text[:120]
-    if len(clean_text) > 120:
-        preview += "..."
+    preview = clean_text[:120] + ("..." if len(clean_text) > 120 else "")
     log_debug(f"[DEBUG] Text preview: {preview}")
 
-    # Select all and delete existing text
-    ActionChains(driver).click(textarea).key_down(Keys.CONTROL).send_keys("a").key_up(Keys.CONTROL).send_keys(Keys.DELETE).perform()
-    textarea.send_keys(clean_text)
+    script = (
+        "arguments[0].focus();"
+        "arguments[0].innerText = arguments[1];"
+        "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
+    )
+    driver.execute_script(script, textarea, clean_text)
 
-    actual = textarea.get_attribute("value") or ""
+    actual = driver.execute_script("return arguments[0].innerText;", textarea) or ""
     log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
     if actual != clean_text:
-        log_error(f"[ERROR] Text truncated: expected {len(clean_text)} chars, found {len(actual)}")
-        # Retry using chunks
-        ActionChains(driver).click(textarea).key_down(Keys.CONTROL).send_keys("a").key_up(Keys.CONTROL).send_keys(Keys.DELETE).perform()
-        for i in range(0, len(clean_text), 150):
-            ActionChains(driver).send_keys(clean_text[i:i+150]).perform()
-        actual = textarea.get_attribute("value") or ""
-        log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
-        if actual != clean_text:
-            log_error(f"[ERROR] Text truncated: expected {len(clean_text)} chars, found {len(actual)}")
+        log_error(
+            f"[ERROR] Text truncated: expected {len(clean_text)} chars, found {len(actual)}"
+        )
 
 
 def _build_vnc_url() -> str:
