@@ -11,6 +11,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 import json
 from typing import Dict, Optional
+import threading
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
 from core.logging_utils import log_debug, log_info, log_warning, log_error
@@ -18,8 +19,28 @@ import asyncio
 import os
 import subprocess
 
-# Cache the last response per ChatGPT chat to avoid duplicates
-previous_responses: Dict[str, str] = {}
+# Cache the last response per Telegram chat to avoid duplicates
+previous_responses: Dict[int, str] = {}
+response_cache_lock = threading.Lock()
+
+
+def get_previous_response(chat_id: int) -> str:
+    """Return the cached response for the given Telegram chat."""
+    with response_cache_lock:
+        return previous_responses.get(chat_id, "")
+
+
+def update_previous_response(chat_id: int, new_text: str) -> None:
+    """Store ``new_text`` for ``chat_id`` inside the cache."""
+    with response_cache_lock:
+        previous_responses[chat_id] = new_text
+
+
+def has_response_changed(chat_id: int, new_text: str) -> bool:
+    """Return True if ``new_text`` is different from the cached value."""
+    with response_cache_lock:
+        old = previous_responses.get(chat_id)
+    return old != new_text
 
 
 def _build_vnc_url() -> str:
@@ -54,30 +75,14 @@ def _notify_gui(message: str = ""):
 def wait_for_response_change(
     driver, previous_text: str, timeout: int = 40
 ) -> Optional[str]:
-    """Wait until the last markdown block has new content.
-
-    Parameters
-    ----------
-    driver : WebDriver
-        Active Selenium driver instance.
-    previous_text : str
-        Text from the previously observed markdown block.
-    timeout : int, optional
-        How long to wait for a change, by default 40 seconds.
-
-    Returns
-    -------
-    Optional[str]
-        The new text content if it changed within ``timeout``; otherwise ``None``.
-    """
+    """Poll the last markdown block until its text differs from ``previous_text``."""
 
     log_debug("🕓 Waiting for new markdown content...")
     end_time = time.time() + timeout
 
-    # Wait for at least one markdown element to be present before polling
     try:
         WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.markdown"))
+            EC.visibility_of_element_located((By.CSS_SELECTOR, "div.markdown"))
         )
     except TimeoutException:
         log_warning("❌ Timeout while waiting for new response")
@@ -100,7 +105,9 @@ def wait_for_response_change(
     return None
 
 
-def process_prompt_in_chat(driver, chat_id: str, prompt_text: str) -> Optional[str]:
+def process_prompt_in_chat(
+    driver, chat_id: str, prompt_text: str, previous_text: str
+) -> Optional[str]:
     """Send a prompt to a ChatGPT chat and return the newly generated text."""
     log_debug(f"[selenium][STEP] Opening chat {chat_id}")
     driver.get(f"https://chat.openai.com/chat/{chat_id}")
@@ -113,7 +120,6 @@ def process_prompt_in_chat(driver, chat_id: str, prompt_text: str) -> Optional[s
         log_error("[selenium][ERROR] prompt textarea not found")
         return None
 
-    previous_text = previous_responses.get(chat_id, "")
 
     try:
         textarea.click()
@@ -142,15 +148,10 @@ def process_prompt_in_chat(driver, chat_id: str, prompt_text: str) -> Optional[s
 
     if response_text is None:
         return None
-    if response_text == previous_text:
-        return None
-    log_debug("📝 New response text extracted")
-
-    if response_text == previous_responses.get(chat_id):
+    if not response_text or response_text == previous_text:
         log_debug("🟡 No new response, skipping")
         return None
-
-    previous_responses[chat_id] = response_text
+    log_debug("📝 New response text extracted")
     return response_text.strip()
 
 
@@ -324,11 +325,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         # === Send prompt and read response ===
         try:
             prompt_text = json.dumps(prompt, ensure_ascii=False)
-            response_text = process_prompt_in_chat(driver, "new", prompt_text)
+            prev = get_previous_response(message.chat_id)
+            response_text = process_prompt_in_chat(driver, "new", prompt_text, prev)
         except Exception as e:
             log_error(f"[selenium][ERROR] failed to process prompt: {e}", e)
             response_text = "⚠️ Error reading response"
-        if not response_text:
+        if response_text:
+            update_previous_response(message.chat_id, response_text)
+        else:
             response_text = "⚠️ No response received"
 
         # === Forward to Telegram ===
