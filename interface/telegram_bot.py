@@ -325,18 +325,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # === FILTRO: Rispondi solo se menzionata o in risposta
     if message.chat.type in ["group", "supergroup"]:
         bot_username = BOT_USERNAME.lower()
-        mentioned = any(
-            entity.type == "mention" and message.text[entity.offset:entity.offset + entity.length].lower() == f"@{bot_username}"
+        mention_detected = any(
+            entity.type == "mention"
+            and message.text[entity.offset : entity.offset + entity.length].lower()
+            == f"@{bot_username}"
             for entity in message.entities or []
+        ) or is_rekku_mentioned(text)
+
+        reply_to_rekku = (
+            message.reply_to_message
+            and message.reply_to_message.from_user
+            and message.reply_to_message.from_user.username
+            and message.reply_to_message.from_user.username.lower() == bot_username
         )
-        is_reply_to_bot = (
-            message.reply_to_message and
-            message.reply_to_message.from_user and
-            message.reply_to_message.from_user.username and
-            message.reply_to_message.from_user.username.lower() == bot_username
-        )
-        if not mentioned and not is_reply_to_bot and not is_rekku_mentioned(text):
-            log_debug("Ignoring message: no Rekku mention detected.")
+        if reply_to_rekku:
+            log_debug("[mention] reply to Rekku detected")
+        if not (mention_detected or reply_to_rekku):
+            log_debug("[mention] skipping: no mention or reply to Rekku")
             return
 
     # === Passa al plugin con fallback
