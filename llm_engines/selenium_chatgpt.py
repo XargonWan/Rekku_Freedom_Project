@@ -11,6 +11,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
 import json
+import re
 from typing import Dict, Optional
 import threading
 from core.ai_plugin_base import AIPluginBase
@@ -19,10 +20,15 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 import asyncio
 import os
 import subprocess
+from core.chatgpt_link_store import ChatLinkStore
 
 # Cache the last response per Telegram chat to avoid duplicates
 previous_responses: Dict[int, str] = {}
 response_cache_lock = threading.Lock()
+
+# Persistent mapping between Telegram chats and ChatGPT conversations
+chat_link_store = ChatLinkStore()
+queue_paused = False
 
 
 def get_previous_response(chat_id: int) -> str:
@@ -100,6 +106,34 @@ def _notify_gui(message: str = ""):
         notify_owner(text)
     except Exception as e:
         log_error(f"[selenium] notify_owner failed: {e}", e)
+
+
+def _extract_chat_id(url: str) -> Optional[str]:
+    match = re.search(r"/chat/([^/?#]+)", url)
+    return match.group(1) if match else None
+
+
+def _check_conversation_full(driver) -> bool:
+    try:
+        elems = driver.find_elements(By.CSS_SELECTOR, "div.text-token-text-error")
+        for el in elems:
+            text = (el.get_attribute("innerText") or "").strip()
+            if "maximum length for this conversation" in text:
+                return True
+    except Exception as e:  # pragma: no cover - best effort
+        log_warning(f"[selenium] overflow check failed: {e}")
+    return False
+
+
+def _open_new_chat(driver) -> None:
+    try:
+        driver.get("https://chat.openai.com")
+        btn = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='new-chat-button']"))
+        )
+        btn.click()
+    except Exception as e:
+        log_warning(f"[selenium] New chat button not clicked: {e}")
 
 
 def wait_for_response_change(
@@ -391,6 +425,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         log_debug("[selenium] Worker loop started")
         while True:
             bot, message, prompt = await self._queue.get()
+            while queue_paused:
+                await asyncio.sleep(1)
             log_debug(
                 f"[selenium] [WORKER] Processing chat_id={message.chat_id} message_id={message.message_id}"
             )
@@ -426,16 +462,36 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             _notify_gui("❌ Selenium error: ChatGPT UI not ready. Open UI")
             return
 
-        try:
-            prompt_text = json.dumps(prompt, ensure_ascii=False)
+        thread_id = getattr(message, "message_thread_id", None)
+        chat_id = chat_link_store.get_link(message.chat_id, thread_id)
+        prompt_text = json.dumps(prompt, ensure_ascii=False)
+
+        if chat_id:
+            previous = get_previous_response(message.chat_id)
+            response_text = process_prompt_in_chat(driver, chat_id, prompt_text, previous)
+        else:
+            _open_new_chat(driver)
             response_text = rename_and_send_prompt(driver, message, prompt_text)
-        except Exception as e:
-            log_error(f"[selenium][ERROR] failed to send prompt: {e}", e)
-            response_text = "⚠️ Error reading response"
+            new_chat_id = _extract_chat_id(driver.current_url)
+            if new_chat_id:
+                chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
+
+        if _check_conversation_full(driver):
+            current_id = chat_id or _extract_chat_id(driver.current_url)
+            if current_id:
+                chat_link_store.mark_full(current_id)
+            global queue_paused
+            queue_paused = True
+            _open_new_chat(driver)
+            response_text = rename_and_send_prompt(driver, message, prompt_text)
+            new_chat_id = _extract_chat_id(driver.current_url)
+            if new_chat_id:
+                chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
+            queue_paused = False
+
         if not response_text:
             response_text = "⚠️ No response received"
 
-        # === Forward to Telegram ===
         try:
             await bot.send_message(
                 chat_id=message.chat_id,
