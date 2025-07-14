@@ -114,8 +114,26 @@ def _notify_gui(message: str = ""):
 
 
 def _extract_chat_id(url: str) -> Optional[str]:
-    match = re.search(r"/chat/([^/?#]+)", url)
-    return match.group(1) if match else None
+    """Estrae l'ID della chat dall'URL di ChatGPT."""
+    log_debug(f"[selenium][DEBUG] Extracting chat ID from URL: {url}")
+    
+    # Pattern più flessibili per diversi formati di URL ChatGPT
+    patterns = [
+        r"/chat/([^/?#]+)",           # Formato standard: /chat/uuid
+        r"/c/([^/?#]+)",              # Formato alternativo: /c/uuid  
+        r"chat\.openai\.com/chat/([^/?#]+)",  # URL completo
+        r"chat\.openai\.com/c/([^/?#]+)"      # URL completo alternativo
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            chat_id = match.group(1)
+            log_debug(f"[selenium][DEBUG] Extracted chat ID: {chat_id}")
+            return chat_id
+    
+    log_debug(f"[selenium][DEBUG] No chat ID found in URL: {url}")
+    return None
 
 
 def _check_conversation_full(driver) -> bool:
@@ -132,13 +150,28 @@ def _check_conversation_full(driver) -> bool:
 
 def _open_new_chat(driver) -> None:
     try:
+        # Prima prova a cliccare il pulsante new chat se è visibile
+        try:
+            btn = WebDriverWait(driver, 2).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='new-chat-button']"))
+            )
+            btn.click()
+            log_debug("[selenium] Clicked new-chat-button")
+            return
+        except TimeoutException:
+            log_debug("[selenium] New chat button not visible, navigating to home")
+            
+        # Se non è visibile, vai alla home page e poi clicca
         driver.get("https://chat.openai.com")
         btn = WebDriverWait(driver, 5).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='new-chat-button']"))
         )
         btn.click()
+        log_debug("[selenium] Navigated to home and clicked new-chat-button")
     except Exception as e:
         log_warning(f"[selenium] New chat button not clicked: {e}")
+        # Fallback: naviga direttamente alla home che dovrebbe creare una nuova chat
+        driver.get("https://chat.openai.com")
 
 
 def wait_for_response_change(
@@ -204,10 +237,17 @@ def process_prompt_in_chat(
 ) -> Optional[str]:
     """Send a prompt to a ChatGPT chat and return the newly generated text."""
     if chat_id:
-        log_debug(f"[selenium][STEP] Opening chat {chat_id}")
-        driver.get(f"https://chat.openai.com/chat/{chat_id}")
+        chat_url = f"https://chat.openai.com/chat/{chat_id}"
+        log_debug(f"[selenium][STEP] Opening chat {chat_id} at {chat_url}")
+        driver.get(chat_url)
+        # Verifica che siamo effettivamente nella chat corretta
+        current_url = driver.current_url
+        log_debug(f"[selenium][DEBUG] Current URL after navigation: {current_url}")
+        if chat_id not in current_url:
+            log_warning(f"[selenium][WARN] URL mismatch: expected {chat_id}, got {current_url}")
     else:
         log_debug("[selenium][STEP] Using currently open chat")
+        log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
 
     try:
         textarea = WebDriverWait(driver, 10).until(
@@ -543,31 +583,44 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
         driver = self.driver
 
-        log_debug("[selenium][STEP] opening ChatGPT")
-
-        try:
-            driver.get("https://chat.openai.com")
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.TAG_NAME, "main"))
-            )
-        except TimeoutException:
-            log_warning("[selenium][ERROR] ChatGPT UI failed to load")
-            _notify_gui("❌ Selenium error: ChatGPT UI not ready. Open UI")
-            return
+        log_debug("[selenium][STEP] ensuring ChatGPT is accessible")
 
         thread_id = getattr(message, "message_thread_id", None)
         chat_id = chat_link_store.get_link(message.chat_id, thread_id)
         prompt_text = json.dumps(prompt, ensure_ascii=False)
 
+        log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
+        log_debug(f"[selenium][DEBUG] Telegram chat_id: {message.chat_id}, thread_id: {thread_id}")
+
+        # Solo se non abbiamo un chat_id specifico, andiamo alla home
+        if not chat_id:
+            try:
+                driver.get("https://chat.openai.com")
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "main"))
+                )
+            except TimeoutException:
+                log_warning("[selenium][ERROR] ChatGPT UI failed to load")
+                _notify_gui("❌ Selenium error: ChatGPT UI not ready. Open UI")
+                return
+
         if chat_id:
             previous = get_previous_response(message.chat_id)
             response_text = process_prompt_in_chat(driver, chat_id, prompt_text, previous)
+            # Aggiorna la cache delle risposte per la chat esistente
+            if response_text:
+                update_previous_response(message.chat_id, response_text)
         else:
             _open_new_chat(driver)
             response_text = rename_and_send_prompt(driver, message, prompt_text)
             new_chat_id = _extract_chat_id(driver.current_url)
+            log_debug(f"[selenium][DEBUG] New chat created, extracted ID: {new_chat_id}")
+            log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
             if new_chat_id:
                 chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
+                log_debug(f"[selenium][DEBUG] Saved link: {message.chat_id}/{thread_id} -> {new_chat_id}")
+            else:
+                log_warning("[selenium][WARN] Failed to extract chat ID from URL")
 
         if _check_conversation_full(driver):
             current_id = chat_id or _extract_chat_id(driver.current_url)
