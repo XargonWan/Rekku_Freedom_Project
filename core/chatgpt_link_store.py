@@ -22,6 +22,7 @@ class ChatLinkStore:
             )
 
     def get_link(self, telegram_chat_id: int, thread_id: Optional[int]) -> Optional[str]:
+        log_debug(f"[chatlink] Searching for link: telegram_chat_id={telegram_chat_id}, thread_id={thread_id}")
         with get_db() as db:
             row = db.execute(
                 """
@@ -31,11 +32,19 @@ class ChatLinkStore:
                 """,
                 (telegram_chat_id, thread_id),
             ).fetchone()
-        if row and not row["is_full"]:
-            log_debug(
-                f"[chatlink] Found mapping {telegram_chat_id}/{thread_id} -> {row['chatgpt_chat_id']}"
-            )
-            return row["chatgpt_chat_id"]
+        
+        if row:
+            log_debug(f"[chatlink] Found row: chatgpt_chat_id={row['chatgpt_chat_id']}, is_full={row['is_full']}")
+            if not row["is_full"]:
+                log_debug(
+                    f"[chatlink] Found mapping {telegram_chat_id}/{thread_id} -> {row['chatgpt_chat_id']}"
+                )
+                return row["chatgpt_chat_id"]
+            else:
+                log_debug(f"[chatlink] Found mapping but chat is marked as full")
+        else:
+            log_debug(f"[chatlink] No row found for {telegram_chat_id}/{thread_id}")
+            
         log_debug(f"[chatlink] No usable mapping for {telegram_chat_id}/{thread_id}")
         return None
 
