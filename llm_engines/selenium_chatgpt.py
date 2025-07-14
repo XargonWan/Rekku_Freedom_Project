@@ -1,4 +1,7 @@
 import undetected_chromedriver as uc
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import (
     NoSuchElementException,
@@ -373,64 +376,116 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
     def _init_driver(self):
         if self.driver is None:
-            log_debug("[selenium] [STEP] Initializing Chrome driver")
+            log_debug("[selenium] [STEP] Initializing Chrome driver with undetected-chromedriver")
 
-            profile_dir = os.path.expanduser("~/.config/google-chrome")
-            os.makedirs(profile_dir, exist_ok=True)
-            log_debug(f"[selenium] Using Chrome profile: {profile_dir}")
+            # Kill any existing Chrome processes to avoid conflicts
+            try:
+                subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
+                subprocess.run(["pkill", "-f", "chromedriver"], capture_output=True, text=True)
+                time.sleep(2)  # Wait for processes to terminate
+                log_debug("[selenium] Killed existing Chrome processes")
+            except Exception as e:
+                log_debug(f"[selenium] Failed to kill Chrome processes (might not exist): {e}")
 
-            chrome_path = "/usr/bin/google-chrome"
-            if not os.path.exists(chrome_path):
-                chrome_path = "/usr/bin/chromium"
-            log_debug(f"[selenium] Using Chrome binary: {chrome_path}")
-
+            # Ensure DISPLAY is set
             if not os.environ.get("DISPLAY"):
-                os.environ["DISPLAY"] = ":0"
-                log_debug("[selenium] DISPLAY not set, defaulting to :0")
+                os.environ["DISPLAY"] = ":1"
+                log_debug("[selenium] DISPLAY not set, defaulting to :1")
 
+            # Create Chrome options optimized for container environments
             options = uc.ChromeOptions()
-            for arg in (
+            
+            # Essential options for Docker containers
+            essential_args = [
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-setuid-sandbox",
                 "--disable-gpu",
                 "--disable-software-rasterizer",
-                "--disable-blink-features=AutomationControlled",
                 "--disable-extensions",
-                "--disable-infobars",
+                "--disable-web-security",
                 "--start-maximized",
-            ):
+                "--no-first-run",
+                "--disable-default-apps",
+                "--disable-popup-blocking",
+                "--disable-infobars",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--memory-pressure-off",
+                "--single-process",
+                "--disable-features=VizDisplayCompositor",
+                "--log-level=3",
+                "--disable-logging"
+            ]
+            
+            for arg in essential_args:
                 options.add_argument(arg)
-            options.headless = False
-
+            
+            # Set user data directory
+            profile_dir = os.path.expanduser("~/.config/google-chrome")
+            os.makedirs(profile_dir, exist_ok=True)
+            options.add_argument(f"--user-data-dir={profile_dir}")
+            
             try:
-                log_debug("[selenium] Launching UC Chrome")
+                # Use undetected-chromedriver with optimized configuration
+                # Following best practices from the official repo
+                log_debug("[selenium] Starting undetected-chromedriver with auto-detection")
+                
+                # Clear any existing driver cache
+                import tempfile
+                import shutil
+                uc_cache_dir = os.path.join(tempfile.gettempdir(), 'undetected_chromedriver')
+                if os.path.exists(uc_cache_dir):
+                    shutil.rmtree(uc_cache_dir, ignore_errors=True)
+                    log_debug("[selenium] Cleared undetected-chromedriver cache")
+                
                 self.driver = uc.Chrome(
                     options=options,
-                    browser_executable_path=chrome_path,
-                    user_data_dir=profile_dir,
                     headless=False,
+                    use_subprocess=False,
+                    version_main=None,  # Auto-detect Chrome version
+                    suppress_welcome=True,
+                    log_level=3,
+                    driver_executable_path=None,  # Let UC handle chromedriver
+                    browser_executable_path=None,  # Let UC find Chrome
+                    user_data_dir=profile_dir
                 )
-                log_debug("[selenium] Chrome ready via UC")
-            except (SessionNotCreatedException, WebDriverException) as e:
-                log_error(f"[selenium] UC failed: {e}", e)
-                try:
-                    from selenium import webdriver
-                    from selenium.webdriver.chrome.service import Service
-
-                    log_debug("[selenium] Falling back to Selenium Chrome")
-                    service = Service(chrome_path)
-                    self.driver = webdriver.Chrome(service=service, options=options)
-                    log_debug("[selenium] Chrome ready via Selenium fallback")
-                except Exception as e2:
-                    log_error(f"[selenium] Fallback WebDriver failed: {e2}", e2)
-                    _notify_gui(f"❌ Errore Selenium: {e2}. Apri")
-                    raise SystemExit(1)
+                log_debug("[selenium] ✅ Chrome successfully initialized with undetected-chromedriver")
+                
             except Exception as e:
-                log_error(f"[selenium] Unexpected Chrome start error: {e}", e)
-                _notify_gui(f"❌ Errore Selenium: {e}. Apri")
-                raise SystemExit(1)
-            log_debug("[selenium] Chrome ready")
+                log_error(f"[selenium] ❌ Failed to initialize Chrome: {e}")
+                log_debug("[selenium] Attempting with explicit Chrome binary path...")
+                
+                # Fallback: try with explicit Chrome path
+                # Create NEW ChromeOptions object to avoid reuse error
+                try:
+                    chrome_binary = "/usr/bin/google-chrome-stable"
+                    if os.path.exists(chrome_binary):
+                        # Create fresh ChromeOptions for fallback attempt
+                        fallback_options = uc.ChromeOptions()
+                        for arg in essential_args:
+                            fallback_options.add_argument(arg)
+                        fallback_options.add_argument(f"--user-data-dir={profile_dir}")
+                        
+                        self.driver = uc.Chrome(
+                            options=fallback_options,
+                            headless=False,
+                            use_subprocess=False,
+                            version_main=None,
+                            suppress_welcome=True,
+                            log_level=3,
+                            browser_executable_path=chrome_binary,
+                            user_data_dir=profile_dir
+                        )
+                        log_debug("[selenium] ✅ Chrome initialized with explicit binary path")
+                    else:
+                        raise Exception("Chrome binary not found")
+                        
+                except Exception as e2:
+                    log_error(f"[selenium] ❌ All initialization attempts failed: {e2}")
+                    _notify_gui(f"❌ Errore Selenium: {e2}. Verifica l'ambiente grafico.")
+                    raise SystemExit(1)
 
     def _ensure_logged_in(self):
         try:
