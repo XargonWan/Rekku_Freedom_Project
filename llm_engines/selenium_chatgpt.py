@@ -5,6 +5,7 @@ from selenium.common.exceptions import (
     TimeoutException,
     ElementNotInteractableException,
     SessionNotCreatedException,
+    WebDriverException,
 )
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
@@ -378,18 +379,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             os.makedirs(profile_dir, exist_ok=True)
             log_debug(f"[selenium] Using Chrome profile: {profile_dir}")
 
-            options = uc.ChromeOptions()
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--disable-software-rasterizer")
-            options.add_argument("--disable-setuid-sandbox")
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_argument("--disable-extensions")
-            options.add_argument("--disable-infobars")
-            options.add_argument("--start-maximized")
-            options.headless = False
-
             chrome_path = os.getenv("CHROME_BIN", "/usr/bin/google-chrome")
             if not os.path.exists(chrome_path):
                 chrome_path = "/usr/bin/chromium"
@@ -399,8 +388,23 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 os.environ["DISPLAY"] = ":0"
                 log_debug("[selenium] DISPLAY not set, defaulting to :0")
 
+            options = uc.ChromeOptions()
+            for arg in (
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-setuid-sandbox",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-extensions",
+                "--disable-infobars",
+                "--start-maximized",
+            ):
+                options.add_argument(arg)
+            options.headless = False
+
             try:
-                log_debug("[selenium] Launching UC...")
+                log_debug("[selenium] Launching UC Chrome")
                 self.driver = uc.Chrome(
                     options=options,
                     browser_executable_path=chrome_path,
@@ -408,21 +412,22 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     headless=False,
                 )
                 log_debug("[selenium] Chrome ready via UC")
-            except SessionNotCreatedException as e:
-                log_error(f"[selenium] UC session error: {e}", e)
+            except (SessionNotCreatedException, WebDriverException) as e:
+                log_error(f"[selenium] UC failed: {e}", e)
                 try:
                     from selenium import webdriver
                     from selenium.webdriver.chrome.service import Service
-                    log_debug("[selenium] Fallback to Selenium...")
+
+                    log_debug("[selenium] Falling back to Selenium Chrome")
                     service = Service(chrome_path)
                     self.driver = webdriver.Chrome(service=service, options=options)
-                    log_debug("[selenium] Chrome ready via fallback")
+                    log_debug("[selenium] Chrome ready via Selenium fallback")
                 except Exception as e2:
                     log_error(f"[selenium] Fallback WebDriver failed: {e2}", e2)
                     _notify_gui(f"❌ Errore Selenium: {e2}. Apri")
                     raise SystemExit(1)
             except Exception as e:
-                log_error(f"[selenium] UC Chrome start error: {e}", e)
+                log_error(f"[selenium] Unexpected Chrome start error: {e}", e)
                 _notify_gui(f"❌ Errore Selenium: {e}. Apri")
                 raise SystemExit(1)
             log_debug("[selenium] Chrome ready")
