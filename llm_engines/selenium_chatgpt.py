@@ -379,7 +379,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             os.makedirs(profile_dir, exist_ok=True)
             log_debug(f"[selenium] Using Chrome profile: {profile_dir}")
 
-            chrome_path = os.getenv("CHROME_BIN", "/usr/bin/google-chrome")
+            chrome_path = "/usr/bin/google-chrome"
             if not os.path.exists(chrome_path):
                 chrome_path = "/usr/bin/chromium"
             log_debug(f"[selenium] Using Chrome binary: {chrome_path}")
