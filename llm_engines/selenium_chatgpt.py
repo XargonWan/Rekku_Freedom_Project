@@ -21,6 +21,7 @@ import asyncio
 import os
 import subprocess
 from core.chatgpt_link_store import ChatLinkStore
+import shutil
 
 # Cache the last response per Telegram chat to avoid duplicates
 previous_responses: Dict[int, str] = {}
@@ -372,28 +373,57 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     def _init_driver(self):
         if self.driver is None:
             log_debug("[selenium] [STEP] Initializing Chrome driver")
-            chrome_path = "/usr/bin/google-chrome-stable"
+
             profile_dir = os.path.expanduser("/home/rekku/.ucd-profile")
             os.makedirs(profile_dir, exist_ok=True)
 
             options = uc.ChromeOptions()
-            options.add_argument("--disable-blink-features=AutomationControlled")
             options.add_argument("--no-sandbox")
-            options.add_argument("--disable-setuid-sandbox")
             options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-setuid-sandbox")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_argument("--disable-infobars")
+            options.add_argument("--remote-debugging-port=9222")
+            options.add_argument("--user-data-dir=/home/rekku/.ucd-profile")
+            options.add_argument("--start-maximized")
+            options.add_argument("--window-size=1280,1024")
+            options.headless = False
+
+            chrome_candidates = [
+                os.getenv("CHROME_BIN"),
+                shutil.which("google-chrome-stable"),
+                shutil.which("google-chrome"),
+                shutil.which("chromium-browser"),
+                shutil.which("chromium"),
+            ]
+            chrome_path = next((c for c in chrome_candidates if c), None)
+            if not chrome_path:
+                chrome_path = "chromium"
+                log_warning("[selenium] Chrome binary not found, using 'chromium'")
+            log_debug(f"[selenium] Using Chrome binary: {chrome_path}")
 
             try:
+                log_debug("[selenium] Launching undetected-chromedriver")
                 self.driver = uc.Chrome(
                     options=options,
-                    headless=False,
                     browser_executable_path=chrome_path,
                     user_data_dir=profile_dir,
+                    headless=False,
                 )
-                log_debug("[selenium] Chrome driver started")
+                log_debug("[selenium] Chrome driver started via UC")
             except Exception as e:
-                log_error(f"[selenium] Failed to start Chrome: {e}", e)
-                _notify_gui(f"❌ Errore Selenium: {e}. Apri")
-                raise SystemExit(1)
+                log_error(f"[selenium] UC Chrome start failed: {e}", e)
+                try:
+                    from selenium import webdriver
+                    from selenium.webdriver.chrome.service import Service
+                    log_debug("[selenium] Trying fallback webdriver.Chrome")
+                    service = Service(chrome_path)
+                    self.driver = webdriver.Chrome(service=service, options=options)
+                    log_debug("[selenium] Fallback Chrome driver started")
+                except Exception as e2:
+                    log_error(f"[selenium] Fallback WebDriver failed: {e2}", e2)
+                    _notify_gui(f"❌ Errore Selenium: {e2}. Apri")
+                    raise SystemExit(1)
 
     def _ensure_logged_in(self):
         try:
