@@ -374,19 +374,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         if self.driver is None:
             log_debug("[selenium] [STEP] Initializing Chrome driver")
 
-            profile_dir = os.path.expanduser("/home/rekku/.ucd-profile")
+            profile_dir = os.path.expanduser("~/.config/google-chrome")
             os.makedirs(profile_dir, exist_ok=True)
+            log_debug(f"[selenium] Using Chrome profile: {profile_dir}")
 
             options = uc.ChromeOptions()
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
-            options.add_argument("--disable-setuid-sandbox")
+            options.add_argument("--disable-gpu")
             options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_argument("--disable-infobars")
-            options.add_argument("--remote-debugging-port=9222")
-            options.add_argument("--user-data-dir=/home/rekku/.ucd-profile")
             options.add_argument("--start-maximized")
-            options.add_argument("--window-size=1280,1024")
             options.headless = False
 
             chrome_path = os.getenv("CHROME_BIN", "/usr/bin/google-chrome")
