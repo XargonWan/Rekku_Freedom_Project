@@ -4,6 +4,7 @@ from selenium.common.exceptions import (
     NoSuchElementException,
     TimeoutException,
     ElementNotInteractableException,
+    SessionNotCreatedException,
 )
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
@@ -21,7 +22,6 @@ import asyncio
 import os
 import subprocess
 from core.chatgpt_link_store import ChatLinkStore
-import shutil
 
 # Cache the last response per Telegram chat to avoid duplicates
 previous_responses: Dict[int, str] = {}
@@ -389,41 +389,38 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             options.add_argument("--window-size=1280,1024")
             options.headless = False
 
-            chrome_candidates = [
-                os.getenv("CHROME_BIN"),
-                shutil.which("google-chrome-stable"),
-                shutil.which("google-chrome"),
-                shutil.which("chromium-browser"),
-                shutil.which("chromium"),
-            ]
-            chrome_path = next((c for c in chrome_candidates if c), None)
-            if not chrome_path:
-                chrome_path = "chromium"
-                log_warning("[selenium] Chrome binary not found, using 'chromium'")
+            chrome_path = os.getenv("CHROME_BIN", "/usr/bin/google-chrome")
+            if not os.path.exists(chrome_path):
+                chrome_path = "/usr/bin/chromium"
             log_debug(f"[selenium] Using Chrome binary: {chrome_path}")
 
             try:
-                log_debug("[selenium] Launching undetected-chromedriver")
+                log_debug("[selenium] Launching UC...")
                 self.driver = uc.Chrome(
                     options=options,
                     browser_executable_path=chrome_path,
                     user_data_dir=profile_dir,
                     headless=False,
                 )
-                log_debug("[selenium] Chrome driver started via UC")
-            except Exception as e:
-                log_error(f"[selenium] UC Chrome start failed: {e}", e)
+                log_debug("[selenium] Chrome ready via UC")
+            except SessionNotCreatedException as e:
+                log_error(f"[selenium] UC session error: {e}", e)
                 try:
                     from selenium import webdriver
                     from selenium.webdriver.chrome.service import Service
-                    log_debug("[selenium] Trying fallback webdriver.Chrome")
+                    log_debug("[selenium] Fallback to Selenium...")
                     service = Service(chrome_path)
                     self.driver = webdriver.Chrome(service=service, options=options)
-                    log_debug("[selenium] Fallback Chrome driver started")
+                    log_debug("[selenium] Chrome ready via fallback")
                 except Exception as e2:
                     log_error(f"[selenium] Fallback WebDriver failed: {e2}", e2)
                     _notify_gui(f"❌ Errore Selenium: {e2}. Apri")
                     raise SystemExit(1)
+            except Exception as e:
+                log_error(f"[selenium] UC Chrome start error: {e}", e)
+                _notify_gui(f"❌ Errore Selenium: {e}. Apri")
+                raise SystemExit(1)
+            log_debug("[selenium] Chrome ready")
 
     def _ensure_logged_in(self):
         try:
