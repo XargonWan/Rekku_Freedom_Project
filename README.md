@@ -24,8 +24,31 @@ Rekku will automatically forward messages to the trainer (`OWNER_ID`) if:
 
 * She is **mentioned** in a group (`@Rekku_the_bot`)
 * Someone **replies** to one of her messages
+* Someone mentions one of her **aliases** (rekku, re-chan, genietta, etc.)
 * She is in a group with only **two members**
 * She receives a **private message** from an unblocked user
+
+**Note**: The mention detection logic is centralized in `core/mention_utils.py` and works consistently across all LLM engines.
+
+### 🐛 Debugging Mention Detection
+
+If the bot doesn't respond to replies or mentions:
+
+```bash
+# Test mention detection logic
+python test_mention_detection.py
+
+# Debug current bot configuration  
+python debug_mention.py
+
+# Check logs for mention detection details
+tail -f persona/webtop_config/logs/rekku.log | grep -E "\[mention\]|\[telegram_bot\]"
+```
+
+Common issues:
+- Bot username mismatch in config
+- Reply detection failing due to async bot.get_me()
+- Group permissions preventing message reading
 
 ---
 
@@ -174,3 +197,40 @@ This is done **inside the container** via a graphical VNC session — no externa
 5. Once you're logged in, type `✔️ Fatto` in the Telegram chat with Rekku to confirm
 
 ✅ Rekku will now be able to interact with ChatGPT in real time using a real browser.
+
+### 🔧 Troubleshooting Chrome Issues
+
+If you encounter Chrome connection issues (especially after stopping the container with Ctrl+C):
+
+#### Automatic Cleanup & Session Preservation
+The container automatically cleans up Chrome processes and lock files on startup while **preserving login sessions**.
+
+**What gets cleaned:**
+- Chrome and chromedriver processes
+- Lock files (SingletonLock, lockfile)
+- Temporary cache and crash reports
+- Temporary profile directories (numbered ones)
+
+**What gets preserved:**
+- Login sessions (ChatGPT, Google, etc.)
+- Browser history and cookies
+- Persistent profile data (`google-chrome-rekku`)
+
+#### Manual Cleanup
+If problems persist, you can manually run the cleanup script:
+
+```bash
+# Inside the container
+./automation_tools/cleanup_chrome.sh
+
+# This script safely preserves all login sessions
+```
+
+#### Signal Handling
+The bot gracefully handles termination signals (Ctrl+C) to properly clean up Chrome processes while keeping session data intact.
+
+#### Common Issues
+- **"cannot connect to chrome"**: Fixed by automatic cleanup on container restart
+- **Chrome processes remain**: The cleanup script kills all Chrome processes safely
+- **Lock files**: Automatically removed without affecting login data
+- **Lost login sessions**: No longer an issue - sessions are preserved across restarts

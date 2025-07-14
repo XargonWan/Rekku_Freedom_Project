@@ -382,6 +382,35 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         if notify_fn:
             set_notifier(notify_fn)
 
+    def cleanup(self):
+        """Clean up resources when the plugin is stopped."""
+        log_debug("[selenium] Starting cleanup...")
+        
+        # Stop the worker task
+        if self._worker_task and not self._worker_task.done():
+            self._worker_task.cancel()
+            log_debug("[selenium] Worker task cancelled")
+        
+        # Close the driver
+        if self.driver:
+            try:
+                self.driver.quit()
+                log_debug("[selenium] Chrome driver closed")
+            except Exception as e:
+                log_warning(f"[selenium] Failed to close driver: {e}")
+            finally:
+                self.driver = None
+        
+        # Kill any remaining Chrome processes
+        try:
+            subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
+            subprocess.run(["pkill", "-f", "chromedriver"], capture_output=True, text=True)
+            log_debug("[selenium] Killed remaining Chrome processes")
+        except Exception as e:
+            log_debug(f"[selenium] Failed to kill processes: {e}")
+        
+        log_debug("[selenium] Cleanup completed")
+
     async def start(self):
         """Start the background worker loop."""
         log_debug("[selenium] \U0001F7E2 start() called")
@@ -418,114 +447,193 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         if self.driver is None:
             log_debug("[selenium] [STEP] Initializing Chrome driver with undetected-chromedriver")
 
-            # Kill any existing Chrome processes to avoid conflicts
-            try:
-                subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
-                subprocess.run(["pkill", "-f", "chromedriver"], capture_output=True, text=True)
-                time.sleep(2)  # Wait for processes to terminate
-                log_debug("[selenium] Killed existing Chrome processes")
-            except Exception as e:
-                log_debug(f"[selenium] Failed to kill Chrome processes (might not exist): {e}")
+            # Clean up any leftover processes and files from previous runs
+            self._cleanup_chrome_remnants()
 
             # Ensure DISPLAY is set
             if not os.environ.get("DISPLAY"):
                 os.environ["DISPLAY"] = ":1"
                 log_debug("[selenium] DISPLAY not set, defaulting to :1")
 
-            # Create Chrome options optimized for container environments
-            options = uc.ChromeOptions()
-            
-            # Essential options for Docker containers
-            essential_args = [
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-setuid-sandbox",
-                "--disable-gpu",
-                "--disable-software-rasterizer",
-                "--disable-extensions",
-                "--disable-web-security",
-                "--start-maximized",
-                "--no-first-run",
-                "--disable-default-apps",
-                "--disable-popup-blocking",
-                "--disable-infobars",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding",
-                "--memory-pressure-off",
-                "--single-process",
-                "--disable-features=VizDisplayCompositor",
-                "--log-level=3",
-                "--disable-logging"
+            # Try multiple times with increasing delays
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    log_debug(f"[selenium] Initialization attempt {attempt + 1}/{max_retries}")
+                    
+                    # Create Chrome options optimized for container environments
+                    options = uc.ChromeOptions()
+                    
+                    # Essential options for Docker containers
+                    essential_args = [
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-setuid-sandbox",
+                        "--disable-gpu",
+                        "--disable-software-rasterizer",
+                        "--disable-extensions",
+                        "--disable-web-security",
+                        "--start-maximized",
+                        "--no-first-run",
+                        "--disable-default-apps",
+                        "--disable-popup-blocking",
+                        "--disable-infobars",
+                        "--disable-background-timer-throttling",
+                        "--disable-backgrounding-occluded-windows",
+                        "--disable-renderer-backgrounding",
+                        "--memory-pressure-off",
+                        "--disable-features=VizDisplayCompositor",
+                        "--log-level=3",
+                        "--disable-logging",
+                        "--remote-debugging-port=0",  # Let Chrome choose port
+                        "--disable-background-mode",
+                        "--disable-default-browser-check",
+                        "--disable-hang-monitor",
+                        "--disable-prompt-on-repost",
+                        "--disable-sync",
+                        "--metrics-recording-only",
+                        "--no-default-browser-check",
+                        "--safebrowsing-disable-auto-update",
+                        "--disable-client-side-phishing-detection"
+                    ]
+                    
+                    for arg in essential_args:
+                        options.add_argument(arg)
+                    
+                    # Use persistent profile directory to maintain login sessions
+                    # This preserves ChatGPT login and other site sessions across restarts
+                    profile_dir = os.path.expanduser("~/.config/google-chrome-rekku")
+                    os.makedirs(profile_dir, exist_ok=True)
+                    options.add_argument(f"--user-data-dir={profile_dir}")
+                    
+                    # Clear any existing driver cache
+                    import tempfile
+                    import shutil
+                    uc_cache_dir = os.path.join(tempfile.gettempdir(), 'undetected_chromedriver')
+                    if os.path.exists(uc_cache_dir):
+                        shutil.rmtree(uc_cache_dir, ignore_errors=True)
+                        log_debug("[selenium] Cleared undetected-chromedriver cache")
+                    
+                    # Try with automatic configuration first
+                    self.driver = uc.Chrome(
+                        options=options,
+                        headless=False,
+                        use_subprocess=False,
+                        version_main=None,  # Auto-detect Chrome version
+                        suppress_welcome=True,
+                        log_level=3,
+                        driver_executable_path=None,  # Let UC handle chromedriver
+                        browser_executable_path=None,  # Let UC find Chrome
+                        user_data_dir=profile_dir
+                    )
+                    log_debug("[selenium] ✅ Chrome successfully initialized with undetected-chromedriver")
+                    return  # Success, exit retry loop
+                    
+                except Exception as e:
+                    log_warning(f"[selenium] Attempt {attempt + 1} failed: {e}")
+                    
+                    # Clean up before next attempt
+                    if self.driver:
+                        try:
+                            self.driver.quit()
+                        except:
+                            pass
+                        self.driver = None
+                    
+                    self._cleanup_chrome_remnants()
+                    
+                    if attempt < max_retries - 1:
+                        delay = (attempt + 1) * 2  # 2, 4, 6 seconds
+                        log_debug(f"[selenium] Waiting {delay}s before next attempt...")
+                        time.sleep(delay)
+                    else:
+                        # Final attempt with explicit Chrome binary
+                        log_debug("[selenium] Final attempt with explicit Chrome binary path...")
+                        try:
+                            chrome_binary = "/usr/bin/google-chrome-stable"
+                            if os.path.exists(chrome_binary):
+                                # Create fresh ChromeOptions for fallback attempt
+                                fallback_options = uc.ChromeOptions()
+                                for arg in essential_args:
+                                    fallback_options.add_argument(arg)
+                                fallback_options.add_argument(f"--user-data-dir={profile_dir}")
+                                
+                                self.driver = uc.Chrome(
+                                    options=fallback_options,
+                                    headless=False,
+                                    use_subprocess=False,
+                                    version_main=None,
+                                    suppress_welcome=True,
+                                    log_level=3,
+                                    browser_executable_path=chrome_binary,
+                                    user_data_dir=profile_dir
+                                )
+                                log_debug("[selenium] ✅ Chrome initialized with explicit binary path")
+                                return
+                            else:
+                                raise Exception("Chrome binary not found")
+                                
+                        except Exception as e2:
+                            log_error(f"[selenium] ❌ All initialization attempts failed: {e2}")
+                            _notify_gui(f"❌ Selenium error: {e2}. Check graphics environment.")
+                            raise SystemExit(1)
+
+    def _cleanup_chrome_remnants(self):
+        """Clean up Chrome processes and lock files from previous runs while preserving login sessions."""
+        try:
+            # Kill any existing Chrome processes
+            subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
+            subprocess.run(["pkill", "-f", "chromedriver"], capture_output=True, text=True)
+            time.sleep(1)  # Wait for processes to terminate
+            log_debug("[selenium] Killed existing Chrome processes")
+        except Exception as e:
+            log_debug(f"[selenium] Failed to kill Chrome processes: {e}")
+
+        try:
+            # Remove lock files from Chrome profile directories (preserves session data)
+            import glob
+            profile_patterns = [
+                os.path.expanduser("~/.config/google-chrome*"),
+                "/tmp/.com.google.Chrome*",
+                "/tmp/chrome_*"
             ]
             
-            for arg in essential_args:
-                options.add_argument(arg)
+            for pattern in profile_patterns:
+                for profile_dir in glob.glob(pattern):
+                    # Only remove lock files, NOT the entire profile directory
+                    lock_files = [
+                        os.path.join(profile_dir, "SingletonLock"),
+                        os.path.join(profile_dir, "Default", "SingletonLock"),
+                        os.path.join(profile_dir, "lockfile"),
+                    ]
+                    
+                    for lock_file in lock_files:
+                        if os.path.exists(lock_file):
+                            try:
+                                os.remove(lock_file)
+                                log_debug(f"[selenium] Removed lock file: {lock_file}")
+                            except Exception as e:
+                                log_debug(f"[selenium] Could not remove {lock_file}: {e}")
             
-            # Set user data directory
-            profile_dir = os.path.expanduser("~/.config/google-chrome")
-            os.makedirs(profile_dir, exist_ok=True)
-            options.add_argument(f"--user-data-dir={profile_dir}")
+            # Remove only temporary profile directories (those with timestamp suffix)
+            # This preserves the persistent profile but removes error-created temp ones
+            temp_patterns = [
+                os.path.expanduser("~/.config/google-chrome-[0-9]*"),
+                "/tmp/.com.google.Chrome*",
+                "/tmp/chrome_*"
+            ]
             
-            try:
-                # Use undetected-chromedriver with optimized configuration
-                # Following best practices from the official repo
-                log_debug("[selenium] Starting undetected-chromedriver with auto-detection")
-                
-                # Clear any existing driver cache
-                import tempfile
-                import shutil
-                uc_cache_dir = os.path.join(tempfile.gettempdir(), 'undetected_chromedriver')
-                if os.path.exists(uc_cache_dir):
-                    shutil.rmtree(uc_cache_dir, ignore_errors=True)
-                    log_debug("[selenium] Cleared undetected-chromedriver cache")
-                
-                self.driver = uc.Chrome(
-                    options=options,
-                    headless=False,
-                    use_subprocess=False,
-                    version_main=None,  # Auto-detect Chrome version
-                    suppress_welcome=True,
-                    log_level=3,
-                    driver_executable_path=None,  # Let UC handle chromedriver
-                    browser_executable_path=None,  # Let UC find Chrome
-                    user_data_dir=profile_dir
-                )
-                log_debug("[selenium] ✅ Chrome successfully initialized with undetected-chromedriver")
-                
-            except Exception as e:
-                log_error(f"[selenium] ❌ Failed to initialize Chrome: {e}")
-                log_debug("[selenium] Attempting with explicit Chrome binary path...")
-                
-                # Fallback: try with explicit Chrome path
-                # Create NEW ChromeOptions object to avoid reuse error
-                try:
-                    chrome_binary = "/usr/bin/google-chrome-stable"
-                    if os.path.exists(chrome_binary):
-                        # Create fresh ChromeOptions for fallback attempt
-                        fallback_options = uc.ChromeOptions()
-                        for arg in essential_args:
-                            fallback_options.add_argument(arg)
-                        fallback_options.add_argument(f"--user-data-dir={profile_dir}")
-                        
-                        self.driver = uc.Chrome(
-                            options=fallback_options,
-                            headless=False,
-                            use_subprocess=False,
-                            version_main=None,
-                            suppress_welcome=True,
-                            log_level=3,
-                            browser_executable_path=chrome_binary,
-                            user_data_dir=profile_dir
-                        )
-                        log_debug("[selenium] ✅ Chrome initialized with explicit binary path")
-                    else:
-                        raise Exception("Chrome binary not found")
-                        
-                except Exception as e2:
-                    log_error(f"[selenium] ❌ All initialization attempts failed: {e2}")
-                    _notify_gui(f"❌ Errore Selenium: {e2}. Verifica l'ambiente grafico.")
-                    raise SystemExit(1)
+            import shutil
+            for pattern in temp_patterns:
+                for temp_dir in glob.glob(pattern):
+                    try:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        log_debug(f"[selenium] Removed temporary directory: {temp_dir}")
+                    except Exception as e:
+                        log_debug(f"[selenium] Could not remove {temp_dir}: {e}")
+                                
+        except Exception as e:
+            log_debug(f"[selenium] Lock file cleanup failed: {e}")
 
     def _ensure_logged_in(self):
         try:
@@ -567,7 +675,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 await self._process_message(bot, message, prompt)
             except Exception as e:
                 log_error("[selenium] Worker error", e)
-                _notify_gui(f"❌ Errore Selenium: {e}. Apri")
+                _notify_gui(f"❌ Selenium error: {e}. Open UI")
             finally:
                 self._queue.task_done()
                 log_debug("[selenium] [WORKER] Task completed")
@@ -659,7 +767,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 self._init_driver()
             except Exception as e:
                 log_error("[selenium] set_notify_fn initialization error", e)
-                _notify_gui(f"❌ Errore Selenium: {e}. Apri")
+                _notify_gui(f"❌ Selenium error: {e}. Open UI")
 
 PLUGIN_CLASS = SeleniumChatGPTPlugin
 

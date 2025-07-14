@@ -43,11 +43,13 @@ ENV PYTHONPATH=/app \
 COPY automation_tools/rekku.sh /etc/cont-init.d/99-rekku.sh
 COPY automation_tools/98-fix-session.sh /etc/cont-init.d/98-fix-session.sh
 COPY automation_tools/01-password.sh /etc/cont-init.d/01-password.sh
+COPY automation_tools/cleanup_chrome.sh /etc/cont-init.d/97-cleanup-chrome.sh
 COPY automation_tools/init-selkies.sh /etc/s6-overlay/s6-rc.d/init-selkies/run
 COPY automation_tools/init-selkies.type /etc/s6-overlay/s6-rc.d/init-selkies/type
 COPY automation_tools/container_rekku.sh /app/rekku.sh
 RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
         /etc/s6-overlay/s6-rc.d/init-selkies/run /etc/cont-init.d/98-fix-session.sh \
+        /etc/cont-init.d/97-cleanup-chrome.sh \
         /app/rekku.sh \
     && mkdir -p /home/rekku /config /etc/s6-overlay/s6-rc.d/user/contents.d \
     && ln -sfn ../init-selkies /etc/s6-overlay/s6-rc.d/user/contents.d/init-selkies \
