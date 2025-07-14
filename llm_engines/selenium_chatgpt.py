@@ -1,9 +1,14 @@
 import undetected_chromedriver as uc
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import (
     NoSuchElementException,
     TimeoutException,
     ElementNotInteractableException,
+    SessionNotCreatedException,
+    WebDriverException,
 )
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
@@ -11,6 +16,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
 import json
+import re
 from typing import Dict, Optional
 import threading
 from core.ai_plugin_base import AIPluginBase
@@ -19,10 +25,15 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 import asyncio
 import os
 import subprocess
+from core.chatgpt_link_store import ChatLinkStore
 
 # Cache the last response per Telegram chat to avoid duplicates
 previous_responses: Dict[int, str] = {}
 response_cache_lock = threading.Lock()
+
+# Persistent mapping between Telegram chats and ChatGPT conversations
+chat_link_store = ChatLinkStore()
+queue_paused = False
 
 
 def get_previous_response(chat_id: int) -> str:
@@ -100,6 +111,34 @@ def _notify_gui(message: str = ""):
         notify_owner(text)
     except Exception as e:
         log_error(f"[selenium] notify_owner failed: {e}", e)
+
+
+def _extract_chat_id(url: str) -> Optional[str]:
+    match = re.search(r"/chat/([^/?#]+)", url)
+    return match.group(1) if match else None
+
+
+def _check_conversation_full(driver) -> bool:
+    try:
+        elems = driver.find_elements(By.CSS_SELECTOR, "div.text-token-text-error")
+        for el in elems:
+            text = (el.get_attribute("innerText") or "").strip()
+            if "maximum length for this conversation" in text:
+                return True
+    except Exception as e:  # pragma: no cover - best effort
+        log_warning(f"[selenium] overflow check failed: {e}")
+    return False
+
+
+def _open_new_chat(driver) -> None:
+    try:
+        driver.get("https://chat.openai.com")
+        btn = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='new-chat-button']"))
+        )
+        btn.click()
+    except Exception as e:
+        log_warning(f"[selenium] New chat button not clicked: {e}")
 
 
 def wait_for_response_change(
@@ -299,12 +338,13 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         self.driver = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task = None
+        log_debug(f"[selenium] notify_fn passed: {bool(notify_fn)}")
         if notify_fn:
             set_notifier(notify_fn)
 
     async def start(self):
         """Start the background worker loop."""
-        log_debug("[selenium] start() invoked")
+        log_debug("[selenium] \U0001F7E2 start() called")
         if self.is_worker_running():
             log_debug("[selenium] Worker already running")
             return
@@ -336,29 +376,116 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
     def _init_driver(self):
         if self.driver is None:
-            log_debug("[selenium] [STEP] Initializing Chrome driver")
-            chrome_path = "/usr/bin/google-chrome-stable"
-            profile_dir = os.path.expanduser("/home/rekku/.ucd-profile")
-            os.makedirs(profile_dir, exist_ok=True)
+            log_debug("[selenium] [STEP] Initializing Chrome driver with undetected-chromedriver")
 
-            options = uc.ChromeOptions()
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-setuid-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
-
+            # Kill any existing Chrome processes to avoid conflicts
             try:
+                subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
+                subprocess.run(["pkill", "-f", "chromedriver"], capture_output=True, text=True)
+                time.sleep(2)  # Wait for processes to terminate
+                log_debug("[selenium] Killed existing Chrome processes")
+            except Exception as e:
+                log_debug(f"[selenium] Failed to kill Chrome processes (might not exist): {e}")
+
+            # Ensure DISPLAY is set
+            if not os.environ.get("DISPLAY"):
+                os.environ["DISPLAY"] = ":1"
+                log_debug("[selenium] DISPLAY not set, defaulting to :1")
+
+            # Create Chrome options optimized for container environments
+            options = uc.ChromeOptions()
+            
+            # Essential options for Docker containers
+            essential_args = [
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-setuid-sandbox",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                "--disable-extensions",
+                "--disable-web-security",
+                "--start-maximized",
+                "--no-first-run",
+                "--disable-default-apps",
+                "--disable-popup-blocking",
+                "--disable-infobars",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--memory-pressure-off",
+                "--single-process",
+                "--disable-features=VizDisplayCompositor",
+                "--log-level=3",
+                "--disable-logging"
+            ]
+            
+            for arg in essential_args:
+                options.add_argument(arg)
+            
+            # Set user data directory
+            profile_dir = os.path.expanduser("~/.config/google-chrome")
+            os.makedirs(profile_dir, exist_ok=True)
+            options.add_argument(f"--user-data-dir={profile_dir}")
+            
+            try:
+                # Use undetected-chromedriver with optimized configuration
+                # Following best practices from the official repo
+                log_debug("[selenium] Starting undetected-chromedriver with auto-detection")
+                
+                # Clear any existing driver cache
+                import tempfile
+                import shutil
+                uc_cache_dir = os.path.join(tempfile.gettempdir(), 'undetected_chromedriver')
+                if os.path.exists(uc_cache_dir):
+                    shutil.rmtree(uc_cache_dir, ignore_errors=True)
+                    log_debug("[selenium] Cleared undetected-chromedriver cache")
+                
                 self.driver = uc.Chrome(
                     options=options,
                     headless=False,
-                    browser_executable_path=chrome_path,
-                    user_data_dir=profile_dir,
+                    use_subprocess=False,
+                    version_main=None,  # Auto-detect Chrome version
+                    suppress_welcome=True,
+                    log_level=3,
+                    driver_executable_path=None,  # Let UC handle chromedriver
+                    browser_executable_path=None,  # Let UC find Chrome
+                    user_data_dir=profile_dir
                 )
-                log_debug("[selenium] Chrome driver started")
+                log_debug("[selenium] ✅ Chrome successfully initialized with undetected-chromedriver")
+                
             except Exception as e:
-                log_error(f"[selenium] Failed to start Chrome: {e}", e)
-                _notify_gui(f"❌ Errore Selenium: {e}. Apri")
-                raise SystemExit(1)
+                log_error(f"[selenium] ❌ Failed to initialize Chrome: {e}")
+                log_debug("[selenium] Attempting with explicit Chrome binary path...")
+                
+                # Fallback: try with explicit Chrome path
+                # Create NEW ChromeOptions object to avoid reuse error
+                try:
+                    chrome_binary = "/usr/bin/google-chrome-stable"
+                    if os.path.exists(chrome_binary):
+                        # Create fresh ChromeOptions for fallback attempt
+                        fallback_options = uc.ChromeOptions()
+                        for arg in essential_args:
+                            fallback_options.add_argument(arg)
+                        fallback_options.add_argument(f"--user-data-dir={profile_dir}")
+                        
+                        self.driver = uc.Chrome(
+                            options=fallback_options,
+                            headless=False,
+                            use_subprocess=False,
+                            version_main=None,
+                            suppress_welcome=True,
+                            log_level=3,
+                            browser_executable_path=chrome_binary,
+                            user_data_dir=profile_dir
+                        )
+                        log_debug("[selenium] ✅ Chrome initialized with explicit binary path")
+                    else:
+                        raise Exception("Chrome binary not found")
+                        
+                except Exception as e2:
+                    log_error(f"[selenium] ❌ All initialization attempts failed: {e2}")
+                    _notify_gui(f"❌ Errore Selenium: {e2}. Verifica l'ambiente grafico.")
+                    raise SystemExit(1)
 
     def _ensure_logged_in(self):
         try:
@@ -391,6 +518,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         log_debug("[selenium] Worker loop started")
         while True:
             bot, message, prompt = await self._queue.get()
+            while queue_paused:
+                await asyncio.sleep(1)
             log_debug(
                 f"[selenium] [WORKER] Processing chat_id={message.chat_id} message_id={message.message_id}"
             )
@@ -426,16 +555,36 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             _notify_gui("❌ Selenium error: ChatGPT UI not ready. Open UI")
             return
 
-        try:
-            prompt_text = json.dumps(prompt, ensure_ascii=False)
+        thread_id = getattr(message, "message_thread_id", None)
+        chat_id = chat_link_store.get_link(message.chat_id, thread_id)
+        prompt_text = json.dumps(prompt, ensure_ascii=False)
+
+        if chat_id:
+            previous = get_previous_response(message.chat_id)
+            response_text = process_prompt_in_chat(driver, chat_id, prompt_text, previous)
+        else:
+            _open_new_chat(driver)
             response_text = rename_and_send_prompt(driver, message, prompt_text)
-        except Exception as e:
-            log_error(f"[selenium][ERROR] failed to send prompt: {e}", e)
-            response_text = "⚠️ Error reading response"
+            new_chat_id = _extract_chat_id(driver.current_url)
+            if new_chat_id:
+                chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
+
+        if _check_conversation_full(driver):
+            current_id = chat_id or _extract_chat_id(driver.current_url)
+            if current_id:
+                chat_link_store.mark_full(current_id)
+            global queue_paused
+            queue_paused = True
+            _open_new_chat(driver)
+            response_text = rename_and_send_prompt(driver, message, prompt_text)
+            new_chat_id = _extract_chat_id(driver.current_url)
+            if new_chat_id:
+                chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
+            queue_paused = False
+
         if not response_text:
             response_text = "⚠️ No response received"
 
-        # === Forward to Telegram ===
         try:
             await bot.send_message(
                 chat_id=message.chat_id,

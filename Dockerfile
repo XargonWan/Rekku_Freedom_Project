@@ -13,11 +13,12 @@ RUN apt-get update && \
       fonts-noto-cjk fonts-noto-color-emoji xfonts-base && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install Google Chrome
+# Install Google Chrome (let undetected-chromedriver handle compatibility)
 RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/trusted.gpg.d/google-chrome.gpg && \
     echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update && \
     apt-get install -y google-chrome-stable && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
     google-chrome --version
 
 # Copy project code
