@@ -28,6 +28,12 @@ import subprocess
 from core.chatgpt_link_store import ChatLinkStore
 from core import recent_chats
 
+# ---------------------------------------------------------------------------
+# Constants
+
+GRACE_PERIOD_SECONDS = 3
+MAX_WAIT_TIMEOUT_SECONDS = 5 * 60  # hard ceiling
+
 # Cache the last response per Telegram chat to avoid duplicates
 previous_responses: Dict[int, str] = {}
 response_cache_lock = threading.Lock()
@@ -153,6 +159,42 @@ def wait_for_markdown_block_to_appear(driver, prev_count: int, timeout: int = 10
     return False
 
 
+def wait_until_response_complete(driver) -> bool:
+    """Return ``True`` when the latest ChatGPT reply stops growing."""
+    start = time.time()
+    last_len = -1
+    last_change = start
+    selector = "div.markdown.prose"
+
+    while time.time() - start < MAX_WAIT_TIMEOUT_SECONDS:
+        try:
+            elems = driver.find_elements(By.CSS_SELECTOR, selector)
+            if not elems:
+                time.sleep(0.5)
+                continue
+            text = elems[-1].text or ""
+            current_len = len(text)
+            changed = current_len != last_len
+            log_debug(f"[selenium][DEBUG] len={current_len} changed={changed}")
+
+            if changed:
+                last_len = current_len
+                last_change = time.time()
+            elif time.time() - last_change >= GRACE_PERIOD_SECONDS:
+                elapsed = time.time() - start
+                log_debug(
+                    f"[selenium][DEBUG] Response stabilized at length {current_len} after {elapsed:.1f}s"
+                )
+                return True
+        except Exception as e:  # pragma: no cover - best effort
+            log_warning(f"[selenium] Response wait error: {e}")
+
+        time.sleep(0.5)
+
+    log_warning(f"[selenium] Response wait timed out at length {last_len}")
+    return False
+
+
 def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
     """Send text and wait for ChatGPT to start replying."""
     driver = textarea._parent
@@ -162,6 +204,7 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
             paste_and_send(textarea, prompt_text)
             textarea.send_keys(Keys.ENTER)
             if wait_for_markdown_block_to_appear(driver, prev_blocks):
+                wait_until_response_complete(driver)
                 return
             log_warning(f"[selenium] No response after attempt {attempt}")
         except Exception as e:  # pragma: no cover - best effort
@@ -169,7 +212,8 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
     log_warning("[selenium] Fallback via ActionChains")
     try:
         ActionChains(driver).click(textarea).send_keys(prompt_text).send_keys(Keys.ENTER).perform()
-        wait_for_markdown_block_to_appear(driver, prev_blocks)
+        if wait_for_markdown_block_to_appear(driver, prev_blocks):
+            wait_until_response_complete(driver)
     except Exception as e:  # pragma: no cover - best effort
         log_warning(f"[selenium] Fallback send failed: {e}")
 
