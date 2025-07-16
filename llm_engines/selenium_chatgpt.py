@@ -687,6 +687,13 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         log_debug("[selenium] Logged in and ready")
         return True
 
+    def _format_prompt_as_text(self, prompt: dict) -> str:
+        """Return ``prompt`` as a Markdown JSON code block."""
+        json_str = json.dumps(prompt, ensure_ascii=False, indent=2)
+        if len(json_str) > 8000:
+            json_str = json_str[:8000] + "... (truncated)"
+        return f"```json\n{json_str}\n```"
+
     async def handle_incoming_message(self, bot, message, prompt):
         """Queue the message to be processed sequentially."""
         user_id = message.from_user.id if message.from_user else "unknown"
@@ -737,7 +744,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
         thread_id = getattr(message, "message_thread_id", None)
         chat_id = chat_link_store.get_link(message.chat_id, thread_id)
-        prompt_text = json.dumps(prompt, ensure_ascii=False)
+        prompt_text = self._format_prompt_as_text(prompt)
         if not chat_id:
             path = recent_chats.get_chat_path(message.chat_id)
             if path and go_to_chat_by_path(driver, path):
