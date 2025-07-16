@@ -86,14 +86,29 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
 
 
 def paste_and_send(textarea, prompt_text: str) -> None:
-    """Send ``prompt_text`` to ChatGPT textarea in chunks."""
+    """Send ``prompt_text`` to ChatGPT textarea in small chunks."""
     import textwrap
+
     clean = strip_non_bmp(prompt_text)
     if len(clean) > 4000:
         clean = clean[:4000]
+
+    chunks = textwrap.wrap(clean, 200)
+    log_debug(f"[selenium] Sending prompt in {len(chunks)} chunks")
+
     try:
-        for chunk in textwrap.wrap(clean, 1024):
+        for idx, chunk in enumerate(chunks, start=1):
+            log_debug(
+                f"[selenium] -> chunk {idx}/{len(chunks)} ({len(chunk)} chars)"
+            )
             textarea.send_keys(chunk)
+            time.sleep(0.05)
+
+        final_value = textarea.get_attribute("value") or ""
+        if final_value != clean:
+            log_warning(
+                f"[WARN][selenium] textarea mismatch: expected {len(clean)} chars, got {len(final_value)}"
+            )
     except Exception as e:
         log_warning(f"[WARN][selenium] send_keys failed: {e}")
         raise
@@ -415,6 +430,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         self.driver = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task = None
+        self._send_lock = asyncio.Lock()
         log_debug(f"[selenium] notify_fn passed: {bool(notify_fn)}")
         if notify_fn:
             set_notifier(notify_fn)
@@ -692,6 +708,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         log_debug(
             f"[selenium] [ENTRY] chat_id={message.chat_id} user_id={user_id} text={text!r}"
         )
+        if self._send_lock.locked():
+            log_debug("[selenium] Plugin busy, waiting for lock")
         await self._queue.put((bot, message, prompt))
         log_debug("[selenium] Message queued for processing")
         if self._queue.qsize() > 10:
@@ -709,7 +727,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 f"[selenium] [WORKER] Processing chat_id={message.chat_id} message_id={message.message_id}"
             )
             try:
-                await self._process_message(bot, message, prompt)
+                async with self._send_lock:
+                    log_debug("[selenium] Acquired send lock")
+                    await self._process_message(bot, message, prompt)
+                    log_debug("[selenium] Released send lock")
             except Exception as e:
                 log_error("[selenium] Worker error", e)
                 _notify_gui(f"❌ Selenium error: {e}. Open UI")
