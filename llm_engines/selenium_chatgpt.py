@@ -129,6 +129,75 @@ def paste_and_send(textarea, prompt_text: str) -> None:
         log_warning(f"[selenium] Fallback send failed: {e}")
 
 
+# ---------------------------------------------------------------------------
+# Queue utilities for sequential prompt processing
+
+_prompt_queue: asyncio.Queue = asyncio.Queue()
+_queue_lock = asyncio.Lock()
+_queue_worker: asyncio.Task | None = None
+
+
+def wait_for_markdown_block_to_appear(driver, prev_count: int, timeout: int = 10) -> bool:
+    """Return ``True`` once a new markdown block appears."""
+    end_time = time.time() + timeout
+    while time.time() < end_time:
+        try:
+            count = len(driver.find_elements(By.CSS_SELECTOR, "div.markdown"))
+            if count > prev_count:
+                log_debug(f"[selenium] Markdown count {prev_count} -> {count}")
+                return True
+        except Exception as e:  # pragma: no cover - best effort
+            log_warning(f"[selenium] Markdown wait error: {e}")
+        time.sleep(0.5)
+    log_warning("[selenium] Timeout waiting for response start")
+    return False
+
+
+def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
+    """Send text and wait for ChatGPT to start replying."""
+    driver = textarea._parent
+    prev_blocks = len(driver.find_elements(By.CSS_SELECTOR, "div.markdown"))
+    for attempt in range(1, 4):
+        try:
+            paste_and_send(textarea, prompt_text)
+            textarea.send_keys(Keys.ENTER)
+            if wait_for_markdown_block_to_appear(driver, prev_blocks):
+                return
+            log_warning(f"[selenium] No response after attempt {attempt}")
+        except Exception as e:  # pragma: no cover - best effort
+            log_warning(f"[selenium] Send attempt {attempt} failed: {e}")
+    log_warning("[selenium] Fallback via ActionChains")
+    try:
+        ActionChains(driver).click(textarea).send_keys(prompt_text).send_keys(Keys.ENTER).perform()
+        wait_for_markdown_block_to_appear(driver, prev_blocks)
+    except Exception as e:  # pragma: no cover - best effort
+        log_warning(f"[selenium] Fallback send failed: {e}")
+
+
+async def _queue_worker_loop() -> None:
+    """Background worker that processes queued prompts sequentially."""
+    global _queue_worker
+    while not _prompt_queue.empty():
+        textarea, text = await _prompt_queue.get()
+        log_debug("[selenium] Dequeued prompt")
+        async with _queue_lock:
+            log_debug("[selenium] Send lock acquired")
+            await asyncio.to_thread(_send_prompt_with_confirmation, textarea, text)
+            log_debug("[selenium] Prompt completed")
+        _prompt_queue.task_done()
+        log_debug("[selenium] Task done")
+    _queue_worker = None
+
+
+async def enqueue_prompt(textarea, prompt_text: str) -> None:
+    """Enqueue ``prompt_text`` for sequential sending to ChatGPT."""
+    await _prompt_queue.put((textarea, prompt_text))
+    log_debug(f"[selenium] Prompt enqueued (size={_prompt_queue.qsize()})")
+    global _queue_worker
+    if _queue_worker is None or _queue_worker.done():
+        _queue_worker = asyncio.create_task(_queue_worker_loop())
+
+
 def _build_vnc_url() -> str:
     """Return the URL to access the noVNC interface."""
     port = os.getenv("WEBVIEW_PORT", "5005")
