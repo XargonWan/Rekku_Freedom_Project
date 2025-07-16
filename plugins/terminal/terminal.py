@@ -91,5 +91,8 @@ class TerminalPlugin(AIPluginBase):
     def clear(self, trainer_message_id):
         pass
 
+    def get_rate_limit(self):
+        return (80, 10800, 0.5)
+
 
 PLUGIN_CLASS = TerminalPlugin

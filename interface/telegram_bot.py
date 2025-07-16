@@ -24,6 +24,7 @@ from core.context import context_command
 from collections import deque
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.telegram_utils import truncate_message
 from core.message_sender import (
     send_content,
     detect_media_type,
@@ -468,7 +469,7 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(args) >= 2:
         try:
             chat_id = int(args[0])
-            text = " ".join(args[1:])
+            text = truncate_message(" ".join(args[1:]))
             await bot.send_message(chat_id=chat_id, text=text)
             await update.message.reply_text("\u2705 Messaggio inviato.")
         except Exception as e:
@@ -666,9 +667,10 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
 
     async def send():
         try:
+            text = truncate_message(formatted_message or message)
             await bot.send_message(
                 chat_id=chat_id,
-                text=formatted_message or message,
+                text=text,
                 reply_to_message_id=reply_to_message_id,
                 parse_mode=ParseMode.HTML if formatted_message else None,
                 disable_web_page_preview=True,

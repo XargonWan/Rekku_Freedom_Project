@@ -73,7 +73,7 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
         "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
         "arguments[0].dispatchEvent(new KeyboardEvent('keydown', {bubbles: true}));"
         "arguments[0].dispatchEvent(new KeyboardEvent('keyup', {bubbles: true}));"
-    )
+        )
     driver.execute_script(script, textarea, clean_text)
 
     actual = driver.execute_script("return arguments[0].innerText;", textarea) or ""
@@ -82,6 +82,16 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
         log_error(
             f"[ERROR] Text truncated: expected {len(clean_text)} chars, found {len(actual)}"
         )
+
+
+def paste_and_send(textarea, prompt_text: str) -> None:
+    """Send ``prompt_text`` to ChatGPT textarea in chunks."""
+    import textwrap
+    clean = strip_non_bmp(prompt_text)
+    if len(clean) > 4000:
+        clean = clean[:4000]
+    for chunk in textwrap.wrap(clean, 1024):
+        textarea.send_keys(chunk)
 
 
 def _build_vnc_url() -> str:
@@ -263,10 +273,12 @@ def process_prompt_in_chat(
         textarea.send_keys(Keys.CONTROL + "a")
         textarea.send_keys(Keys.DELETE)
 
-        clean_text = strip_non_bmp(prompt_text)
-        textarea.send_keys(clean_text)
+        paste_and_send(textarea, prompt_text)
 
         current_value = textarea.get_attribute("value") or ""
+        clean_text = strip_non_bmp(prompt_text)
+        if len(clean_text) > 4000:
+            clean_text = clean_text[:4000]
         if current_value != clean_text:
             log_warning("[selenium][WARN] Textarea mismatch, retrying with ActionChains")
             ActionChains(driver).click(textarea).send_keys(clean_text).perform()
@@ -347,7 +359,7 @@ def rename_and_send_prompt(driver, chat_info, prompt_text: str) -> Optional[str]
         return None
 
     try:
-        _send_text_to_textarea(driver, textarea, prompt_text)
+        paste_and_send(textarea, prompt_text)
         textarea.send_keys(Keys.ENTER)
     except Exception as e:
         log_error(f"[selenium][ERROR] failed to send prompt: {e}")
@@ -759,6 +771,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
     def get_supported_models(self):
         return []  # nessun modello per ora
+
+    def get_rate_limit(self):
+        return (80, 10800, 0.5)
 
     def set_notify_fn(self, fn):
         set_notifier(fn)

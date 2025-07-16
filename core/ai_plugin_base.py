@@ -27,8 +27,10 @@ class AIPluginBase:
     def get_supported_models(self) -> list[str]:
         """Optional. Return the list of available models."""
         return []
+    def get_rate_limit(self):
+        return (80, 10800, 0.5)
+
 
     def set_notify_fn(self, notify_fn):
         """Optional: dynamically update the notification function."""
         self.notify_fn = notify_fn
-        

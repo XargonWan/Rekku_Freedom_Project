@@ -1,6 +1,7 @@
 # llm_engines/manual.py
 
 from core import say_proxy, message_map
+from core.telegram_utils import truncate_message
 from core.config import OWNER_ID
 from core.ai_plugin_base import AIPluginBase
 import json
@@ -32,6 +33,9 @@ class ManualAIPlugin(AIPluginBase):
     def clear(self, trainer_message_id):
         message_map.delete_mapping(trainer_message_id)
 
+    def get_rate_limit(self):
+        return (80, 10800, 0.5)
+
     async def handle_incoming_message(self, bot, message, prompt):
         from core.notifier import notify_owner
 
@@ -45,7 +49,7 @@ class ManualAIPlugin(AIPluginBase):
         target_chat = say_proxy.get_target(user_id)
         if target_chat and target_chat != "EXPIRED":
             log_debug(f"[manual] Invio da /say: chat_id={target_chat}")
-            await bot.send_message(chat_id=target_chat, text=text)
+            await bot.send_message(chat_id=target_chat, text=truncate_message(text))
             say_proxy.clear(user_id)
             return
 
@@ -54,8 +58,7 @@ class ManualAIPlugin(AIPluginBase):
         from telegram.constants import ParseMode
 
         prompt_json = json.dumps(prompt, ensure_ascii=False, indent=2)
-        if len(prompt_json) > 4000:
-            prompt_json = prompt_json[:4000] + "\n... (troncato)"
+        prompt_json = truncate_message(prompt_json)
 
         await bot.send_message(
             chat_id=OWNER_ID,
@@ -66,7 +69,7 @@ class ManualAIPlugin(AIPluginBase):
         # === Inoltra il messaggio originale per facilitare la risposta ===
         sender = message.from_user
         user_ref = f"@{sender.username}" if sender.username else sender.full_name
-        await bot.send_message(chat_id=OWNER_ID, text=f"{user_ref}:")
+        await bot.send_message(chat_id=OWNER_ID, text=truncate_message(f"{user_ref}:"))
 
         sent = await bot.forward_message(
             chat_id=OWNER_ID,
