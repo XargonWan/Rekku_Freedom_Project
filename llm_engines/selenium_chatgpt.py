@@ -730,7 +730,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         """Send the prompt to ChatGPT and forward the response."""
         log_debug(f"[selenium][STEP] processing prompt: {prompt}")
 
-        if message.from_user and message.from_user.id != OWNER_ID:
+        debug_env = os.getenv("DEBUG_PROMPT_TO_OWNER", "0")
+        if (
+            message.from_user
+            and (message.from_user.id == OWNER_ID or debug_env == "1")
+        ):
             await send_json_preview(bot, prompt)
 
         if self.driver is None:
