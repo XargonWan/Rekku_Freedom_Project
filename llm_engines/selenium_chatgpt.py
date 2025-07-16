@@ -159,40 +159,51 @@ def wait_for_markdown_block_to_appear(driver, prev_count: int, timeout: int = 10
     return False
 
 
-def wait_until_response_complete(driver) -> bool:
-    """Return ``True`` when the latest ChatGPT reply stops growing."""
+def wait_until_response_stabilizes(
+    driver: webdriver.Remote,
+    max_total_wait: int = 300,
+    no_change_grace: float = 3.5,
+) -> str:
+    """Return the last markdown text once its length stops growing."""
+    selector = "div.markdown.prose"
     start = time.time()
     last_len = -1
     last_change = start
-    selector = "div.markdown.prose"
+    final_text = ""
 
-    while time.time() - start < MAX_WAIT_TIMEOUT_SECONDS:
+    while True:
+        if time.time() - start >= max_total_wait:
+            log_warning("[WARNING] Timeout while waiting for new response")
+            return final_text
+
         try:
             elems = driver.find_elements(By.CSS_SELECTOR, selector)
             if not elems:
                 time.sleep(0.5)
                 continue
             text = elems[-1].text or ""
-            current_len = len(text)
-            changed = current_len != last_len
-            log_debug(f"[selenium][DEBUG] len={current_len} changed={changed}")
-
-            if changed:
-                last_len = current_len
-                last_change = time.time()
-            elif time.time() - last_change >= GRACE_PERIOD_SECONDS:
-                elapsed = time.time() - start
-                log_debug(
-                    f"[selenium][DEBUG] Response stabilized at length {current_len} after {elapsed:.1f}s"
-                )
-                return True
         except Exception as e:  # pragma: no cover - best effort
             log_warning(f"[selenium] Response wait error: {e}")
+            time.sleep(0.5)
+            continue
+
+        current_len = len(text)
+        changed = current_len != last_len
+        log_debug(f"[DEBUG] len={current_len} changed={changed}")
+
+        if changed:
+            last_len = current_len
+            last_change = time.time()
+            final_text = text
+        elif time.time() - last_change >= no_change_grace:
+            elapsed = time.time() - start
+            log_debug(
+                f"[DEBUG] Response stabilized with length {current_len} after {elapsed:.1f}s"
+            )
+            return text
 
         time.sleep(0.5)
 
-    log_warning(f"[selenium] Response wait timed out at length {last_len}")
-    return False
 
 
 def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
@@ -204,7 +215,7 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
             paste_and_send(textarea, prompt_text)
             textarea.send_keys(Keys.ENTER)
             if wait_for_markdown_block_to_appear(driver, prev_blocks):
-                wait_until_response_complete(driver)
+                wait_until_response_stabilizes(driver)
                 return
             log_warning(f"[selenium] No response after attempt {attempt}")
         except Exception as e:  # pragma: no cover - best effort
@@ -213,7 +224,7 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
     try:
         ActionChains(driver).click(textarea).send_keys(prompt_text).send_keys(Keys.ENTER).perform()
         if wait_for_markdown_block_to_appear(driver, prev_blocks):
-            wait_until_response_complete(driver)
+            wait_until_response_stabilizes(driver)
     except Exception as e:  # pragma: no cover - best effort
         log_warning(f"[selenium] Fallback send failed: {e}")
 
@@ -467,13 +478,11 @@ def process_prompt_in_chat(
 
     log_debug("🔍 Waiting for response block...")
     try:
-        response_text = wait_for_response_change(driver, previous_text)
+        response_text = wait_until_response_stabilizes(driver)
     except Exception as e:
         log_error(f"[selenium][ERROR] waiting for response failed: {e}", e)
         return None
 
-    if response_text is None:
-        return None
     if not response_text or response_text == previous_text:
         log_debug("🟡 No new response, skipping")
         return None
@@ -536,12 +545,12 @@ def rename_and_send_prompt(driver, chat_info, prompt_text: str) -> Optional[str]
     previous_text = get_previous_response(chat_info.chat_id)
     log_debug("🔍 Waiting for response block...")
     try:
-        response_text = wait_for_response_change(driver, previous_text)
+        response_text = wait_until_response_stabilizes(driver)
     except Exception as e:
         log_error(f"[selenium][ERROR] waiting for response failed: {e}")
         return None
 
-    if not response_text:
+    if not response_text or response_text == previous_text:
         log_debug("🟡 No new response, skipping")
         return None
     update_previous_response(chat_info.chat_id, response_text)
