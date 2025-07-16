@@ -22,6 +22,8 @@ import threading
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.telegram_utils import send_json_preview
+from core.config import OWNER_ID
 import asyncio
 import os
 import subprocess
@@ -720,6 +722,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     async def _process_message(self, bot, message, prompt):
         """Send the prompt to ChatGPT and forward the response."""
         log_debug(f"[selenium][STEP] processing prompt: {prompt}")
+
+        if message.from_user and message.from_user.id != OWNER_ID:
+            await send_json_preview(bot, prompt)
 
         if self.driver is None:
             self._init_driver()

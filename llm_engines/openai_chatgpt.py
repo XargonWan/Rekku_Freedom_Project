@@ -5,6 +5,8 @@ import json
 import openai  # Assicurati che sia installato
 from core.config import get_user_api_key
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.telegram_utils import send_json_preview
+from core.config import OWNER_ID
 
 class OpenAIPlugin(AIPluginBase):
 
@@ -50,6 +52,9 @@ class OpenAIPlugin(AIPluginBase):
         from core.notifier import notify_owner
 
         notify_owner("🚨 Generating the reply...")
+
+        if message.from_user and message.from_user.id != OWNER_ID:
+            await send_json_preview(bot, prompt)
 
         try:
             response = await self.generate_response(prompt)

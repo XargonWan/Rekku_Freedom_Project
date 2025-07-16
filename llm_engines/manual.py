@@ -1,11 +1,9 @@
 # llm_engines/manual.py
 
 from core import say_proxy, message_map
-from core.telegram_utils import truncate_message
+from core.telegram_utils import truncate_message, send_json_preview
 from core.config import OWNER_ID
 from core.ai_plugin_base import AIPluginBase
-import json
-from telegram.constants import ParseMode
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 class ManualAIPlugin(AIPluginBase):
@@ -53,18 +51,9 @@ class ManualAIPlugin(AIPluginBase):
             say_proxy.clear(user_id)
             return
 
-        # === Invia prompt JSON al trainer (OWNER_ID) ===
-        import json
-        from telegram.constants import ParseMode
-
-        prompt_json = json.dumps(prompt, ensure_ascii=False, indent=2)
-        prompt_json = truncate_message(prompt_json)
-
-        await bot.send_message(
-            chat_id=OWNER_ID,
-            text=f"\U0001f4e6 *Generated JSON prompt:*\n```json\n{prompt_json}\n```",
-            parse_mode=ParseMode.MARKDOWN
-        )
+        # === Invia prompt JSON al trainer (OWNER_ID) se il mittente non è l'owner ===
+        if message.from_user.id != OWNER_ID:
+            await send_json_preview(bot, prompt)
 
         # === Inoltra il messaggio originale per facilitare la risposta ===
         sender = message.from_user
