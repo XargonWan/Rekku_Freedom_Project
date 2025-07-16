@@ -437,7 +437,13 @@ async def manage_chat_id_command(update: Update, context: ContextTypes.DEFAULT_T
         if not entries:
             await update.message.reply_text("\u26a0\ufe0f Nessuna chat trovata.")
             return
-        lines = [f"{escape_markdown(name)} — `{cid}`" for cid, name in entries]
+        lines = []
+        for cid, name in entries:
+            path = recent_chats.get_chat_path(cid)
+            if path:
+                lines.append(f"{escape_markdown(name)} — `{cid}` -> {escape_markdown(path)}")
+            else:
+                lines.append(f"{escape_markdown(name)} — `{cid}`")
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
         return
 

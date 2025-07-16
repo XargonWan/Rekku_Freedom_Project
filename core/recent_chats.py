@@ -5,10 +5,33 @@ import time
 import os
 import re
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+import json
+from pathlib import Path
 
 OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 MAX_ENTRIES = 100
 _metadata = {}
+chat_path_map = {}
+
+_CHAT_MAP_PATH = Path(__file__).with_name("chat_paths.json")
+
+def _save_chat_paths():
+    try:
+        with _CHAT_MAP_PATH.open("w", encoding="utf-8") as f:
+            json.dump(chat_path_map, f)
+        log_debug(f"[recent_chats] Saved chat path map with {len(chat_path_map)} entries")
+    except Exception as e:  # pragma: no cover - best effort
+        log_warning(f"[recent_chats] Failed to save chat path map: {e}")
+
+if _CHAT_MAP_PATH.exists():
+    try:
+        with _CHAT_MAP_PATH.open("r", encoding="utf-8") as f:
+            chat_path_map = {int(k): v for k, v in json.load(f).items()}
+        log_debug(
+            f"[recent_chats] Loaded chat path map with {len(chat_path_map)} entries"
+        )
+    except Exception as e:  # pragma: no cover - best effort
+        log_warning(f"[recent_chats] Failed to load chat path map: {e}")
 
 def track_chat(chat_id: int, metadata=None):
     now = time.time()
@@ -28,6 +51,15 @@ def reset_chat(chat_id: int):
     with get_db() as db:
         db.execute("DELETE FROM recent_chats WHERE chat_id = ?", (chat_id,))
     _metadata.pop(chat_id, None)
+    if chat_path_map.pop(chat_id, None) is not None:
+        _save_chat_paths()
+
+def set_chat_path(chat_id: int, chat_path: str) -> None:
+    chat_path_map[chat_id] = chat_path
+    _save_chat_paths()
+
+def get_chat_path(chat_id: int) -> str | None:
+    return chat_path_map.get(chat_id)
 
 def get_last_active_chats(n=10):
     with get_db() as db:

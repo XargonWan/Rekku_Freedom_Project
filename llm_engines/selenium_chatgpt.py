@@ -26,6 +26,7 @@ import asyncio
 import os
 import subprocess
 from core.chatgpt_link_store import ChatLinkStore
+from core import recent_chats
 
 # Cache the last response per Telegram chat to avoid duplicates
 previous_responses: Dict[int, str] = {}
@@ -79,8 +80,8 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
     actual = driver.execute_script("return arguments[0].innerText;", textarea) or ""
     log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
     if actual != clean_text:
-        log_error(
-            f"[ERROR] Text truncated: expected {len(clean_text)} chars, found {len(actual)}"
+        log_debug(
+            f"[selenium][DEBUG] textarea mismatch: expected {len(clean_text)} chars, found {len(actual)}"
         )
 
 
@@ -90,8 +91,12 @@ def paste_and_send(textarea, prompt_text: str) -> None:
     clean = strip_non_bmp(prompt_text)
     if len(clean) > 4000:
         clean = clean[:4000]
-    for chunk in textwrap.wrap(clean, 1024):
-        textarea.send_keys(chunk)
+    try:
+        for chunk in textwrap.wrap(clean, 1024):
+            textarea.send_keys(chunk)
+    except Exception as e:
+        log_warning(f"[WARN][selenium] send_keys failed: {e}")
+        raise
 
 
 def _build_vnc_url() -> str:
@@ -182,6 +187,21 @@ def _open_new_chat(driver) -> None:
         log_warning(f"[selenium] New chat button not clicked: {e}")
         # Fallback: naviga direttamente alla home che dovrebbe creare una nuova chat
         driver.get("https://chat.openai.com")
+
+
+def go_to_chat_by_path(driver, chat_path: str) -> bool:
+    """Try to open a chat from the sidebar matching ``chat_path``."""
+    try:
+        xpath = f"//nav//a[span[contains(text(), '{chat_path}')]]"
+        elem = WebDriverWait(driver, 3).until(
+            EC.element_to_be_clickable((By.XPATH, xpath))
+        )
+        elem.click()
+        log_debug(f"[selenium] Reused chat via path: {chat_path}")
+        return True
+    except Exception:
+        log_debug(f"[selenium] Chat path not found: {chat_path}")
+        return False
 
 
 def wait_for_response_change(
@@ -280,11 +300,15 @@ def process_prompt_in_chat(
         if len(clean_text) > 4000:
             clean_text = clean_text[:4000]
         if current_value != clean_text:
-            log_warning("[selenium][WARN] Textarea mismatch, retrying with ActionChains")
+            log_warning(
+                "[selenium][WARN] Textarea mismatch, retrying with ActionChains"
+            )
             ActionChains(driver).click(textarea).send_keys(clean_text).perform()
             current_value = textarea.get_attribute("value") or ""
             if current_value != clean_text:
-                log_error("[selenium][ERROR] Prompt text truncated after send_keys")
+                log_debug(
+                    "[selenium][DEBUG] Prompt text differs after send_keys"
+                )
 
         submit_btn = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.ID, "composer-submit-button"))
@@ -347,6 +371,7 @@ def rename_and_send_prompt(driver, chat_info, prompt_text: str) -> Optional[str]
         rename_input.send_keys(strip_non_bmp(new_title))
         rename_input.send_keys(Keys.ENTER)
         log_debug("[DEBUG] Rename field found and edited")
+        recent_chats.set_chat_path(chat_info.chat_id, new_title)
     except Exception as e:
         log_warning(f"[selenium][ERROR] rename failed: {e}")
 
@@ -708,6 +733,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         thread_id = getattr(message, "message_thread_id", None)
         chat_id = chat_link_store.get_link(message.chat_id, thread_id)
         prompt_text = json.dumps(prompt, ensure_ascii=False)
+        if not chat_id:
+            path = recent_chats.get_chat_path(message.chat_id)
+            if path and go_to_chat_by_path(driver, path):
+                chat_id = _extract_chat_id(driver.current_url)
 
         log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
         log_debug(f"[selenium][DEBUG] Telegram chat_id: {message.chat_id}, thread_id: {thread_id}")
