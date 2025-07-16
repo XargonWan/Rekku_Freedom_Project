@@ -8,15 +8,26 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 MAX_ENTRIES = 100
+_metadata = {}
 
-def track_chat(chat_id: int):
+def track_chat(chat_id: int, metadata=None):
     now = time.time()
     with get_db() as db:
-        db.execute("""
+        db.execute(
+            """
             INSERT INTO recent_chats (chat_id, last_active)
             VALUES (?, ?)
             ON CONFLICT(chat_id) DO UPDATE SET last_active=excluded.last_active
-        """, (chat_id, now))
+        """,
+            (chat_id, now),
+        )
+    if metadata:
+        _metadata[chat_id] = metadata
+
+def reset_chat(chat_id: int):
+    with get_db() as db:
+        db.execute("DELETE FROM recent_chats WHERE chat_id = ?", (chat_id,))
+    _metadata.pop(chat_id, None)
 
 def get_last_active_chats(n=10):
     with get_db() as db:
@@ -60,13 +71,15 @@ async def get_last_active_chats_verbose(n=10, bot=None):
     chat_ids = get_last_active_chats(n)
     results = []
     for chat_id in chat_ids:
-        name = str(chat_id)
-        if bot:
+        name = _metadata.get(chat_id)
+        if bot and not name:
             try:
                 chat = await bot.get_chat(chat_id)
                 name = chat.title or chat.username or str(chat_id)
             except Exception:
                 pass
+        if not name:
+            name = str(chat_id)
         results.append((chat_id, name))
     return results
 

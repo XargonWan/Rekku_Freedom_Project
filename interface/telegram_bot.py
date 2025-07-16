@@ -19,7 +19,7 @@ except Exception:  # pragma: no cover - fallback if python-dotenv not installed
 from llm_engines.manual import ManualAIPlugin
 from core import blocklist
 from core import response_proxy
-from core import say_proxy, recent_chats, message_map
+from core import say_proxy, recent_chats, message_map, message_queue
 from core.context import context_command
 from collections import deque
 import json
@@ -290,7 +290,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "text": text,
         "timestamp": message.date.isoformat()
     })
-    recent_chats.track_chat(message.chat_id)
+    chat_meta = message.chat.title or message.chat.username or message.chat.first_name
+    recent_chats.track_chat(message.chat_id, chat_meta)
     log_debug(f"context_memory[{message.chat_id}] = {list(context_memory[message.chat_id])}")
 
     # Step interattivo /say
@@ -338,12 +339,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_debug("Ignoring message: no Rekku mention detected.")
         return
 
-    # === Passa al plugin con fallback
+    # === Inoltra nella coda centralizzata
     try:
-        await plugin_instance.handle_incoming_message(context.bot, message, context_memory)
+        await message_queue.enqueue(context.bot, message, context_memory)
     except Exception as e:
-        log_error(f"plugin_instance.handle_incoming_message fallito: {e}", e)
-        await message.reply_text("⚠️ Il modulo LLM ha avuto un problema e non ha potuto rispondere.")
+        log_error(f"message_queue enqueue failed: {e}", e)
+        await message.reply_text("⚠️ Errore nell'elaborazione del messaggio.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from core.context import get_context_state
@@ -424,6 +425,37 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "\U0001f553 Last active chats:\n" + "\n".join(lines),
         parse_mode="Markdown"
     )
+
+async def manage_chat_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+
+    args = context.args
+    if not args:
+        entries = await recent_chats.get_last_active_chats_verbose(20, context.bot)
+        if not entries:
+            await update.message.reply_text("\u26a0\ufe0f Nessuna chat trovata.")
+            return
+        lines = [f"{escape_markdown(name)} — `{cid}`" for cid, name in entries]
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        return
+
+    if args[0] == "reset":
+        if len(args) < 2:
+            await update.message.reply_text("Uso: /manage_chat_id reset <id|this>")
+            return
+        if args[1] == "this":
+            cid = update.effective_chat.id
+        else:
+            try:
+                cid = int(args[1])
+            except ValueError:
+                await update.message.reply_text("ID non valido")
+                return
+        recent_chats.reset_chat(cid)
+        await update.message.reply_text(f"\u2705 Reset mapping for `{cid}`.", parse_mode="Markdown")
+    else:
+        await update.message.reply_text("Uso: /manage_chat_id [reset <id>|reset this>")
 
 async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -671,6 +703,7 @@ async def plugin_startup_callback(application):
             log_debug("[plugin] Plugin start executed")
         except Exception as e:
             log_error(f"[plugin] Error during post_init start: {e}", e)
+    application.create_task(message_queue.start_queue_loop())
 
 
 def start_bot():
@@ -698,6 +731,7 @@ def start_bot():
     app.add_handler(CommandHandler("unblock", unblock_user))
     app.add_handler(CommandHandler("purge_map", purge_mappings))
     app.add_handler(CommandHandler("last_chats", last_chats_command))
+    app.add_handler(CommandHandler("manage_chat_id", manage_chat_id_command))
     app.add_handler(CommandHandler("context", context_command))
     app.add_handler(CommandHandler("llm", llm_command))
 
