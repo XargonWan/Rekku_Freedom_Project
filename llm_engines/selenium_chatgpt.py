@@ -86,7 +86,7 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
 
 
 def paste_and_send(textarea, prompt_text: str) -> None:
-    """Send ``prompt_text`` to ChatGPT textarea in small chunks."""
+    """Robustly send ``prompt_text`` to ``textarea`` in chunks with retries."""
     import textwrap
 
     clean = strip_non_bmp(prompt_text)
@@ -96,22 +96,37 @@ def paste_and_send(textarea, prompt_text: str) -> None:
     chunks = textwrap.wrap(clean, 200)
     log_debug(f"[selenium] Sending prompt in {len(chunks)} chunks")
 
-    try:
-        for idx, chunk in enumerate(chunks, start=1):
-            log_debug(
-                f"[selenium] -> chunk {idx}/{len(chunks)} ({len(chunk)} chars)"
-            )
-            textarea.send_keys(chunk)
-            time.sleep(0.05)
+    time.sleep(0.2)  # allow UI to settle
 
-        final_value = textarea.get_attribute("value") or ""
-        if final_value != clean:
+    for attempt in range(1, 4):
+        if attempt > 1:
+            log_warning(f"[selenium] Retry {attempt}/3")
+        try:
+            textarea.send_keys(Keys.CONTROL + "a")
+            textarea.send_keys(Keys.DELETE)
+
+            for idx, chunk in enumerate(chunks, start=1):
+                log_debug(
+                    f"[selenium] -> chunk {idx}/{len(chunks)} ({len(chunk)} chars)"
+                )
+                textarea.send_keys(chunk)
+                time.sleep(0.05)
+
+            final_value = textarea.get_attribute("value") or ""
+            if final_value == clean:
+                return
             log_warning(
-                f"[WARN][selenium] textarea mismatch: expected {len(clean)} chars, got {len(final_value)}"
+                f"[selenium] textarea mismatch on attempt {attempt}: expected {len(clean)} got {len(final_value)}"
             )
-    except Exception as e:
-        log_warning(f"[WARN][selenium] send_keys failed: {e}")
-        raise
+        except Exception as e:
+            log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
+
+    # Fallback if all attempts failed
+    log_warning("[selenium] Falling back to ActionChains")
+    try:
+        ActionChains(textarea._parent).click(textarea).send_keys(clean).perform()
+    except Exception as e:  # pragma: no cover - best effort
+        log_warning(f"[selenium] Fallback send failed: {e}")
 
 
 def _build_vnc_url() -> str:
