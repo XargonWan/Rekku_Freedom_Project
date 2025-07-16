@@ -102,14 +102,13 @@ def paste_and_send(textarea, prompt_text: str) -> None:
     chunks = textwrap.wrap(clean, 200)
     log_debug(f"[selenium] Sending prompt in {len(chunks)} chunks")
 
-    time.sleep(0.2)  # allow UI to settle
-
     for attempt in range(1, 4):
         if attempt > 1:
-            log_warning(f"[selenium] Retry {attempt}/3")
+            log_warning(f"[selenium] send_keys retry {attempt}/3")
         try:
             textarea.send_keys(Keys.CONTROL + "a")
             textarea.send_keys(Keys.DELETE)
+            time.sleep(0.2)
 
             for idx, chunk in enumerate(chunks, start=1):
                 log_debug(
@@ -119,11 +118,12 @@ def paste_and_send(textarea, prompt_text: str) -> None:
                 time.sleep(0.05)
 
             final_value = textarea.get_attribute("value") or ""
-            if final_value == clean:
-                return
-            log_warning(
-                f"[selenium] textarea mismatch on attempt {attempt}: expected {len(clean)} got {len(final_value)}"
-            )
+            log_debug(f"[selenium] Final textarea length {len(final_value)}")
+            if final_value != clean:
+                log_warning(
+                    f"[selenium] textarea length mismatch: expected {len(clean)} got {len(final_value)}"
+                )
+            return
         except Exception as e:
             log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
 
