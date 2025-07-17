@@ -13,6 +13,7 @@ services:
     environment:
       - PUID=1000
       - PGID=1000
+      - TZ=Asia/Kyoto
       - CUSTOM_USER=${CUSTOM_USER:-abc}
       - PASSWORD=${PASSWORD}
       - SECURE_CONNECTION=0
