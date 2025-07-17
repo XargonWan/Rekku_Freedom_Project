@@ -5,9 +5,6 @@ import json
 import openai  # Assicurati che sia installato
 from core.config import get_user_api_key
 from core.logging_utils import log_debug, log_info, log_warning, log_error
-from core.validate_action import validate_action
-from core.action_parser import parse_actions
-from core.actions_loader import load_available_actions
 
 class OpenAIPlugin(AIPluginBase):
 
@@ -56,23 +53,6 @@ class OpenAIPlugin(AIPluginBase):
 
         try:
             response = await self.generate_response(prompt)
-            _ = load_available_actions()
-
-            try:
-                parsed = json.loads(response)
-            except json.JSONDecodeError:
-                parsed = None
-
-            if isinstance(parsed, dict) and "actions" in parsed:
-                errors = validate_action(parsed)
-                if errors:
-                    await bot.send_message(
-                        chat_id=message.chat_id,
-                        text="⚠️ Invalid actions:\n" + "\n".join(errors),
-                    )
-                else:
-                    await parse_actions(parsed, bot, message)
-                return
 
             if bot and message:
                 log_debug(f"[openai] Invio risposta a chat_id={message.chat_id}")
