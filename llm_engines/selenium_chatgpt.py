@@ -432,7 +432,6 @@ def process_prompt_in_chat(
         chat_url = f"https://chat.openai.com/chat/{chat_id}"
         log_debug(f"[selenium][STEP] Opening chat {chat_id} at {chat_url}")
         driver.get(chat_url)
-        # Verifica che siamo effettivamente nella chat corretta
         current_url = driver.current_url
         log_debug(f"[selenium][DEBUG] Current URL after navigation: {current_url}")
         if chat_id not in current_url:
@@ -450,52 +449,61 @@ def process_prompt_in_chat(
         return None
 
 
-    try:
-        textarea.click()
-        textarea.send_keys(Keys.CONTROL + "a")
-        textarea.send_keys(Keys.DELETE)
+    for attempt in range(1, 4):  # [FIX][retry] retry up to 3 times
+        try:
+            textarea.click()
+            textarea.send_keys(Keys.CONTROL + "a")
+            textarea.send_keys(Keys.DELETE)
 
-        paste_and_send(textarea, prompt_text)
+            paste_and_send(textarea, prompt_text)
 
-        current_value = textarea.get_attribute("value") or ""
-        clean_text = strip_non_bmp(prompt_text)
-        if len(clean_text) > 4000:
-            clean_text = clean_text[:4000]
-        if current_value != clean_text:
-            log_warning(
-                "[selenium][WARN] Textarea mismatch, retrying with ActionChains"
+            submit_btn = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "composer-submit-button"))
             )
-            ActionChains(driver).click(textarea).send_keys(clean_text).perform()
-            current_value = textarea.get_attribute("value") or ""
-            if current_value != clean_text:
-                log_debug(
-                    "[selenium][DEBUG] Prompt text differs after send_keys"
-                )
+            submit_btn.click()
+            log_debug("📨 Prompt sent")
+        except ElementNotInteractableException as e:
+            log_warning(f"[selenium][ERROR] textarea not interactable: {e}")
+            return None
+        except Exception as e:
+            log_error(f"[selenium][ERROR] failed to send prompt: {e}", e)
+            return None
 
-        submit_btn = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.ID, "composer-submit-button"))
-        )
-        submit_btn.click()
-        log_debug("📨 Prompt sent")
-    except ElementNotInteractableException as e:
-        log_warning(f"[selenium][ERROR] textarea not interactable: {e}")
-        return None
-    except Exception as e:
-        log_error(f"[selenium][ERROR] failed to send prompt: {e}", e)
-        return None
+        log_debug("🔍 Waiting for response block...")
+        try:
+            # [FIX][wait] give ChatGPT up to 90s to show the markdown block
+            WebDriverWait(driver, 90).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.markdown"))
+            )
+        except TimeoutException:
+            log_warning("[selenium][WARN] No response container appeared")
+            response_text = ""
+        else:
+            try:
+                response_text = wait_until_response_stabilizes(driver)
+            except Exception as e:
+                log_error(f"[selenium][ERROR] waiting for response failed: {e}", e)
+                return None
 
-    log_debug("🔍 Waiting for response block...")
+        if response_text and response_text != previous_text:
+            log_debug("📝 New response text extracted")
+            return response_text.strip()
+
+        log_warning(f"[selenium][retry] Empty response attempt {attempt}")
+        time.sleep(2)
+
+    # [FIX][retry] all attempts exhausted - capture screenshot and notify
+    os.makedirs("screenshots", exist_ok=True)
+    fname = f"screenshots/chat_{chat_id or 'unknown'}_no_response.png"
     try:
-        response_text = wait_until_response_stabilizes(driver)
+        driver.save_screenshot(fname)
+        log_warning(f"[selenium] Saved screenshot to {fname}")
     except Exception as e:
-        log_error(f"[selenium][ERROR] waiting for response failed: {e}", e)
-        return None
-
-    if not response_text or response_text == previous_text:
-        log_debug("🟡 No new response, skipping")
-        return None
-    log_debug("📝 New response text extracted")
-    return response_text.strip()
+        log_warning(f"[selenium] Failed to save screenshot: {e}")
+    notify_owner(
+        f"\u26A0\uFE0F No response received for chat_id={chat_id}. Screenshot: {fname}"
+    )
+    return None
 
 
 def rename_and_send_prompt(driver, chat_info, prompt_text: str) -> Optional[str]:
