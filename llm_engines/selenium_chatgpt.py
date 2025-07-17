@@ -18,6 +18,7 @@ import time
 import json
 import re
 from typing import Dict, Optional
+from collections import defaultdict
 import threading
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
@@ -569,13 +570,13 @@ def rename_and_send_prompt(driver, chat_info, prompt_text: str) -> Optional[str]
 
 
 class SeleniumChatGPTPlugin(AIPluginBase):
+    # [FIX] shared locks per Telegram chat
+    chat_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
     def __init__(self, notify_fn=None):
         """Initialize the plugin without starting Selenium yet."""
         self.driver = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task = None
-        # [FIX] locks per Telegram chat for sequential processing
-        self._chat_locks: Dict[int, asyncio.Lock] = {}
         self._notify_fn = notify_fn or notify_owner
         log_debug(f"[selenium] notify_fn passed: {bool(notify_fn)}")
         set_notifier(self._notify_fn)
@@ -872,7 +873,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         log_debug(
             f"[selenium] [ENTRY] chat_id={message.chat_id} user_id={user_id} text={text!r}"
         )
-        lock = self._chat_locks.get(message.chat_id)
+        lock = SeleniumChatGPTPlugin.chat_locks.get(message.chat_id)
         if lock and lock.locked():
             log_debug(f"[selenium] Chat {message.chat_id} busy, waiting")
         await self._queue.put((bot, message, prompt))
@@ -892,7 +893,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 f"[selenium] [WORKER] Processing chat_id={message.chat_id} message_id={message.message_id}"
             )
             try:
-                lock = self._chat_locks.setdefault(message.chat_id, asyncio.Lock())
+                lock = SeleniumChatGPTPlugin.chat_locks[message.chat_id]  # [FIX]
                 async with lock:
                     log_debug(f"[selenium] Lock acquired for chat {message.chat_id}")
                     await self._process_message(bot, message, prompt)
@@ -922,6 +923,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 path = recent_chats.get_chat_path(message.chat_id)
                 if path and go_to_chat_by_path(driver, path):
                     chat_id = _extract_chat_id(driver.current_url)
+                    if chat_id:  # [FIX] save and notify about recovered chat
+                        chat_link_store.save_link(message.chat_id, thread_id, chat_id)
+                        _safe_notify(
+                            f"\u26A0\uFE0F Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
+                            f"A new ChatGPT chat has been created: {chat_id}"
+                        )
 
             log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
             log_debug(f"[selenium][DEBUG] Telegram chat_id: {message.chat_id}, thread_id: {thread_id}")
@@ -953,9 +960,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     if new_chat_id:
                         chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
                         log_debug(f"[selenium][DEBUG] Saved link: {message.chat_id}/{thread_id} -> {new_chat_id}")
+                        chat_url = f"https://chat.openai.com/chat/{new_chat_id}"
+                        driver.get(chat_url)
                         _safe_notify(
-                            f"\u26A0\uFE0F Couldn't find chat mapping for {message.chat_id}/{thread_id}. "
-                            f"Created new chat ID: {new_chat_id}."
+                            f"\u26A0\uFE0F Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
+                            f"A new ChatGPT chat has been created: {new_chat_id}"
                         )
                     else:
                         log_warning("[selenium][WARN] Failed to extract chat ID from URL")
