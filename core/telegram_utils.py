@@ -13,8 +13,8 @@ def truncate_message(text: Optional[str], limit: int = 4000) -> str:
     return text
 
 
-async def safe_send(bot, chat_id: int, text: str, retries: int = 3, delay: int = 2, **kwargs):
-    """Send a Telegram message with basic retry logic."""  # [FIX][telegram retry]
+async def _send_with_retry(bot, chat_id: int, text: str, retries: int, delay: int, **kwargs):
+    """Send a single message with retry support."""  # [FIX]
     last_error = None
     for attempt in range(1, retries + 1):
         try:
@@ -28,14 +28,24 @@ async def safe_send(bot, chat_id: int, text: str, retries: int = 3, delay: int =
                 print(f"[telegram retry] send_message failed after {retries} retries: {e}")
         except Exception:
             raise
-    # notify owner on final failure
     try:
-        await bot.send_message(chat_id=OWNER_ID,
-                               text=f"\u274c Telegram send_message failed after {retries} retries (TimedOut)")
+        await bot.send_message(
+            chat_id=OWNER_ID,
+            text=f"\u274c Telegram send_message failed after {retries} retries (TimedOut)"
+        )
     except Exception:
-        pass  # last resort, ignore
+        pass
     if last_error:
         raise last_error
+
+
+async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retries: int = 3, delay: int = 2, **kwargs):
+    """Send ``text`` in chunks using ``_send_with_retry``."""  # [FIX]
+    if text is None:
+        text = ""
+    for i in range(0, len(text), chunk_size):
+        chunk = text[i : i + chunk_size]
+        await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
 
 
 async def safe_edit(bot, chat_id: int, message_id: int, text: str, retries: int = 3, delay: int = 2, **kwargs):

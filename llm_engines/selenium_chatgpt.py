@@ -619,6 +619,13 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         
         log_debug("[selenium] Cleanup completed")
 
+    async def stop(self):
+        """Cancel worker task and run cleanup."""  # [FIX]
+        if self._worker_task:
+            self._worker_task.cancel()
+            await asyncio.gather(self._worker_task, return_exceptions=True)
+        self.cleanup()
+
     async def start(self):
         """Start the background worker loop."""
         log_debug("[selenium] \U0001F7E2 start() called")
@@ -894,25 +901,31 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
     async def _worker_loop(self):
         log_debug("[selenium] Worker loop started")
-        while True:
-            bot, message, prompt = await self._queue.get()
-            while queue_paused:
-                await asyncio.sleep(1)
-            log_debug(
-                f"[selenium] [WORKER] Processing chat_id={message.chat_id} message_id={message.message_id}"
-            )
-            try:
-                lock = SeleniumChatGPTPlugin.chat_locks[message.chat_id]  # [FIX]
-                async with lock:
-                    log_debug(f"[selenium] Lock acquired for chat {message.chat_id}")
-                    await self._process_message(bot, message, prompt)
-                    log_debug(f"[selenium] Lock released for chat {message.chat_id}")
-            except Exception as e:
-                log_error("[selenium] Worker error", e)
-                _notify_gui(f"❌ Selenium error: {e}. Open UI")
-            finally:
-                self._queue.task_done()
-                log_debug("[selenium] [WORKER] Task completed")
+        try:
+            while True:
+                bot, message, prompt = await self._queue.get()
+                while queue_paused:
+                    await asyncio.sleep(1)
+                log_debug(
+                    f"[selenium] [WORKER] Processing chat_id={message.chat_id} message_id={message.message_id}"
+                )
+                try:
+                    lock = SeleniumChatGPTPlugin.chat_locks[message.chat_id]  # [FIX]
+                    async with lock:
+                        log_debug(f"[selenium] Lock acquired for chat {message.chat_id}")
+                        await self._process_message(bot, message, prompt)
+                        log_debug(f"[selenium] Lock released for chat {message.chat_id}")
+                except Exception as e:
+                    log_error("[selenium] Worker error", e)
+                    _notify_gui(f"❌ Selenium error: {e}. Open UI")
+                finally:
+                    self._queue.task_done()
+                    log_debug("[selenium] [WORKER] Task completed")
+        except asyncio.CancelledError:  # [FIX]
+            log_warning("Worker was cancelled")
+            raise
+        finally:
+            log_info("Worker loop cleaned up")
 
     async def _process_message(self, bot, message, prompt):
         """Send the prompt to ChatGPT and forward the response."""
@@ -920,6 +933,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
         for attempt in range(2):
             driver = self._get_driver()
+            # [FIX] verify underlying Chrome process is alive
+            if (
+                not driver.service
+                or not getattr(driver.service, "process", None)
+                or driver.service.process.poll() is not None
+            ):
+                log_warning("[selenium] Driver process not running, restarting")
+                driver = self._get_driver()
             if not self._ensure_logged_in():
                 return
 
