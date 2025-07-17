@@ -1,5 +1,6 @@
 from typing import List, Dict
 from core.logging_utils import log_debug
+from core.interface_loader import get_interface
 
 
 def validate_action(output_json: Dict) -> List[str]:
@@ -29,9 +30,15 @@ def validate_action(output_json: Dict) -> List[str]:
         if not isinstance(content, str) or not content.strip():
             errors.append(f"Action {idx} -> message.content must be a non-empty string")
         target = message.get("target")
-        if not isinstance(target, str) or not target.startswith("Telegram/"):
+        if not isinstance(target, str) or "/" not in target:
             errors.append(
-                f"Action {idx} -> message.target must be a string starting with 'Telegram/'"
+                f"Action {idx} -> message.target must be 'interface/id'"
             )
+        else:
+            iface_name = target.split("/", 1)[0]
+            if not get_interface(iface_name):
+                errors.append(
+                    f"Action {idx} -> unknown interface '{iface_name}'"
+                )
     log_debug(f"[validate_action] errors: {errors}")
     return errors

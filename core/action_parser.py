@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 
 from core.action_validator import validate_action
 from core.validate_action import validate_action as validate_llm_output
+from core.interface_loader import get_interface
 import core.plugin_instance as plugin_instance
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
@@ -195,18 +196,28 @@ async def parse_actions(output_json: dict, bot, source_message):
             f"[action_parser] Sending message action: target={target}, content={content!r}"
         )
 
-        if target.startswith("Telegram/"):
-            dest = target.split("/", 1)[1]
-            reply_id = getattr(source_message, "message_id", None)
-            try:
-                await bot.send_message(
-                    chat_id=dest,
-                    text=content,
-                    reply_to_message_id=reply_id,
-                )
-                log_debug(f"[action_parser] Sent Telegram message to {dest}")
-            except Exception as e:
-                log_error(f"[action_parser] Failed to send Telegram message: {e}", e)
-        else:
-            log_warning(f"[action_parser] Unsupported target: {target}")
+        if "/" not in target:
+            log_warning(f"[action_parser] Invalid target format: {target}")
+            continue
+
+        interface_name, dest = target.split("/", 1)
+        handler = get_interface(interface_name)
+        if not handler:
+            log_warning(f"[action_parser] Unknown interface: {interface_name}")
+            continue
+
+        reply_id = getattr(source_message, "message_id", None)
+        try:
+            await handler.send(
+                "message",
+                {"content": content, "target": dest, "reply_to": reply_id},
+                source_message,
+            )
+            log_debug(
+                f"[action_parser] Sent message via {interface_name} to {dest}"
+            )
+        except Exception as e:
+            log_error(
+                f"[action_parser] Failed to send via {interface_name}: {e}", e
+            )
 
