@@ -4,6 +4,7 @@ from core.config import get_active_llm, set_active_llm
 from core.prompt_engine import load_identity_prompt
 import json
 from core.prompt_engine import build_json_prompt
+from core.action_parser import parse_action
 import asyncio
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
@@ -116,7 +117,27 @@ async def handle_incoming_message(bot, message, context_memory):
     log_debug("🌐 JSON PROMPT built for the plugin:")
     log_debug(json.dumps(prompt, indent=2, ensure_ascii=False))
 
-    return await plugin.handle_incoming_message(bot, message, prompt)
+    response = await plugin.generate_response(prompt)
+
+    response_clean = response.strip() if isinstance(response, str) else ""
+    if response_clean.startswith("jsonCopyEdit"):
+        response_clean = response_clean[len("jsonCopyEdit"):].strip()
+
+    try:
+        parsed = json.loads(response_clean)
+        if isinstance(parsed, dict) and "type" in parsed and "interface" in parsed and "payload" in parsed:
+            log_debug("[plugin] JSON action detected. Executing...")
+            await parse_action(parsed, bot, message)
+            return
+    except Exception as e:
+        log_warning(f"[plugin] Response is not a valid action JSON: {e}")
+
+    await bot.send_message(
+        chat_id=message.chat.id,
+        text=response,
+        reply_to_message_id=message.message_id,
+    )
+    return
 
 
 def get_supported_models():
