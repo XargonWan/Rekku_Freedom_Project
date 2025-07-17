@@ -24,9 +24,17 @@ def set_notifier(fn: Callable[[int, str], None]):
             log_error(f"[notifier] Failed to send pending message: {e}")
     _pending.clear()
 
+CHUNK_SIZE = 4000
+
 def notify(chat_id: int, message: str):
+    """Send ``message`` to ``chat_id`` in chunks to avoid Telegram limits."""
     log_debug(f"[notifier] Sending message to {chat_id}: {message}")
-    _notify_impl(chat_id, message)
+    for i in range(0, len(message or ""), CHUNK_SIZE):
+        chunk = message[i : i + CHUNK_SIZE]
+        try:
+            _notify_impl(chat_id, chunk)
+        except Exception as e:  # pragma: no cover - best effort
+            log_error(f"[notifier] Failed to send notification chunk: {e}")
 
 def notify_owner(message: str):
     log_debug(f"[notifier] Notification for OWNER_ID={OWNER_ID}: {message}")

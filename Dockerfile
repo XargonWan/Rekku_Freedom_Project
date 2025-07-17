@@ -22,14 +22,16 @@ RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearm
     google-chrome --version
 
 # Copy project code
-COPY . /app
-COPY .env /app/.env
+COPY requirements.txt /app/requirements.txt
 WORKDIR /app
 
 # Python venv
 RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir --upgrade pip setuptools && \
     /app/venv/bin/pip install --no-cache-dir -r requirements.txt
+
+# Copy project code last to leverage layer caching
+COPY . /app
 
 # ENV
 ENV PYTHONPATH=/app \
