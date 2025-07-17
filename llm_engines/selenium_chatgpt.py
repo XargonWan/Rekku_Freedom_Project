@@ -22,6 +22,7 @@ from collections import defaultdict
 import threading
 from core.ai_plugin_base import AIPluginBase
 from core.notifier import notify_owner, set_notifier
+from core.telegram_utils import safe_send
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 import asyncio
 import os
@@ -993,11 +994,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 if not response_text:
                     response_text = "⚠️ No response received"
 
-                await bot.send_message(
+                await safe_send(
+                    bot,
                     chat_id=message.chat_id,
                     text=response_text,
                     reply_to_message_id=message.message_id,
-                )
+                )  # [FIX][telegram retry]
                 log_debug(f"[selenium][STEP] response forwarded to {message.chat_id}")
                 return
 

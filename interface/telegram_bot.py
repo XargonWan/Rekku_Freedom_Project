@@ -24,7 +24,7 @@ from core.context import context_command
 from collections import deque
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
-from core.telegram_utils import truncate_message
+from core.telegram_utils import truncate_message, safe_send
 from core.message_sender import (
     send_content,
     detect_media_type,
@@ -674,13 +674,14 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
     async def send():
         try:
             text = truncate_message(formatted_message or message)
-            await bot.send_message(
+            await safe_send(
+                bot,
                 chat_id=chat_id,
                 text=text,
                 reply_to_message_id=reply_to_message_id,
                 parse_mode=ParseMode.HTML if formatted_message else None,
                 disable_web_page_preview=True,
-            )
+            )  # [FIX][telegram retry]
             log_debug(f"[notify] ✅ Messaggio Telegram inviato a {chat_id}")
         except TelegramError as e:
             log_error(f"[notify] ❌ Errore Telegram: {e}", e)
