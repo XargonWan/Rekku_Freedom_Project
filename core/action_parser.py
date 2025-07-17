@@ -15,10 +15,17 @@ from core.validate_action import validate_action as validate_llm_output
 from core.interface_loader import get_interface
 import core.plugin_instance as plugin_instance
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+import glob
 
 
-# Cache for discovered action plugins
+# Cache for discovered action plugins used by legacy run_action
 _ACTION_PLUGINS: List[Any] | None = None
+
+# Registry for new style action plugins used by parse_action
+ACTION_PLUGINS: Dict[str, Any] = {}
+
+# Placeholder registry for interfaces (future use)
+INTERFACES: Dict[str, Any] = {}
 
 
 def _load_action_plugins() -> List[Any]:
@@ -49,6 +56,40 @@ def _load_action_plugins() -> List[Any]:
                         continue
                     _ACTION_PLUGINS.append(instance)
     return _ACTION_PLUGINS
+
+
+def _load_new_action_plugins() -> Dict[str, Any]:
+    """Discover modules exposing get_supported_actions/handle_action."""
+    if ACTION_PLUGINS:
+        return ACTION_PLUGINS
+
+    for path in glob.glob(os.path.join("plugins", "**", "*.py"), recursive=True):
+        module_name = os.path.splitext(os.path.relpath(path, "."))[0].replace(os.sep, ".")
+        try:
+            module = importlib.import_module(module_name)
+        except Exception as e:
+            log_warning(f"[action_parser] Failed to import {module_name}: {e}")
+            continue
+
+        get_supported = getattr(module, "get_supported_actions", None)
+        handle = getattr(module, "handle_action", None)
+        if callable(get_supported) and handle is not None:
+            try:
+                actions = get_supported()
+            except Exception as e:
+                log_warning(f"[action_parser] Error reading actions from {module_name}: {e}")
+                continue
+
+            if isinstance(actions, list):
+                for entry in actions:
+                    action_name = entry.get("name") if isinstance(entry, dict) else str(entry)
+                    if action_name:
+                        ACTION_PLUGINS[action_name] = module
+                        log_debug(
+                            f"[action_parser] Registered action '{action_name}' from {module_name}"
+                        )
+
+    return ACTION_PLUGINS
 
 
 def _plugins_for(action_type: str) -> List[Any]:
@@ -157,7 +198,7 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             log_error(f"[action_parser] Error executing action {idx}: {e}")
 
 
-__all__ = ["run_action", "run_actions", "parse_actions"]
+__all__ = ["run_action", "run_actions", "parse_actions", "parse_action"]
 
 
 async def parse_actions(output_json: dict, bot, source_message):
@@ -220,4 +261,55 @@ async def parse_actions(output_json: dict, bot, source_message):
             log_error(
                 f"[action_parser] Failed to send via {interface_name}: {e}", e
             )
+
+
+async def parse_action(action_json: Dict[str, Any], bot, source_message) -> None:
+    """Execute a single action described by ``action_json``.
+
+    Parameters
+    ----------
+    action_json : dict
+        Object containing ``type``, ``interface`` and ``payload`` keys.
+    bot : object
+        Bot instance for sending messages.
+    source_message : object
+        Original message that produced this action.
+    """
+
+    log_debug(f"[action_parser] parse_action input: {action_json}")
+
+    if not isinstance(action_json, dict):
+        log_warning("[action_parser] action_json must be a dict")
+        return
+
+    action_type = action_json.get("type")
+    interface_name = action_json.get("interface")
+    payload = action_json.get("payload")
+
+    if not action_type or not interface_name or payload is None:
+        log_warning("[action_parser] Missing required fields in action")
+        return
+
+    _load_new_action_plugins()
+    plugin = ACTION_PLUGINS.get(action_type)
+    if not plugin:
+        log_warning(f"[action_parser] Unsupported action type '{action_type}'")
+        return
+
+    if not get_interface(interface_name):
+        log_warning(f"[action_parser] Unknown interface '{interface_name}'")
+        return
+
+    enriched_payload = dict(payload)
+    enriched_payload["interface"] = interface_name
+
+    try:
+        result = plugin.handle_action(enriched_payload, bot, source_message)
+        if inspect.iscoroutine(result):
+            await result
+        log_debug(
+            f"[action_parser] Executed '{action_type}' via plugin {plugin.__name__}"
+        )
+    except Exception as e:
+        log_error(f"[action_parser] Error executing {action_type}: {e}")
 
