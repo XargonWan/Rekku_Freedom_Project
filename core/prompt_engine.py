@@ -6,6 +6,7 @@ from datetime import datetime
 from core.db import get_db
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core import actions_loader
 
 
 async def build_json_prompt(message, context_memory) -> dict:
@@ -89,7 +90,31 @@ async def build_json_prompt(message, context_memory) -> dict:
     log_debug("[json_prompt] context = " + json.dumps(context_section, ensure_ascii=False))
     log_debug("[json_prompt] input = " + json.dumps(input_section, ensure_ascii=False))
 
-    return {"context": context_section, "input": input_section}
+    available = actions_loader.load_available_actions()
+    instructions = get_interface_instructions("telegram", message)
+
+    return {
+        "context": context_section,
+        "input": input_section,
+        "available_actions": available,
+        "interface_instructions": instructions,
+    }
+
+
+def get_interface_instructions(interface: str, message) -> str:
+    if interface == "telegram":
+        target = (
+            f"Telegram/@{message.from_user.username}"
+            if message.from_user.username
+            else f"Telegram/{message.from_user.id}"
+        )
+        return (
+            "You are replying in a Telegram chat.\n"
+            "Always respond with a JSON object containing one or more 'actions'.\n"
+            "To send a reply message, use the 'message' action like this:\n"
+            f'{{ "message": {{ "content": "...", "target": "{target}" }} }}'
+        )
+    return ""
 
 def load_identity_prompt() -> str:
     try:

@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from core.action_validator import validate_action
+from core.validate_action import validate_action as validate_llm_output
 import core.plugin_instance as plugin_instance
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
@@ -155,4 +156,57 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             log_error(f"[action_parser] Error executing action {idx}: {e}")
 
 
-__all__ = ["run_action", "run_actions"]
+__all__ = ["run_action", "run_actions", "parse_actions"]
+
+
+async def parse_actions(output_json: dict, bot, source_message):
+    """Parse and execute actions from the LLM JSON output.
+
+    Parameters
+    ----------
+    output_json : dict
+        Parsed JSON object returned by the LLM.
+    bot : telegram.Bot
+        Bot instance used to send messages.
+    source_message : telegram.Message
+        The original message triggering the reply.
+    """
+
+    log_debug(f"[action_parser] Received JSON output: {output_json}")
+
+    errors = validate_llm_output(output_json)
+    if errors:
+        log_warning(f"[action_parser] Validation errors: {errors}")
+        return
+
+    actions = output_json.get("actions", [])
+    for idx, action in enumerate(actions):
+        log_debug(f"[action_parser] Processing action {idx}: {action}")
+
+        if "message" not in action:
+            log_warning("[action_parser] Unsupported action type, skipping")
+            continue
+
+        message_data = action.get("message", {})
+        content = message_data.get("content", "")
+        target = message_data.get("target", "")
+
+        log_debug(
+            f"[action_parser] Sending message action: target={target}, content={content!r}"
+        )
+
+        if target.startswith("Telegram/"):
+            dest = target.split("/", 1)[1]
+            reply_id = getattr(source_message, "message_id", None)
+            try:
+                await bot.send_message(
+                    chat_id=dest,
+                    text=content,
+                    reply_to_message_id=reply_id,
+                )
+                log_debug(f"[action_parser] Sent Telegram message to {dest}")
+            except Exception as e:
+                log_error(f"[action_parser] Failed to send Telegram message: {e}", e)
+        else:
+            log_warning(f"[action_parser] Unsupported target: {target}")
+
