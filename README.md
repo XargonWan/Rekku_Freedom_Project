@@ -50,6 +50,12 @@ Common issues:
 - Reply detection failing due to async bot.get_me()
 - Group permissions preventing message reading
 
+### 📋 Logging
+
+All components log through `core.logging_utils`. Logs are written to
+`/config/logs/rekku.log` and mirrored to stdout. Set the `LOGGING_LEVEL`
+environment variable (e.g. `DEBUG`) to see more details.
+
 ---
 
 ## 🧩 Plugin-Based Architecture
