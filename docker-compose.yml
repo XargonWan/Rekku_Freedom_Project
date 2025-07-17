@@ -9,6 +9,7 @@ services:
       - ./persona/mind:/app/persona
       - ./persona/home:/home/rekku
       - ./persona/webtop_config:/config
+      - ./logs:/config/logs
       - .env:/app/.env:ro
     environment:
       - PUID=1000
