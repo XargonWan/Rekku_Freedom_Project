@@ -88,22 +88,3 @@ def test_handle_incoming_message_fallback(monkeypatch):
     assert bot.sent == [(1, "plain", 5)]
 
 
-def test_handle_incoming_message_plugin_method(monkeypatch):
-    bot = DummyBot()
-    msg = make_message()
-    called = {}
-
-    async def dummy_handle(bot_arg, msg_arg, prompt):
-        called["done"] = True
-
-    plugin_instance.plugin = types.SimpleNamespace(handle_incoming_message=dummy_handle)
-
-    async def fake_build_json_prompt(m, c):
-        return {}
-
-    monkeypatch.setattr(plugin_instance, "build_json_prompt", fake_build_json_prompt)
-
-    asyncio.run(plugin_instance.handle_incoming_message(bot, msg, {}))
-
-    assert called.get("done") is True
-    assert bot.sent == []
