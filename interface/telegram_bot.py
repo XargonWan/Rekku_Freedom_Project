@@ -229,10 +229,11 @@ async def handle_response_command(update: Update, context: ContextTypes.DEFAULT_
 
     response_proxy.set_target(OWNER_ID, chat_id, message_id, content_type)
     log_debug(f"Target {content_type} impostato: chat_id={chat_id}, message_id={message_id}")
-    await context.bot.send_message(
+    await safe_send(
+        context.bot,
         chat_id=OWNER_ID,
         text=f"\U0001f4ce Inviami ora il file {content_type.upper()} da usare come risposta."
-    )
+    )  # [FIX]
 
 async def cancel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
@@ -314,11 +315,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         original = plugin_instance.get_target(reply_msg_id)
         if original:
             log_debug(f"Trainer risponde a messaggio {original}")
-            await context.bot.send_message(
+            await safe_send(
+                context.bot,
                 chat_id=original["chat_id"],
                 text=message.text,
                 reply_to_message_id=original["message_id"]
-            )
+            )  # [FIX]
             await message.reply_text("✅ Reply sent.")
         else:
             await message.reply_text("⚠️ No message found to reply to.")
@@ -476,7 +478,7 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             chat_id = int(args[0])
             text = truncate_message(" ".join(args[1:]))
-            await bot.send_message(chat_id=chat_id, text=text)
+            await safe_send(bot, chat_id=chat_id, text=text)  # [FIX]
             await update.message.reply_text("\u2705 Messaggio inviato.")
         except Exception as e:
             log_error(f"Errore /say diretto: {e}", e)
