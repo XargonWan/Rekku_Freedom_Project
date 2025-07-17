@@ -2,7 +2,7 @@
 
 from core.rekku_tagging import extract_tags, expand_tags
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from core.db import get_db
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
@@ -21,13 +21,46 @@ async def build_json_prompt(message, context_memory) -> dict:
     """
 
     import core.weather
-    import pytz
+    try:
+        from zoneinfo import ZoneInfo
+    except Exception:
+        ZoneInfo = None
 
     chat_id = message.chat_id
     text = message.text or ""
 
     # === 1. Context messages ===
-    messages = list(context_memory.get(chat_id, []))[-10:]
+    entries = list(context_memory.get(chat_id, []))
+    if entries and entries[-1].get("message_id") == message.message_id:
+        entries = entries[:-1]
+    entries = entries[-10:]
+
+    if ZoneInfo:
+        try:
+            tz = ZoneInfo("Asia/Tokyo")
+        except Exception:
+            tz = ZoneInfo("UTC")
+    else:
+        tz = timezone.utc
+
+    messages = []
+    for m in entries:
+        ts = m.get("timestamp")
+        if ts:
+            try:
+                dt = datetime.fromisoformat(ts)
+                ts = dt.astimezone(tz).isoformat()
+            except Exception:
+                pass
+        messages.append(
+            {
+                "message_id": m.get("message_id"),
+                "username": m.get("username"),
+                "usertag": m.get("usertag"),
+                "text": m.get("text"),
+                "timestamp": ts,
+            }
+        )
 
     # === 2. Tags and memory lookup ===
     tags = extract_tags(text)
@@ -38,10 +71,6 @@ async def build_json_prompt(message, context_memory) -> dict:
 
     # === 3. Temporal and weather info ===
     location = os.getenv("WEATHER_LOCATION", "Kyoto")
-    try:
-        tz = pytz.timezone("Asia/Tokyo")
-    except Exception:
-        tz = pytz.utc
     now_local = datetime.now(tz)
     date = now_local.strftime("%Y-%m-%d")
     time = now_local.strftime("%H:%M")
@@ -65,7 +94,7 @@ async def build_json_prompt(message, context_memory) -> dict:
             "username": message.from_user.full_name,
             "usertag": f"@{message.from_user.username}" if message.from_user.username else "(no tag)",
         },
-        "timestamp": message.date.isoformat(),
+        "timestamp": message.date.astimezone(tz).isoformat(),
         "privacy": "default",
         "scope": "local",
     }
@@ -77,7 +106,7 @@ async def build_json_prompt(message, context_memory) -> dict:
             reply_text = "[Non-text content]"
         input_payload["reply_to"] = {
             "text": reply_text,
-            "timestamp": reply.date.isoformat(),
+            "timestamp": reply.date.astimezone(tz).isoformat(),
             "from": {
                 "username": reply.from_user.full_name,
                 "usertag": f"@{reply.from_user.username}" if reply.from_user.username else "(no tag)",
@@ -98,21 +127,29 @@ async def build_json_prompt(message, context_memory) -> dict:
         "input": input_section,
         "available_actions": available,
         "interface_instructions": instructions,
+        "bio": {},
     }
 
 
 def get_interface_instructions(interface: str, message) -> str:
     if interface == "telegram":
-        target = (
-            f"Telegram/@{message.from_user.username}"
-            if message.from_user.username
-            else f"Telegram/{message.from_user.id}"
-        )
         return (
-            "You are replying in a Telegram chat.\n"
-            "Always respond with a JSON object containing one or more 'actions'.\n"
-            "To send a reply message, use the 'message' action like this:\n"
-            f'{{ "message": {{ "content": "...", "target": "{target}" }} }}'
+            "You are replying in a Telegram chat.\n\n"
+            "Always respond with a JSON object containing one or more actions.\n\n"
+            "Each action must include:\n"
+            "- \"type\": the action type (e.g. \"message\")\n"
+            "- \"interface\": the name of the interface (e.g. \"telegram\")\n"
+            "- \"payload\": an object with the required fields\n\n"
+            "For a message action, use:\n\n"
+            "{\n"
+            "  \"type\": \"message\",\n"
+            "  \"interface\": \"telegram\",\n"
+            "  \"payload\": {\n"
+            "    \"text\": \"your message here\",\n"
+            f"    \"target\": \"{message.chat_id}\"\n"
+            "  }\n"
+            "}\n\n"
+            "Do NOT use @usernames in the target field. They are not reliable."
         )
     return ""
 
