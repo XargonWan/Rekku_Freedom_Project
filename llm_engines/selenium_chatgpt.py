@@ -271,15 +271,22 @@ def _build_vnc_url() -> str:
     log_debug(f"[selenium] VNC URL built: {url}")
     return url
 
+# [FIX] helper to avoid Telegram message length limits
+def _safe_notify(text: str) -> None:
+    for i in range(0, len(text), 4000):
+        chunk = text[i : i + 4000]
+        log_debug(f"[selenium] Notifying chunk length {len(chunk)}")
+        try:
+            notify_owner(chunk)
+        except Exception as e:  # pragma: no cover - best effort
+            log_error(f"[selenium] notify_owner failed: {e}", e)
+
 def _notify_gui(message: str = ""):
     """Send a notification with the VNC URL, optionally prefixed."""
     url = _build_vnc_url()
     text = f"{message} {url}".strip()
     log_debug(f"[selenium] Invio notifica VNC: {text}")
-    try:
-        notify_owner(text)
-    except Exception as e:
-        log_error(f"[selenium] notify_owner failed: {e}", e)
+    _safe_notify(text)
 
 
 def _extract_chat_id(url: str) -> Optional[str]:
@@ -567,10 +574,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         self.driver = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task = None
-        self._send_lock = asyncio.Lock()
+        # [FIX] locks per Telegram chat for sequential processing
+        self._chat_locks: Dict[int, asyncio.Lock] = {}
+        self._notify_fn = notify_fn or notify_owner
         log_debug(f"[selenium] notify_fn passed: {bool(notify_fn)}")
-        if notify_fn:
-            set_notifier(notify_fn)
+        set_notifier(self._notify_fn)
 
     def cleanup(self):
         """Clean up resources when the plugin is stopped."""
@@ -825,6 +833,23 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except Exception as e:
             log_debug(f"[selenium] Lock file cleanup failed: {e}")
 
+    # [FIX] ensure the WebDriver session is alive before use
+    def _get_driver(self):
+        if self.driver is None:
+            self._init_driver()
+        else:
+            try:
+                _ = self.driver.title
+            except WebDriverException:
+                log_warning("[selenium] WebDriver session expired, recreating")
+                try:
+                    self.driver.quit()
+                except Exception:
+                    pass
+                self.driver = None
+                self._init_driver()
+        return self.driver
+
     def _ensure_logged_in(self):
         try:
             current_url = self.driver.current_url
@@ -845,8 +870,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         log_debug(
             f"[selenium] [ENTRY] chat_id={message.chat_id} user_id={user_id} text={text!r}"
         )
-        if self._send_lock.locked():
-            log_debug("[selenium] Plugin busy, waiting for lock")
+        lock = self._chat_locks.get(message.chat_id)
+        if lock and lock.locked():
+            log_debug(f"[selenium] Chat {message.chat_id} busy, waiting")
         await self._queue.put((bot, message, prompt))
         log_debug("[selenium] Message queued for processing")
         if self._queue.qsize() > 10:
@@ -864,10 +890,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 f"[selenium] [WORKER] Processing chat_id={message.chat_id} message_id={message.message_id}"
             )
             try:
-                async with self._send_lock:
-                    log_debug("[selenium] Acquired send lock")
+                lock = self._chat_locks.setdefault(message.chat_id, asyncio.Lock())
+                async with lock:
+                    log_debug(f"[selenium] Lock acquired for chat {message.chat_id}")
                     await self._process_message(bot, message, prompt)
-                    log_debug("[selenium] Released send lock")
+                    log_debug(f"[selenium] Lock released for chat {message.chat_id}")
             except Exception as e:
                 log_error("[selenium] Worker error", e)
                 _notify_gui(f"❌ Selenium error: {e}. Open UI")
@@ -879,12 +906,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         """Send the prompt to ChatGPT and forward the response."""
         log_debug(f"[selenium][STEP] processing prompt: {prompt}")
 
-        if self.driver is None:
-            self._init_driver()
+        driver = self._get_driver()
         if not self._ensure_logged_in():
             return
-
-        driver = self.driver
 
         log_debug("[selenium][STEP] ensuring ChatGPT is accessible")
 
@@ -926,6 +950,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             if new_chat_id:
                 chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
                 log_debug(f"[selenium][DEBUG] Saved link: {message.chat_id}/{thread_id} -> {new_chat_id}")
+                # [FIX] inform owner about new mapping
+                _safe_notify(
+                    f"\u26A0\uFE0F Couldn't find chat mapping for {message.chat_id}/{thread_id}. "
+                    f"Created new chat ID: {new_chat_id}."
+                )
             else:
                 log_warning("[selenium][WARN] Failed to extract chat ID from URL")
 
@@ -963,6 +992,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         return (80, 10800, 0.5)
 
     def set_notify_fn(self, fn):
+        self._notify_fn = fn
         set_notifier(fn)
         if self.driver is None:
             try:
