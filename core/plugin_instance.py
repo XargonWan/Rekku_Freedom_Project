@@ -117,7 +117,14 @@ async def handle_incoming_message(bot, message, context_memory):
     log_debug("🌐 JSON PROMPT built for the plugin:")
     log_debug(json.dumps(prompt, indent=2, ensure_ascii=False))
 
-    response = await plugin.generate_response(prompt)
+    if hasattr(plugin, "generate_response"):
+        response = await plugin.generate_response(prompt)
+    elif hasattr(plugin, "handle_incoming_message"):
+        log_debug("[plugin] Falling back to plugin-specific handler")
+        await plugin.handle_incoming_message(bot, message, prompt)
+        return
+    else:
+        raise NotImplementedError("Plugin does not implement a response handler")
 
     response_clean = response.strip() if isinstance(response, str) else ""
     if response_clean.startswith("jsonCopyEdit"):
