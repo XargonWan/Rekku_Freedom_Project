@@ -330,21 +330,21 @@ def _open_new_chat(driver) -> None:
         # First, try to click the new chat button if it's visible
         try:
             btn = WebDriverWait(driver, 2).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='new-chat-button']"))
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='create-new-chat-button']"))
             )
             btn.click()
-            log_debug("[selenium] Clicked new-chat-button")
+            log_debug("[selenium] Clicked create-new-chat-button")
             return
         except TimeoutException:
             log_debug("[selenium] New chat button not visible, navigating to home")
-            
+
         # If not visible, go to the home page and then click
         driver.get("https://chat.openai.com")
         btn = WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='new-chat-button']"))
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='create-new-chat-button']"))
         )
         btn.click()
-        log_debug("[selenium] Navigated to home and clicked new-chat-button")
+        log_debug("[selenium] Navigated to home and clicked create-new-chat-button")
     except Exception as e:
         log_warning(f"[selenium] New chat button not clicked: {e}")
         # Fallback: navigate directly to home which should create a new chat
