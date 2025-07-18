@@ -103,7 +103,7 @@ def load_plugin(name: str, notify_fn=None):
     set_active_llm(name)
 
 async def handle_incoming_message(bot, message, context_memory):
-    """Process incoming messages and handle actions."""
+    """Generate a response from the active plugin and execute any actions."""
     log_debug(f"[plugin_instance] Received message: {message.text}")
     log_debug(f"[plugin_instance] Context memory: {context_memory}")
 
@@ -113,15 +113,49 @@ async def handle_incoming_message(bot, message, context_memory):
     user_id = message.from_user.id if message.from_user else "unknown"
     text = message.text or ""
     log_debug(
-        f"[plugin] Incoming for {plugin.__class__.__name__}: chat_id={message.chat_id}, user_id={user_id}, text={text!r}"
+        f"[plugin_instance] Incoming for {plugin.__class__.__name__}: chat_id={message.chat_id}, user_id={user_id}, text={text!r}"
     )
 
     prompt = await build_json_prompt(message, context_memory)
 
-    log_debug("🌐 JSON PROMPT built for the plugin:")
+    log_debug("[plugin_instance] \U0001F310 JSON PROMPT built:")
     log_debug(json.dumps(prompt, indent=2, ensure_ascii=False))
 
-    return await plugin.handle_incoming_message(bot, message, prompt)
+    if not hasattr(plugin, "generate_response"):
+        log_error("[plugin_instance] Plugin missing generate_response()")
+        return ""
+
+    try:
+        raw_response = await plugin.generate_response(prompt)
+    except Exception as e:
+        log_error(f"[plugin_instance] Error from plugin.generate_response: {e}", e)
+        if bot and message:
+            await bot.send_message(chat_id=message.chat_id, text="⚠️ LLM error")
+        return ""
+
+    log_debug(f"[plugin_instance] Raw plugin response: {raw_response}")
+
+    if isinstance(raw_response, str) and raw_response.startswith("jsonCopyEdit"):
+        raw_response = raw_response[len("jsonCopyEdit"):].lstrip()
+        log_debug("[plugin_instance] Stripped jsonCopyEdit prefix")
+
+    parsed = None
+    if isinstance(raw_response, str):
+        try:
+            parsed = json.loads(raw_response)
+            log_debug(f"[plugin_instance] Parsed JSON: {parsed}")
+        except Exception as e:
+            log_warning(f"[plugin_instance] Failed to parse JSON: {e}")
+
+    if isinstance(parsed, dict) and {"type", "interface", "payload"} <= parsed.keys():
+        await parse_action(parsed, bot, message)
+        return raw_response
+
+    log_warning("[plugin_instance] Fallback to plain text reply")
+    if bot and isinstance(raw_response, str):
+        await bot.send_message(chat_id=message.chat_id, text=raw_response)
+
+    return raw_response
 
 
 def get_supported_models():

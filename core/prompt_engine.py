@@ -6,6 +6,7 @@ from datetime import datetime
 from core.db import get_db
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.actions_loader import load_supported_actions
 
 
 async def build_json_prompt(message, context_memory) -> dict:
@@ -97,11 +98,15 @@ async def build_json_prompt(message, context_memory) -> dict:
     # Get interface-specific instructions
     interface_instructions = get_interface_instructions("telegram")  # Default to telegram for now
     
+    available_actions = load_supported_actions()
+
     prompt_with_instructions = {
-        "context": context_section, 
+        "context": context_section,
         "input": input_section,
         "instructions": json_instructions,
-        "interface_instructions": interface_instructions
+        "interface_instructions": interface_instructions,
+        "available_actions": available_actions,
+        "bio": "",
     }
 
     return prompt_with_instructions
