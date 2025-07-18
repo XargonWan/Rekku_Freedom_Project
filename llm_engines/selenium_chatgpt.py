@@ -291,15 +291,15 @@ def _notify_gui(message: str = ""):
 
 
 def _extract_chat_id(url: str) -> Optional[str]:
-    """Estrae l'ID della chat dall'URL di ChatGPT."""
+    """Extracts the chat ID from the ChatGPT URL."""
     log_debug(f"[selenium][DEBUG] Extracting chat ID from URL: {url}")
     
-    # Pattern più flessibili per diversi formati di URL ChatGPT
+    # More flexible patterns for different ChatGPT URL formats
     patterns = [
-        r"/chat/([^/?#]+)",           # Formato standard: /chat/uuid
-        r"/c/([^/?#]+)",              # Formato alternativo: /c/uuid  
-        r"chat\.openai\.com/chat/([^/?#]+)",  # URL completo
-        r"chat\.openai\.com/c/([^/?#]+)"      # URL completo alternativo
+        r"/chat/([^/?#]+)",           # Standard format: /chat/uuid
+        r"/c/([^/?#]+)",              # Alternative format: /c/uuid  
+        r"chat\.openai\.com/chat/([^/?#]+)",  # Full URL
+        r"chat\.openai\.com/c/([^/?#]+)"      # Alternative full URL
     ]
     
     for pattern in patterns:
@@ -327,7 +327,7 @@ def _check_conversation_full(driver) -> bool:
 
 def _open_new_chat(driver) -> None:
     try:
-        # Prima prova a cliccare il pulsante new chat se è visibile
+        # First, try to click the new chat button if it's visible
         try:
             btn = WebDriverWait(driver, 2).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='new-chat-button']"))
@@ -338,7 +338,7 @@ def _open_new_chat(driver) -> None:
         except TimeoutException:
             log_debug("[selenium] New chat button not visible, navigating to home")
             
-        # Se non è visibile, vai alla home page e poi clicca
+        # If not visible, go to the home page and then click
         driver.get("https://chat.openai.com")
         btn = WebDriverWait(driver, 5).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='new-chat-button']"))
@@ -347,7 +347,7 @@ def _open_new_chat(driver) -> None:
         log_debug("[selenium] Navigated to home and clicked new-chat-button")
     except Exception as e:
         log_warning(f"[selenium] New chat button not clicked: {e}")
-        # Fallback: naviga direttamente alla home che dovrebbe creare una nuova chat
+        # Fallback: navigate directly to home which should create a new chat
         driver.get("https://chat.openai.com")
 
 
@@ -875,8 +875,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             current_url = ""
         log_debug(f"[selenium] [STEP] Checking login state at {current_url}")
         if current_url and ("login" in current_url or "auth0" in current_url):
-            log_debug("[selenium] Login richiesto, notifico l'utente")
-            _notify_gui("🔐 Login necessario. Apri")
+            log_debug("[selenium] Login required, notifying user")
+            _notify_gui("🔐 Login required. Open")
             return False
         log_debug("[selenium] Logged in and ready")
         return True
@@ -962,7 +962,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
             log_debug(f"[selenium][DEBUG] Telegram chat_id: {message.chat_id}, thread_id: {thread_id}")
 
-            # Solo se non abbiamo un chat_id specifico, andiamo alla home
+            # Only if we don't have a specific chat_id, go to home
             if not chat_id:
                 try:
                     driver.get("https://chat.openai.com")
@@ -1058,17 +1058,53 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 _notify_gui(f"❌ Selenium error: {e}. Open UI")
 
     def clean_chat_link(chat_id: int) -> str:
-        """Disassocia l'ID della chat Telegram dall'ID della chat ChatGPT nel database."""
+        """Disassociates the Telegram chat ID from the ChatGPT chat ID in the database.
+        If no link exists for the current chat, creates a new one.
+        """
         try:
             if chat_link_store.remove(chat_id):
-                log_debug(f"[clean_chat_link] Chat link rimosso per chat_id={chat_id}")
-                return f"✅ Collegamento per chat_id={chat_id} rimosso con successo."
+                log_debug(f"[clean_chat_link] Chat link removed for chat_id={chat_id}")
+                return f"✅ Link for chat_id={chat_id} successfully removed."
             else:
-                log_warning(f"[clean_chat_link] Nessun collegamento trovato per chat_id={chat_id}")
-                return f"⚠️ Nessun collegamento trovato per chat_id={chat_id}."
+                # No link found, create a new one
+                new_chat_id = f"new_chat_{chat_id}"  # Generate a new chat ID (example)
+                chat_link_store.save_link(chat_id, None, new_chat_id)
+                log_debug(f"[clean_chat_link] No link found. Created new link: {new_chat_id}")
+                return f"⚠️ No link found for chat_id={chat_id}. Created new link: {new_chat_id}."
         except Exception as e:
-            log_error(f"[clean_chat_link] Errore durante la rimozione del collegamento: {e}", e)
-            return f"❌ Errore durante la rimozione del collegamento: {e}"
+            log_error(f"[clean_chat_link] Error while removing or creating the link: {e}", e)
+            return f"❌ Error while removing or creating the link: {e}"
+
+    async def handle_clear_chat_link_command(bot, message):
+        """Handles the /clear_chat_link command."""
+        chat_id = message.chat_id
+        text = message.text.strip()
+
+        if text == "/clear_chat_link":
+            # No arguments provided, ask for confirmation
+            confirmation_message = (
+                f"⚠️ Do you really want to reset the link for this chat (ID: {chat_id})?\n"
+                "Reply with 'yes' to confirm or use /cancel to cancel."
+            )
+            await bot.send_message(chat_id=chat_id, text=confirmation_message)
+
+            # Wait for the user's response
+            def check_response(response):
+                return response.chat_id == chat_id and response.text.lower() in ["yes", "/cancel"]
+
+            try:
+                response = await bot.wait_for("message", timeout=60, check=check_response)
+                if response.text.lower() == "yes":
+                    result = SeleniumChatGPTPlugin.clean_chat_link(chat_id)
+                    await bot.send_message(chat_id=chat_id, text=result)
+                else:
+                    await bot.send_message(chat_id=chat_id, text="❌ Operation canceled.")
+            except asyncio.TimeoutError:
+                await bot.send_message(chat_id=chat_id, text="⏳ Timeout. Operation canceled.")
+        else:
+            # Normal handling with arguments
+            result = SeleniumChatGPTPlugin.clean_chat_link(chat_id)
+            await bot.send_message(chat_id=chat_id, text=result)
 
 PLUGIN_CLASS = SeleniumChatGPTPlugin
 
