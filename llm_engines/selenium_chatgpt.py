@@ -434,7 +434,17 @@ def process_prompt_in_chat(
         driver.get(chat_url)
         current_url = driver.current_url
         log_debug(f"[selenium][DEBUG] Current URL after navigation: {current_url}")
-        if chat_id not in current_url:
+
+        # Check if the chat is archived
+        try:
+            archived_message = driver.find_element(By.CLASS_NAME, "text-token-text-secondary").text
+            if "This conversation is archived" in archived_message:
+                log_warning(f"[selenium][WARN] Chat {chat_id} is archived and cannot be used.")
+                chat_id = None  # Mark chat as invalid
+        except Exception:
+            pass  # No archived message found, continue normally
+
+        if chat_id and chat_id not in current_url:
             log_warning(f"[selenium][WARN] URL mismatch: expected {chat_id}, got {current_url}")
             chat_id = None  # Mark chat as invalid
 
