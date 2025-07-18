@@ -42,7 +42,6 @@ response_cache_lock = threading.Lock()
 
 # Persistent mapping between Telegram chats and ChatGPT conversations
 chat_link_store = ChatLinkStore()
-queue_paused = False
 
 
 def get_previous_response(chat_id: int) -> str:
@@ -138,11 +137,7 @@ def paste_and_send(textarea, prompt_text: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Queue utilities for sequential prompt processing
-
-_prompt_queue: asyncio.Queue = asyncio.Queue()
-_queue_lock = asyncio.Lock()
-_queue_worker: asyncio.Task | None = None
+# Legacy queue removed - all messaging now goes through standard plugin chain
 
 
 def wait_for_markdown_block_to_appear(driver, prev_count: int, timeout: int = 10) -> bool:
@@ -231,29 +226,7 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
         log_warning(f"[selenium] Fallback send failed: {e}")
 
 
-async def _queue_worker_loop() -> None:
-    """Background worker that processes queued prompts sequentially."""
-    global _queue_worker
-    while not _prompt_queue.empty():
-        textarea, text = await _prompt_queue.get()
-        log_debug("[selenium] Dequeued prompt")
-        async with _queue_lock:
-            log_debug("[selenium] Send lock acquired")
-            await asyncio.to_thread(_send_prompt_with_confirmation, textarea, text)
-            log_debug("[selenium] Prompt completed")
-        _prompt_queue.task_done()
-        log_debug("[selenium] Task done")
-    _queue_worker = None
-
-
-async def enqueue_prompt(textarea, prompt_text: str) -> None:
-    """Enqueue ``prompt_text`` for sequential sending to ChatGPT."""
-    await _prompt_queue.put((textarea, prompt_text))
-    log_debug(f"[selenium] Prompt enqueued (size={_prompt_queue.qsize()})")
-    global _queue_worker
-    if _queue_worker is None or _queue_worker.done():
-        _queue_worker = asyncio.create_task(_queue_worker_loop())
-
+# Legacy queue functions removed - all communication now uses standard plugin chain
 
 def _build_vnc_url() -> str:
     """Return the URL to access the noVNC interface."""
@@ -578,41 +551,21 @@ def rename_and_send_prompt(driver, chat_info, prompt_text: str) -> Optional[str]
 
 
 class SeleniumChatGPTPlugin(AIPluginBase):
-    # [FIX] shared locks per Telegram chat
+    # Shared locks per Telegram chat for serialization
     chat_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     def __init__(self, send_fn=None, notify_fn=None):
-        """Initialize the plugin and inject the Selenium send function."""
+        """Initialize the plugin."""
         super().__init__()
 
-        # Since this is a standalone plugin, we don't need an external send_fn
-        # The plugin handles all Selenium logic internally
-        if send_fn is None:
-            # Create a placeholder function that indicates the plugin is in standalone mode
-            def standalone_placeholder(prompt_json: str) -> None:
-                log_debug(f"[selenium_standalone] placeholder called with {len(prompt_json)} chars")
-                return None
-            send_fn = standalone_placeholder
-            log_debug("[selenium] using standalone mode - no external send_fn needed")
-
-        self.selenium_send_and_wait = send_fn
-        log_debug("[selenium] ✅ send_fn configured")
-
         self.driver = None
-        self._queue: asyncio.Queue = asyncio.Queue()
-        self._worker_task = None
         self._notify_fn = notify_fn or notify_owner
-        log_debug(f"[selenium] notify_fn passed: {bool(notify_fn)}")
+        log_debug(f"[selenium] notify_fn configured: {bool(notify_fn)}")
         set_notifier(self._notify_fn)
 
     def cleanup(self):
         """Clean up resources when the plugin is stopped."""
         log_debug("[selenium] Starting cleanup...")
-        
-        # Stop the worker task
-        if self._worker_task and not self._worker_task.done():
-            self._worker_task.cancel()
-            log_debug("[selenium] Worker task cancelled")
         
         # Close the driver
         if self.driver:
@@ -634,44 +587,19 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         
         log_debug("[selenium] Cleanup completed")
 
-    async def stop(self):
-        """Cancel worker task and run cleanup."""  # [FIX]
-        if self._worker_task:
-            self._worker_task.cancel()
-            await asyncio.gather(self._worker_task, return_exceptions=True)
-        self.cleanup()
-
     async def start(self):
-        """Start the background worker loop."""
+        """Start the plugin - initialize the driver if needed."""
         log_debug("[selenium] \U0001F7E2 start() called")
-        if self.is_worker_running():
-            log_debug("[selenium] Worker already running")
-            return
-        if self._worker_task is not None and self._worker_task.done():
-            log_warning("[selenium] Previous worker task ended, restarting")
-        self._worker_task = asyncio.create_task(
-            self._worker_loop(), name="selenium_worker"
-        )
-        self._worker_task.add_done_callback(self._handle_worker_done)
-        log_debug("[selenium] Worker task created")
+        if self.driver is None:
+            try:
+                self._init_driver()
+                log_debug("[selenium] Driver initialized during start()")
+            except Exception as e:
+                log_error(f"[selenium] Failed to initialize driver: {e}")
 
-    def is_worker_running(self) -> bool:
-        return self._worker_task is not None and not self._worker_task.done()
-
-    def _handle_worker_done(self, fut: asyncio.Future):
-        if fut.cancelled():
-            log_warning("[selenium] Worker task cancelled")
-        elif fut.exception():
-            log_error(
-                f"[selenium] Worker task crashed: {fut.exception()}", fut.exception()
-            )
-        # Attempt restart if needed
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running():
-                loop.create_task(self.start())
-        except RuntimeError:
-            pass
+    async def stop(self):
+        """Stop the plugin and cleanup resources."""  
+        self.cleanup()
 
     def _init_driver(self):
         if self.driver is None:
@@ -897,54 +825,18 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         log_debug("[selenium] Logged in and ready")
         return True
 
-    async def handle_incoming_message(self, bot, message, prompt):
-        """Queue the message to be processed sequentially."""
-        user_id = message.from_user.id if message.from_user else "unknown"
-        text = message.text or ""
-        log_debug(
-            f"[selenium] [ENTRY] chat_id={message.chat_id} user_id={user_id} text={text!r}"
-        )
-        lock = SeleniumChatGPTPlugin.chat_locks.get(message.chat_id)
-        if lock and lock.locked():
-            log_debug(f"[selenium] Chat {message.chat_id} busy, waiting")
-        await self._queue.put((bot, message, prompt))
-        log_debug("[selenium] Message queued for processing")
-        if self._queue.qsize() > 10:
-            log_warning(
-                f"[selenium] Queue size high ({self._queue.qsize()}). Worker might be stalled"
-            )
-
-    async def _worker_loop(self):
-        log_debug("[selenium] Worker loop started")
-        try:
-            while True:
-                bot, message, prompt = await self._queue.get()
-                while queue_paused:
-                    await asyncio.sleep(1)
-                log_debug(
-                    f"[selenium] [WORKER] Processing chat_id={message.chat_id} message_id={message.message_id}"
-                )
-                try:
-                    lock = SeleniumChatGPTPlugin.chat_locks[message.chat_id]  # [FIX]
-                    async with lock:
-                        log_debug(f"[selenium] Lock acquired for chat {message.chat_id}")
-                        await self._process_message(bot, message, prompt)
-                        log_debug(f"[selenium] Lock released for chat {message.chat_id}")
-                except Exception as e:
-                    log_error("[selenium] Worker error", e)
-                    _notify_gui(f"❌ Selenium error: {e}. Open UI")
-                finally:
-                    self._queue.task_done()
-                    log_debug("[selenium] [WORKER] Task completed")
-        except asyncio.CancelledError:  # [FIX]
-            log_warning("Worker was cancelled")
-            raise
-        finally:
-            log_info("Worker loop cleaned up")
-
-    async def _process_message(self, bot, message, prompt):
-        """Send the prompt to ChatGPT and forward the response."""
+    async def _process_message_with_selenium(self, prompt: dict) -> str:
+        """Send the prompt to ChatGPT and return the response using Selenium."""
         log_debug(f"[selenium][STEP] processing prompt: {prompt}")
+
+        # Extract message info from prompt
+        source_info = prompt.get("input", {}).get("payload", {}).get("source", {})
+        chat_id_tg = source_info.get("chat_id")
+        thread_id = source_info.get("thread_id")
+        
+        if not chat_id_tg:
+            log_warning("[selenium] No chat_id in prompt, cannot process")
+            return "⚠️ Errore: impossibile determinare la chat di origine"
 
         for attempt in range(2):
             driver = self._get_driver()
@@ -957,26 +849,25 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 log_warning("[selenium] Driver process not running, restarting")
                 driver = self._get_driver()
             if not self._ensure_logged_in():
-                return
+                return "⚠️ Errore login ChatGPT"
 
             log_debug("[selenium][STEP] ensuring ChatGPT is accessible")
 
-            thread_id = getattr(message, "message_thread_id", None)
-            chat_id = chat_link_store.get_link(message.chat_id, thread_id)
+            chat_id = chat_link_store.get_link(chat_id_tg, thread_id)
             prompt_text = json.dumps(prompt, ensure_ascii=False)
             if not chat_id:
-                path = recent_chats.get_chat_path(message.chat_id)
+                path = recent_chats.get_chat_path(chat_id_tg)
                 if path and go_to_chat_by_path(driver, path):
                     chat_id = _extract_chat_id(driver.current_url)
                     if chat_id:  # [FIX] save and notify about recovered chat
-                        chat_link_store.save_link(message.chat_id, thread_id, chat_id)
+                        chat_link_store.save_link(chat_id_tg, thread_id, chat_id)
                         _safe_notify(
-                            f"\u26A0\uFE0F Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
+                            f"\u26A0\uFE0F Couldn't find ChatGPT conversation for Telegram chat_id={chat_id_tg}, thread_id={thread_id}.\n"
                             f"A new ChatGPT chat has been created: {chat_id}"
                         )
 
             log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
-            log_debug(f"[selenium][DEBUG] Telegram chat_id: {message.chat_id}, thread_id: {thread_id}")
+            log_debug(f"[selenium][DEBUG] Telegram chat_id: {chat_id_tg}, thread_id: {thread_id}")
 
             # Solo se non abbiamo un chat_id specifico, andiamo alla home
             if not chat_id:
@@ -988,27 +879,37 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 except TimeoutException:
                     log_warning("[selenium][ERROR] ChatGPT UI failed to load")
                     _notify_gui("❌ Selenium error: ChatGPT UI not ready. Open UI")
-                    return
+                    return "⚠️ Errore caricamento ChatGPT UI"
 
             try:
                 if chat_id:
-                    previous = get_previous_response(message.chat_id)
+                    previous = get_previous_response(chat_id_tg)
                     response_text = process_prompt_in_chat(driver, chat_id, prompt_text, previous)
                     if response_text:
-                        update_previous_response(message.chat_id, response_text)
+                        update_previous_response(chat_id_tg, response_text)
                 else:
                     _open_new_chat(driver)
-                    response_text = rename_and_send_prompt(driver, message, prompt_text)
+                    # Create a fake message object for compatibility with rename_and_send_prompt
+                    fake_message = type('Message', (), {
+                        'chat_id': chat_id_tg,
+                        'chat': type('Chat', (), {
+                            'title': f'Chat {chat_id_tg}',
+                            'type': 'private'
+                        })(),
+                        'message_thread_id': thread_id
+                    })()
+                    
+                    response_text = rename_and_send_prompt(driver, fake_message, prompt_text)
                     new_chat_id = _extract_chat_id(driver.current_url)
                     log_debug(f"[selenium][DEBUG] New chat created, extracted ID: {new_chat_id}")
                     log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
                     if new_chat_id:
-                        chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
-                        log_debug(f"[selenium][DEBUG] Saved link: {message.chat_id}/{thread_id} -> {new_chat_id}")
+                        chat_link_store.save_link(chat_id_tg, thread_id, new_chat_id)
+                        log_debug(f"[selenium][DEBUG] Saved link: {chat_id_tg}/{thread_id} -> {new_chat_id}")
                         chat_url = f"https://chat.openai.com/chat/{new_chat_id}"
                         driver.get(chat_url)
                         _safe_notify(
-                            f"\u26A0\uFE0F Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
+                            f"\u26A0\uFE0F Couldn't find ChatGPT conversation for Telegram chat_id={chat_id_tg}, thread_id={thread_id}.\n"
                             f"A new ChatGPT chat has been created: {new_chat_id}"
                         )
                     else:
@@ -1018,26 +919,25 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     current_id = chat_id or _extract_chat_id(driver.current_url)
                     if current_id:
                         chat_link_store.mark_full(current_id)
-                    global queue_paused
-                    queue_paused = True
                     _open_new_chat(driver)
-                    response_text = rename_and_send_prompt(driver, message, prompt_text)
+                    fake_message = type('Message', (), {
+                        'chat_id': chat_id_tg,
+                        'chat': type('Chat', (), {
+                            'title': f'Chat {chat_id_tg}',
+                            'type': 'private'
+                        })(),
+                        'message_thread_id': thread_id
+                    })()
+                    response_text = rename_and_send_prompt(driver, fake_message, prompt_text)
                     new_chat_id = _extract_chat_id(driver.current_url)
                     if new_chat_id:
-                        chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
-                    queue_paused = False
+                        chat_link_store.save_link(chat_id_tg, thread_id, new_chat_id)
 
                 if not response_text:
                     response_text = "⚠️ No response received"
 
-                await safe_send(
-                    bot,
-                    chat_id=message.chat_id,
-                    text=response_text,
-                    reply_to_message_id=message.message_id,
-                )  # [FIX][telegram retry]
-                log_debug(f"[selenium][STEP] response forwarded to {message.chat_id}")
-                return
+                log_debug(f"[selenium][STEP] response generated for chat {chat_id_tg}")
+                return response_text
 
             except WebDriverException as e:
                 log_error("[selenium] WebDriver error", e)
@@ -1050,124 +950,25 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     log_debug("[selenium] Retrying after driver restart")
                     continue
                 _notify_gui(f"❌ Selenium error: {e}. Open UI")
-                return
+                return f"⚠️ Errore WebDriver: {e}"
             except Exception as e:
                 log_error(f"[selenium][ERROR] failed to process message: {e}", e)
                 _notify_gui(f"❌ Selenium error: {e}. Open UI")
-                return
-
-    def extract_response_text(self) -> str:
-        """Extract the response text from the current ChatGPT web page using Selenium."""
-        if self.driver is None:
-            log_warning("[selenium] extract_response_text called but driver is None")
-            # Return a system message when driver is not available
-            fallback = {
-                "type": "message",
-                "interface": "telegram", 
-                "payload": {"text": "⚙️ Driver Selenium non inizializzato"}
-            }
-            return json.dumps(fallback, ensure_ascii=False)
-        
-        try:
-            # Check if we're actually on ChatGPT and if there are responses to extract
-            current_url = self.driver.current_url
-            if not current_url or "chat.openai.com" not in current_url:
-                log_debug("[selenium] Not on ChatGPT page, returning system message")
-                fallback = {
-                    "type": "message",
-                    "interface": "telegram",
-                    "payload": {"text": "⚙️ Sistema non collegato a ChatGPT"}
-                }
-                return json.dumps(fallback, ensure_ascii=False)
-            
-            # Try to find existing markdown elements first
-            try:
-                elements = self.driver.find_elements(By.CSS_SELECTOR, "div.markdown.prose")
-                if not elements:
-                    log_debug("[selenium] No markdown elements found on page")
-                    fallback = {
-                        "type": "message",
-                        "interface": "telegram",
-                        "payload": {"text": "⚙️ Nessuna risposta disponibile dal sistema"}
-                    }
-                    return json.dumps(fallback, ensure_ascii=False)
-                
-                # Get the last element's text (most recent response)
-                latest_element = elements[-1]
-                response_text = latest_element.text or ""
-                
-                if response_text and response_text.strip():
-                    log_debug(f"[selenium] Found existing response with {len(response_text)} chars")
-                    return response_text.strip()
-                    
-            except Exception as e:
-                log_debug(f"[selenium] Error checking existing elements: {e}")
-            
-            # If no existing response, try waiting for a new one but with a short timeout
-            log_debug("[selenium] Waiting for new response with short timeout...")
-            response_text = wait_until_response_stabilizes(self.driver, max_total_wait=10, no_change_grace=2.0)
-            
-            if response_text and response_text.strip():
-                log_debug(f"[selenium] extract_response_text got {len(response_text)} chars")
-                return response_text.strip()
-            else:
-                log_debug("[selenium] No response text found after waiting, returning system message")
-                fallback = {
-                    "type": "message",
-                    "interface": "telegram",
-                    "payload": {"text": "⚙️ Timeout - nessuna risposta ricevuta"}
-                }
-                return json.dumps(fallback, ensure_ascii=False)
-                
-        except Exception as e:
-            log_error(f"[selenium] extract_response_text failed: {e}")
-            fallback = {
-                "type": "message", 
-                "interface": "telegram",
-                "payload": {"text": "⚠️ Errore estrazione risposta Selenium"}
-            }
-            return json.dumps(fallback, ensure_ascii=False)
+                return f"⚠️ Errore Selenium: {e}"
 
     async def generate_response(self, prompt: dict) -> str:
         """Send ``prompt`` to ChatGPT via Selenium and return its reply."""
         log_debug("[selenium][STEP] entering generate_response")
 
         try:
-            json_str = json.dumps(prompt, ensure_ascii=False)
-            log_debug("[selenium][STEP] sending prompt")
+            # Use Selenium to process the message and get the response
+            response_text = await self._process_message_with_selenium(prompt)
             
-            # Call the selenium_send_and_wait function
-            result = await asyncio.to_thread(self.selenium_send_and_wait, json_str)
-            log_debug(f"[selenium][STEP] selenium_send_and_wait returned: {result}")
-            
-            # If selenium_send_and_wait is a placeholder (returns None), 
-            # return a system fallback response immediately
-            if result is None:
-                log_debug("[selenium][STEP] selenium_send_and_wait is placeholder, returning system fallback")
-                fallback = {
-                    "type": "message",
-                    "interface": "telegram",
-                    "payload": {
-                        "text": "⚙️ Sistema Selenium in modalità placeholder - LLM non disponibile al momento",
-                        "target": prompt.get("input", {}).get("payload", {}).get("source", {}).get("chat_id"),
-                        "thread_id": prompt.get("input", {}).get("payload", {}).get("source", {}).get("thread_id")
-                    }
-                }
-                return json.dumps(fallback, ensure_ascii=False)
+            if not response_text:
+                response_text = "⚠️ Nessuna risposta ricevuta"
 
-            log_debug("[selenium][STEP] waiting for response")
-            response_text = await asyncio.to_thread(self.extract_response_text)
-
-            if not isinstance(response_text, str):
-                response_text = ""
-
-            log_debug("[selenium][STEP] extracting result")
-            cleaned = response_text.strip()
-            if cleaned.startswith("jsonCopyEdit"):
-                cleaned = cleaned[len("jsonCopyEdit") :].lstrip()
-
-            log_debug("[selenium][STEP] returning response")
-            return cleaned
+            log_debug(f"[selenium][STEP] returning response with {len(response_text)} chars")
+            return response_text
 
         except Exception as e:  # pragma: no cover - best effort
             log_error(f"[selenium] generate_response failed: {e}", e)
