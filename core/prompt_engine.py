@@ -199,13 +199,7 @@ def build_prompt(
 
 def load_json_instructions() -> str:
     """Load JSON response instructions for the AI."""
-    try:
-        with open("persona/json_instructions.txt", "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        log_debug("json_instructions.txt not found. Using built-in instructions.")
-        # Built-in fallback instructions
-        return """Be Rekku, be yourself.
+    return """Be Rekku, be yourself.
 
 Reply to user messages by generating valid JSON actions only.
 
