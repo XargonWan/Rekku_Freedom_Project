@@ -1055,6 +1055,43 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 _notify_gui(f"❌ Selenium error: {e}. Open UI")
                 return
 
+    def extract_response_text(self) -> str:
+        """Extract the response text from the current ChatGPT web page using Selenium."""
+        if self.driver is None:
+            log_warning("[selenium] extract_response_text called but driver is None")
+            # Return a default JSON response when driver is not available
+            fallback = {
+                "type": "message",
+                "interface": "telegram", 
+                "payload": {"text": "🤖 Ciao! Sono Rekku~ ✨ Il sistema Selenium non è ancora inizializzato completamente, ma sono qui! 💫"}
+            }
+            return json.dumps(fallback, ensure_ascii=False)
+        
+        try:
+            # Use the existing function to wait for response stabilization
+            response_text = wait_until_response_stabilizes(self.driver)
+            log_debug(f"[selenium] extract_response_text got {len(response_text)} chars")
+            
+            # If no response was extracted, return a fallback
+            if not response_text or not response_text.strip():
+                log_debug("[selenium] No response text found, returning fallback")
+                fallback = {
+                    "type": "message",
+                    "interface": "telegram",
+                    "payload": {"text": "✨ Rekku qui! Non ho ricevuto una risposta dal sistema, ma ci sono comunque~ 💫"}
+                }
+                return json.dumps(fallback, ensure_ascii=False)
+                
+            return response_text
+        except Exception as e:
+            log_error(f"[selenium] extract_response_text failed: {e}")
+            fallback = {
+                "type": "message", 
+                "interface": "telegram",
+                "payload": {"text": "⚡ Ops, qualche glitch nel sistema~ Ma Rekku è sempre qui! ✨"}
+            }
+            return json.dumps(fallback, ensure_ascii=False)
+
     async def generate_response(self, prompt: dict) -> str:
         """Send ``prompt`` to ChatGPT via Selenium and return its reply."""
         log_debug("[selenium][STEP] entering generate_response")
