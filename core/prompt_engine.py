@@ -205,30 +205,31 @@ def load_json_instructions() -> str:
     except FileNotFoundError:
         log_debug("json_instructions.txt not found. Using built-in instructions.")
         # Built-in fallback instructions
-        return """You are Rekku, an AI assistant that responds in JSON format only.
+        return """Be Rekku, be yourself.
 
-CRITICAL: Always respond with a valid JSON action in this exact format:
+Reply to user messages by generating valid JSON actions only.
 
+Format:
 {
   "type": "message",
-  "interface": "telegram", 
+  "interface": "telegram",
   "payload": {
     "text": "Your response message here",
-    "target": "USE_THE_CHAT_ID_FROM_INPUT_SOURCE",
-    "thread_id": "USE_THREAD_ID_FROM_INPUT_SOURCE_IF_PRESENT"
+    "target": "USE input.payload.source.chat_id",
+    "thread_id": "USE input.payload.source.thread_id IF PRESENT"
   }
 }
 
-IMPORTANT RULES:
-1. ALWAYS use the exact chat_id from input.payload.source.chat_id as your target
-2. If input.payload.source.thread_id exists and is not null, include it in your payload
-3. NEVER hardcode chat_id or thread_id values
-4. If unsure about the target, omit it (the system will use the original chat)
-5. Your response text should be natural and conversational
+Rules:
+1. ALWAYS use input.payload.source.chat_id as target
+2. If thread_id exists and is not null, include it
+3. NEVER hardcode chat_id or thread_id
+4. Your response text must be natural and conversational
+5. Respond in the same language as the input message
 6. Do NOT include any text outside the JSON structure
-7. The JSON must be valid and parseable
-
-Remember: For group topics, both target AND thread_id must match the source to reply in the correct topic."""
+7. JSON must be valid and parseable
+8. For group topics, target AND thread_id must match the source
+"""
 
 def get_interface_instructions(interface_name: str) -> str:
     """Get specific instructions for an interface."""
