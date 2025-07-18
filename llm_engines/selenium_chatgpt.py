@@ -7,6 +7,7 @@ from selenium.common.exceptions import (
     NoSuchElementException,
     TimeoutException,
     ElementNotInteractableException,
+    StaleElementReferenceException,
     SessionNotCreatedException,
     WebDriverException,
 )
@@ -97,6 +98,13 @@ def paste_and_send(textarea, prompt_text: str) -> None:
     """Robustly send ``prompt_text`` to ``textarea`` in chunks with retries."""
     import textwrap
 
+    driver = textarea._parent
+    try:
+        textarea = _retry_click(driver, (By.ID, "prompt-textarea"))
+    except Exception as e:
+        log_error(f"[selenium] Failed to click textarea: {e}", e)
+        raise
+
     clean = strip_non_bmp(prompt_text)
     if len(clean) > 4000:
         clean = clean[:4000]
@@ -125,6 +133,7 @@ def paste_and_send(textarea, prompt_text: str) -> None:
                 log_warning(
                     f"[selenium] textarea length mismatch: expected {len(clean)} got {len(final_value)}"
                 )
+            print("[DEBUG/selenium] 📨 Prompt inviato con successo")
             return
         except Exception as e:
             log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
@@ -133,6 +142,7 @@ def paste_and_send(textarea, prompt_text: str) -> None:
     log_warning("[selenium] Falling back to ActionChains")
     try:
         ActionChains(textarea._parent).click(textarea).send_keys(clean).perform()
+        print("[DEBUG/selenium] 📨 Prompt inviato con successo")
     except Exception as e:  # pragma: no cover - best effort
         log_warning(f"[selenium] Fallback send failed: {e}")
 
@@ -367,6 +377,32 @@ def go_to_chat_by_path(driver, chat_path: str) -> bool:
         return False
 
 
+def _retry_click(driver, locator):
+    """Click an element with retries to handle stale references."""
+    delays = [1, 2, 4, 6, 10]
+    last_exc = None
+    for attempt, delay in enumerate([0] + delays, start=1):
+        if attempt > 1:
+            time.sleep(delay)
+        try:
+            element = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable(locator)
+            )
+            driver.execute_script("arguments[0].focus();", element)
+            element.click()
+            return element
+        except StaleElementReferenceException as e:
+            last_exc = e
+            log_warning(f"[selenium] Stale element on click attempt {attempt}: {e}")
+        except Exception as e:  # pragma: no cover - best effort
+            last_exc = e
+            log_warning(f"[selenium] Click attempt {attempt} failed: {e}")
+        _safe_notify(f"⚠️ Tentativo {attempt} di clic sulla textarea fallito")
+    raise Exception(
+        "❌ Impossibile cliccare sulla textarea dopo vari tentativi (stale element)"
+    ) from last_exc
+
+
 def wait_for_response_change(
     driver, previous_text: str, timeout: int = 30
 ) -> Optional[str]:
@@ -452,10 +488,6 @@ def process_prompt_in_chat(
 
     for attempt in range(1, 4):  # [FIX][retry] retry up to 3 times
         try:
-            textarea.click()
-            textarea.send_keys(Keys.CONTROL + "a")
-            textarea.send_keys(Keys.DELETE)
-
             paste_and_send(textarea, prompt_text)
 
             submit_btn = WebDriverWait(driver, 10).until(
