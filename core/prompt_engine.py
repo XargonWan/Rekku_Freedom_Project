@@ -224,11 +224,10 @@ Rules:
 1. ALWAYS use input.payload.source.chat_id as target
 2. If thread_id exists and is not null, include it
 3. NEVER hardcode chat_id or thread_id
-4. Your response text must be natural and conversational
-5. Respond in the same language as the input message
-6. Do NOT include any text outside the JSON structure
-7. JSON must be valid and parseable
-8. For group topics, target AND thread_id must match the source
+4. Respond in the same language as the input message
+5. Do NOT include any text outside the JSON structure
+6. JSON must be valid and parseable
+7. For group topics, target AND thread_id must match the source
 """
 
 def get_interface_instructions(interface_name: str) -> str:
