@@ -436,9 +436,20 @@ def process_prompt_in_chat(
         log_debug(f"[selenium][DEBUG] Current URL after navigation: {current_url}")
         if chat_id not in current_url:
             log_warning(f"[selenium][WARN] URL mismatch: expected {chat_id}, got {current_url}")
-    else:
-        log_debug("[selenium][STEP] Using currently open chat")
-        log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
+            chat_id = None  # Mark chat as invalid
+
+    if not chat_id:
+        log_debug("[selenium][STEP] Creating a new chat")
+        try:
+            _open_new_chat(driver)
+            chat_id = _extract_chat_id(driver.current_url)
+            if not chat_id:
+                log_error("[selenium][ERROR] Failed to create a new chat")
+                return None
+            log_debug(f"[selenium][DEBUG] New chat created with ID: {chat_id}")
+        except Exception as e:
+            log_error(f"[selenium][ERROR] Failed to open a new chat: {e}", e)
+            return None
 
     try:
         textarea = WebDriverWait(driver, 10).until(
@@ -448,8 +459,7 @@ def process_prompt_in_chat(
         log_error("[selenium][ERROR] prompt textarea not found")
         return None
 
-
-    for attempt in range(1, 4):  # [FIX][retry] retry up to 3 times
+    for attempt in range(1, 4):  # Retry up to 3 times
         try:
             textarea.click()
             textarea.send_keys(Keys.CONTROL + "a")
@@ -471,7 +481,6 @@ def process_prompt_in_chat(
 
         log_debug("🔍 Waiting for response block...")
         try:
-            # [FIX][wait] give ChatGPT up to 90s to show the markdown block
             WebDriverWait(driver, 90).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "div.markdown"))
             )
@@ -492,7 +501,6 @@ def process_prompt_in_chat(
         log_warning(f"[selenium][retry] Empty response attempt {attempt}")
         time.sleep(2)
 
-    # [FIX][retry] all attempts exhausted - capture screenshot and notify
     os.makedirs("screenshots", exist_ok=True)
     fname = f"screenshots/chat_{chat_id or 'unknown'}_no_response.png"
     try:
