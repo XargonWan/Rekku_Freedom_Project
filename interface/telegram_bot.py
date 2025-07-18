@@ -247,6 +247,33 @@ async def cancel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\u26a0\ufe0f No active send to cancel.")
 
 
+async def clear_chat_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Remove tracking between a forwarded message and its source."""
+    if update.effective_user.id != OWNER_ID:
+        return
+
+    message = update.message
+    if not message or not message.reply_to_message:
+        await message.reply_text(
+            "\u26a0\ufe0f Devi usare questo comando in risposta al messaggio inoltrato."
+        )
+        return
+
+    trainer_message_id = message.reply_to_message.message_id
+    plugin = plugin_instance.get_plugin()
+    if plugin and hasattr(plugin, "clear"):
+        try:
+            plugin.clear(trainer_message_id)
+        except Exception as e:
+            log_error(f"Errore durante clear_chat_link: {e}", e)
+            await message.reply_text(
+                "\u274c Errore durante la rimozione del collegamento."
+            )
+            return
+
+    await message.reply_text("\u2705 Collegamento tra messaggi rimosso.")
+
+
 async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_debug("/test ricevuto")
     await update.message.reply_text("✅ Test OK")
@@ -368,7 +395,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/say <id> <messaggio>` – Invia direttamente un messaggio a una chat\n\n"
         "*🧩 Modalità manuale*\n"
         "Rispondi a un messaggio inoltrato con testo o contenuti (sticker, foto, audio, file, ecc.)\n"
-        "`/cancel` – Annulla un invio in attesa\n\n"
+        "`/cancel` – Annulla un invio in attesa\n"
+        "`/clear_chat_link` – Rimuove il collegamento a un messaggio inoltrato (rispondere al messaggio)\n\n"
         "*🧱 Gestione utenti*\n"
         "`/block <user_id>` – Blocca un utente\n"
         "`/unblock <user_id>` – Sblocca un utente\n"
@@ -754,6 +782,7 @@ def start_bot():
 
     app.add_handler(CommandHandler("say", say_command))
     app.add_handler(CommandHandler("cancel", cancel_response))
+    app.add_handler(CommandHandler("clear_chat_link", clear_chat_link))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.add_handler(MessageHandler(
