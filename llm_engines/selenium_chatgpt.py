@@ -534,21 +534,35 @@ def process_prompt_in_chat(
         log_error("[selenium][ERROR] prompt textarea not found")
         return None
 
-    try:
-        paste_and_send(textarea, prompt_text)
-    except Exception as e:
-        log_error(f"[selenium][ERROR] initial send failed: {e}", e)
-        _safe_notify("⚠️ Problemi con la chat attuale, ne creo una nuova...")
-        _invalidate_chat_link(telegram_chat_id, thread_id)
-        new_id = _create_new_chat(driver)
-        if new_id:
-            chat_link_store.save_link(telegram_chat_id, thread_id, new_id)
-        if chat_path:
-            _rename_current_chat(driver, chat_path)
-        textarea = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.ID, "prompt-textarea"))
-        )
-        paste_and_send(textarea, prompt_text)
+    retried = False
+
+    while True:
+        try:
+            paste_and_send(textarea, prompt_text)
+            break
+        except Exception as e:
+            if retried:
+                log_error(f"[selenium][ERROR] Retry failed: {e}", e)
+                return None
+
+            log_error(f"[selenium][ERROR] initial send failed: {e}", e)
+            _notify_owner("⚠️ Problemi con la chat attuale, ne creo una nuova...")
+            _invalidate_chat_link(telegram_chat_id, thread_id)
+            new_id = _create_new_chat(driver)
+            if new_id:
+                chat_link_store.save_link(telegram_chat_id, thread_id, new_id)
+            if chat_path:
+                _rename_current_chat(driver, chat_path)
+
+            try:
+                textarea = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.ID, "prompt-textarea"))
+                )
+            except TimeoutException:
+                log_error("[selenium][ERROR] prompt textarea not found after retry")
+                return None
+
+            retried = True
 
     try:
         submit_btn = WebDriverWait(driver, 10).until(
@@ -595,7 +609,7 @@ def process_prompt_in_chat(
     except Exception as e:
         log_warning(f"[selenium] Failed to save screenshot: {e}")
     notify_owner(
-        f"\u26A0\uFE0F No response received for chat_id={chat_id}. Screenshot: {fname}"
+        f"⚠️ No response received for chat_id={chat_id}. Screenshot: {fname}"
     )
     return None
 
@@ -632,8 +646,7 @@ def rename_and_send_prompt(driver, chat_info, prompt_text: str) -> Optional[str]
         rename_input.clear()
         rename_input.send_keys(strip_non_bmp(new_title))
         rename_input.send_keys(Keys.ENTER)
-        log_debug("[DEBUG] Rename field found and edited")
-        recent_chats.set_chat_path(chat_info.chat_id, new_title)
+        log_debug("[selenium] Chat renamed")
     except Exception as e:
         log_warning(f"[selenium][ERROR] rename failed: {e}")
 
@@ -1143,6 +1156,21 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 _notify_gui(f"❌ Selenium error: {e}. Open UI")
                 return
 
+    async def handle_clear_chat_link_command(self, telegram_chat_id: int, thread_id: Optional[int] = None):
+        """Handle the /clear_chat_link command to forcibly remove the chat link."""
+        try:
+            self._invalidate_chat_link(telegram_chat_id, thread_id)
+            self._notify_owner(f"✅ Chat link for Telegram chat_id={telegram_chat_id}, thread_id={thread_id} has been cleared.")
+        except Exception as e:
+            log_error(f"[selenium][ERROR] Failed to clear chat link: {e}", e)
+            self._notify_owner(f"❌ Failed to clear chat link for Telegram chat_id={telegram_chat_id}, thread_id={thread_id}.")
+
+    def _notify_owner(self, message: str):
+        """Notify the owner with a given message."""
+        try:
+            self._notify_fn(message)
+        except Exception as e:
+            log_error(f"[selenium][ERROR] Failed to notify owner: {e}", e)
 
     def get_supported_models(self):
         return []  # nessun modello per ora
