@@ -259,14 +259,13 @@ def _build_vnc_url() -> str:
     """Return the URL to access the noVNC interface."""
     port = os.getenv("WEBVIEW_PORT", "5005")
     host = os.getenv("WEBVIEW_HOST")
-    if not host:
-        try:
-            host = subprocess.check_output(
-                "ip route | awk '/default/ {print $3}'",
-                shell=True,
-            ).decode().strip()
-        except Exception as e:
-            log_warning(f"[selenium] Unable to determine host: {e}")
+    try:
+        host = subprocess.check_output(
+            "ip route | awk '/default/ {print $3}'",
+            shell=True,
+        ).decode().strip()
+    except Exception as e:
+        log_warning(f"[selenium] Unable to determine host: {e}")
         if not host:
             host = "localhost"
     url = f"http://{host}:{port}/vnc.html"
@@ -1057,6 +1056,19 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             except Exception as e:
                 log_error("[selenium] set_notify_fn initialization error", e)
                 _notify_gui(f"❌ Selenium error: {e}. Open UI")
+
+    def clean_chat_link(chat_id: int) -> str:
+        """Disassocia l'ID della chat Telegram dall'ID della chat ChatGPT nel database."""
+        try:
+            if chat_link_store.remove(chat_id):
+                log_debug(f"[clean_chat_link] Chat link rimosso per chat_id={chat_id}")
+                return f"✅ Collegamento per chat_id={chat_id} rimosso con successo."
+            else:
+                log_warning(f"[clean_chat_link] Nessun collegamento trovato per chat_id={chat_id}")
+                return f"⚠️ Nessun collegamento trovato per chat_id={chat_id}."
+        except Exception as e:
+            log_error(f"[clean_chat_link] Errore durante la rimozione del collegamento: {e}", e)
+            return f"❌ Errore durante la rimozione del collegamento: {e}"
 
 PLUGIN_CLASS = SeleniumChatGPTPlugin
 
