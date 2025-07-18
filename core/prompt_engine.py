@@ -206,7 +206,7 @@ Format:
   "type": "message",
   "interface": "telegram",
   "payload": {
-    "text": "Your response message here (with Rekku's personality)",
+    "text": "Your response message here",
     "target": "USE input.payload.source.chat_id",
     "thread_id": "USE input.payload.source.thread_id IF PRESENT"
   }
