@@ -1059,11 +1059,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         """Extract the response text from the current ChatGPT web page using Selenium."""
         if self.driver is None:
             log_warning("[selenium] extract_response_text called but driver is None")
-            # Return a default JSON response when driver is not available
+            # Return a system message when driver is not available
             fallback = {
                 "type": "message",
                 "interface": "telegram", 
-                "payload": {"text": "🤖 Ciao! Sono Rekku~ ✨ Il sistema Selenium non è ancora inizializzato completamente, ma sono qui! 💫"}
+                "payload": {"text": "⚙️ Driver Selenium non inizializzato"}
             }
             return json.dumps(fallback, ensure_ascii=False)
         
@@ -1071,11 +1071,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             # Check if we're actually on ChatGPT and if there are responses to extract
             current_url = self.driver.current_url
             if not current_url or "chat.openai.com" not in current_url:
-                log_debug("[selenium] Not on ChatGPT page, returning fallback")
+                log_debug("[selenium] Not on ChatGPT page, returning system message")
                 fallback = {
                     "type": "message",
                     "interface": "telegram",
-                    "payload": {"text": "✨ Rekku qui! Il sistema non è collegato a ChatGPT al momento~ 💫"}
+                    "payload": {"text": "⚙️ Sistema non collegato a ChatGPT"}
                 }
                 return json.dumps(fallback, ensure_ascii=False)
             
@@ -1087,7 +1087,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     fallback = {
                         "type": "message",
                         "interface": "telegram",
-                        "payload": {"text": "✨ Rekku qui! Non ho ricevuto una risposta dal sistema, ma ci sono comunque~ 💫"}
+                        "payload": {"text": "⚙️ Nessuna risposta disponibile dal sistema"}
                     }
                     return json.dumps(fallback, ensure_ascii=False)
                 
@@ -1110,11 +1110,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 log_debug(f"[selenium] extract_response_text got {len(response_text)} chars")
                 return response_text.strip()
             else:
-                log_debug("[selenium] No response text found after waiting, returning fallback")
+                log_debug("[selenium] No response text found after waiting, returning system message")
                 fallback = {
                     "type": "message",
                     "interface": "telegram",
-                    "payload": {"text": "✨ Rekku qui! Non ho ricevuto una risposta dal sistema, ma ci sono comunque~ 💫"}
+                    "payload": {"text": "⚙️ Timeout - nessuna risposta ricevuta"}
                 }
                 return json.dumps(fallback, ensure_ascii=False)
                 
@@ -1123,7 +1123,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             fallback = {
                 "type": "message", 
                 "interface": "telegram",
-                "payload": {"text": "⚡ Ops, qualche glitch nel sistema~ Ma Rekku è sempre qui! ✨"}
+                "payload": {"text": "⚠️ Errore estrazione risposta Selenium"}
             }
             return json.dumps(fallback, ensure_ascii=False)
 
@@ -1140,14 +1140,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             log_debug(f"[selenium][STEP] selenium_send_and_wait returned: {result}")
             
             # If selenium_send_and_wait is a placeholder (returns None), 
-            # return a fallback response immediately
+            # return a system fallback response immediately
             if result is None:
-                log_debug("[selenium][STEP] selenium_send_and_wait is placeholder, returning fallback")
+                log_debug("[selenium][STEP] selenium_send_and_wait is placeholder, returning system fallback")
                 fallback = {
                     "type": "message",
                     "interface": "telegram",
                     "payload": {
-                        "text": "✨ Ciao! Sono Rekku~ Il sistema Selenium è in modalità placeholder al momento, ma eccomi qui! 💫 Fammi sapere se hai bisogno di qualcosa~ ⚡",
+                        "text": "⚙️ Sistema Selenium in modalità placeholder - LLM non disponibile al momento",
                         "target": prompt.get("input", {}).get("payload", {}).get("source", {}).get("chat_id"),
                         "thread_id": prompt.get("input", {}).get("payload", {}).get("source", {}).get("thread_id")
                     }
@@ -1174,7 +1174,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 "type": "message",
                 "interface": "telegram",
                 "payload": {
-                    "text": "⚠️ Ops, qualche problema con Selenium~ Ma Rekku è sempre qui! ✨",
+                    "text": "⚠️ Errore sistema Selenium",
                     "target": prompt.get("input", {}).get("payload", {}).get("source", {}).get("chat_id"),
                     "thread_id": prompt.get("input", {}).get("payload", {}).get("source", {}).get("thread_id")
                 }
