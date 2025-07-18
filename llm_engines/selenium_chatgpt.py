@@ -580,8 +580,23 @@ def rename_and_send_prompt(driver, chat_info, prompt_text: str) -> Optional[str]
 class SeleniumChatGPTPlugin(AIPluginBase):
     # [FIX] shared locks per Telegram chat
     chat_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
-    def __init__(self, notify_fn=None):
-        """Initialize the plugin without starting Selenium yet."""
+
+    def __init__(self, send_fn=None, notify_fn=None):
+        """Initialize the plugin and inject the Selenium send function."""
+        super().__init__()
+
+        if send_fn is None:
+            try:
+                from .selenium_core import selenium_send_and_wait
+                send_fn = selenium_send_and_wait
+                log_debug("[selenium] default send_fn loaded from selenium_core")
+            except Exception as e:
+                log_error(f"[selenium] failed to load default send_fn: {e}")
+                raise ValueError("send_fn must be provided for SeleniumChatGPTPlugin")
+
+        self.selenium_send_and_wait = send_fn
+        log_debug("[selenium] ✅ send_fn injected")
+
         self.driver = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task = None
