@@ -6,6 +6,7 @@ import json
 from core.prompt_engine import build_json_prompt
 import asyncio
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.action_parser import parse_action
 
 plugin = None
 rekku_identity_prompt = None
@@ -102,6 +103,10 @@ def load_plugin(name: str, notify_fn=None):
     set_active_llm(name)
 
 async def handle_incoming_message(bot, message, context_memory):
+    """Process incoming messages and handle actions."""
+    log_debug(f"[plugin_instance] Received message: {message.text}")
+    log_debug(f"[plugin_instance] Context memory: {context_memory}")
+
     if plugin is None:
         raise RuntimeError("No LLM plugin loaded.")
 
@@ -129,6 +134,9 @@ def get_target(message_id):
     if plugin and hasattr(plugin, "get_target"):
         return plugin.get_target(message_id)
     return None
+
+def get_plugin():
+    return plugin
 
 def get_plugin():
     return plugin

@@ -56,6 +56,7 @@ async def build_json_prompt(message, context_memory) -> dict:
     }
 
     # === 4. Input payload ===
+    thread_id = getattr(message, "message_thread_id", None)
     input_payload = {
         "text": text,
         "source": {
@@ -63,6 +64,7 @@ async def build_json_prompt(message, context_memory) -> dict:
             "message_id": message.message_id,
             "username": message.from_user.full_name,
             "usertag": f"@{message.from_user.username}" if message.from_user.username else "(no tag)",
+            "thread_id": thread_id,
         },
         "timestamp": message.date.isoformat(),
         "privacy": "default",
@@ -89,7 +91,20 @@ async def build_json_prompt(message, context_memory) -> dict:
     log_debug("[json_prompt] context = " + json.dumps(context_section, ensure_ascii=False))
     log_debug("[json_prompt] input = " + json.dumps(input_section, ensure_ascii=False))
 
-    return {"context": context_section, "input": input_section}
+    # Add JSON instructions to the prompt
+    json_instructions = load_json_instructions()
+    
+    # Get interface-specific instructions
+    interface_instructions = get_interface_instructions("telegram")  # Default to telegram for now
+    
+    prompt_with_instructions = {
+        "context": context_section, 
+        "input": input_section,
+        "instructions": json_instructions,
+        "interface_instructions": interface_instructions
+    }
+
+    return prompt_with_instructions
 
 def load_identity_prompt() -> str:
     try:
@@ -181,4 +196,51 @@ def build_prompt(
         log_warning(f"Error logging prompt: {e}")
 
     return messages
+
+def load_json_instructions() -> str:
+    """Load JSON response instructions for the AI."""
+    try:
+        with open("persona/json_instructions.txt", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        log_debug("json_instructions.txt not found. Using built-in instructions.")
+        # Built-in fallback instructions
+        return """You are Rekku, an AI assistant that responds in JSON format only.
+
+CRITICAL: Always respond with a valid JSON action in this exact format:
+
+{
+  "type": "message",
+  "interface": "telegram", 
+  "payload": {
+    "text": "Your response message here",
+    "target": "USE_THE_CHAT_ID_FROM_INPUT_SOURCE",
+    "thread_id": "USE_THREAD_ID_FROM_INPUT_SOURCE_IF_PRESENT"
+  }
+}
+
+IMPORTANT RULES:
+1. ALWAYS use the exact chat_id from input.payload.source.chat_id as your target
+2. If input.payload.source.thread_id exists and is not null, include it in your payload
+3. NEVER hardcode chat_id or thread_id values
+4. If unsure about the target, omit it (the system will use the original chat)
+5. Your response text should be natural and conversational
+6. Do NOT include any text outside the JSON structure
+7. The JSON must be valid and parseable
+
+Remember: For group topics, both target AND thread_id must match the source to reply in the correct topic."""
+
+def get_interface_instructions(interface_name: str) -> str:
+    """Get specific instructions for an interface."""
+    try:
+        # Try to import the interface and get its instructions
+        if interface_name == "telegram":
+            from interface.telegram_interface import TelegramInterface
+            return TelegramInterface.get_interface_instructions()
+        # Add other interfaces here as needed
+        else:
+            return f"Use {interface_name} format for responses."
+    except (ImportError, AttributeError) as e:
+        log_warning(f"Could not load interface instructions for {interface_name}: {e}")
+        return f"Respond in {interface_name} compatible format."
 

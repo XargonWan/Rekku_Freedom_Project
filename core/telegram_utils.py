@@ -40,12 +40,9 @@ async def _send_with_retry(bot, chat_id: int, text: str, retries: int, delay: in
 
 
 async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retries: int = 3, delay: int = 2, **kwargs):
-    """Send ``text`` in chunks using ``_send_with_retry``."""  # [FIX]
-    if text is None:
-        text = ""
-    for i in range(0, len(text), chunk_size):
-        chunk = text[i : i + chunk_size]
-        await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
+    """Send ``text`` in chunks using the universal transport layer."""  # [FIX]
+    from core.transport_layer import telegram_safe_send
+    return await telegram_safe_send(bot, chat_id, text, chunk_size, retries, delay, **kwargs)
 
 
 async def safe_edit(bot, chat_id: int, message_id: int, text: str, retries: int = 3, delay: int = 2, **kwargs):
