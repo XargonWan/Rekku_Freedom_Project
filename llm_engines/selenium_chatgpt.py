@@ -1068,13 +1068,49 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             return json.dumps(fallback, ensure_ascii=False)
         
         try:
-            # Use the existing function to wait for response stabilization
-            response_text = wait_until_response_stabilizes(self.driver)
-            log_debug(f"[selenium] extract_response_text got {len(response_text)} chars")
+            # Check if we're actually on ChatGPT and if there are responses to extract
+            current_url = self.driver.current_url
+            if not current_url or "chat.openai.com" not in current_url:
+                log_debug("[selenium] Not on ChatGPT page, returning fallback")
+                fallback = {
+                    "type": "message",
+                    "interface": "telegram",
+                    "payload": {"text": "✨ Rekku qui! Il sistema non è collegato a ChatGPT al momento~ 💫"}
+                }
+                return json.dumps(fallback, ensure_ascii=False)
             
-            # If no response was extracted, return a fallback
-            if not response_text or not response_text.strip():
-                log_debug("[selenium] No response text found, returning fallback")
+            # Try to find existing markdown elements first
+            try:
+                elements = self.driver.find_elements(By.CSS_SELECTOR, "div.markdown.prose")
+                if not elements:
+                    log_debug("[selenium] No markdown elements found on page")
+                    fallback = {
+                        "type": "message",
+                        "interface": "telegram",
+                        "payload": {"text": "✨ Rekku qui! Non ho ricevuto una risposta dal sistema, ma ci sono comunque~ 💫"}
+                    }
+                    return json.dumps(fallback, ensure_ascii=False)
+                
+                # Get the last element's text (most recent response)
+                latest_element = elements[-1]
+                response_text = latest_element.text or ""
+                
+                if response_text and response_text.strip():
+                    log_debug(f"[selenium] Found existing response with {len(response_text)} chars")
+                    return response_text.strip()
+                    
+            except Exception as e:
+                log_debug(f"[selenium] Error checking existing elements: {e}")
+            
+            # If no existing response, try waiting for a new one but with a short timeout
+            log_debug("[selenium] Waiting for new response with short timeout...")
+            response_text = wait_until_response_stabilizes(self.driver, max_total_wait=10, no_change_grace=2.0)
+            
+            if response_text and response_text.strip():
+                log_debug(f"[selenium] extract_response_text got {len(response_text)} chars")
+                return response_text.strip()
+            else:
+                log_debug("[selenium] No response text found after waiting, returning fallback")
                 fallback = {
                     "type": "message",
                     "interface": "telegram",
@@ -1082,7 +1118,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 }
                 return json.dumps(fallback, ensure_ascii=False)
                 
-            return response_text
         except Exception as e:
             log_error(f"[selenium] extract_response_text failed: {e}")
             fallback = {
@@ -1099,7 +1134,25 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         try:
             json_str = json.dumps(prompt, ensure_ascii=False)
             log_debug("[selenium][STEP] sending prompt")
-            await asyncio.to_thread(self.selenium_send_and_wait, json_str)
+            
+            # Call the selenium_send_and_wait function
+            result = await asyncio.to_thread(self.selenium_send_and_wait, json_str)
+            log_debug(f"[selenium][STEP] selenium_send_and_wait returned: {result}")
+            
+            # If selenium_send_and_wait is a placeholder (returns None), 
+            # return a fallback response immediately
+            if result is None:
+                log_debug("[selenium][STEP] selenium_send_and_wait is placeholder, returning fallback")
+                fallback = {
+                    "type": "message",
+                    "interface": "telegram",
+                    "payload": {
+                        "text": "✨ Ciao! Sono Rekku~ Il sistema Selenium è in modalità placeholder al momento, ma eccomi qui! 💫 Fammi sapere se hai bisogno di qualcosa~ ⚡",
+                        "target": prompt.get("input", {}).get("payload", {}).get("source", {}).get("chat_id"),
+                        "thread_id": prompt.get("input", {}).get("payload", {}).get("source", {}).get("thread_id")
+                    }
+                }
+                return json.dumps(fallback, ensure_ascii=False)
 
             log_debug("[selenium][STEP] waiting for response")
             response_text = await asyncio.to_thread(self.extract_response_text)
@@ -1120,7 +1173,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             fallback = {
                 "type": "message",
                 "interface": "telegram",
-                "payload": {"text": "⚠️ Selenium error"},
+                "payload": {
+                    "text": "⚠️ Ops, qualche problema con Selenium~ Ma Rekku è sempre qui! ✨",
+                    "target": prompt.get("input", {}).get("payload", {}).get("source", {}).get("chat_id"),
+                    "thread_id": prompt.get("input", {}).get("payload", {}).get("source", {}).get("thread_id")
+                }
             }
             return json.dumps(fallback, ensure_ascii=False)
 
