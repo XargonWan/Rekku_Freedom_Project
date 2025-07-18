@@ -172,19 +172,56 @@ async def parse_action(action: dict, bot, message):
     if action_type == "message":
         target = payload.get("target")
         text = payload.get("text")
+        thread_id = payload.get("thread_id")
 
-        if not target or not text:
-            log_warning("[action_parser] Invalid message action: missing target or text")
+        if not text:
+            log_warning("[action_parser] Invalid message action: missing text")
+            return
+
+        # If target is missing or invalid, use the original message's chat_id as fallback
+        if not target:
+            target = getattr(message, "chat_id", None)
+            log_debug(f"[action_parser] No target specified, using original chat_id: {target}")
+        
+        # If thread_id is missing but original message has one, use it as fallback
+        if not thread_id and hasattr(message, "chat_id"):
+            original_thread_id = getattr(message, "message_thread_id", None)
+            if original_thread_id:
+                thread_id = original_thread_id
+                log_debug(f"[action_parser] No thread_id specified, using original thread_id: {thread_id}")
+        
+        # Additional validation for target
+        if not target:
+            log_warning("[action_parser] No valid target found, cannot send message")
             return
 
         try:
-            log_debug(f"[action_parser] Sending message to {target} with text: {text}")
-            await bot.send_message(chat_id=target, text=text)
-            log_debug(f"[action_parser] Message successfully sent to {target}")
+            log_debug(f"[action_parser] Sending message to {target} (thread_id: {thread_id}) with text: {text}")
+            
+            # Prepare kwargs for send_message
+            send_kwargs = {"chat_id": target, "text": text}
+            if thread_id:
+                send_kwargs["message_thread_id"] = thread_id
+            
+            await bot.send_message(**send_kwargs)
+            log_debug(f"[action_parser] Message successfully sent to {target} (thread: {thread_id})")
         except Exception as e:
-            log_error(f"[action_parser] Failed to send message to {target}: {e}")
+            log_error(f"[action_parser] Failed to send message to {target} (thread: {thread_id}): {e}")
+            # Try fallback to original chat if target was different
+            if hasattr(message, "chat_id") and target != message.chat_id:
+                try:
+                    fallback_thread_id = getattr(message, "message_thread_id", None)
+                    fallback_kwargs = {"chat_id": message.chat_id, "text": text}
+                    if fallback_thread_id:
+                        fallback_kwargs["message_thread_id"] = fallback_thread_id
+                    
+                    log_debug(f"[action_parser] Retrying with original chat_id: {message.chat_id} (thread: {fallback_thread_id})")
+                    await bot.send_message(**fallback_kwargs)
+                    log_debug(f"[action_parser] Message successfully sent to fallback chat: {message.chat_id} (thread: {fallback_thread_id})")
+                except Exception as fallback_error:
+                    log_error(f"[action_parser] Fallback also failed: {fallback_error}")
     else:
         log_warning(f"[action_parser] Unsupported action type: {action_type}")
 
 
-__all__ = ["run_action", "run_actions"]
+__all__ = ["run_action", "run_actions", "parse_action"]

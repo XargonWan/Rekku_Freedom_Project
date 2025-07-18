@@ -107,27 +107,6 @@ async def handle_incoming_message(bot, message, context_memory):
     log_debug(f"[plugin_instance] Received message: {message.text}")
     log_debug(f"[plugin_instance] Context memory: {context_memory}")
 
-    # Simulate generating a response from an LLM
-    response = """{
-        \"type\": \"message\",
-        \"interface\": \"telegram\",
-        \"payload\": {
-            \"text\": \"Hello, this is a test message!\",
-            \"target\": \"123456789\"
-        }
-    }"""
-
-    log_debug(f"[plugin_instance] LLM response: {response}")
-
-    try:
-        action = json.loads(response)
-        log_debug(f"[plugin_instance] Parsed action: {action}")
-        await parse_action(action, bot, message)
-    except json.JSONDecodeError as e:
-        log_error(f"[plugin_instance] Failed to parse LLM response: {e}")
-    except Exception as e:
-        log_error(f"[plugin_instance] Error handling message: {e}")
-
     if plugin is None:
         raise RuntimeError("No LLM plugin loaded.")
 
@@ -145,39 +124,6 @@ async def handle_incoming_message(bot, message, context_memory):
     return await plugin.handle_incoming_message(bot, message, prompt)
 
 
-async def transport_message(bot, message, context_memory):
-    """Transport a message by parsing and executing its actions."""
-    log_debug(f"[plugin_instance] Transporting message: {message.text}")
-
-    # Simulate generating a response from an LLM
-    response = """{
-        \"type\": \"message\",
-        \"interface\": \"telegram\",
-        \"payload\": {
-            \"text\": \"Hello, this is a test message!\",
-            \"target\": \"123456789\"
-        }
-    }"""
-
-    log_debug(f"[plugin_instance] LLM response: {response}")
-
-    try:
-        action = json.loads(response)
-        log_debug(f"[plugin_instance] Parsed action: {action}")
-
-        # Parse and execute the action before sending the message
-        await parse_action(action, bot, message)
-
-        # Send the message after parsing
-        target = action['payload']['target']
-        text = action['payload']['text']
-        await bot.send_message(chat_id=target, text=text)
-        log_debug(f"[plugin_instance] Message sent to {target}: {text}")
-    except json.JSONDecodeError as e:
-        log_error(f"[plugin_instance] Failed to parse LLM response: {e}")
-    except Exception as e:
-        log_error(f"[plugin_instance] Error during message transport: {e}")
-
 def get_supported_models():
     if plugin and hasattr(plugin, "get_supported_models"):
         return plugin.get_supported_models()
@@ -188,6 +134,9 @@ def get_target(message_id):
     if plugin and hasattr(plugin, "get_target"):
         return plugin.get_target(message_id)
     return None
+
+def get_plugin():
+    return plugin
 
 def get_plugin():
     return plugin
