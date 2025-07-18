@@ -79,3 +79,23 @@ class ChatLinkStore:
         result = bool(row and row["is_full"])
         log_debug(f"[chatlink] is_full({chatgpt_chat_id}) -> {result}")
         return result
+
+    def remove(self, telegram_chat_id: int, thread_id: Optional[int]) -> bool:
+        """
+        Rimuove il collegamento ChatGPT per un dato telegram_chat_id e thread_id.
+        Restituisce True se una riga è stata eliminata, altrimenti False.
+        """
+        with get_db() as db:
+            result = db.execute(
+                """
+                DELETE FROM chatgpt_links
+                WHERE telegram_chat_id = ? AND thread_id IS ?
+                """,
+                (telegram_chat_id, thread_id),
+            )
+        rows_deleted = result.rowcount > 0
+        if rows_deleted:
+            log_debug(f"[chatlink] Rimosso il collegamento per telegram_chat_id={telegram_chat_id}, thread_id={thread_id}")
+        else:
+            log_debug(f"[chatlink] Nessun collegamento trovato per telegram_chat_id={telegram_chat_id}, thread_id={thread_id}")
+        return rows_deleted
