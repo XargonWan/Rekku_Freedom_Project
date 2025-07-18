@@ -6,6 +6,7 @@ import json
 from core.prompt_engine import build_json_prompt
 import asyncio
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.action_parser import parse_action
 
 plugin = None
 rekku_identity_prompt = None
@@ -102,6 +103,31 @@ def load_plugin(name: str, notify_fn=None):
     set_active_llm(name)
 
 async def handle_incoming_message(bot, message, context_memory):
+    """Process incoming messages and handle actions."""
+    log_debug(f"[plugin_instance] Received message: {message.text}")
+    log_debug(f"[plugin_instance] Context memory: {context_memory}")
+
+    # Simulate generating a response from an LLM
+    response = """{
+        \"type\": \"message\",
+        \"interface\": \"telegram\",
+        \"payload\": {
+            \"text\": \"Hello, this is a test message!\",
+            \"target\": \"123456789\"
+        }
+    }"""
+
+    log_debug(f"[plugin_instance] LLM response: {response}")
+
+    try:
+        action = json.loads(response)
+        log_debug(f"[plugin_instance] Parsed action: {action}")
+        await parse_action(action, bot, message)
+    except json.JSONDecodeError as e:
+        log_error(f"[plugin_instance] Failed to parse LLM response: {e}")
+    except Exception as e:
+        log_error(f"[plugin_instance] Error handling message: {e}")
+
     if plugin is None:
         raise RuntimeError("No LLM plugin loaded.")
 
@@ -118,6 +144,39 @@ async def handle_incoming_message(bot, message, context_memory):
 
     return await plugin.handle_incoming_message(bot, message, prompt)
 
+
+async def transport_message(bot, message, context_memory):
+    """Transport a message by parsing and executing its actions."""
+    log_debug(f"[plugin_instance] Transporting message: {message.text}")
+
+    # Simulate generating a response from an LLM
+    response = """{
+        \"type\": \"message\",
+        \"interface\": \"telegram\",
+        \"payload\": {
+            \"text\": \"Hello, this is a test message!\",
+            \"target\": \"123456789\"
+        }
+    }"""
+
+    log_debug(f"[plugin_instance] LLM response: {response}")
+
+    try:
+        action = json.loads(response)
+        log_debug(f"[plugin_instance] Parsed action: {action}")
+
+        # Parse and execute the action before sending the message
+        await parse_action(action, bot, message)
+
+        # Send the message after parsing
+        target = action['payload']['target']
+        text = action['payload']['text']
+        await bot.send_message(chat_id=target, text=text)
+        log_debug(f"[plugin_instance] Message sent to {target}: {text}")
+    except json.JSONDecodeError as e:
+        log_error(f"[plugin_instance] Failed to parse LLM response: {e}")
+    except Exception as e:
+        log_error(f"[plugin_instance] Error during message transport: {e}")
 
 def get_supported_models():
     if plugin and hasattr(plugin, "get_supported_models"):

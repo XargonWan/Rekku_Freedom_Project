@@ -155,4 +155,36 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             log_error(f"[action_parser] Error executing action {idx}: {e}")
 
 
+async def parse_action(action: dict, bot, message):
+    """Parse and execute a single action."""
+    log_debug(f"[action_parser] Received action: {action}")
+
+    action_type = action.get("type")
+    interface = action.get("interface")
+    payload = action.get("payload")
+
+    if not action_type or not interface or not payload:
+        log_warning("[action_parser] Invalid action structure: missing type, interface, or payload")
+        return
+
+    log_debug(f"[action_parser] Action type: {action_type}, Interface: {interface}, Payload: {payload}")
+
+    if action_type == "message":
+        target = payload.get("target")
+        text = payload.get("text")
+
+        if not target or not text:
+            log_warning("[action_parser] Invalid message action: missing target or text")
+            return
+
+        try:
+            log_debug(f"[action_parser] Sending message to {target} with text: {text}")
+            await bot.send_message(chat_id=target, text=text)
+            log_debug(f"[action_parser] Message successfully sent to {target}")
+        except Exception as e:
+            log_error(f"[action_parser] Failed to send message to {target}: {e}")
+    else:
+        log_warning(f"[action_parser] Unsupported action type: {action_type}")
+
+
 __all__ = ["run_action", "run_actions"]
