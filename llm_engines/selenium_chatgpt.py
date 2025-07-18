@@ -1041,48 +1041,36 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 return
 
     async def generate_response(self, prompt: dict) -> str:
-        """Send ``prompt`` to ChatGPT via Selenium and return the plain reply."""
+        """Send ``prompt`` to ChatGPT via Selenium and return its reply."""
         log_debug("[selenium][STEP] entering generate_response")
 
         try:
-            driver = self._get_driver()
-            if not self._ensure_logged_in():
-                return ""
-
-            source = prompt.get("input", {}).get("payload", {}).get("source", {})
-            tg_chat_id = source.get("chat_id")
-            thread_id = source.get("thread_id")
-            prompt_text = json.dumps(prompt, ensure_ascii=False)
-
-            chatgpt_id = chat_link_store.get_link(tg_chat_id, thread_id)
-
+            json_str = json.dumps(prompt, ensure_ascii=False)
             log_debug("[selenium][STEP] sending prompt")
-            if chatgpt_id:
-                previous = get_previous_response(tg_chat_id)
-                response_text = process_prompt_in_chat(
-                    driver, chatgpt_id, prompt_text, previous
-                )
-            else:
-                _open_new_chat(driver)
-                response_text = process_prompt_in_chat(driver, None, prompt_text, "")
-                new_id = _extract_chat_id(driver.current_url)
-                if new_id:
-                    chat_link_store.save_link(tg_chat_id, thread_id, new_id)
+            await asyncio.to_thread(self.selenium_send_and_wait, json_str)
 
             log_debug("[selenium][STEP] waiting for response")
-            if response_text is None:
+            response_text = await asyncio.to_thread(self.extract_response_text)
+
+            if not isinstance(response_text, str):
                 response_text = ""
 
             log_debug("[selenium][STEP] extracting result")
-            if tg_chat_id and response_text:
-                update_previous_response(tg_chat_id, response_text)
+            cleaned = response_text.strip()
+            if cleaned.startswith("jsonCopyEdit"):
+                cleaned = cleaned[len("jsonCopyEdit") :].lstrip()
 
             log_debug("[selenium][STEP] returning response")
-            return response_text.strip()
+            return cleaned
 
         except Exception as e:  # pragma: no cover - best effort
             log_error(f"[selenium] generate_response failed: {e}", e)
-            return ""
+            fallback = {
+                "type": "message",
+                "interface": "telegram",
+                "payload": {"text": "⚠️ Selenium error"},
+            }
+            return json.dumps(fallback, ensure_ascii=False)
 
 
     def get_supported_models(self):
