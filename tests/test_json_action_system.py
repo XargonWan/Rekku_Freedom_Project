@@ -6,7 +6,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from core.validate_action import validate_action
-from core.action_parser import parse_actions
+from core.action_parser import parse_action
 from core.interface_loader import register_interface, REGISTERED_INTERFACES
 
 class FakeBot:
@@ -56,11 +56,9 @@ def test_validate_action_invalid():
     assert errors and any("unknown interface" in e or "non-empty" in e for e in errors)
 
 
-def test_parse_actions_sends_message():
+def test_parse_action_sends_message():
     bot = FakeBot()
-    REGISTERED_INTERFACES.clear()
-    register_interface("telegram", FakeHandler(bot))
     msg = make_message()
-    data = {"actions": [{"message": {"content": "hello", "target": "telegram/99"}}]}
-    asyncio.run(parse_actions(data, bot, msg))
+    data = {"type": "message", "interface": "telegram", "payload": {"text": "hello", "target": "99"}}
+    asyncio.run(parse_action(data, bot, msg))
     assert bot.calls == [{"chat_id": "99", "text": "hello", "reply_to_message_id": 42}]
