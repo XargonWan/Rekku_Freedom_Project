@@ -19,6 +19,8 @@ REKKU_ALIASES = [
     "tanuki",
     "quella blu",
     "rekuchina",
+    "digi",
+    "rekkuoricina",
     # Japanese aliases
     "れっく",
     "れっくう",
