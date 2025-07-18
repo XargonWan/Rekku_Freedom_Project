@@ -1040,6 +1040,50 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 _notify_gui(f"❌ Selenium error: {e}. Open UI")
                 return
 
+    async def generate_response(self, prompt: dict) -> str:
+        """Send ``prompt`` to ChatGPT via Selenium and return the plain reply."""
+        log_debug("[selenium][STEP] entering generate_response")
+
+        try:
+            driver = self._get_driver()
+            if not self._ensure_logged_in():
+                return ""
+
+            source = prompt.get("input", {}).get("payload", {}).get("source", {})
+            tg_chat_id = source.get("chat_id")
+            thread_id = source.get("thread_id")
+            prompt_text = json.dumps(prompt, ensure_ascii=False)
+
+            chatgpt_id = chat_link_store.get_link(tg_chat_id, thread_id)
+
+            log_debug("[selenium][STEP] sending prompt")
+            if chatgpt_id:
+                previous = get_previous_response(tg_chat_id)
+                response_text = process_prompt_in_chat(
+                    driver, chatgpt_id, prompt_text, previous
+                )
+            else:
+                _open_new_chat(driver)
+                response_text = process_prompt_in_chat(driver, None, prompt_text, "")
+                new_id = _extract_chat_id(driver.current_url)
+                if new_id:
+                    chat_link_store.save_link(tg_chat_id, thread_id, new_id)
+
+            log_debug("[selenium][STEP] waiting for response")
+            if response_text is None:
+                response_text = ""
+
+            log_debug("[selenium][STEP] extracting result")
+            if tg_chat_id and response_text:
+                update_previous_response(tg_chat_id, response_text)
+
+            log_debug("[selenium][STEP] returning response")
+            return response_text.strip()
+
+        except Exception as e:  # pragma: no cover - best effort
+            log_error(f"[selenium] generate_response failed: {e}", e)
+            return ""
+
 
     def get_supported_models(self):
         return []  # nessun modello per ora
