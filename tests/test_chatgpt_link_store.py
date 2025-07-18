@@ -27,4 +27,9 @@ def test_chatlink_store(tmp_path):
     assert store.is_full("chat123")
     assert store.get_link(1, None) is None
 
+    store.save_link(2, None, "chat456")
+    assert store.get_link(2, None) == "chat456"
+    store.remove_chat_link(2, None)
+    assert store.get_link(2, None) is None
+
     os.environ.pop("MEMORY_DB")

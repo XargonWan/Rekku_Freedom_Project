@@ -145,6 +145,7 @@ def paste_and_send(textarea, prompt_text: str) -> None:
         print("[DEBUG/selenium] 📨 Prompt inviato con successo")
     except Exception as e:  # pragma: no cover - best effort
         log_warning(f"[selenium] Fallback send failed: {e}")
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -362,6 +363,39 @@ def _open_new_chat(driver) -> None:
         driver.get("https://chat.openai.com")
 
 
+def _create_new_chat(driver) -> Optional[str]:
+    """Open a fresh ChatGPT conversation and return its ID if possible."""
+    _open_new_chat(driver)
+    time.sleep(1)
+    new_id = _extract_chat_id(driver.current_url)
+    log_debug(f"[selenium] Created new chat with id: {new_id}")
+    return new_id
+
+
+def _rename_current_chat(driver, chat_path: str) -> None:
+    """Rename the active ChatGPT chat to ``chat_path``."""
+    try:
+        options_btn = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='history-item-0-options']"))
+        )
+        options_btn.click()
+        script = (
+            "const buttons = Array.from(document.querySelectorAll('[data-testid=\"share-chat-menu-item\"]'));"
+            " const rename = buttons.find(b => b.innerText.trim() === 'Rename');"
+            " if (rename) rename.click();"
+        )
+        driver.execute_script(script)
+        rename_input = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "[role='textbox']"))
+        )
+        rename_input.clear()
+        rename_input.send_keys(strip_non_bmp(chat_path))
+        rename_input.send_keys(Keys.ENTER)
+        log_debug("[selenium] Chat renamed")
+    except Exception as e:  # pragma: no cover - best effort
+        log_warning(f"[selenium] Rename current chat failed: {e}")
+
+
 def go_to_chat_by_path(driver, chat_path: str) -> bool:
     """Try to open a chat from the sidebar matching ``chat_path``."""
     try:
@@ -401,6 +435,15 @@ def _retry_click(driver, locator):
     raise Exception(
         "❌ Impossibile cliccare sulla textarea dopo vari tentativi (stale element)"
     ) from last_exc
+
+
+def _invalidate_chat_link(chat_id: int, thread_id: Optional[int]) -> None:
+    """Remove the stored link for ``chat_id`` and ``thread_id``."""
+    try:
+        chat_link_store.remove_chat_link(chat_id, thread_id)
+        log_debug(f"[selenium] Invalidated link {chat_id}/{thread_id}")
+    except Exception as e:  # pragma: no cover - best effort
+        log_warning(f"[selenium] Failed to invalidate chat link: {e}")
 
 
 def wait_for_response_change(
@@ -462,7 +505,13 @@ def wait_for_response_change(
 
 
 def process_prompt_in_chat(
-    driver, chat_id: str | None, prompt_text: str, previous_text: str
+    driver,
+    chat_id: str | None,
+    prompt_text: str,
+    previous_text: str,
+    telegram_chat_id: int,
+    thread_id: Optional[int],
+    chat_path: str | None,
 ) -> Optional[str]:
     """Send a prompt to a ChatGPT chat and return the newly generated text."""
     if chat_id:
@@ -485,26 +534,38 @@ def process_prompt_in_chat(
         log_error("[selenium][ERROR] prompt textarea not found")
         return None
 
+    try:
+        paste_and_send(textarea, prompt_text)
+    except Exception as e:
+        log_error(f"[selenium][ERROR] initial send failed: {e}", e)
+        _safe_notify("⚠️ Problemi con la chat attuale, ne creo una nuova...")
+        _invalidate_chat_link(telegram_chat_id, thread_id)
+        new_id = _create_new_chat(driver)
+        if new_id:
+            chat_link_store.save_link(telegram_chat_id, thread_id, new_id)
+        if chat_path:
+            _rename_current_chat(driver, chat_path)
+        textarea = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.ID, "prompt-textarea"))
+        )
+        paste_and_send(textarea, prompt_text)
 
-    for attempt in range(1, 4):  # [FIX][retry] retry up to 3 times
-        try:
-            paste_and_send(textarea, prompt_text)
+    try:
+        submit_btn = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.ID, "composer-submit-button"))
+        )
+        submit_btn.click()
+        log_debug("📨 Prompt sent")
+    except ElementNotInteractableException as e:
+        log_warning(f"[selenium][ERROR] textarea not interactable: {e}")
+        return None
+    except Exception as e:
+        log_error(f"[selenium][ERROR] failed to send prompt: {e}", e)
+        return None
 
-            submit_btn = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.ID, "composer-submit-button"))
-            )
-            submit_btn.click()
-            log_debug("📨 Prompt sent")
-        except ElementNotInteractableException as e:
-            log_warning(f"[selenium][ERROR] textarea not interactable: {e}")
-            return None
-        except Exception as e:
-            log_error(f"[selenium][ERROR] failed to send prompt: {e}", e)
-            return None
-
+    for attempt in range(1, 4):
         log_debug("🔍 Waiting for response block...")
         try:
-            # [FIX][wait] give ChatGPT up to 90s to show the markdown block
             WebDriverWait(driver, 90).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "div.markdown"))
             )
@@ -1010,7 +1071,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             try:
                 if chat_id:
                     previous = get_previous_response(message.chat_id)
-                    response_text = process_prompt_in_chat(driver, chat_id, prompt_text, previous)
+                    path = recent_chats.get_chat_path(message.chat_id)
+                    response_text = process_prompt_in_chat(
+                        driver,
+                        chat_id,
+                        prompt_text,
+                        previous,
+                        message.chat_id,
+                        thread_id,
+                        path,
+                    )
                     if response_text:
                         update_previous_response(message.chat_id, response_text)
                 else:

@@ -70,6 +70,15 @@ class ChatLinkStore:
             )
         log_debug(f"[chatlink] Marked chat {chatgpt_chat_id} as full")
 
+    def remove_chat_link(self, telegram_chat_id: int, thread_id: Optional[int]) -> None:
+        """Delete the mapping for ``telegram_chat_id`` and ``thread_id``."""
+        with get_db() as db:
+            db.execute(
+                "DELETE FROM chatgpt_links WHERE telegram_chat_id=? AND thread_id IS ?",
+                (telegram_chat_id, thread_id),
+            )
+        log_debug(f"[chatlink] Removed mapping {telegram_chat_id}/{thread_id}")
+
     def is_full(self, chatgpt_chat_id: str) -> bool:
         with get_db() as db:
             row = db.execute(
