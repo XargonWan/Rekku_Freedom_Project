@@ -430,35 +430,37 @@ def process_prompt_in_chat(
     """Send a prompt to a ChatGPT chat and return the newly generated text."""
     if chat_id:
         chat_url = f"https://chat.openai.com/chat/{chat_id}"
-        log_debug(f"[selenium][STEP] Opening chat {chat_id} at {chat_url}")
         driver.get(chat_url)
         current_url = driver.current_url
         log_debug(f"[selenium][DEBUG] Current URL after navigation: {current_url}")
 
         # Check if the chat is archived
         try:
-            archived_message = driver.find_element(By.CLASS_NAME, "text-token-text-secondary").text
-            if "This conversation is archived" in archived_message:
-                log_warning(f"[selenium][WARN] Chat {chat_id} is archived and cannot be used.")
+            archived_message = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'This conversation is archived')]"))
+            )
+            if archived_message:
+                log_warning("[selenium][WARN] Chat is archived. Creating a new chat.")
                 chat_id = None  # Mark chat as invalid
-        except Exception:
-            pass  # No archived message found, continue normally
+        except TimeoutException:
+            log_debug("[selenium][DEBUG] No archived message detected.")
 
         if chat_id and chat_id not in current_url:
-            log_warning(f"[selenium][WARN] URL mismatch: expected {chat_id}, got {current_url}")
-            chat_id = None  # Mark chat as invalid
+            log_warning("[selenium][WARN] Chat ID mismatch. Creating a new chat.")
+            chat_id = None
 
     if not chat_id:
         log_debug("[selenium][STEP] Creating a new chat")
         try:
             _open_new_chat(driver)
             chat_id = _extract_chat_id(driver.current_url)
-            if not chat_id:
+            if chat_id:
+                log_debug(f"[selenium][DEBUG] New chat created with ID: {chat_id}")
+            else:
                 log_error("[selenium][ERROR] Failed to create a new chat")
                 return None
-            log_debug(f"[selenium][DEBUG] New chat created with ID: {chat_id}")
         except Exception as e:
-            log_error(f"[selenium][ERROR] Failed to open a new chat: {e}", e)
+            log_error(f"[selenium][ERROR] Failed to open a new chat: {e}")
             return None
 
     try:
@@ -471,42 +473,24 @@ def process_prompt_in_chat(
 
     for attempt in range(1, 4):  # Retry up to 3 times
         try:
-            textarea.click()
-            textarea.send_keys(Keys.CONTROL + "a")
-            textarea.send_keys(Keys.DELETE)
-
             paste_and_send(textarea, prompt_text)
-
-            submit_btn = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.ID, "composer-submit-button"))
-            )
-            submit_btn.click()
-            log_debug("📨 Prompt sent")
+            textarea.send_keys(Keys.ENTER)
         except ElementNotInteractableException as e:
-            log_warning(f"[selenium][ERROR] textarea not interactable: {e}")
-            return None
+            log_warning(f"[selenium][retry] Element not interactable: {e}")
+            time.sleep(2)
+            continue
         except Exception as e:
-            log_error(f"[selenium][ERROR] failed to send prompt: {e}", e)
+            log_error(f"[selenium][ERROR] Failed to send prompt: {e}")
             return None
 
         log_debug("🔍 Waiting for response block...")
         try:
-            WebDriverWait(driver, 90).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "div.markdown"))
-            )
+            response_text = wait_until_response_stabilizes(driver)
         except TimeoutException:
-            log_warning("[selenium][WARN] No response container appeared")
-            response_text = ""
+            log_warning("[selenium][WARN] Timeout while waiting for response")
         else:
-            try:
-                response_text = wait_until_response_stabilizes(driver)
-            except Exception as e:
-                log_error(f"[selenium][ERROR] waiting for response failed: {e}", e)
-                return None
-
-        if response_text and response_text != previous_text:
-            log_debug("📝 New response text extracted")
-            return response_text.strip()
+            if response_text and response_text != previous_text:
+                return response_text.strip()
 
         log_warning(f"[selenium][retry] Empty response attempt {attempt}")
         time.sleep(2)
