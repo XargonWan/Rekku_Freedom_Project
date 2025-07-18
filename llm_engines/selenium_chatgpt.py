@@ -585,17 +585,18 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         """Initialize the plugin and inject the Selenium send function."""
         super().__init__()
 
+        # Since this is a standalone plugin, we don't need an external send_fn
+        # The plugin handles all Selenium logic internally
         if send_fn is None:
-            try:
-                from .selenium_core import selenium_send_and_wait
-                send_fn = selenium_send_and_wait
-                log_debug("[selenium] default send_fn loaded from selenium_core")
-            except Exception as e:
-                log_error(f"[selenium] failed to load default send_fn: {e}")
-                raise ValueError("send_fn must be provided for SeleniumChatGPTPlugin")
+            # Create a placeholder function that indicates the plugin is in standalone mode
+            def standalone_placeholder(prompt_json: str) -> None:
+                log_debug(f"[selenium_standalone] placeholder called with {len(prompt_json)} chars")
+                return None
+            send_fn = standalone_placeholder
+            log_debug("[selenium] using standalone mode - no external send_fn needed")
 
         self.selenium_send_and_wait = send_fn
-        log_debug("[selenium] ✅ send_fn injected")
+        log_debug("[selenium] ✅ send_fn configured")
 
         self.driver = None
         self._queue: asyncio.Queue = asyncio.Queue()
