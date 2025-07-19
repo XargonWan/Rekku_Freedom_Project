@@ -338,29 +338,22 @@ def _check_conversation_full(driver) -> bool:
 
 
 def _open_new_chat(driver) -> None:
-    try:
-        # Prima prova a cliccare il pulsante new chat se è visibile
+    """Navigate to ChatGPT home to create a new chat with retries."""
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
         try:
-            btn = WebDriverWait(driver, 2).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='new-chat-button']"))
-            )
-            btn.click()
-            log_debug("[selenium] Clicked new-chat-button")
+            log_debug(f"[selenium] Attempt {attempt}/{max_retries} to navigate to ChatGPT home")
+            driver.get("https://chat.openai.com")
+            log_debug("[selenium] Successfully navigated to ChatGPT home")
             return
-        except TimeoutException:
-            log_debug("[selenium] New chat button not visible, navigating to home")
-            
-        # Se non è visibile, vai alla home page e poi clicca
-        driver.get("https://chat.openai.com")
-        btn = WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='new-chat-button']"))
-        )
-        btn.click()
-        log_debug("[selenium] Navigated to home and clicked new-chat-button")
-    except Exception as e:
-        log_warning(f"[selenium] New chat button not clicked: {e}")
-        # Fallback: naviga direttamente alla home che dovrebbe creare una nuova chat
-        driver.get("https://chat.openai.com")
+        except Exception as e:
+            log_warning(f"[selenium] Attempt {attempt} failed: {e}")
+            if attempt < max_retries:
+                time.sleep(2 * attempt)  # Exponential backoff
+            else:
+                log_error("[selenium] All attempts to navigate to ChatGPT home failed")
+                raise
+
 
 def is_chat_archived(driver, chat_id: str) -> bool:
     """Check if a ChatGPT chat is archived."""
