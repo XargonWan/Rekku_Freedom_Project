@@ -293,23 +293,28 @@ def _notify_gui(message: str = ""):
 def _extract_chat_id(url: str) -> Optional[str]:
     """Extracts the chat ID from the ChatGPT URL."""
     log_debug(f"[selenium][DEBUG] Extracting chat ID from URL: {url}")
-    
+
+    if not url or not isinstance(url, str):
+        log_error("[selenium][ERROR] Invalid URL provided for chat ID extraction.")
+        return None
+
     # More flexible patterns for different ChatGPT URL formats
     patterns = [
         r"/chat/([^/?#]+)",           # Standard format: /chat/uuid
         r"/c/([^/?#]+)",              # Alternative format: /c/uuid  
-        r"chat\.openai\.com/chat/([^/?#]+)",  # Full URL
-        r"chat\.openai\.com/c/([^/?#]+)"      # Alternative full URL
+        r"chat\\.openai\\.com/chat/([^/?#]+)",  # Full URL
+        r"chat\\.openai\\.com/c/([^/?#]+)"      # Alternative full URL
     ]
-    
+
     for pattern in patterns:
+        log_debug(f"[selenium][DEBUG] Trying pattern: {pattern}")
         match = re.search(pattern, url)
         if match:
             chat_id = match.group(1)
             log_debug(f"[selenium][DEBUG] Extracted chat ID: {chat_id}")
             return chat_id
-    
-    log_debug(f"[selenium][DEBUG] No chat ID found in URL: {url}")
+
+    log_error("[selenium][ERROR] No chat ID could be extracted from the URL.")
     return None
 
 
@@ -349,6 +354,10 @@ def create_new_chat(driver) -> Optional[str]:
         paste_and_send(textarea, "")
         textarea.send_keys(Keys.ENTER)
         log_debug("[selenium] Sent empty prompt to create a new chat")
+
+        # Wait for ChatGPT to generate a response
+        log_debug("[selenium] Waiting for ChatGPT to generate a response...")
+        wait_until_response_stabilizes(driver)
 
         # Extract the new chat ID
         chat_id = _extract_chat_id(driver.current_url)
@@ -1045,4 +1054,21 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             await bot.send_message(chat_id=chat_id, text=result)
 
 PLUGIN_CLASS = SeleniumChatGPTPlugin
+
+def go_to_chat_by_path(driver, path: str) -> bool:
+    """Navigate to a specific chat using its path."""
+    try:
+        chat_url = f"https://chat.openai.com{path}"
+        driver.get(chat_url)
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.ID, "prompt-textarea"))
+        )
+        log_debug(f"[selenium] Successfully navigated to chat path: {path}")
+        return True
+    except TimeoutException:
+        log_warning(f"[selenium] Timeout while navigating to chat path: {path}")
+        return False
+    except Exception as e:
+        log_error(f"[selenium] Error navigating to chat path: {e}")
+        return False
 
