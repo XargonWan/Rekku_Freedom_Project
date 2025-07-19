@@ -98,11 +98,19 @@ def paste_and_send(textarea, prompt_text: str) -> None:
     import textwrap
 
     clean = strip_non_bmp(prompt_text)
-    if len(clean) > 4000:
-        clean = clean[:4000]
+    log_debug(f"[selenium] Original prompt length: {len(prompt_text)}")
+    log_debug(f"[selenium] Cleaned prompt length: {len(clean)}")
+
+    if not clean:
+        log_warning("[selenium] Cleaned prompt is empty. Aborting send.")
+        return
 
     chunks = textwrap.wrap(clean, 200)
     log_debug(f"[selenium] Sending prompt in {len(chunks)} chunks")
+
+    if not chunks:
+        log_warning("[selenium] No chunks to send. Aborting.")
+        return
 
     for attempt in range(1, 4):
         if attempt > 1:
@@ -113,26 +121,23 @@ def paste_and_send(textarea, prompt_text: str) -> None:
             time.sleep(0.2)
 
             for idx, chunk in enumerate(chunks, start=1):
-                log_debug(
-                    f"[selenium] -> chunk {idx}/{len(chunks)} ({len(chunk)} chars)"
-                )
+                log_debug(f"[selenium] -> Sending chunk {idx}/{len(chunks)} ({len(chunk)} chars): {chunk}")
                 textarea.send_keys(chunk)
                 time.sleep(0.05)
 
             final_value = textarea.get_attribute("value") or ""
             log_debug(f"[selenium] Final textarea length {len(final_value)}")
             if final_value != clean:
-                log_warning(
-                    f"[selenium] textarea length mismatch: expected {len(clean)} got {len(final_value)}"
-                )
+                log_warning(f"[selenium] textarea length mismatch: expected {len(clean)} got {len(final_value)}")
             return
         except Exception as e:
             log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
 
     # Fallback if all attempts failed
-    log_warning("[selenium] Falling back to ActionChains")
+    log_warning("[selenium] Falling back to simpler send_keys")
     try:
-        ActionChains(textarea._parent).click(textarea).send_keys(clean).perform()
+        textarea.send_keys(clean)
+        log_debug("[selenium] Fallback send_keys used to send prompt")
     except Exception as e:  # pragma: no cover - best effort
         log_warning(f"[selenium] Fallback send failed: {e}")
 
@@ -212,12 +217,17 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
     """Send text and wait for ChatGPT to start replying."""
     driver = textarea._parent
     prev_blocks = len(driver.find_elements(By.CSS_SELECTOR, "div.markdown"))
+    log_debug(f"[selenium][STEP] Initial markdown block count: {prev_blocks}")
     for attempt in range(1, 4):
         try:
+            log_debug(f"[selenium][STEP] Attempt {attempt} to send prompt")
             paste_and_send(textarea, prompt_text)
             textarea.send_keys(Keys.ENTER)
+            log_debug(f"[selenium][STEP] Prompt sent, waiting for response")
             if wait_for_markdown_block_to_appear(driver, prev_blocks):
+                log_debug(f"[selenium][STEP] New markdown block detected")
                 wait_until_response_stabilizes(driver)
+                log_debug(f"[selenium][STEP] Response stabilized")
                 return
             log_warning(f"[selenium] No response after attempt {attempt}")
         except Exception as e:  # pragma: no cover - best effort
@@ -225,7 +235,9 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
     log_warning("[selenium] Fallback via ActionChains")
     try:
         ActionChains(driver).click(textarea).send_keys(prompt_text).send_keys(Keys.ENTER).perform()
+        log_debug(f"[selenium][STEP] Fallback ActionChains used to send prompt")
         if wait_for_markdown_block_to_appear(driver, prev_blocks):
+            log_debug(f"[selenium][STEP] New markdown block detected after fallback")
             wait_until_response_stabilizes(driver)
     except Exception as e:  # pragma: no cover - best effort
         log_warning(f"[selenium] Fallback send failed: {e}")
