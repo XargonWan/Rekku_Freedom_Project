@@ -325,142 +325,73 @@ def _check_conversation_full(driver) -> bool:
     return False
 
 
-def _open_new_chat(driver) -> None:
+def create_new_chat(driver) -> Optional[str]:
+    """Create a new ChatGPT chat and return its ID."""
     try:
-        # First, try to click the new chat button if it's visible
+        # Try clicking the new chat button
         try:
             btn = WebDriverWait(driver, 2).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='create-new-chat-button']"))
             )
             btn.click()
             log_debug("[selenium] Clicked create-new-chat-button")
-            return
         except TimeoutException:
             log_debug("[selenium] New chat button not visible, navigating to home")
+            driver.get("https://chatgpt.com/")
 
-        # If not visible, go to the home page and then click
-        driver.get("https://chat.openai.com")
-        btn = WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='create-new-chat-button']"))
+        # Check if the prompt textarea is available
+        textarea = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.ID, "prompt-textarea"))
         )
-        btn.click()
-        log_debug("[selenium] Navigated to home and clicked create-new-chat-button")
+        log_debug("[selenium] Prompt textarea found, attempting to create a new chat")
+
+        # Send an empty prompt to force chat creation
+        paste_and_send(textarea, "")
+        textarea.send_keys(Keys.ENTER)
+        log_debug("[selenium] Sent empty prompt to create a new chat")
+
+        # Extract the new chat ID
+        chat_id = _extract_chat_id(driver.current_url)
+        if chat_id:
+            log_debug(f"[selenium] New chat created with ID: {chat_id}")
+            return chat_id
+        else:
+            log_error("[selenium] Failed to extract chat ID after creation")
+            return None
     except Exception as e:
-        log_warning(f"[selenium] New chat button not clicked: {e}")
-        # Fallback: navigate directly to home which should create a new chat
-        driver.get("https://chat.openai.com")
-
-
-def go_to_chat_by_path(driver, chat_path: str) -> bool:
-    """Try to open a chat from the sidebar matching ``chat_path``."""
-    try:
-        xpath = f"//nav//a[span[contains(text(), '{chat_path}')]]"
-        elem = WebDriverWait(driver, 3).until(
-            EC.element_to_be_clickable((By.XPATH, xpath))
-        )
-        elem.click()
-        log_debug(f"[selenium] Reused chat via path: {chat_path}")
-        return True
-    except Exception:
-        log_debug(f"[selenium] Chat path not found: {chat_path}")
-        return False
-
-
-def wait_for_response_change(
-    driver, previous_text: str, timeout: int = 30
-) -> Optional[str]:
-    """Return new markdown text once it stays unchanged for 2 seconds."""
-
-    log_debug("🕓 Waiting for new markdown content...")
-
-    try:
-        WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.markdown"))
-        )
-    except TimeoutException:
-        log_warning("❌ Timeout while waiting for new response")
+        log_warning(f"[selenium] Failed to create a new chat: {e}")
         return None
 
-    end_time = time.time() + timeout
-    last_seen_text = previous_text
-    last_change = time.time()
+def is_chat_archived(driver, chat_id: str) -> bool:
+    """Check if a ChatGPT chat is archived."""
+    try:
+        chat_url = f"https://chat.openai.com/chat/{chat_id}"
+        driver.get(chat_url)
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'This conversation is archived')]"))
+        )
+        log_warning("[selenium] Chat is archived.")
+        return True
+    except TimeoutException:
+        log_debug("[selenium] Chat is not archived.")
+        return False
+    except Exception as e:
+        log_error(f"[selenium] Error checking if chat is archived: {e}")
+        return False
 
-    while time.time() < end_time:
-        try:
-            elements = driver.find_elements(By.CSS_SELECTOR, "div.markdown")
-            if not elements:
-                time.sleep(0.5)
-                continue
-
-            latest_text = elements[-1].get_attribute("textContent") or ""
-            latest_text = latest_text.strip()
-
-            changed = latest_text != last_seen_text
-            log_debug(
-                f"[selenium][DEBUG] len={len(latest_text)} changed={changed}"
-            )
-
-            if changed:
-                last_seen_text = latest_text
-                last_change = time.time()
-            else:
-                if (
-                    latest_text
-                    and latest_text != previous_text
-                    and time.time() - last_change >= 2
-                ):
-                    log_debug(
-                        f"🟢 Response stabilized with length {len(latest_text)}"
-                    )
-                    log_debug(f"[selenium][DEBUG] final text: {latest_text[:120]}...")
-                    return latest_text
-
-        except Exception as e:
-            log_warning(f"❌ Error during markdown check: {e}")
-
-        time.sleep(0.5)
-
-    log_warning("❌ Timeout while waiting for new response")
-    return None
-
-
+# Update process_prompt_in_chat to use the new functions
 def process_prompt_in_chat(
     driver, chat_id: str | None, prompt_text: str, previous_text: str
 ) -> Optional[str]:
     """Send a prompt to a ChatGPT chat and return the newly generated text."""
-    if chat_id:
-        chat_url = f"https://chat.openai.com/chat/{chat_id}"
-        driver.get(chat_url)
-        current_url = driver.current_url
-        log_debug(f"[selenium][DEBUG] Current URL after navigation: {current_url}")
-
-        # Check if the chat is archived
-        try:
-            archived_message = WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'This conversation is archived')]"))
-            )
-            if archived_message:
-                log_warning("[selenium][WARN] Chat is archived. Creating a new chat.")
-                chat_id = None  # Mark chat as invalid
-        except TimeoutException:
-            log_debug("[selenium][DEBUG] No archived message detected.")
-
-        if chat_id and chat_id not in current_url:
-            log_warning("[selenium][WARN] Chat ID mismatch. Creating a new chat.")
-            chat_id = None
+    if chat_id and is_chat_archived(driver, chat_id):
+        chat_id = None  # Mark chat as invalid
 
     if not chat_id:
-        log_debug("[selenium][STEP] Creating a new chat")
-        try:
-            _open_new_chat(driver)
-            chat_id = _extract_chat_id(driver.current_url)
-            if chat_id:
-                log_debug(f"[selenium][DEBUG] New chat created with ID: {chat_id}")
-            else:
-                log_error("[selenium][ERROR] Failed to create a new chat")
-                return None
-        except Exception as e:
-            log_error(f"[selenium][ERROR] Failed to open a new chat: {e}")
+        log_debug("[selenium] Creating a new chat")
+        chat_id = create_new_chat(driver)
+        if not chat_id:
+            log_error("[selenium] Failed to create a new chat")
             return None
 
     try:
@@ -957,9 +888,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     if chat_id:  # [FIX] save and notify about recovered chat
                         chat_link_store.save_link(message.chat_id, thread_id, chat_id)
                         _safe_notify(
-                            f"\u26A0\uFE0F Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
+                            f"⚠️ Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
                             f"A new ChatGPT chat has been created: {chat_id}"
                         )
+                else:
+                    chat_id = create_new_chat(driver)
+                    if not chat_id:
+                        log_error("[selenium] Failed to create a new chat")
+                        return None
 
             log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
             log_debug(f"[selenium][DEBUG] Telegram chat_id: {message.chat_id}, thread_id: {thread_id}")
@@ -983,7 +919,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     if response_text:
                         update_previous_response(message.chat_id, response_text)
                 else:
-                    _open_new_chat(driver)
+                    create_new_chat(driver)
                     response_text = rename_and_send_prompt(driver, message, prompt_text)
                     new_chat_id = _extract_chat_id(driver.current_url)
                     log_debug(f"[selenium][DEBUG] New chat created, extracted ID: {new_chat_id}")
@@ -994,7 +930,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         chat_url = f"https://chat.openai.com/chat/{new_chat_id}"
                         driver.get(chat_url)
                         _safe_notify(
-                            f"\u26A0\uFE0F Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
+                            f"⚠️ Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
                             f"A new ChatGPT chat has been created: {new_chat_id}"
                         )
                     else:
@@ -1006,7 +942,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         chat_link_store.mark_full(current_id)
                     global queue_paused
                     queue_paused = True
-                    _open_new_chat(driver)
+                    create_new_chat(driver)
                     response_text = rename_and_send_prompt(driver, message, prompt_text)
                     new_chat_id = _extract_chat_id(driver.current_url)
                     if new_chat_id:
