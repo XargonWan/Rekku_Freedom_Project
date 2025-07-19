@@ -1,10 +1,11 @@
+---
 name: Docker Image CI
 
-on:
+"on":
   push:
-    branches: [ "main", "develop" ]
+    branches: ["main", "develop", "feat/*", "fix/*"]
   pull_request:
-    branches: [ "main", "develop", "feat/*", "fix/*" ]
+    branches: ["main", "develop", "feat/*", "fix/*"]
 
 jobs:
   build-and-push:
@@ -16,40 +17,78 @@ jobs:
       id-token: write
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up image tag
-      id: vars
-      run: echo "tag=rekku_freedom_project:${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+      - name: Set up image tags
+        id: vars
+        run: |
+          # Base local tag with run number
+          local_tag="rekku_freedom_project:${GITHUB_RUN_NUMBER}"
+          echo "local_tag=${local_tag}" >> $GITHUB_OUTPUT
 
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag ${{ steps.vars.outputs.tag }}
+          # Determine GHCR tags based on event and branch
+          repo_owner_lc=$(echo "${{ github.repository_owner }}" | \
+            tr '[:upper:]' '[:lower:]')
+          base_image="ghcr.io/${repo_owner_lc}/rekku_freedom_project"
 
-    - name: Log in to GitHub Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.CR_PAT }}
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            # For pull requests: pr-[number]
+            ghcr_tags="${base_image}:pr-${{ github.event.number }}"
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            # For main branch: latest and stable
+            ghcr_tags="${base_image}:latest,${base_image}:stable"
+          elif [[ "${{ github.ref_name }}" == "develop" ]]; then
+            # For develop branch: develop
+            ghcr_tags="${base_image}:develop"
+          elif [[ "${{ github.ref_name }}" == feat/* ]]; then
+            # For feature branches: feat-[branch-name]
+            branch_name=$(echo "${{ github.ref_name }}" | sed 's|feat/||')
+            ghcr_tags="${base_image}:feat-${branch_name}"
+          elif [[ "${{ github.ref_name }}" == fix/* ]]; then
+            # For fix branches: fix-[branch-name]
+            branch_name=$(echo "${{ github.ref_name }}" | sed 's|fix/||')
+            ghcr_tags="${base_image}:fix-${branch_name}"
+          else
+            # Default fallback
+            ghcr_tags="${base_image}:${GITHUB_REF_NAME}"
+          fi
 
-    - name: Tag image for GHCR
-      run: |
-        REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        docker tag ${{ steps.vars.outputs.tag }} ghcr.io/$REPO_OWNER_LC/rekku_freedom_project:latest
+          echo "ghcr_tags=${ghcr_tags}" >> $GITHUB_OUTPUT
+          echo "Generated GHCR tags: ${ghcr_tags}"
 
-    - name: Push image to GHCR
-      run: |
-        REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        docker push ghcr.io/$REPO_OWNER_LC/rekku_freedom_project:latest
+      - name: Build the Docker image
+        run: |
+          docker build . --file Dockerfile \
+            --tag ${{ steps.vars.outputs.local_tag }}
 
-    - name: Make image public (one-time per package)
-      if: github.event_name == 'push'
-      run: |
-        echo "🔓 Rendendo il pacchetto pubblico..."
-        gh auth login --with-token <<< "${{ secrets.CR_PAT }}"
-        REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        gh api --method PATCH /users/${{ github.actor }}/packages/container/rekku_freedom_project \
-          -H "Accept: application/vnd.github+json" \
-          -f visibility=public || true
-      env:
-        GH_TOKEN: ${{ secrets.CR_PAT }}
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.CR_PAT }}
+
+      - name: Tag and push images to GHCR
+        run: |
+          # Tag and push each GHCR tag
+          IFS=',' read -ra TAGS <<< "${{ steps.vars.outputs.ghcr_tags }}"
+          for tag in "${TAGS[@]}"; do
+            echo "Tagging and pushing: $tag"
+            docker tag ${{ steps.vars.outputs.local_tag }} "$tag"
+            docker push "$tag"
+          done
+
+      - name: Make image public (one-time per package)
+        if: github.event_name == 'push'
+        run: |
+          echo "🔓 Rendendo il pacchetto pubblico..."
+          gh auth login --with-token <<< "${{ secrets.CR_PAT }}"
+          repo_owner_lc=$(echo "${{ github.repository_owner }}" | \
+            tr '[:upper:]' '[:lower:]')
+          package_url="/users/${{ github.actor }}/packages/container/"
+          package_url="${package_url}rekku_freedom_project"
+          gh api --method PATCH "${package_url}" \
+            -H "Accept: application/vnd.github+json" \
+            -f visibility=public || true
+        env:
+          GH_TOKEN: ${{ secrets.CR_PAT }}
