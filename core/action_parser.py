@@ -20,7 +20,9 @@ _ACTION_PLUGINS: List[Any] | None = None
 
 
 def _load_action_plugins() -> List[Any]:
-    """Load classes under plugins/ that implement get_supported_actions."""
+    """
+    Load plugins that implement `get_supported_actions`.
+    """
     global _ACTION_PLUGINS
     if _ACTION_PLUGINS is not None:
         return _ACTION_PLUGINS
@@ -36,24 +38,26 @@ def _load_action_plugins() -> List[Any]:
             try:
                 module = importlib.import_module(module_name)
             except Exception as e:
-                log_error(f"[action_parser] Failed to import {module_name}: {e}")
+                log_error(f"[action_parser] Unable to import {module_name}: {e}")
                 continue
             for _name, obj in inspect.getmembers(module, inspect.isclass):
                 if hasattr(obj, "get_supported_actions"):
                     try:
                         instance = obj()
+                        _ACTION_PLUGINS.append(instance)
                     except Exception as e:
-                        log_error(f"[action_parser] Failed to init {obj}: {e}")
-                        continue
-                    _ACTION_PLUGINS.append(instance)
+                        log_error(f"[action_parser] Error initializing {obj}: {e}")
     return _ACTION_PLUGINS
 
 
 def _plugins_for(action_type: str) -> List[Any]:
+    """
+    Returns plugins that support a specific action type.
+    """
     plugins = []
     for plugin in _load_action_plugins():
         try:
-            supported = plugin.get_supported_actions()
+            supported = [action["name"] for action in plugin.get_supported_actions()]
             if action_type in supported:
                 plugins.append(plugin)
         except Exception as e:
@@ -91,23 +95,24 @@ async def _handle_event_action(action: Dict[str, Any], _context: Dict[str, Any],
 
 
 async def _handle_plugin_action(action: Dict[str, Any], context: Dict[str, Any], bot, original_message):
+    """
+    Handles actions by calling the appropriate plugin.
+    """
     action_type = action.get("type")
     for plugin in _plugins_for(action_type):
-        if hasattr(plugin, "execute_action"):
+        if hasattr(plugin, "handle_incoming_message"):
             try:
-                result = plugin.execute_action(action, context, bot, original_message)
-                if inspect.iscoroutine(result):
-                    await result
+                await plugin.handle_incoming_message(bot, original_message, context)
+                return
             except Exception as e:
                 log_error(f"[action_parser] Error executing {action_type} with {plugin}: {e}")
-        else:
-            log_warning(f"[action_parser] Plugin {plugin} has no execute_action()")
-    if not _plugins_for(action_type):
-        log_warning(f"[action_parser] No plugin supports action type '{action_type}'")
+    log_warning(f"[action_parser] No plugin supports the action type '{action_type}'")
 
 
 async def run_action(action: Any, context: Dict[str, Any], bot, original_message):
-    """Validate and execute a single action or list of actions."""
+    """
+    Validates and executes a single action or a list of actions.
+    """
     if isinstance(action, list):
         for act in action:
             await run_action(act, context, bot, original_message)
@@ -118,41 +123,15 @@ async def run_action(action: Any, context: Dict[str, Any], bot, original_message
         log_warning(f"[action_parser] Invalid action: {errors}")
         return
 
-    action_type = action.get("type")
-
-    if action_type == "message":
-        await _handle_message_action(action, context, bot, original_message)
-    elif action_type == "event":
-        await _handle_event_action(action, context, bot, original_message)
-    else:
-        await _handle_plugin_action(action, context, bot, original_message)
+    await _handle_plugin_action(action, context, bot, original_message)
 
 
-async def run_actions(actions: Any, context: Dict[str, Any], bot, original_message):
-    """Execute multiple actions in sequence.
-
-    If ``actions`` is a single dict, it will be wrapped in a list.
-    Invalid actions are logged and skipped.
+async def run_actions(actions: List[Dict[str, Any]], context: Dict[str, Any], bot, original_message):
     """
-    if actions is None:
-        return
-
-    if isinstance(actions, dict):
-        actions = [actions]
-    elif not isinstance(actions, list):
-        log_error("[action_parser] run_actions expects a list or dict")
-        return
-
-    for idx, action in enumerate(actions):
-        try:
-            valid, errors = validate_action(action)
-            if not valid:
-                log_warning(f"[action_parser] Skipping invalid action {idx}: {errors}")
-                continue
-            log_debug(f"[action_parser] Running action {idx}: {action.get('type')}")
-            await run_action(action, context, bot, original_message)
-        except Exception as e:
-            log_error(f"[action_parser] Error executing action {idx}: {e}")
+    Executes a list of actions distributed to the appropriate plugins.
+    """
+    for action in actions:
+        await run_action(action, context, bot, original_message)
 
 
 async def parse_action(action: dict, bot, message):
