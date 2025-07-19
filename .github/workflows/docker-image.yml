@@ -20,7 +20,7 @@ jobs:
 
     - name: Set up image tag
       id: vars
-      run: echo "tag=rekku_the_bot:${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+      run: echo "tag=rekku_freedom_project:${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
     - name: Build the Docker image
       run: docker build . --file Dockerfile --tag ${{ steps.vars.outputs.tag }}
@@ -35,12 +35,12 @@ jobs:
     - name: Tag image for GHCR
       run: |
         REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        docker tag ${{ steps.vars.outputs.tag }} ghcr.io/$REPO_OWNER_LC/rekku_the_bot:latest
+        docker tag ${{ steps.vars.outputs.tag }} ghcr.io/$REPO_OWNER_LC/rekku_freedom_project:latest
 
     - name: Push image to GHCR
       run: |
         REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        docker push ghcr.io/$REPO_OWNER_LC/rekku_the_bot:latest
+        docker push ghcr.io/$REPO_OWNER_LC/rekku_freedom_project:latest
 
     - name: Make image public (one-time per package)
       if: github.event_name == 'push'
@@ -48,7 +48,7 @@ jobs:
         echo "🔓 Rendendo il pacchetto pubblico..."
         gh auth login --with-token <<< "${{ secrets.CR_PAT }}"
         REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        gh api --method PATCH /users/${{ github.actor }}/packages/container/rekku_the_bot \
+        gh api --method PATCH /users/${{ github.actor }}/packages/container/rekku_freedom_project \
           -H "Accept: application/vnd.github+json" \
           -f visibility=public || true
       env:
