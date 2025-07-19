@@ -212,12 +212,17 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
     """Send text and wait for ChatGPT to start replying."""
     driver = textarea._parent
     prev_blocks = len(driver.find_elements(By.CSS_SELECTOR, "div.markdown"))
+    log_debug(f"[selenium][STEP] Initial markdown block count: {prev_blocks}")
     for attempt in range(1, 4):
         try:
+            log_debug(f"[selenium][STEP] Attempt {attempt} to send prompt")
             paste_and_send(textarea, prompt_text)
             textarea.send_keys(Keys.ENTER)
+            log_debug(f"[selenium][STEP] Prompt sent, waiting for response")
             if wait_for_markdown_block_to_appear(driver, prev_blocks):
+                log_debug(f"[selenium][STEP] New markdown block detected")
                 wait_until_response_stabilizes(driver)
+                log_debug(f"[selenium][STEP] Response stabilized")
                 return
             log_warning(f"[selenium] No response after attempt {attempt}")
         except Exception as e:  # pragma: no cover - best effort
@@ -225,7 +230,9 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
     log_warning("[selenium] Fallback via ActionChains")
     try:
         ActionChains(driver).click(textarea).send_keys(prompt_text).send_keys(Keys.ENTER).perform()
+        log_debug(f"[selenium][STEP] Fallback ActionChains used to send prompt")
         if wait_for_markdown_block_to_appear(driver, prev_blocks):
+            log_debug(f"[selenium][STEP] New markdown block detected after fallback")
             wait_until_response_stabilizes(driver)
     except Exception as e:  # pragma: no cover - best effort
         log_warning(f"[selenium] Fallback send failed: {e}")
@@ -293,23 +300,28 @@ def _notify_gui(message: str = ""):
 def _extract_chat_id(url: str) -> Optional[str]:
     """Extracts the chat ID from the ChatGPT URL."""
     log_debug(f"[selenium][DEBUG] Extracting chat ID from URL: {url}")
-    
+
+    if not url or not isinstance(url, str):
+        log_error("[selenium][ERROR] Invalid URL provided for chat ID extraction.")
+        return None
+
     # More flexible patterns for different ChatGPT URL formats
     patterns = [
         r"/chat/([^/?#]+)",           # Standard format: /chat/uuid
         r"/c/([^/?#]+)",              # Alternative format: /c/uuid  
-        r"chat\.openai\.com/chat/([^/?#]+)",  # Full URL
-        r"chat\.openai\.com/c/([^/?#]+)"      # Alternative full URL
+        r"chat\\.openai\\.com/chat/([^/?#]+)",  # Full URL
+        r"chat\\.openai\\.com/c/([^/?#]+)"      # Alternative full URL
     ]
-    
+
     for pattern in patterns:
+        log_debug(f"[selenium][DEBUG] Trying pattern: {pattern}")
         match = re.search(pattern, url)
         if match:
             chat_id = match.group(1)
             log_debug(f"[selenium][DEBUG] Extracted chat ID: {chat_id}")
             return chat_id
-    
-    log_debug(f"[selenium][DEBUG] No chat ID found in URL: {url}")
+
+    log_error("[selenium][ERROR] No chat ID could be extracted from the URL.")
     return None
 
 
@@ -327,7 +339,7 @@ def _check_conversation_full(driver) -> bool:
 
 def _open_new_chat(driver) -> None:
     try:
-        # First, try to click the new chat button if it's visible
+        # Prima prova a cliccare il pulsante new chat se è visibile
         try:
             btn = WebDriverWait(driver, 2).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='new-chat-button']"))
@@ -338,7 +350,7 @@ def _open_new_chat(driver) -> None:
         except TimeoutException:
             log_debug("[selenium] New chat button not visible, navigating to home")
             
-        # If not visible, go to the home page and then click
+        # Se non è visibile, vai alla home page e poi clicca
         driver.get("https://chat.openai.com")
         btn = WebDriverWait(driver, 5).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-testid='new-chat-button']"))
@@ -347,98 +359,38 @@ def _open_new_chat(driver) -> None:
         log_debug("[selenium] Navigated to home and clicked new-chat-button")
     except Exception as e:
         log_warning(f"[selenium] New chat button not clicked: {e}")
-        # Fallback: navigate directly to home which should create a new chat
+        # Fallback: naviga direttamente alla home che dovrebbe creare una nuova chat
         driver.get("https://chat.openai.com")
 
-
-def go_to_chat_by_path(driver, chat_path: str) -> bool:
-    """Try to open a chat from the sidebar matching ``chat_path``."""
+def is_chat_archived(driver, chat_id: str) -> bool:
+    """Check if a ChatGPT chat is archived."""
     try:
-        xpath = f"//nav//a[span[contains(text(), '{chat_path}')]]"
-        elem = WebDriverWait(driver, 3).until(
-            EC.element_to_be_clickable((By.XPATH, xpath))
+        chat_url = f"https://chat.openai.com/chat/{chat_id}"
+        driver.get(chat_url)
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'This conversation is archived')]"))
         )
-        elem.click()
-        log_debug(f"[selenium] Reused chat via path: {chat_path}")
+        log_warning("[selenium] Chat is archived.")
         return True
-    except Exception:
-        log_debug(f"[selenium] Chat path not found: {chat_path}")
+    except TimeoutException:
+        log_debug("[selenium] Chat is not archived.")
+        return False
+    except Exception as e:
+        log_error(f"[selenium] Error checking if chat is archived: {e}")
         return False
 
-
-def wait_for_response_change(
-    driver, previous_text: str, timeout: int = 30
-) -> Optional[str]:
-    """Return new markdown text once it stays unchanged for 2 seconds."""
-
-    log_debug("🕓 Waiting for new markdown content...")
-
-    try:
-        WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.markdown"))
-        )
-    except TimeoutException:
-        log_warning("❌ Timeout while waiting for new response")
-        return None
-
-    end_time = time.time() + timeout
-    last_seen_text = previous_text
-    last_change = time.time()
-
-    while time.time() < end_time:
-        try:
-            elements = driver.find_elements(By.CSS_SELECTOR, "div.markdown")
-            if not elements:
-                time.sleep(0.5)
-                continue
-
-            latest_text = elements[-1].get_attribute("textContent") or ""
-            latest_text = latest_text.strip()
-
-            changed = latest_text != last_seen_text
-            log_debug(
-                f"[selenium][DEBUG] len={len(latest_text)} changed={changed}"
-            )
-
-            if changed:
-                last_seen_text = latest_text
-                last_change = time.time()
-            else:
-                if (
-                    latest_text
-                    and latest_text != previous_text
-                    and time.time() - last_change >= 2
-                ):
-                    log_debug(
-                        f"🟢 Response stabilized with length {len(latest_text)}"
-                    )
-                    log_debug(f"[selenium][DEBUG] final text: {latest_text[:120]}...")
-                    return latest_text
-
-        except Exception as e:
-            log_warning(f"❌ Error during markdown check: {e}")
-
-        time.sleep(0.5)
-
-    log_warning("❌ Timeout while waiting for new response")
-    return None
-
-
+# Update process_prompt_in_chat to use the new functions
 def process_prompt_in_chat(
     driver, chat_id: str | None, prompt_text: str, previous_text: str
 ) -> Optional[str]:
     """Send a prompt to a ChatGPT chat and return the newly generated text."""
-    if chat_id:
-        chat_url = f"https://chat.openai.com/chat/{chat_id}"
-        log_debug(f"[selenium][STEP] Opening chat {chat_id} at {chat_url}")
-        driver.get(chat_url)
-        current_url = driver.current_url
-        log_debug(f"[selenium][DEBUG] Current URL after navigation: {current_url}")
-        if chat_id not in current_url:
-            log_warning(f"[selenium][WARN] URL mismatch: expected {chat_id}, got {current_url}")
-    else:
-        log_debug("[selenium][STEP] Using currently open chat")
-        log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
+    if chat_id and is_chat_archived(driver, chat_id):
+        chat_id = None  # Mark chat as invalid
+
+    if not chat_id:
+        log_debug("[selenium] Creating a new chat")
+        _open_new_chat(driver)
+        # Chat ID will be extracted later from the URL after sending the prompt
 
     try:
         textarea = WebDriverWait(driver, 10).until(
@@ -448,51 +400,36 @@ def process_prompt_in_chat(
         log_error("[selenium][ERROR] prompt textarea not found")
         return None
 
-
-    for attempt in range(1, 4):  # [FIX][retry] retry up to 3 times
+    for attempt in range(1, 4):  # Retry up to 3 times
         try:
-            textarea.click()
-            textarea.send_keys(Keys.CONTROL + "a")
-            textarea.send_keys(Keys.DELETE)
-
             paste_and_send(textarea, prompt_text)
-
-            submit_btn = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.ID, "composer-submit-button"))
-            )
-            submit_btn.click()
-            log_debug("📨 Prompt sent")
+            textarea.send_keys(Keys.ENTER)
         except ElementNotInteractableException as e:
-            log_warning(f"[selenium][ERROR] textarea not interactable: {e}")
-            return None
+            log_warning(f"[selenium][retry] Element not interactable: {e}")
+            time.sleep(2)
+            continue
         except Exception as e:
-            log_error(f"[selenium][ERROR] failed to send prompt: {e}", e)
+            log_error(f"[selenium][ERROR] Failed to send prompt: {e}")
             return None
 
         log_debug("🔍 Waiting for response block...")
         try:
-            # [FIX][wait] give ChatGPT up to 90s to show the markdown block
-            WebDriverWait(driver, 90).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "div.markdown"))
-            )
+            response_text = wait_until_response_stabilizes(driver)
         except TimeoutException:
-            log_warning("[selenium][WARN] No response container appeared")
-            response_text = ""
+            log_warning("[selenium][WARN] Timeout while waiting for response")
         else:
-            try:
-                response_text = wait_until_response_stabilizes(driver)
-            except Exception as e:
-                log_error(f"[selenium][ERROR] waiting for response failed: {e}", e)
-                return None
-
-        if response_text and response_text != previous_text:
-            log_debug("📝 New response text extracted")
-            return response_text.strip()
+            if response_text and response_text != previous_text:
+                # If this was a new chat (no chat_id initially), extract and save the new chat ID
+                if not chat_id:
+                    new_chat_id = _extract_chat_id(driver.current_url)
+                    if new_chat_id:
+                        log_debug(f"[selenium] New chat ID extracted after response: {new_chat_id}")
+                        # This will be used by the calling function to save the link
+                return response_text.strip()
 
         log_warning(f"[selenium][retry] Empty response attempt {attempt}")
         time.sleep(2)
 
-    # [FIX][retry] all attempts exhausted - capture screenshot and notify
     os.makedirs("screenshots", exist_ok=True)
     fname = f"screenshots/chat_{chat_id or 'unknown'}_no_response.png"
     try:
@@ -506,72 +443,74 @@ def process_prompt_in_chat(
     return None
 
 
-def rename_and_send_prompt(driver, chat_info, prompt_text: str) -> Optional[str]:
-    """Rename the active chat and send ``prompt_text``. Return the new response."""
-    try:
-        chat_name = (
-            chat_info.chat.title
-            or getattr(chat_info.chat, "full_name", "")
-            or str(chat_info.chat_id)
-        )
-        is_group = chat_info.chat.type in ("group", "supergroup")
-        emoji = "💬" if is_group else "💌"
-        thread = (
-            f"/Thread {chat_info.message_thread_id}" if getattr(chat_info, "message_thread_id", None) else ""
-        )
-        new_title = f"⚙️{emoji} Telegram/{chat_name}{thread} - 1"
-        log_debug(f"[selenium][STEP] renaming chat to: {new_title}")
-
-        options_btn = WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='history-item-0-options']"))
-        )
-        options_btn.click()
-        script = (
-            "const buttons = Array.from(document.querySelectorAll('[data-testid=\"share-chat-menu-item\"]'));"
-            " const rename = buttons.find(b => b.innerText.trim() === 'Rename');"
-            " if (rename) rename.click();"
-        )
-        driver.execute_script(script)
-        rename_input = WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "[role='textbox']"))
-        )
-        rename_input.clear()
-        rename_input.send_keys(strip_non_bmp(new_title))
-        rename_input.send_keys(Keys.ENTER)
-        log_debug("[DEBUG] Rename field found and edited")
-        recent_chats.set_chat_path(chat_info.chat_id, new_title)
-    except Exception as e:
-        log_warning(f"[selenium][ERROR] rename failed: {e}")
-
-    try:
-        textarea = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.ID, "prompt-textarea"))
-        )
-    except TimeoutException:
-        log_error("[selenium][ERROR] prompt textarea not found")
-        return None
-
-    try:
-        paste_and_send(textarea, prompt_text)
-        textarea.send_keys(Keys.ENTER)
-    except Exception as e:
-        log_error(f"[selenium][ERROR] failed to send prompt: {e}")
-        return None
-
-    previous_text = get_previous_response(chat_info.chat_id)
-    log_debug("🔍 Waiting for response block...")
-    try:
-        response_text = wait_until_response_stabilizes(driver)
-    except Exception as e:
-        log_error(f"[selenium][ERROR] waiting for response failed: {e}")
-        return None
-
-    if not response_text or response_text == previous_text:
-        log_debug("🟡 No new response, skipping")
-        return None
-    update_previous_response(chat_info.chat_id, response_text)
-    log_debug("📝 New response text extracted")
-    return response_text.strip()
+# TODO: Chat renaming logic - currently commented out due to unreliable ChatGPT UI changes
+# This functionality needs to be reimplemented when ChatGPT's interface stabilizes
+# def rename_and_send_prompt(driver, chat_info, prompt_text: str) -> Optional[str]:
+#     """Rename the active chat and send ``prompt_text``. Return the new response."""
+#     try:
+#         chat_name = (
+#             chat_info.chat.title
+#             or getattr(chat_info.chat, "full_name", "")
+#             or str(chat_info.chat_id)
+#         )
+#         is_group = chat_info.chat.type in ("group", "supergroup")
+#         emoji = "💬" if is_group else "💌"
+#         thread = (
+#             f"/Thread {chat_info.message_thread_id}" if getattr(chat_info, "message_thread_id", None) else ""
+#         )
+#         new_title = f"⚙️{emoji} Telegram/{chat_name}{thread} - 1"
+#         log_debug(f"[selenium][STEP] renaming chat to: {new_title}")
+# 
+#         options_btn = WebDriverWait(driver, 5).until(
+#             EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='history-item-0-options']"))
+#         )
+#         options_btn.click()
+#         script = (
+#             "const buttons = Array.from(document.querySelectorAll('[data-testid=\"share-chat-menu-item\"]'));"
+#             " const rename = buttons.find(b => b.innerText.trim() === 'Rename');"
+#             " if (rename) rename.click();"
+#         )
+#         driver.execute_script(script)
+#         rename_input = WebDriverWait(driver, 5).until(
+#             EC.element_to_be_clickable((By.CSS_SELECTOR, "[role='textbox']"))
+#         )
+#         rename_input.clear()
+#         rename_input.send_keys(strip_non_bmp(new_title))
+#         rename_input.send_keys(Keys.ENTER)
+#         log_debug("[DEBUG] Rename field found and edited")
+#         recent_chats.set_chat_path(chat_info.chat_id, new_title)
+#     except Exception as e:
+#         log_warning(f"[selenium][ERROR] rename failed: {e}")
+# 
+#     try:
+#         textarea = WebDriverWait(driver, 10).until(
+#             EC.element_to_be_clickable((By.ID, "prompt-textarea"))
+#         )
+#     except TimeoutException:
+#         log_error("[selenium][ERROR] prompt textarea not found")
+#         return None
+# 
+#     try:
+#         paste_and_send(textarea, prompt_text)
+#         textarea.send_keys(Keys.ENTER)
+#     except Exception as e:
+#         log_error(f"[selenium][ERROR] failed to send prompt: {e}")
+#         return None
+# 
+#     previous_text = get_previous_response(chat_info.chat_id)
+#     log_debug("🔍 Waiting for response block...")
+#     try:
+#         response_text = wait_until_response_stabilizes(driver)
+#     except Exception as e:
+#         log_error(f"[selenium][ERROR] waiting for response failed: {e}")
+#         return None
+# 
+#     if not response_text or response_text == previous_text:
+#         log_debug("🟡 No new response, skipping")
+#         return None
+#     update_previous_response(chat_info.chat_id, response_text)
+#     log_debug("📝 New response text extracted")
+#     return response_text.strip()
 
 
 
@@ -955,9 +894,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     if chat_id:  # [FIX] save and notify about recovered chat
                         chat_link_store.save_link(message.chat_id, thread_id, chat_id)
                         _safe_notify(
-                            f"\u26A0\uFE0F Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
+                            f"⚠️ Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
                             f"A new ChatGPT chat has been created: {chat_id}"
                         )
+                else:
+                    _open_new_chat(driver)
+                    # Chat ID will be extracted after sending the prompt
 
             log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
             log_debug(f"[selenium][DEBUG] Telegram chat_id: {message.chat_id}, thread_id: {thread_id}")
@@ -981,22 +923,24 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     if response_text:
                         update_previous_response(message.chat_id, response_text)
                 else:
-                    _open_new_chat(driver)
-                    response_text = rename_and_send_prompt(driver, message, prompt_text)
-                    new_chat_id = _extract_chat_id(driver.current_url)
-                    log_debug(f"[selenium][DEBUG] New chat created, extracted ID: {new_chat_id}")
-                    log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
-                    if new_chat_id:
-                        chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
-                        log_debug(f"[selenium][DEBUG] Saved link: {message.chat_id}/{thread_id} -> {new_chat_id}")
-                        chat_url = f"https://chat.openai.com/chat/{new_chat_id}"
-                        driver.get(chat_url)
-                        _safe_notify(
-                            f"\u26A0\uFE0F Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
-                            f"A new ChatGPT chat has been created: {new_chat_id}"
-                        )
-                    else:
-                        log_warning("[selenium][WARN] Failed to extract chat ID from URL")
+                    # Create new chat and send prompt - ID will be available after ChatGPT responds
+                    previous = get_previous_response(message.chat_id)
+                    response_text = process_prompt_in_chat(driver, None, prompt_text, previous)
+                    if response_text:
+                        update_previous_response(message.chat_id, response_text)
+                        # Now extract the new chat ID after ChatGPT has responded
+                        new_chat_id = _extract_chat_id(driver.current_url)
+                        log_debug(f"[selenium][DEBUG] New chat created, extracted ID: {new_chat_id}")
+                        log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
+                        if new_chat_id:
+                            chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
+                            log_debug(f"[selenium][DEBUG] Saved link: {message.chat_id}/{thread_id} -> {new_chat_id}")
+                            _safe_notify(
+                                f"⚠️ Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
+                                f"A new ChatGPT chat has been created: {new_chat_id}"
+                            )
+                        else:
+                            log_warning("[selenium][WARN] Failed to extract chat ID from URL")
 
                 if _check_conversation_full(driver):
                     current_id = chat_id or _extract_chat_id(driver.current_url)
@@ -1005,10 +949,18 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     global queue_paused
                     queue_paused = True
                     _open_new_chat(driver)
-                    response_text = rename_and_send_prompt(driver, message, prompt_text)
+                    
+                    # TODO: Chat renaming was commented out - using standard prompt sending
+                    # response_text = rename_and_send_prompt(driver, message, prompt_text)
+                    response_text = process_prompt_in_chat(driver, None, prompt_text, "")
+                    
                     new_chat_id = _extract_chat_id(driver.current_url)
                     if new_chat_id:
                         chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
+                        log_debug(
+                            f"[selenium][SUCCESS] New chat created for full conversation. "
+                            f"Chat ID: {new_chat_id}"
+                        )
                     queue_paused = False
 
                 if not response_text:
@@ -1107,4 +1059,21 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             await bot.send_message(chat_id=chat_id, text=result)
 
 PLUGIN_CLASS = SeleniumChatGPTPlugin
+
+def go_to_chat_by_path(driver, path: str) -> bool:
+    """Navigate to a specific chat using its path."""
+    try:
+        chat_url = f"https://chat.openai.com{path}"
+        driver.get(chat_url)
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.ID, "prompt-textarea"))
+        )
+        log_debug(f"[selenium] Successfully navigated to chat path: {path}")
+        return True
+    except TimeoutException:
+        log_warning(f"[selenium] Timeout while navigating to chat path: {path}")
+        return False
+    except Exception as e:
+        log_error(f"[selenium] Error navigating to chat path: {e}")
+        return False
 
