@@ -212,14 +212,18 @@ Format:
   }
 }
 
-Json Response Rules:
-1. ALWAYS use input.payload.source.chat_id as target
-2. If thread_id exists and is not null, include it
-3. NEVER hardcode chat_id or thread_id
-4. The language of the response MUST match the language used in the input message, specifically the language used in the value of input.payload.text. You must always respond in the **same language the user wrote**, with no assumptions or defaults.
-5. Do NOT include any text outside the JSON structure
-6. JSON must be valid and parseable
-7. For group topics, target AND thread_id must match the source
+JSON Response Rules:
+
+1. ALWAYS use input.payload.source.chat_id as payload.target
+2. If input.payload.source.thread_id exists and is not null, include it as payload.thread_id
+3. NEVER hardcode chat_id or thread_id values anywhere
+4. The response language MUST EXACTLY match the one used in input.payload.text
+   - No auto-detection
+   - No fallback
+   - No assumptions
+5. The reply MUST contain only the JSON structure, with no text before or after
+6. The JSON MUST be syntactically valid and parseable
+7. In group topics, both payload.target AND payload.thread_id MUST match the source exactly
 
 For the rest, be yourself, use your personality, and respond as usual. Do not change your style or tone based on the JSON format. The JSON is just a wrapper for your response.
 """
