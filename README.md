@@ -61,12 +61,36 @@ Plugins currently supported:
 * `manual`
 * `openai_chatgpt`
 * `selenium_chatgpt`
+* `terminal` (persistent shell access)
 
 They implement:
 
 * JSON prompt ingestion
 * Message generation
 * Optional model selection (`/model`)
+* Action execution via JSON responses
+
+---
+
+## 🔄 Message Flow
+
+```mermaid
+graph TD
+    A[Incoming message] --> B(message_queue)
+    B --> C{Queue loop}
+    C --> D[plugin_instance]
+    D --> E[build_json_prompt]
+    E --> F[LLM plugin]
+    F --> G[transport_layer]
+    G --> H[action_parser]
+    H --> I[telegram_interface]
+    I --> J[Final delivery]
+```
+
+Messages are funneled into a queue and processed sequentially. After building a
+JSON prompt, the selected LLM plugin generates a response which may contain
+actions. The transport layer detects JSON actions and routes them to the
+`action_parser`, otherwise the text is sent directly via the interface.
 
 ---
 
@@ -102,6 +126,42 @@ Manual mode enables human-in-the-loop interaction.
 | Command   | Description            |
 | --------- | ---------------------- |
 | `/cancel` | Cancel a pending reply |
+
+---
+
+## 📝 JSON Parser & Actions
+
+The transport layer checks every outgoing message for valid JSON. If the text
+represents an action object it is routed to `action_parser` instead of being sent
+as plain text. Actions allow plugins to perform tasks such as sending additional
+messages or running custom commands. The basic structure is:
+
+```json
+{
+  "type": "message",
+  "interface": "telegram",
+  "payload": { "text": "hello", "target": 123456789 }
+}
+```
+
+Action plugins can register supported types via `get_supported_actions` and
+implement `execute_action`. The included `terminal` plugin adds a `terminal`
+action for shell access.
+
+---
+
+## 🌐 Interfaces
+
+Interfaces wrap the messaging services used by Rekku. Each interface exposes a
+`send_message` method and provides specific formatting instructions to the
+prompt engine via `get_interface_instructions`.
+
+Implemented interfaces:
+
+* `telegram_bot` – main Telegram bot using `python-telegram-bot`
+* `telegram_interface` – async wrapper used by plugins
+* `telethon_userbot` – alternate Telethon-based userbot
+* `discord_interface` – minimal Discord example
 
 ---
 
