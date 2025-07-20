@@ -76,15 +76,16 @@ They implement:
 
 ```mermaid
 graph TD
-    A[Incoming message] --> B(message_queue)
-    B --> C{Queue loop}
-    C --> D[plugin_instance]
-    D --> E[build_json_prompt]
-    E --> F[LLM plugin]
-    F --> G[transport_layer]
-    G --> H[action_parser]
-    H --> I[telegram_interface]
-    I --> J[Final delivery]
+    A[Incoming message<br/>from user] --> B[message_queue<br/>stores pending]
+    B --> C{Queue loop<br/>process sequentially}
+    C --> D[plugin_instance<br/>calls engine]
+    D --> E[build_json_prompt<br/>format request]
+    E --> F[LLM plugin<br/>generate reply]
+    F --> G[transport_layer<br/>check JSON]
+    G --> H[action_parser<br/>execute actions]
+    G --> I[telegram_interface<br/>send text]
+    H --> I
+    I --> J[Final delivery<br/>to chat]
 ```
 
 Messages are funneled into a queue and processed sequentially. After building a
