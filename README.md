@@ -61,12 +61,37 @@ Plugins currently supported:
 * `manual`
 * `openai_chatgpt`
 * `selenium_chatgpt`
+* `terminal` (persistent shell access)
 
 They implement:
 
 * JSON prompt ingestion
 * Message generation
 * Optional model selection (`/model`)
+* Action execution via JSON responses
+
+---
+
+## 🔄 Message Flow
+
+```mermaid
+graph TD
+    A[Incoming message<br/>from user] --> B[message_queue<br/>stores pending]
+    B --> C{Queue loop<br/>process sequentially}
+    C --> D[plugin_instance<br/>calls engine]
+    D --> E[build_json_prompt<br/>format request]
+    E --> F[LLM plugin<br/>generate reply]
+    F --> G[transport_layer<br/>check JSON]
+    G --> H[action_parser<br/>execute actions]
+    G --> I[telegram_interface<br/>send text]
+    H --> I
+    I --> J[Final delivery<br/>to chat]
+```
+
+Messages are funneled into a queue and processed sequentially. After building a
+JSON prompt, the selected LLM plugin generates a response which may contain
+actions. The transport layer detects JSON actions and routes them to the
+`action_parser`, otherwise the text is sent directly via the interface.
 
 ---
 
@@ -102,6 +127,42 @@ Manual mode enables human-in-the-loop interaction.
 | Command   | Description            |
 | --------- | ---------------------- |
 | `/cancel` | Cancel a pending reply |
+
+---
+
+## 📝 JSON Parser & Actions
+
+The transport layer checks every outgoing message for valid JSON. If the text
+represents an action object it is routed to `action_parser` instead of being sent
+as plain text. Actions allow plugins to perform tasks such as sending additional
+messages or running custom commands. The basic structure is:
+
+```json
+{
+  "type": "message",
+  "interface": "telegram",
+  "payload": { "text": "hello", "target": 123456789 }
+}
+```
+
+Action plugins can register supported types via `get_supported_actions` and
+implement `execute_action`. The included `terminal` plugin adds a `terminal`
+action for shell access.
+
+---
+
+## 🌐 Interfaces
+
+Interfaces wrap the messaging services used by Rekku. Each interface exposes a
+`send_message` method and provides specific formatting instructions to the
+prompt engine via `get_interface_instructions`.
+
+Implemented interfaces:
+
+* `telegram_bot` – main Telegram bot using `python-telegram-bot`
+* `telegram_interface` – async wrapper used by plugins
+* `telethon_userbot` – alternate Telethon-based userbot
+* `discord_interface` – minimal Discord example
 
 ---
 
