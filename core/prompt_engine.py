@@ -98,11 +98,23 @@ async def build_json_prompt(message, context_memory) -> dict:
     interface_instructions = get_interface_instructions("telegram")  # Default to telegram for now
     
     prompt_with_instructions = {
-        "context": context_section, 
+        "context": context_section,
         "input": input_section,
         "instructions": json_instructions,
-        "interface_instructions": interface_instructions
+        "interface_instructions": interface_instructions,
     }
+
+    # === 5. Available actions from the active plugin ===
+    try:
+        from core import plugin_instance
+
+        plugin = plugin_instance.get_plugin()
+        if plugin and hasattr(plugin, "get_supported_actions"):
+            actions = plugin.get_supported_actions()
+            if actions is not None:
+                prompt_with_instructions["available_actions"] = actions
+    except Exception as e:
+        log_warning(f"[prompt_engine] Failed to gather supported actions: {e}")
 
     return prompt_with_instructions
 
