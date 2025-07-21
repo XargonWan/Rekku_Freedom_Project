@@ -34,11 +34,14 @@ jobs:
       run: |
         dotnet tool install --global GitVersion.Tool --version 5.*
         export PATH="$PATH:/root/.dotnet/tools"
+        echo "PATH aggiornato: $PATH"
+        which gitversion || { echo "GitVersion non trovato nel PATH"; exit 1; }
 
     - name: Determine version with GitVersion
       id: gitversion
       run: |
         gitversion > gitversion.json
+        cat gitversion.json
         VERSION=$(jq -r '.SemVer' gitversion.json)
         echo "version=$VERSION" >> $GITHUB_ENV
 
