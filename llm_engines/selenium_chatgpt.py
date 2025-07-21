@@ -385,6 +385,21 @@ def process_prompt_in_chat(
         _open_new_chat(driver)
         # Chat ID will be extracted later from the URL after sending the prompt
 
+    # Some UI experiments may block the textarea with a "I prefer this response"
+    # dialog. Dismiss it if present before looking for the textarea.
+    try:
+        prefer_btn = WebDriverWait(driver, 2).until(
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "[data-testid='paragen-prefer-response-button']")
+            )
+        )
+        prefer_btn.click()
+        time.sleep(2)
+    except TimeoutException:
+        pass
+    except Exception as e:  # pragma: no cover - best effort
+        log_warning(f"[selenium] Failed to click prefer-response button: {e}")
+
     try:
         textarea = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.ID, "prompt-textarea"))
