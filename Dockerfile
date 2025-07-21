@@ -9,6 +9,7 @@ RUN apt-get update && \
     echo \"alias snap='echo Snap is disabled'\" > /etc/profile.d/no-snap.sh && \
     apt-get install -y --no-install-recommends \
       python3 python3-pip python3-venv git curl wget unzip \
+      apache2-utils websockify openssl x11vnc \
       lsb-release ca-certificates fonts-liberation \
       fonts-noto-cjk fonts-noto-color-emoji xfonts-base && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -57,10 +58,5 @@ RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
     && ln -sfn ../init-selkies /etc/s6-overlay/s6-rc.d/user/contents.d/init-selkies \
     && chown -R 1000:1000 /app /home/rekku /config
 
-USER root
 
-# Install tools for generating basic auth
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends apache2-utils websockify openssl x11vnc && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
 
