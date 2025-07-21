@@ -809,7 +809,7 @@ class TelegramInterface:
         """Return specific instructions for Telegram interface."""
         return """TELEGRAM INTERFACE INSTRUCTIONS:
 - Use chat_id for targets (can be negative for groups/channels)
-- For groups with topics, include thread_id to reply in the correct topic
+- For groups with topics, include thread_id to reply in the correct topic, but don't use the thread_id if not specified in the input, else the message will fail to be delivered.
 - Keep messages under 4096 characters
 - Use Markdown formatting:
     * *bold* → `*bold*`
