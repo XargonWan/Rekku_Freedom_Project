@@ -233,7 +233,7 @@ def get_interface_instructions(interface_name: str) -> str:
     try:
         # Try to import the interface and get its instructions
         if interface_name == "telegram":
-            from interface.telegram_interface import TelegramInterface
+            from interface.telegram_bot import TelegramInterface
             return TelegramInterface.get_interface_instructions()
         # Add other interfaces here as needed
         else:

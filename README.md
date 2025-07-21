@@ -83,7 +83,7 @@ graph TD
     E --> F[LLM plugin<br/>generate reply]
     F --> G[transport_layer<br/>check JSON]
     G --> H[action_parser<br/>execute actions]
-    G --> I[telegram_interface<br/>send text]
+    G --> I[telegram_bot<br/>send text]
     H --> I
     I --> J[Final delivery<br/>to chat]
 ```
@@ -160,7 +160,7 @@ prompt engine via `get_interface_instructions`.
 Implemented interfaces:
 
 * `telegram_bot` – main Telegram bot using `python-telegram-bot`
-* `telegram_interface` – async wrapper used by plugins
+* `telegram_bot` – async wrapper used by plugins
 * `telethon_userbot` – alternate Telethon-based userbot
 * `discord_interface` – minimal Discord example
 
