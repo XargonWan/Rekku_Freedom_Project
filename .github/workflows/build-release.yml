@@ -34,13 +34,13 @@ jobs:
       run: |
         dotnet tool install --global GitVersion.Tool --version 5.*
         export PATH="$PATH:/root/.dotnet/tools"
-        echo "PATH aggiornato: $PATH"
-        which gitversion || { echo "GitVersion non trovato nel PATH"; exit 1; }
+        echo "PATH updated: $PATH"
+        which gitversion || { echo "GitVersion not found in PATH"; exit 1; }
 
     - name: Determine version with GitVersion
       id: gitversion
       run: |
-        gitversion > gitversion.json
+        dotnet-gitversion > gitversion.json
         cat gitversion.json
         VERSION=$(jq -r '.SemVer' gitversion.json)
         echo "version=$VERSION" >> $GITHUB_ENV
@@ -69,7 +69,7 @@ jobs:
     - name: Make image public (one-time per package)
       if: github.event_name == 'push'
       run: |
-        echo "🔓 Rendendo il pacchetto pubblico..."
+        echo "🔓 Making the package public..."
         gh auth login --with-token <<< "${{ secrets.CR_PAT }}"
         REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
         gh api --method PATCH /users/${{ github.actor }}/packages/container/rekku_freedom_project \
