@@ -62,6 +62,14 @@ Plugins currently supported:
 * `openai_chatgpt`
 * `selenium_chatgpt`
 * `terminal` (persistent shell access)
+* `event` (persistent scheduled reminders)
+
+### ⏰ Event Plugin
+
+The `event` plugin stores future actions (like reminders or rituals) in a
+persistent SQLite table. A background dispatcher periodically checks for due
+events using the timezone specified by the `TZ` environment variable and feeds
+them back into Rekku through the virtual chat path `TARDIS / system / events`.
 
 They implement:
 

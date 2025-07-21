@@ -6,6 +6,7 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 DB_PATH = Path(
@@ -127,6 +128,22 @@ def init_db():
             """
         )
 
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scheduled_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                time TEXT,
+                repeat TEXT DEFAULT 'none',
+                description TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                delivered INTEGER DEFAULT 0,
+                created_by TEXT DEFAULT 'rekku',
+                UNIQUE(date, time, description)
+            )
+            """
+        )
+
 # 🧠 Insert a new memory into the database
 def insert_memory(
     content: str,
@@ -211,5 +228,57 @@ def get_recent_responses(since_timestamp: str) -> list[dict]:
             ORDER BY timestamp DESC
         """, (since_timestamp,)).fetchall()
         return [dict(row) for row in rows]
+
+# === Event management helpers ===
+
+def insert_scheduled_event(
+    date: str,
+    time_: str | None,
+    repeat: str | None,
+    description: str,
+    created_by: str = "rekku",
+) -> None:
+    """Store a new scheduled event."""
+    with get_db() as db:
+        db.execute(
+            """
+            INSERT INTO scheduled_events (date, time, repeat, description, created_by)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (date, time_, repeat or "none", description, created_by),
+        )
+
+
+def get_due_events(now: datetime | None = None) -> list[dict]:
+    """Return events that should be dispatched."""
+    if not now:
+        now = datetime.now(timezone.utc)
+    tz = ZoneInfo(os.getenv("TZ", "UTC"))
+
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT * FROM scheduled_events WHERE delivered = 0 ORDER BY id"
+        ).fetchall()
+
+    due: list[dict] = []
+    for r in rows:
+        dt_str = f"{r['date']} {r['time'] or '00:00'}"
+        try:
+            event_dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=tz)
+        except ValueError:
+            continue
+        if event_dt.astimezone(timezone.utc) <= now:
+            due.append(dict(r))
+
+    return due
+
+
+def mark_event_delivered(event_id: int) -> None:
+    """Mark an event as delivered."""
+    with get_db() as db:
+        db.execute(
+            "UPDATE scheduled_events SET delivered = 1 WHERE id = ?",
+            (event_id,),
+        )
 
 
