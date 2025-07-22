@@ -23,6 +23,18 @@ def extract_json_from_text(text: str):
     try:
         text = text.strip()
         
+        # Handle the common ChatGPT pattern: "json\nCopy\nEdit\n{...}"
+        if text.startswith("json\nCopy\nEdit\n"):
+            text = text[len("json\nCopy\nEdit\n"):].strip()
+            log_debug("[extract_json_from_text] Removed ChatGPT prefix 'json\\nCopy\\nEdit\\n'")
+        elif text.startswith("json\n"):
+            # Also handle just "json\n" prefix
+            lines = text.split('\n')
+            if len(lines) >= 4 and lines[1].strip() in ['Copy', ''] and lines[2].strip() in ['Edit', '']:
+                # Skip the first 3-4 lines that contain json/Copy/Edit
+                text = '\n'.join(lines[3:]).strip()
+                log_debug("[extract_json_from_text] Removed ChatGPT prefix lines")
+        
         # Check if the entire text is a JSON array
         if text.startswith('[') and text.endswith(']'):
             try:
@@ -40,6 +52,22 @@ def extract_json_from_text(text: str):
         # Scan greedily for JSON blocks starting from each '{' (backward compatibility)
         start_indices = [i for i, char in enumerate(text) if char == '{']
         for start in start_indices:
+            # Try to find the matching closing brace for a complete JSON object
+            brace_count = 0
+            for end in range(start, len(text)):
+                if text[end] == '{':
+                    brace_count += 1
+                elif text[end] == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        # Found a complete JSON object
+                        try:
+                            potential_json = text[start:end+1]
+                            return json.loads(potential_json)
+                        except json.JSONDecodeError:
+                            continue
+            
+            # If complete object search failed, try the rest of the text from this position
             try:
                 potential_json = text[start:]
                 return json.loads(potential_json)
@@ -49,6 +77,22 @@ def extract_json_from_text(text: str):
         # Scan for JSON arrays starting from each '['
         array_start_indices = [i for i, char in enumerate(text) if char == '[']
         for start in array_start_indices:
+            # Try to find the matching closing bracket for a complete JSON array
+            bracket_count = 0
+            for end in range(start, len(text)):
+                if text[end] == '[':
+                    bracket_count += 1
+                elif text[end] == ']':
+                    bracket_count -= 1
+                    if bracket_count == 0:
+                        # Found a complete JSON array
+                        try:
+                            potential_json = text[start:end+1]
+                            return json.loads(potential_json)
+                        except json.JSONDecodeError:
+                            continue
+            
+            # If complete array search failed, try the rest of the text from this position
             try:
                 potential_json = text[start:]
                 return json.loads(potential_json)
@@ -130,6 +174,19 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
         text = ""
 
     json_data = extract_json_from_text(text)
+    if json_data:
+        log_debug(f"[telegram_transport] JSON parsed successfully: {json_data}")
+    else:
+        # Check if text looks like it might contain JSON but failed to parse
+        if ('{' in text and '}' in text) or ('[' in text and ']' in text):
+            log_warning(f"[telegram_transport] Text contains JSON-like content but failed to parse: {text[:200]}...")
+            # Try to extract and log the potential JSON part for debugging
+            if '{' in text:
+                start_brace = text.find('{')
+                log_debug(f"[telegram_transport] JSON-like content starting at position {start_brace}: {text[start_brace:start_brace+100]}...")
+        else:
+            log_debug("[telegram_transport] No JSON-like content detected, sending as normal text")
+    
     if json_data:
         log_debug(f"[telegram_transport] JSON parsed successfully: {json_data}")
         try:
