@@ -87,7 +87,10 @@ async def _dummy_custom(action_type, payload):
 
 def test_parse_custom_action(monkeypatch):
     _dummy_custom.called = []
-    plugin = types.SimpleNamespace(handle_custom_action=_dummy_custom)
+    plugin = types.SimpleNamespace(
+        handle_custom_action=_dummy_custom,
+        get_supported_action_types=lambda: ["event"],
+    )
     monkeypatch.setattr(plugin_instance, "plugin", plugin, raising=False)
 
     action = {"type": "event", "interface": "telegram", "payload": {"foo": "bar"}}

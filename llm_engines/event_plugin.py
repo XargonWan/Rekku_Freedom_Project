@@ -191,5 +191,8 @@ class EventPlugin(AIPluginBase):
             }
         ]
 
+    def get_supported_action_types(self) -> list[str]:
+        return ["event"]
+
 
 PLUGIN_CLASS = EventPlugin

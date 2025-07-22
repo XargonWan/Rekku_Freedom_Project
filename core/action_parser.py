@@ -222,17 +222,29 @@ async def parse_action(action: dict, bot, message):
                     log_error(f"[action_parser] Fallback also failed: {fallback_error}")
     else:
         plugin = getattr(plugin_instance, "plugin", None)
-        if plugin and hasattr(plugin, "handle_custom_action"):
+        if plugin and hasattr(plugin, "get_supported_action_types") and hasattr(
+            plugin, "handle_custom_action"
+        ):
             try:
-                await plugin.handle_custom_action(action_type, payload)
+                supported = plugin.get_supported_action_types() or []
             except Exception as e:
-                log_error(
-                    f"[action_parser] Error delegating {action_type} to plugin: {e}"
+                log_warning(
+                    f"[action_parser] Failed to query plugin action types: {e}"
                 )
-        else:
-            log_warning(
-                f"[action_parser] Unsupported action type: {action_type} (no plugin handler)"
-            )
+                supported = []
+
+            if action_type in supported:
+                try:
+                    await plugin.handle_custom_action(action_type, payload)
+                except Exception as e:
+                    log_error(
+                        f"[action_parser] Error delegating {action_type} to plugin: {e}"
+                    )
+                return
+
+        log_warning(
+            f"[action_parser] Unsupported action type: {action_type} — no plugin handler found"
+        )
 
 
 __all__ = ["run_action", "run_actions", "parse_action"]
