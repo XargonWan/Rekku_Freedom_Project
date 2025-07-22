@@ -222,53 +222,72 @@ def load_json_instructions() -> str:
     """Load JSON response instructions for the AI."""
     return """Rekku, be yourself, reply as usual but wrapped in JSON format, details:
 
-Response Formats:
-1. For normal messages:
+Response Format (multiple actions example):
 {
-  "type": "message",
-  "interface": "telegram",
-  "payload": {
-    "text": "Your response message here",
-    "target": "USE input.payload.source.chat_id",
-    "thread_id": "USE input.payload.source.thread_id IF PRESENT"
-  }
+  "actions": [
+    {
+      "type": "message",
+      "interface": "telegram",
+      "payload": {
+        "text": "I'll schedule that for you!",
+        "target": input.payload.source.chat_id,
+        "thread_id": input.payload.source.thread_id
+      }
+    },
+    {
+      "type": "event",
+      "payload": {
+        "when": "2025-07-22T15:30:00+00:00",
+        "action": {
+          "type": "message",
+          "interface": "telegram",
+          "payload": {
+            "text": "Reminder: Your scheduled event!",
+            "target": input.payload.source.chat_id
+          }
+        }
+      }
+    },
+    {
+      "type": "message",
+      "interface": "telegram",
+      "payload": {
+        "text": "Event scheduled successfully!",
+        "target": input.payload.source.chat_id
+      }
+    }
+  ]
 }
 
-2. For actions (events, commands, memory) - return JSON array directly:
-[
-  {
-    "type": "event",
-    "payload": {
-      "when": "2025-07-22T15:30:00+00:00",
-      "action": {"type": "message", "interface": "telegram", "payload": {"text": "...", "target": input.payload.source.chat_id}}
+Single action example:
+{
+  "actions": [
+    {
+      "type": "message",
+      "interface": "telegram",
+      "payload": {
+        "text": "Your response here",
+        "target": input.payload.source.chat_id,
+        "thread_id": input.payload.source.thread_id
+      }
     }
-  }
-]
-
-3. Mixed responses (message + actions):
-[
-  {
-    "type": "message",
-    "interface": "telegram", 
-    "payload": {"text": "I'll schedule that for you!", "target": input.payload.source.chat_id}
-  },
-  {
-    "type": "event",
-    "payload": {"when": "...", "action": {...}}
-  }
-]
+  ]
+}
 
 JSON Response Rules:
 
-1. ALWAYS use input.payload.source.chat_id as payload.target
-2. If input.payload.source.thread_id exists and is not null, include it as payload.thread_id  
+1. ALWAYS use input.payload.source.chat_id as target for messages
+2. If input.payload.source.thread_id exists and is not null, include it as thread_id
 3. NEVER hardcode chat_id or thread_id values anywhere
 4. The response language MUST EXACTLY match the one used in input.payload.text
 5. The reply MUST contain only the JSON structure, with no text before or after
 6. The JSON MUST be syntactically valid and parseable
-7. For events/actions: Return JSON array directly, don't wrap in message
-8. For normal replies: Use single message format
-9. For mixed: Use array with both message and actions
+7. ALWAYS use "actions" array - even for single actions
+8. Actions are processed in order - you can mix any types: message, event, command, memory
+9. No limit on quantity: 5 messages + 3 events + 2 commands = perfectly valid
+10. Structure allows future extensions (metadata, timestamps, etc.)
+
+All action types (message, event, command, memory) are plugins - treat them equally.
 
 For the rest, be yourself, use your personality, and respond as usual. Do not change your style or tone based on the JSON format. The JSON is just a wrapper for your response.
 """

@@ -14,8 +14,28 @@ import core.plugin_instance as plugin_instance
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 
-# Supporto per tipi di azione
-SUPPORTED_TYPES = {"message", "event", "command", "memory"}
+# Supporto per tipi di azione - ora dinamico, basato sui plugin caricati
+SUPPORTED_TYPES = {"message", "event", "command", "memory"}  # Base types, expandable by plugins
+
+
+def get_supported_action_types():
+    """Get all supported action types from loaded plugins."""
+    supported_types = set(SUPPORTED_TYPES)  # Start with base types
+    
+    try:
+        for plugin in _load_action_plugins():
+            if hasattr(plugin, "get_supported_action_types"):
+                plugin_types = plugin.get_supported_action_types()
+                if isinstance(plugin_types, (list, set)):
+                    supported_types.update(plugin_types)
+            elif hasattr(plugin, "get_supported_actions"):
+                plugin_actions = plugin.get_supported_actions()
+                if isinstance(plugin_actions, dict):
+                    supported_types.update(plugin_actions.keys())
+    except Exception as e:
+        log_warning(f"[action_parser] Error discovering plugin action types: {e}")
+    
+    return supported_types
 
 
 def _validate_message_payload(payload: dict, errors: List[str]) -> None:
@@ -106,8 +126,26 @@ def validate_action(action: dict) -> Tuple[bool, List[str]]:
     action_type = action.get("type")
     if not action_type:
         errors.append("Missing 'type'")
-    elif action_type not in SUPPORTED_TYPES:
-        errors.append(f"Unsupported type '{action_type}'")
+    else:
+        # Check if any plugin supports this action type
+        supported_by_plugin = False
+        for plugin in _load_action_plugins():
+            try:
+                if hasattr(plugin, "get_supported_action_types"):
+                    if action_type in plugin.get_supported_action_types():
+                        supported_by_plugin = True
+                        break
+                elif hasattr(plugin, "get_supported_actions"):
+                    actions = plugin.get_supported_actions()
+                    if isinstance(actions, dict) and action_type in actions:
+                        supported_by_plugin = True
+                        break
+            except Exception as e:
+                log_debug(f"[action_parser] Error checking plugin support for {action_type}: {e}")
+                continue
+        
+        if not supported_by_plugin:
+            errors.append(f"Unsupported type '{action_type}' - no plugin found to handle it")
 
     payload = action.get("payload")
     if payload is None:
@@ -115,6 +153,7 @@ def validate_action(action: dict) -> Tuple[bool, List[str]]:
     elif not isinstance(payload, dict):
         errors.append("'payload' must be a dict")
 
+    # Legacy validation for base types (can be removed once all plugins handle their own validation)
     if isinstance(payload, dict) and action_type in SUPPORTED_TYPES:
         if action_type == "message":
             _validate_message_payload(payload, errors)
@@ -228,34 +267,6 @@ ACTIVE_LLM_ENGINE = None
 AVAILABLE_PLUGINS = []
 
 
-async def _handle_message_action(action: Dict[str, Any], context: Dict[str, Any], bot, original_message):
-    payload = action.get("payload", {})
-    text = payload.get("text", "")
-    log_debug(f"[action_parser] Handling message action: {text}")
-
-    # Usa ACTIVE_INTERFACES direttamente
-    if not ACTIVE_INTERFACES:
-        log_error("[action_parser] No active interfaces to handle the message.")
-        return
-
-    # Route the message to all active interfaces
-    for interface in ACTIVE_INTERFACES:
-        if interface == "telegram_bot":
-            from interface.telegram_bot import TelegramInterface
-
-            telegram_bot = TelegramInterface(api_id=None, api_hash=None, bot_token=None)  # Replace with actual credentials
-            await telegram_bot.send_message(original_message.chat_id, text)
-        elif interface == "telegram_userbot":
-            from interface.telethon_userbot import client
-
-            await client.send_message(original_message.chat_id, text)
-        elif interface == "discord":
-            # Add Discord interface handling here if applicable
-            log_debug("[action_parser] Discord interface handling not implemented.")
-        else:
-            log_error(f"[action_parser] Unsupported interface: {interface}")
-
-
 async def _handle_plugin_action(action: Dict[str, Any], context: Dict[str, Any], bot, original_message):
     action_type = action.get("type")
     for plugin in _plugins_for(action_type):
@@ -285,11 +296,9 @@ async def run_action(action: Any, context: Dict[str, Any], bot, original_message
         return
 
     action_type = action.get("type")
-
-    if action_type == "message":
-        await _handle_message_action(action, context, bot, original_message)
-    else:
-        await _handle_plugin_action(action, context, bot, original_message)
+    
+    # Use plugin system for all action types (including messages)
+    await _handle_plugin_action(action, context, bot, original_message)
 
 
 async def run_actions(actions: Any, context: Dict[str, Any], bot, original_message):
@@ -327,80 +336,30 @@ async def parse_action(action: dict, bot, message):
     interface = action.get("interface")
     payload = action.get("payload")
 
-    if not action_type or not interface or not payload:
-        log_warning("[action_parser] Invalid action structure: missing type, interface, or payload")
+    if not action_type or not payload:
+        log_warning("[action_parser] Invalid action structure: missing type or payload")
         return
 
     log_debug(f"[action_parser] Action type: {action_type}, Interface: {interface}, Payload: {payload}")
 
-    if action_type == "message":
-        target = payload.get("target")
-        text = payload.get("text")
-        thread_id = payload.get("thread_id")
-
-        if not text:
-            log_warning("[action_parser] Invalid message action: missing text")
-            return
-
-        # If target is missing or invalid, use the original message's chat_id as fallback
-        if not target:
-            target = getattr(message, "chat_id", None)
-            log_debug(f"[action_parser] No target specified, using original chat_id: {target}")
-
-        # If thread_id is missing but original message has one, use it as fallback
-        if not thread_id and hasattr(message, "chat_id"):
-            original_thread_id = getattr(message, "message_thread_id", None)
-            if original_thread_id:
-                thread_id = original_thread_id
-                log_debug(f"[action_parser] No thread_id specified, using original thread_id: {thread_id}")
-
-        # Additional validation for target
-        if not target:
-            log_warning("[action_parser] No valid target found, cannot send message")
-            return
-
-        try:
-            log_debug(f"[action_parser] Sending message to {target} (thread_id: {thread_id}) with text: {text}")
-
-            # Prepare kwargs for send_message
-            send_kwargs = {"chat_id": target, "text": text}
-            if thread_id:
-                send_kwargs["message_thread_id"] = thread_id
-
-            await bot.send_message(**send_kwargs)
-            log_debug(f"[action_parser] Message successfully sent to {target} (thread: {thread_id})")
-        except Exception as e:
-            log_error(f"[action_parser] Failed to send message to {target} (thread: {thread_id}): {e}")
-            # Try fallback to original chat if target was different
-            if hasattr(message, "chat_id") and target != message.chat_id:
-                try:
-                    fallback_thread_id = getattr(message, "message_thread_id", None)
-                    fallback_kwargs = {"chat_id": message.chat_id, "text": text}
-                    if fallback_thread_id:
-                        fallback_kwargs["message_thread_id"] = fallback_thread_id
-
-                    log_debug(f"[action_parser] Retrying with original chat_id: {message.chat_id} (thread: {fallback_thread_id})")
-                    await bot.send_message(**fallback_kwargs)
-                    log_debug(f"[action_parser] Message successfully sent to fallback chat: {message.chat_id} (thread: {fallback_thread_id})")
-                except Exception as fallback_error:
-                    log_error(f"[action_parser] Fallback also failed: {fallback_error}")
-    else:
-        # Use centralized action plugin system instead of relying on plugin_instance.plugin
-        action_plugins = _plugins_for(action_type)
-        if action_plugins:
-            for plugin in action_plugins:
-                try:
-                    if hasattr(plugin, "handle_custom_action"):
-                        await plugin.handle_custom_action(action_type, payload)
-                    else:
-                        log_warning(f"[action_parser] Plugin {plugin.__class__.__name__} lacks handle_custom_action method")
-                except Exception as e:
-                    log_error(f"[action_parser] Error delegating {action_type} to plugin {plugin.__class__.__name__}: {e}")
-            return
-        
-        log_warning(
-            f"[action_parser] Unsupported action type: {action_type} — no plugin handler found"
-        )
+    # Use centralized action plugin system for all action types
+    action_plugins = _plugins_for(action_type)
+    if action_plugins:
+        for plugin in action_plugins:
+            try:
+                if hasattr(plugin, "execute_action"):
+                    result = plugin.execute_action(action, {}, bot, message)
+                    if inspect.iscoroutine(result):
+                        await result
+                elif hasattr(plugin, "handle_custom_action"):
+                    await plugin.handle_custom_action(action_type, payload)
+                else:
+                    log_warning(f"[action_parser] Plugin {plugin.__class__.__name__} lacks execute_action/handle_custom_action methods")
+            except Exception as e:
+                log_error(f"[action_parser] Error delegating {action_type} to plugin {plugin.__class__.__name__}: {e}")
+        return
+    
+    log_warning(f"[action_parser] No plugin supports action type '{action_type}' — no plugin handler found")
 
 
 def initialize_core(notify_fn=None):
@@ -409,4 +368,21 @@ def initialize_core(notify_fn=None):
     return core_initializer.initialize_all(notify_fn=notify_fn)
 
 
-__all__ = ["run_action", "run_actions", "parse_action", "validate_action", "initialize_core"]
+def get_action_plugin_instructions():
+    """Collect ultra-compact instructions from all action plugins."""
+    instructions = {}
+    
+    try:
+        for plugin in _load_action_plugins():
+            if hasattr(plugin, 'get_supported_actions'):
+                plugin_instructions = plugin.get_supported_actions()
+                if plugin_instructions and isinstance(plugin_instructions, dict):
+                    instructions.update(plugin_instructions)
+                    log_debug(f"[action_parser] Collected instructions from {plugin.__class__.__name__}")
+    except Exception as e:
+        log_error(f"[action_parser] Error collecting plugin instructions: {e}")
+    
+    return instructions
+
+
+__all__ = ["run_action", "run_actions", "parse_action", "validate_action", "initialize_core", "get_action_plugin_instructions"]

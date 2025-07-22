@@ -48,6 +48,12 @@ class EventPlugin(AIPluginBase):
         """Return the action types this plugin supports."""
         return ["event"]
 
+    def get_supported_actions(self):
+        """Return ultra-compact instructions for supported actions."""
+        return {
+            "event": "Create scheduled events: {\"actions\":[{\"type\":\"event\",\"payload\":{\"when\":\"2025-07-22T15:30:00+00:00\",\"action\":{\"type\":\"message\",\"interface\":\"telegram\",\"payload\":{\"text\":\"...\",\"target\":input.payload.source.chat_id,\"thread_id\":input.payload.source.thread_id}}}}]}"
+        }
+
     async def handle_custom_action(self, action_type: str, payload: dict):
         """Handle custom event actions."""
         if action_type == "event":

@@ -79,8 +79,21 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
     if json_data:
         log_debug(f"[transport] Detected JSON data, parsing: {json_data}")
         try:
-            # Handle both single actions and arrays of actions
-            actions = json_data if isinstance(json_data, list) else [json_data]
+            # Handle new nested actions format
+            if isinstance(json_data, dict) and "actions" in json_data:
+                actions = json_data["actions"]
+                if not isinstance(actions, list):
+                    log_warning("[transport] actions field must be a list")
+                    return await interface_send_func(*args, text=text, **kwargs)
+            # Fallback to legacy array format
+            elif isinstance(json_data, list):
+                actions = json_data
+            # Fallback to legacy single action format
+            elif isinstance(json_data, dict) and "type" in json_data:
+                actions = [json_data]
+            else:
+                log_warning(f"[transport] Unrecognized JSON structure: {json_data}")
+                return await interface_send_func(*args, text=text, **kwargs)
             
             bot = getattr(interface_send_func, '__self__', None) or (args[0] if args and hasattr(args[0], 'send_message') else None)
             
@@ -120,8 +133,29 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
     if json_data:
         log_debug(f"[telegram_transport] JSON parsed successfully: {json_data}")
         try:
-            # Handle both single actions and arrays of actions
-            actions = json_data if isinstance(json_data, list) else [json_data]
+            # Handle new nested actions format
+            if isinstance(json_data, dict) and "actions" in json_data:
+                actions = json_data["actions"]
+                if not isinstance(actions, list):
+                    log_warning("[telegram_transport] actions field must be a list")
+                    # Fall back to text sending
+                    for i in range(0, len(text), chunk_size):
+                        chunk = text[i : i + chunk_size]
+                        await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
+                    return
+            # Fallback to legacy array format
+            elif isinstance(json_data, list):
+                actions = json_data
+            # Fallback to legacy single action format
+            elif isinstance(json_data, dict) and "type" in json_data:
+                actions = [json_data]
+            else:
+                log_warning(f"[telegram_transport] Unrecognized JSON structure: {json_data}")
+                # Fall back to text sending
+                for i in range(0, len(text), chunk_size):
+                    chunk = text[i : i + chunk_size]
+                    await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
+                return
             
             # Create message context for actions
             message = SimpleNamespace()

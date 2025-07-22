@@ -24,7 +24,7 @@ class MessagePlugin:
     def get_supported_actions(self):
         """Return ultra-compact instructions for supported actions."""
         return {
-            "message": "Send text messages: {\"type\":\"message\",\"interface\":\"telegram\",\"payload\":{\"text\":\"...\",\"target\":input.payload.source.chat_id,\"thread_id\":input.payload.source.thread_id}}"
+            "message": "Send text messages: {\"actions\":[{\"type\":\"message\",\"interface\":\"telegram\",\"payload\":{\"text\":\"...\",\"target\":input.payload.source.chat_id,\"thread_id\":input.payload.source.thread_id}}]}"
         }
 
     async def execute_action(self, action: dict, context: dict, bot, original_message):
