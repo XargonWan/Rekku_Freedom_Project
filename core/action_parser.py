@@ -158,6 +158,27 @@ def _load_action_plugins() -> List[Any]:
                     try:
                         instance = obj()
                         log_debug(f"[action_parser] Loaded plugin: {obj.__name__}")
+                        
+                        # Start the plugin if it has a start method
+                        if hasattr(instance, "start"):
+                            try:
+                                if asyncio.iscoroutinefunction(instance.start):
+                                    # Try to get the running loop and schedule start
+                                    try:
+                                        loop = asyncio.get_running_loop()
+                                        if loop and loop.is_running():
+                                            loop.create_task(instance.start())
+                                            log_debug(f"[action_parser] Started async plugin: {obj.__name__}")
+                                        else:
+                                            log_debug(f"[action_parser] No running loop for plugin: {obj.__name__}")
+                                    except RuntimeError:
+                                        log_debug(f"[action_parser] No event loop for async start: {obj.__name__}")
+                                else:
+                                    instance.start()
+                                    log_debug(f"[action_parser] Started sync plugin: {obj.__name__}")
+                            except Exception as e:
+                                log_error(f"[action_parser] Error starting plugin {obj.__name__}: {e}")
+                                
                     except Exception as e:
                         log_error(f"[action_parser] Failed to init {obj}: {e}")
                         continue

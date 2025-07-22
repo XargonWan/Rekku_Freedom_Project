@@ -49,9 +49,8 @@ class CoreInitializer:
             self.startup_errors.append(f"LLM engine error: {e}")
     
     def _load_plugins(self):
-        """Auto-discover and load all available plugins for validation only."""
-        # Note: Action plugins are loaded separately by action_parser._load_action_plugins()
-        # We don't want to interfere with the global plugin variable used for LLM engine
+        """Auto-discover and load all available plugins for validation and startup."""
+        # Note: This now actually loads and starts action plugins, not just validates them
         
         plugins_dir = Path(__file__).parent.parent / "plugins"
         
@@ -70,16 +69,44 @@ class CoreInitializer:
                 continue
                 
             try:
-                # Just import and validate the plugin exists, don't instantiate it
+                # Import and instantiate the plugin
                 import importlib
+                import asyncio
                 module = importlib.import_module(f"plugins.{plugin_name}_plugin")
                 
                 if hasattr(module, "PLUGIN_CLASS"):
                     plugin_class = getattr(module, "PLUGIN_CLASS")
                     # Basic validation that it's a proper plugin class
                     if hasattr(plugin_class, "get_supported_action_types") or hasattr(plugin_class, "get_supported_actions"):
-                        self.loaded_plugins.append(plugin_name)
-                        log_info(f"[core_initializer] ✅ Plugin validated: {plugin_name}")
+                        try:
+                            # Create instance and start it
+                            instance = plugin_class()
+                            
+                            # Start the plugin if it has a start method
+                            if hasattr(instance, "start"):
+                                try:
+                                    if asyncio.iscoroutinefunction(instance.start):
+                                        # Try to get the running loop and schedule start
+                                        try:
+                                            loop = asyncio.get_running_loop()
+                                            if loop and loop.is_running():
+                                                loop.create_task(instance.start())
+                                                log_debug(f"[core_initializer] Started async plugin: {plugin_name}")
+                                            else:
+                                                log_debug(f"[core_initializer] No running loop for plugin: {plugin_name}")
+                                        except RuntimeError:
+                                            log_debug(f"[core_initializer] No event loop for async start: {plugin_name}")
+                                    else:
+                                        instance.start()
+                                        log_debug(f"[core_initializer] Started sync plugin: {plugin_name}")
+                                except Exception as e:
+                                    log_error(f"[core_initializer] Error starting plugin {plugin_name}: {e}")
+                                    
+                            self.loaded_plugins.append(plugin_name)
+                            log_info(f"[core_initializer] ✅ Plugin loaded and started: {plugin_name}")
+                        except Exception as e:
+                            log_error(f"[core_initializer] Failed to start plugin {plugin_name}: {e}")
+                            self.startup_errors.append(f"Plugin {plugin_name}: {e}")
                     else:
                         log_warning(f"[core_initializer] ⚠️ Plugin {plugin_name} doesn't implement action interface")
                         self.startup_errors.append(f"Plugin {plugin_name}: Missing action interface")
@@ -88,7 +115,7 @@ class CoreInitializer:
                     self.startup_errors.append(f"Plugin {plugin_name}: Missing PLUGIN_CLASS")
                     
             except Exception as e:
-                log_warning(f"[core_initializer] ⚠️ Failed to validate plugin {plugin_name}: {e}")
+                log_warning(f"[core_initializer] ⚠️ Failed to load plugin {plugin_name}: {e}")
                 self.startup_errors.append(f"Plugin {plugin_name}: {e}")
     
     def _discover_interfaces(self):

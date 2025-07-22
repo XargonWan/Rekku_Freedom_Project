@@ -4,26 +4,51 @@
 import json
 import re
 from typing import Any, Dict, Optional
-from core.logging_utils import log_debug, log_warning, log_error
+from core.logging_utils import log_debug, log_warning, log_error, log_info
 from core.action_parser import parse_action
 from core.telegram_utils import _send_with_retry
 from types import SimpleNamespace
 
 
-def extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
+def extract_json_from_text(text: str):
     """
-    Extract the first valid JSON block from a given text.
-
+    Extract JSON objects or arrays from text.
+    
     Args:
-        text: The input text containing potential JSON.
-
+        text: The text that may contain JSON
+        
     Returns:
-        A Python dictionary if a valid JSON block is found, otherwise None.
+        A Python dictionary, list, or None if no valid JSON is found.
     """
     try:
-        # Scan greedily for JSON blocks starting from each '{'
+        text = text.strip()
+        
+        # Check if the entire text is a JSON array
+        if text.startswith('[') and text.endswith(']'):
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                pass
+        
+        # Check if the entire text is a JSON object
+        if text.startswith('{') and text.endswith('}'):
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                pass
+        
+        # Scan greedily for JSON blocks starting from each '{' (backward compatibility)
         start_indices = [i for i, char in enumerate(text) if char == '{']
         for start in start_indices:
+            try:
+                potential_json = text[start:]
+                return json.loads(potential_json)
+            except json.JSONDecodeError:
+                continue
+        
+        # Scan for JSON arrays starting from each '['
+        array_start_indices = [i for i, char in enumerate(text) if char == '[']
+        for start in array_start_indices:
             try:
                 potential_json = text[start:]
                 return json.loads(potential_json)
@@ -50,27 +75,36 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
         text = ""
 
     # Extract JSON from text
-    action = extract_json_from_text(text)
-    if action:
-        log_debug(f"[transport] Detected JSON action, parsing: {action}")
+    json_data = extract_json_from_text(text)
+    if json_data:
+        log_debug(f"[transport] Detected JSON data, parsing: {json_data}")
         try:
-            if not all(k in action for k in ("type", "interface", "payload")):
-                log_debug(f"[transport] JSON action missing required fields: {action}")
-                return await interface_send_func(*args, text=text, **kwargs)
-
-            message = SimpleNamespace()
-            message.chat_id = kwargs.get('chat_id') or (args[0] if args else None)
-            message.text = ""
-
+            # Handle both single actions and arrays of actions
+            actions = json_data if isinstance(json_data, list) else [json_data]
+            
             bot = getattr(interface_send_func, '__self__', None) or (args[0] if args and hasattr(args[0], 'send_message') else None)
-
-            if bot:
-                await parse_action(action, bot, message)
-                return
-            else:
+            
+            if not bot:
                 log_warning("[transport] Could not extract bot instance for action parsing")
+                return await interface_send_func(*args, text=text, **kwargs)
+            
+            # Process each action
+            for action in actions:
+                if not isinstance(action, dict) or not all(k in action for k in ("type", "interface", "payload")):
+                    log_debug(f"[transport] JSON action missing required fields or invalid: {action}")
+                    continue
+
+                message = SimpleNamespace()
+                message.chat_id = kwargs.get('chat_id') or (args[0] if args else None)
+                message.text = ""
+
+                await parse_action(action, bot, message)
+                
+            log_info(f"[transport] Processed {len(actions)} JSON actions successfully")
+            return
+            
         except Exception as e:
-            log_warning(f"[transport] Failed to process JSON action: {e}")
+            log_warning(f"[transport] Failed to process JSON actions: {e}")
 
     # Send as normal text
     return await interface_send_func(*args, text=text, **kwargs)
@@ -83,23 +117,32 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
     if text is None:
         text = ""
 
-    action = extract_json_from_text(text)
-    if action:
-        log_debug(f"[telegram_transport] JSON parsed successfully: {action}")
+    json_data = extract_json_from_text(text)
+    if json_data:
+        log_debug(f"[telegram_transport] JSON parsed successfully: {json_data}")
         try:
-            if not all(k in action for k in ("type", "interface", "payload")):
-                log_debug(f"[telegram_transport] JSON action missing required fields: {action}")
-                return
+            # Handle both single actions and arrays of actions
+            actions = json_data if isinstance(json_data, list) else [json_data]
+            
+            # Process each action
+            processed_count = 0
+            for action in actions:
+                if not isinstance(action, dict) or not all(k in action for k in ("type", "interface", "payload")):
+                    log_debug(f"[telegram_transport] JSON action missing required fields or invalid: {action}")
+                    continue
 
-            message = SimpleNamespace()
-            message.chat_id = chat_id
-            message.text = ""
+                message = SimpleNamespace()
+                message.chat_id = chat_id
+                message.text = ""
 
-            await parse_action(action, bot, message)
-            log_debug(f"[telegram_transport] Action processed successfully, not sending as text")
+                await parse_action(action, bot, message)
+                processed_count += 1
+                
+            log_info(f"[telegram_transport] Processed {processed_count}/{len(actions)} JSON actions successfully")
             return
+            
         except Exception as e:
-            log_warning(f"[telegram_transport] Failed to process JSON action: {e}")
+            log_warning(f"[telegram_transport] Failed to process JSON actions: {e}")
 
     # Send as normal text with chunking
     log_debug(f"[telegram_transport] Sending as normal text with chunking")
