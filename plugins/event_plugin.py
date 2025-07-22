@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from core.ai_plugin_base import AIPluginBase
@@ -112,7 +112,7 @@ class EventPlugin(AIPluginBase):
                 event_time = event_time.replace(tzinfo=system_tz)
             
             # Convert to UTC for storage
-            event_time_utc = event_time.astimezone(datetime.timezone.utc)
+            event_time_utc = event_time.astimezone(timezone.utc)
             
             # Extract date and time parts in UTC
             date_str = event_time_utc.strftime("%Y-%m-%d")
