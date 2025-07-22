@@ -98,7 +98,22 @@ class MessagePlugin:
             log_info(f"[message_plugin] Message successfully sent to {target} (thread: {thread_id})")
             
         except Exception as e:
-            log_error(f"[message_plugin] Failed to send message to {target} (thread: {thread_id}): {e}")
+            error_message = str(e)
+            
+            # Check if the error is specifically about thread not found
+            if thread_id and ("Message thread not found" in error_message or "thread not found" in error_message.lower()):
+                log_warning(f"[message_plugin] Thread {thread_id} not found in chat {target}, retrying without thread_id")
+                try:
+                    # Retry without thread_id
+                    fallback_kwargs = {"chat_id": target, "text": text}
+                    await bot.send_message(**fallback_kwargs)
+                    log_info(f"[message_plugin] Message successfully sent to {target} (fallback: no thread)")
+                    return  # Success, exit the function
+                except Exception as no_thread_error:
+                    log_error(f"[message_plugin] Fallback without thread also failed for {target}: {no_thread_error}")
+                    # Continue to original fallback logic below
+            else:
+                log_error(f"[message_plugin] Failed to send message to {target} (thread: {thread_id}): {e}")
             
             # Try fallback to original chat if target was different
             if hasattr(original_message, "chat_id") and target != original_message.chat_id:
