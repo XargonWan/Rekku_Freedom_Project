@@ -49,9 +49,9 @@ class CoreInitializer:
             self.startup_errors.append(f"LLM engine error: {e}")
     
     def _load_plugins(self):
-        """Auto-discover and load all available plugins."""
-        # Import here to avoid circular imports
-        from core.plugin_instance import load_generic_plugin
+        """Auto-discover and load all available plugins for validation only."""
+        # Note: Action plugins are loaded separately by action_parser._load_action_plugins()
+        # We don't want to interfere with the global plugin variable used for LLM engine
         
         plugins_dir = Path(__file__).parent.parent / "plugins"
         
@@ -70,11 +70,25 @@ class CoreInitializer:
                 continue
                 
             try:
-                load_generic_plugin(plugin_name)
-                self.loaded_plugins.append(plugin_name)
-                log_info(f"[core_initializer] ✅ Plugin loaded: {plugin_name}")
+                # Just import and validate the plugin exists, don't instantiate it
+                import importlib
+                module = importlib.import_module(f"plugins.{plugin_name}_plugin")
+                
+                if hasattr(module, "PLUGIN_CLASS"):
+                    plugin_class = getattr(module, "PLUGIN_CLASS")
+                    # Basic validation that it's a proper plugin class
+                    if hasattr(plugin_class, "get_supported_action_types") or hasattr(plugin_class, "get_supported_actions"):
+                        self.loaded_plugins.append(plugin_name)
+                        log_info(f"[core_initializer] ✅ Plugin validated: {plugin_name}")
+                    else:
+                        log_warning(f"[core_initializer] ⚠️ Plugin {plugin_name} doesn't implement action interface")
+                        self.startup_errors.append(f"Plugin {plugin_name}: Missing action interface")
+                else:
+                    log_warning(f"[core_initializer] ⚠️ Plugin {plugin_name} missing PLUGIN_CLASS")
+                    self.startup_errors.append(f"Plugin {plugin_name}: Missing PLUGIN_CLASS")
+                    
             except Exception as e:
-                log_warning(f"[core_initializer] ⚠️ Failed to load plugin {plugin_name}: {e}")
+                log_warning(f"[core_initializer] ⚠️ Failed to validate plugin {plugin_name}: {e}")
                 self.startup_errors.append(f"Plugin {plugin_name}: {e}")
     
     def _discover_interfaces(self):

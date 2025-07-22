@@ -153,7 +153,8 @@ def _load_action_plugins() -> List[Any]:
                 continue
             log_debug(f"[action_parser] Checking module: {module_name}")
             for _name, obj in inspect.getmembers(module, inspect.isclass):
-                if hasattr(obj, "get_supported_actions"):
+                # Support both method names for backward compatibility
+                if hasattr(obj, "get_supported_actions") or hasattr(obj, "get_supported_action_types"):
                     try:
                         instance = obj()
                         log_debug(f"[action_parser] Loaded plugin: {obj.__name__}")
@@ -168,7 +169,14 @@ def _plugins_for(action_type: str) -> List[Any]:
     plugins = []
     for plugin in _load_action_plugins():
         try:
-            supported = plugin.get_supported_actions()
+            # Support both method names for backward compatibility
+            if hasattr(plugin, "get_supported_actions"):
+                supported = plugin.get_supported_actions()
+            elif hasattr(plugin, "get_supported_action_types"):
+                supported = plugin.get_supported_action_types()
+            else:
+                continue
+                
             if action_type in supported:
                 plugins.append(plugin)
         except Exception as e:
@@ -356,27 +364,19 @@ async def parse_action(action: dict, bot, message):
                 except Exception as fallback_error:
                     log_error(f"[action_parser] Fallback also failed: {fallback_error}")
     else:
-        plugin = getattr(plugin_instance, "plugin", None)
-        if plugin and hasattr(plugin, "get_supported_action_types") and hasattr(
-            plugin, "handle_custom_action"
-        ):
-            try:
-                supported = plugin.get_supported_action_types() or []
-            except Exception as e:
-                log_warning(
-                    f"[action_parser] Failed to query plugin action types: {e}"
-                )
-                supported = []
-
-            if action_type in supported:
+        # Use centralized action plugin system instead of relying on plugin_instance.plugin
+        action_plugins = _plugins_for(action_type)
+        if action_plugins:
+            for plugin in action_plugins:
                 try:
-                    await plugin.handle_custom_action(action_type, payload)
+                    if hasattr(plugin, "handle_custom_action"):
+                        await plugin.handle_custom_action(action_type, payload)
+                    else:
+                        log_warning(f"[action_parser] Plugin {plugin.__class__.__name__} lacks handle_custom_action method")
                 except Exception as e:
-                    log_error(
-                        f"[action_parser] Error delegating {action_type} to plugin: {e}"
-                    )
-                return
-
+                    log_error(f"[action_parser] Error delegating {action_type} to plugin {plugin.__class__.__name__}: {e}")
+            return
+        
         log_warning(
             f"[action_parser] Unsupported action type: {action_type} — no plugin handler found"
         )
