@@ -74,3 +74,28 @@ def test_plugin_action():
     ctx = {"context": {"messages": []}}
     asyncio.run(action_parser.run_action(action, ctx, None, _make_message()))
     assert test_plugin.executed_actions == [action]
+
+
+class DummyBot:
+    async def send_message(self, *args, **kwargs):
+        pass
+
+
+async def _dummy_custom(action_type, payload):
+    _dummy_custom.called.append((action_type, payload))
+
+
+def test_parse_custom_action(monkeypatch):
+    _dummy_custom.called = []
+    plugin = types.SimpleNamespace(
+        handle_custom_action=_dummy_custom,
+        get_supported_action_types=lambda: ["event"],
+    )
+    monkeypatch.setattr(plugin_instance, "plugin", plugin, raising=False)
+
+    action = {"type": "event", "interface": "telegram", "payload": {"foo": "bar"}}
+    asyncio.run(action_parser.parse_action(action, DummyBot(), _make_message()))
+
+    assert _dummy_custom.called == [("event", {"foo": "bar"})]
+
+
