@@ -44,38 +44,40 @@ def _validate_message_payload(payload: dict, errors: List[str]) -> None:
     if not isinstance(text, str) or not text:
         errors.append("payload.text must be a non-empty string")
 
-    scope = payload.get("scope")
-    if scope not in {"local", "global"}:
-        errors.append("payload.scope must be 'local' or 'global'")
-
-    privacy = payload.get("privacy")
-    if privacy not in {"default", "private", "public"}:
-        errors.append(
-            "payload.privacy must be one of ['default', 'private', 'public']"
-        )
-
+    # target può essere un int (chat_id diretto) o un dict - rendiamo flessibile
     target = payload.get("target")
     if target is not None:
-        if not isinstance(target, dict):
-            errors.append("payload.target must be a dict with chat_id and message_id")
-        else:
+        if isinstance(target, dict):
+            # Formato complesso con chat_id e message_id
             chat_id = target.get("chat_id")
             message_id = target.get("message_id")
             if not isinstance(chat_id, int):
                 errors.append("payload.target.chat_id must be an int")
-            if not isinstance(message_id, int):
+            if message_id is not None and not isinstance(message_id, int):
                 errors.append("payload.target.message_id must be an int")
+        elif not isinstance(target, int):
+            # Formato semplice: solo chat_id come int
+            errors.append("payload.target must be an int (chat_id) or dict with chat_id and message_id")
+
+    # scope e privacy sono completamente opzionali - non li validare se non presenti
+    scope = payload.get("scope")
+    if scope is not None and scope not in {"local", "global"}:
+        errors.append("payload.scope must be 'local' or 'global'")
+
+    privacy = payload.get("privacy")
+    if privacy is not None and privacy not in {"default", "private", "public"}:
+        errors.append("payload.privacy must be one of ['default', 'private', 'public']")
 
 
 def _validate_event_payload(payload: dict, errors: List[str]) -> None:
     """Validate payload for event actions."""
-    name = payload.get("name")
-    if not isinstance(name, str) or not name:
-        errors.append("payload.name must be a non-empty string for event action")
+    when = payload.get("when")
+    if not isinstance(when, str) or not when:
+        errors.append("payload.when must be a non-empty string for event action")
 
-    parameters = payload.get("parameters")
-    if parameters is not None and not isinstance(parameters, dict):
-        errors.append("payload.parameters must be a dict if provided")
+    action = payload.get("action")
+    if action is not None and not isinstance(action, dict):
+        errors.append("payload.action must be a dict if provided")
 
 
 def _validate_command_payload(payload: dict, errors: List[str]) -> None:
