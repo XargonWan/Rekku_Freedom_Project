@@ -9,6 +9,7 @@ RUN apt-get update && \
     echo \"alias snap='echo Snap is disabled'\" > /etc/profile.d/no-snap.sh && \
     apt-get install -y --no-install-recommends \
       python3 python3-pip python3-venv git curl wget unzip \
+      apache2-utils websockify openssl x11vnc \
       lsb-release ca-certificates fonts-liberation \
       fonts-noto-cjk fonts-noto-color-emoji xfonts-base && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -41,6 +42,16 @@ ENV PYTHONPATH=/app \
     PUID=1000 \
     PGID=1000
 
+# Inject GitVersion tags into the environment
+ARG GITVERSION_TAG
+ENV GITVERSION_TAG=$GITVERSION_TAG
+
+# Example usage of the tag (optional, for demonstration)
+RUN echo "Building with tag: $GITVERSION_TAG"
+
+# Save the GitVersion tag to a version file
+RUN echo "$GITVERSION_TAG" > /app/version.txt
+
 # LinuxServer hooks
 COPY automation_tools/rekku.sh /etc/cont-init.d/99-rekku.sh
 COPY automation_tools/98-fix-session.sh /etc/cont-init.d/98-fix-session.sh
@@ -57,10 +68,5 @@ RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
     && ln -sfn ../init-selkies /etc/s6-overlay/s6-rc.d/user/contents.d/init-selkies \
     && chown -R 1000:1000 /app /home/rekku /config
 
-USER root
 
-# Install tools for generating basic auth
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends apache2-utils websockify openssl x11vnc && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
 

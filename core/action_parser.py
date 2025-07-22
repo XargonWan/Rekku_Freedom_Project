@@ -61,28 +61,50 @@ def _plugins_for(action_type: str) -> List[Any]:
     return plugins
 
 
+# Update ACTIVE_INTERFACES to support multiple active interfaces
+ACTIVE_INTERFACES = set()
+
+
+# Function to register an active interface
+def register_interface(interface_name):
+    ACTIVE_INTERFACES.add(interface_name)
+    log_info(f"[action_parser] Registered active interface: {interface_name}")
+
+
+# Function to get all active interfaces
+def get_active_interfaces():
+    if not ACTIVE_INTERFACES:
+        log_warning("[action_parser] No active interfaces found.")
+    return list(ACTIVE_INTERFACES)
+
+
 async def _handle_message_action(action: Dict[str, Any], context: Dict[str, Any], bot, original_message):
     payload = action.get("payload", {})
     text = payload.get("text", "")
     log_debug(f"[action_parser] Handling message action: {text}")
 
-    # Build fake message object mimicking telegram.Message
-    msg = SimpleNamespace()
-    msg.text = text
-    msg.chat_id = getattr(original_message, "chat_id", None)
-    msg.chat = getattr(original_message, "chat", SimpleNamespace(id=msg.chat_id, type="private"))
-    msg.from_user = getattr(original_message, "from_user", None)
-    msg.message_id = int(datetime.utcnow().timestamp() * 1000) % 1_000_000
-    msg.date = datetime.utcnow()
-    msg.reply_to_message = None
+    # Get all active interfaces
+    active_interfaces = get_active_interfaces()
+    if not active_interfaces:
+        log_error("[action_parser] No active interfaces to handle the message.")
+        return
 
-    history = context.get("context", {}).get("messages", [])
-    context_memory = {msg.chat_id: deque(history, maxlen=10)}
+    # Route the message to all active interfaces
+    for interface in active_interfaces:
+        if interface == "telegram_bot":
+            from interface.telegram_bot import TelegramInterface
 
-    try:
-        await plugin_instance.handle_incoming_message(bot, msg, context_memory)
-    except Exception as e:
-        log_error(f"[action_parser] Error in _handle_message_action: {e}")
+            telegram_bot = TelegramInterface(api_id=None, api_hash=None, bot_token=None)  # Replace with actual credentials
+            await telegram_bot.send_message(original_message.chat_id, text)
+        elif interface == "telegram_userbot":
+            from interface.telethon_userbot import client
+
+            await client.send_message(original_message.chat_id, text)
+        elif interface == "discord":
+            # Add Discord interface handling here if applicable
+            log_debug("[action_parser] Discord interface handling not implemented.")
+        else:
+            log_error(f"[action_parser] Unsupported interface: {interface}")
 
 
 async def _handle_event_action(action: Dict[str, Any], _context: Dict[str, Any], _bot, _original_message):
@@ -182,14 +204,14 @@ async def parse_action(action: dict, bot, message):
         if not target:
             target = getattr(message, "chat_id", None)
             log_debug(f"[action_parser] No target specified, using original chat_id: {target}")
-        
+
         # If thread_id is missing but original message has one, use it as fallback
         if not thread_id and hasattr(message, "chat_id"):
             original_thread_id = getattr(message, "message_thread_id", None)
             if original_thread_id:
                 thread_id = original_thread_id
                 log_debug(f"[action_parser] No thread_id specified, using original thread_id: {thread_id}")
-        
+
         # Additional validation for target
         if not target:
             log_warning("[action_parser] No valid target found, cannot send message")
@@ -197,12 +219,12 @@ async def parse_action(action: dict, bot, message):
 
         try:
             log_debug(f"[action_parser] Sending message to {target} (thread_id: {thread_id}) with text: {text}")
-            
+
             # Prepare kwargs for send_message
             send_kwargs = {"chat_id": target, "text": text}
             if thread_id:
                 send_kwargs["message_thread_id"] = thread_id
-            
+
             await bot.send_message(**send_kwargs)
             log_debug(f"[action_parser] Message successfully sent to {target} (thread: {thread_id})")
         except Exception as e:
@@ -214,7 +236,7 @@ async def parse_action(action: dict, bot, message):
                     fallback_kwargs = {"chat_id": message.chat_id, "text": text}
                     if fallback_thread_id:
                         fallback_kwargs["message_thread_id"] = fallback_thread_id
-                    
+
                     log_debug(f"[action_parser] Retrying with original chat_id: {message.chat_id} (thread: {fallback_thread_id})")
                     await bot.send_message(**fallback_kwargs)
                     log_debug(f"[action_parser] Message successfully sent to fallback chat: {message.chat_id} (thread: {fallback_thread_id})")

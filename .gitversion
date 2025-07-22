@@ -1,0 +1,22 @@
+{
+  "mode": "ContinuousDelivery",
+  "branches": {
+    "main": {
+      "tag": ""
+    },
+    "develop": {
+      "tag": "develop"
+    },
+    "feature": {
+      "tag": "feat"
+    },
+    "fix": {
+      "tag": "fix"
+    }
+  },
+  "next-version": "1.0.0",
+  "ignore": {
+    "sha": []
+  },
+  "versioning-mode": "MajorMinorPatch"
+}

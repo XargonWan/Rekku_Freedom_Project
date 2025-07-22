@@ -244,6 +244,7 @@ def main():
         asyncio.create_task(send())
     plugin_instance.load_plugin(get_active_llm(), notify_fn=telegram_notify)
     log_info("🧞‍♀️ Rekku Userbot (Telethon) is online.")
+    log_info("[telegram_userbot] Interface registered as telegram_userbot.")
     client.run_until_disconnected()
 
 if __name__ == "__main__":

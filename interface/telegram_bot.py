@@ -38,6 +38,7 @@ import core.plugin_instance as plugin_instance
 from core.plugin_instance import load_plugin
 from core.weather import start_weather_updater, update_weather
 import traceback
+from telethon import TelegramClient
 
 # Carica variabili da .env
 load_dotenv()
@@ -774,6 +775,7 @@ def start_bot():
     ))
 
     log_info("🧞‍♀️ Rekku is online.")
+    log_info("[telegram_bot] Interface registered as telegram_bot.")
 
     # Fallback: ensure plugin.start() invoked in case post_init failed
     plugin_obj = plugin_instance.get_plugin()
@@ -788,4 +790,39 @@ def start_bot():
             log_error(f"[plugin] Fallback start error: {e}", e)
 
     app.run_polling()
+
+class TelegramInterface:
+    def __init__(self, api_id, api_hash, bot_token):
+        self.client = TelegramClient('bot', api_id, api_hash).start(bot_token=bot_token)
+
+    async def send_message(self, chat_id, text):
+        """Send a message to a specific chat."""
+        from core.transport_layer import universal_send
+        try:
+            await universal_send(self.client.send_message, chat_id, text=text)
+            log_debug(f"[telegram_bot] Message sent to {chat_id}: {text}")
+        except Exception as e:
+            log_error(f"[telegram_bot] Failed to send message to {chat_id}: {e}")
+
+    @staticmethod
+    def get_interface_instructions():
+        """Return specific instructions for Telegram interface."""
+        return """TELEGRAM INTERFACE INSTRUCTIONS:
+- Use chat_id for targets (can be negative for groups/channels)
+- For groups with topics, include thread_id to reply in the correct topic, but don't use the thread_id if not specified in the input, else the message will fail to be delivered.
+- Keep messages under 4096 characters
+- Use Markdown formatting:
+    * *bold* → `*bold*`
+    * _italic_ → `_italic_`
+    * __underline__ → `__underline__`
+    * ~strikethrough~ → `~strikethrough~`
+    * `monospace` → `` `monospace` ``
+    * ```code block``` → triple backticks (```)
+    * [inline URL](https://example.com) → standard Markdown link
+- Escape special characters using a backslash if needed: `_ * [ ] ( ) ~ ` > # + - = | { } . !`
+- For groups, always reply in the same chat and thread unless specifically instructed otherwise
+- Target should be the exact chat_id from input.payload.source.chat_id
+- Thread_id should be the exact thread_id from input.payload.source.thread_id (if present)
+- Interface should always be "telegram_bot"
+"""
 
