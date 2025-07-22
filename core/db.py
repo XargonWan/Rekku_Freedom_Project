@@ -274,12 +274,12 @@ def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> l
     for r in rows:
         dt_str = f"{r['date']} {r['time'] or '00:00'}"
         try:
-            event_dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=tz)
+            # Assume all events in database are stored in UTC
+            event_dt_utc = datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
         except ValueError:
             continue
         
-        # Convert to UTC for comparison
-        event_dt_utc = event_dt.astimezone(timezone.utc)
+        # Apply tolerance window (allow execution N minutes early)
         event_dt_with_tolerance = event_dt_utc - timedelta(minutes=tolerance_minutes)
         
         if event_dt_with_tolerance <= now:
@@ -292,12 +292,16 @@ def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> l
                 minutes_late = int(time_diff.total_seconds() / 60)
                 event_dict['is_late'] = True
                 event_dict['minutes_late'] = minutes_late
-                event_dict['scheduled_time'] = event_dt.strftime("%H:%M")
+                # Convert to local timezone for display
+                local_dt = event_dt_utc.astimezone(tz)
+                event_dict['scheduled_time'] = local_dt.strftime("%H:%M")
             else:
                 # Event is on time (within tolerance window)
                 event_dict['is_late'] = False
                 event_dict['minutes_late'] = 0
-                event_dict['scheduled_time'] = event_dt.strftime("%H:%M")
+                # Convert to local timezone for display
+                local_dt = event_dt_utc.astimezone(tz)
+                event_dict['scheduled_time'] = local_dt.strftime("%H:%M")
             
             due.append(event_dict)
 

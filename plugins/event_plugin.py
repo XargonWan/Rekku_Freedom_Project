@@ -54,8 +54,31 @@ class EventPlugin(AIPluginBase):
             "event": "Create scheduled events: {\"actions\":[{\"type\":\"event\",\"payload\":{\"when\":\"2025-07-22T15:30:00+00:00\",\"action\":{\"type\":\"message\",\"interface\":\"telegram\",\"payload\":{\"text\":\"...\",\"target\":input.payload.source.chat_id,\"thread_id\":input.payload.source.thread_id}}}}]}"
         }
 
+    def execute_action(self, action: dict, context: dict, bot, original_message):
+        """Execute an event action using the new plugin interface."""
+        action_type = action.get("type")
+        payload = action.get("payload", {})
+        
+        if action_type == "event":
+            log_info(f"[event_plugin] Executing event action with payload: {payload}")
+            try:
+                # Extract the nested action from the payload
+                when = payload.get("when")
+                action_data = payload.get("action", {})
+                
+                if when and action_data:
+                    # Store the scheduled event
+                    self._save_scheduled_event(when, action_data)
+                    log_info(f"[event_plugin] Event scheduled for {when}")
+                else:
+                    log_error("[event_plugin] Invalid event payload: missing 'when' or 'action'")
+            except Exception as e:
+                log_error(f"[event_plugin] Error executing event action: {e}")
+        else:
+            log_error(f"[event_plugin] Unsupported action type: {action_type}")
+
     async def handle_custom_action(self, action_type: str, payload: dict):
-        """Handle custom event actions."""
+        """Handle custom event actions (legacy method - kept for compatibility)."""
         if action_type == "event":
             log_info(f"[event_plugin] Handling event action with payload: {payload}")
             try:
@@ -75,14 +98,25 @@ class EventPlugin(AIPluginBase):
             log_error(f"[event_plugin] Unsupported action type: {action_type}")
 
     def _save_scheduled_event(self, when: str, action: dict):
-        """Save a scheduled event to the database."""
+        """Save a scheduled event to the database in UTC timezone."""
         try:
             # Parse the when timestamp
             event_time = datetime.fromisoformat(when.replace('Z', '+00:00'))
             
-            # Extract date and time parts
-            date_str = event_time.strftime("%Y-%m-%d")
-            time_str = event_time.strftime("%H:%M:%S")
+            # Convert to UTC for consistent storage
+            if event_time.tzinfo is None:
+                # If no timezone info, assume it's in the system timezone
+                from zoneinfo import ZoneInfo
+                import os
+                system_tz = ZoneInfo(os.getenv("TZ", "UTC"))
+                event_time = event_time.replace(tzinfo=system_tz)
+            
+            # Convert to UTC for storage
+            event_time_utc = event_time.astimezone(datetime.timezone.utc)
+            
+            # Extract date and time parts in UTC
+            date_str = event_time_utc.strftime("%Y-%m-%d")
+            time_str = event_time_utc.strftime("%H:%M:%S")
             
             # Serialize the action as JSON in the description field
             # Add microsecond timestamp to ensure uniqueness
@@ -98,7 +132,7 @@ class EventPlugin(AIPluginBase):
                 description=description,
                 created_by="rekku"
             )
-            log_debug(f"[event_plugin] Saved scheduled event for {event_time}")
+            log_debug(f"[event_plugin] Saved scheduled event for {event_time} (stored as UTC: {event_time_utc})")
         except Exception as e:
             log_error(f"[event_plugin] Failed to save scheduled event: {e}")
 
