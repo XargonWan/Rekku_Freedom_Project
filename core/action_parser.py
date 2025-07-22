@@ -107,9 +107,6 @@ async def _handle_message_action(action: Dict[str, Any], context: Dict[str, Any]
             log_error(f"[action_parser] Unsupported interface: {interface}")
 
 
-async def _handle_event_action(action: Dict[str, Any], _context: Dict[str, Any], _bot, _original_message):
-    payload = action.get("payload", {})
-    log_debug(f"[action_parser] EVENT placeholder: {payload}")
 
 
 async def _handle_plugin_action(action: Dict[str, Any], context: Dict[str, Any], bot, original_message):
@@ -144,8 +141,6 @@ async def run_action(action: Any, context: Dict[str, Any], bot, original_message
 
     if action_type == "message":
         await _handle_message_action(action, context, bot, original_message)
-    elif action_type == "event":
-        await _handle_event_action(action, context, bot, original_message)
     else:
         await _handle_plugin_action(action, context, bot, original_message)
 
