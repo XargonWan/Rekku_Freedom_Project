@@ -266,14 +266,15 @@ def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> l
     tz = ZoneInfo(os.getenv("TZ", "UTC"))
 
     with get_db() as db:
-        rows = db.execute(
-            """
-            SELECT * FROM scheduled_events 
-            WHERE delivered = 0 
-            AND datetime(date || ' ' || COALESCE(time, '00:00')) <= datetime('now', 'utc')
-            ORDER BY id
-            """
-        ).fetchall()
+        rows = (
+            db.execute(
+                """
+                SELECT * FROM scheduled_events
+                WHERE delivered = 0
+                ORDER BY id
+                """
+            ).fetchall()
+        )
 
     due: list[dict] = []
     for r in rows:
