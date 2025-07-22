@@ -388,8 +388,4 @@ def initialize_core(notify_fn=None):
     return core_initializer.initialize_all(notify_fn=notify_fn)
 
 
-# Call the initialization function at the start of the script
-initialize_core()
-
-
 __all__ = ["run_action", "run_actions", "parse_action", "validate_action", "initialize_core"]
