@@ -19,6 +19,47 @@ class EventPlugin(AIPluginBase):
         self.reply_map: dict[int, tuple[int, int]] = {}
         self.notify_fn = notify_fn
 
+    def _save_event(self, payload: dict) -> None:
+        """Validate and store a single event payload."""
+        tz = ZoneInfo(os.getenv("TZ", "UTC"))
+        allowed_repeats = {"none", "daily", "weekly", "monthly"}
+
+        date_str = payload.get("date")
+        desc = payload.get("description")
+        if not date_str or not desc:
+            return
+
+        try:
+            datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            return
+
+        time_val = payload.get("time")
+        if time_val:
+            try:
+                datetime.strptime(time_val, "%H:%M")
+            except ValueError:
+                return
+
+        repeat = payload.get("repeat", "none")
+        if repeat not in allowed_repeats:
+            return
+
+        try:
+            datetime.strptime(f"{date_str} {time_val or '00:00'}", "%Y-%m-%d %H:%M").replace(tzinfo=tz)
+        except ValueError:
+            return
+
+        try:
+            insert_scheduled_event(date_str, time_val, repeat, desc)
+            summary = f"{date_str}"
+            if time_val:
+                summary += f" {time_val}"
+            summary += f" → {desc}"
+            log_debug(f"[event] Saved event via custom action: {summary}")
+        except sqlite3.IntegrityError:
+            log_debug(f"[event] Duplicate event via custom action: {date_str} {time_val} {desc}")
+
     async def handle_incoming_message(self, bot, message, prompt):
         tz = ZoneInfo(os.getenv("TZ", "UTC"))
         allowed_repeats = {"none", "daily", "weekly", "monthly"}
@@ -118,6 +159,11 @@ class EventPlugin(AIPluginBase):
             reply_to_message_id=message.message_id,
         )
         return None
+
+    async def handle_custom_action(self, action_type: str, payload: dict):
+        if action_type != "event":
+            return
+        self._save_event(payload)
 
     async def generate_response(self, messages):
         return "This plugin does not generate text."
