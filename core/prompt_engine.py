@@ -286,6 +286,7 @@ JSON Response Rules:
 8. Actions are processed in order - you can mix any types: message, event, command, memory
 9. No limit on quantity: 5 messages + 3 events + 2 commands = perfectly valid
 10. Structure allows future extensions (metadata, timestamps, etc.)
+11. **EVENT TIMESTAMPS**: For 'event' actions, 'when' field MUST be UTC time with +00:00 suffix (e.g., "2025-07-22T15:30:00+00:00")
 
 All action types (message, event, command, memory) are plugins - treat them equally.
 

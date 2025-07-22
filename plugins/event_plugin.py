@@ -51,7 +51,7 @@ class EventPlugin(AIPluginBase):
     def get_supported_actions(self):
         """Return ultra-compact instructions for supported actions."""
         return {
-            "event": "Create scheduled events: {\"actions\":[{\"type\":\"event\",\"payload\":{\"when\":\"2025-07-22T15:30:00+00:00\",\"action\":{\"type\":\"message\",\"interface\":\"telegram\",\"payload\":{\"text\":\"...\",\"target\":input.payload.source.chat_id,\"thread_id\":input.payload.source.thread_id}}}}]}"
+            "event": "Create scheduled events with UTC timestamps: {\"actions\":[{\"type\":\"event\",\"payload\":{\"when\":\"2025-07-22T15:30:00+00:00\",\"action\":{\"type\":\"message\",\"interface\":\"telegram\",\"payload\":{\"text\":\"...\",\"target\":input.payload.source.chat_id,\"thread_id\":input.payload.source.thread_id}}}}]} - IMPORTANT: 'when' must be UTC time (append +00:00)"
         }
 
     def execute_action(self, action: dict, context: dict, bot, original_message):
@@ -505,7 +505,7 @@ class EventPlugin(AIPluginBase):
                 }
             },
             "instructions": f"""
-EVENT {event_id} {"LATE+" + str(minutes_late) + "m" if is_late else "ON TIME"} | Execute: {json.dumps(action, separators=(',', ':'))} | Reply JSON: {{"type":"message","interface":"telegram","payload":{{"text":"...","target":N,"thread_id":N}}}}
+EVENT {event_id} {"LATE+" + str(minutes_late) + "m" if is_late else "ON TIME"} | Execute: {json.dumps(action, separators=(',', ':'))} | Reply JSON: {{"type":"message","interface":"telegram","payload":{{"text":"...","target":N,"thread_id":N}}}} | REMINDER: All timestamps are in UTC (database stores events in UTC timezone)
             """.strip(),
             "interface_instructions": "SCHED: Single JSON reply"
         }
