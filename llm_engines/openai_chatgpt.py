@@ -4,6 +4,7 @@ from core.ai_plugin_base import AIPluginBase
 import json
 import openai  # Assicurati che sia installato
 from core.config import get_user_api_key
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 class OpenAIPlugin(AIPluginBase):
 
@@ -14,11 +15,11 @@ class OpenAIPlugin(AIPluginBase):
         self.reply_map = {}
 
         if notify_fn:
-            print("[DEBUG/openai] Uso funzione di notifica personalizzata.")
+            log_debug("[openai] Uso funzione di notifica personalizzata.")
             set_notifier(notify_fn)
         else:
-            print("[DEBUG/openai] Nessuna funzione di notifica fornita, uso fallback.")
-            set_notifier(lambda chat_id, message: print(f"[NOTIFY fallback] {message}"))
+            log_debug("[openai] Nessuna funzione di notifica fornita, uso fallback.")
+            set_notifier(lambda chat_id, message: log_info(f"[NOTIFY fallback] {message}"))
 
         self._current_model = get_current_model() or "gpt-3.5-turbo"
 
@@ -35,9 +36,9 @@ class OpenAIPlugin(AIPluginBase):
 
     def set_current_model(self, name):
         if name not in self.get_supported_models():
-            raise ValueError(f"Modello non supportato: {name}")
+            raise ValueError(f"Unsupported model: {name}")
         self._current_model = name
-        print(f"[DEBUG/openai] Modello attivo aggiornato: {name}")
+        log_debug(f"[openai] Active model updated: {name}")
 
     def get_target(self, trainer_message_id):
         return self.reply_map.get(trainer_message_id)
@@ -48,13 +49,13 @@ class OpenAIPlugin(AIPluginBase):
     async def handle_incoming_message(self, bot, message, prompt):
         from core.notifier import notify_owner
 
-        notify_owner("🚨 Sto generando la risposta...")
+        notify_owner("🚨 Generating the reply...")
 
         try:
             response = await self.generate_response(prompt)
 
             if bot and message:
-                print(f"[DEBUG/openai] Invio risposta a chat_id={message.chat_id}")
+                log_debug(f"[openai] Invio risposta a chat_id={message.chat_id}")
                 await bot.send_message(
                     chat_id=message.chat_id,
                     text=response,
@@ -64,15 +65,15 @@ class OpenAIPlugin(AIPluginBase):
             return response
 
         except Exception as e:
-            print(f"[ERROR/OpenAI] Errore durante la risposta: {e}")
-            notify_owner(f"❌ Errore OpenAI:\n```\n{e}\n```")
+            log_error(f"[OpenAI] Error while responding: {e}", e)
+            notify_owner(f"❌ OpenAI error:\n```\n{e}\n```")
 
             if bot and message:
                 await bot.send_message(
                     chat_id=message.chat_id,
-                    text="⚠️ Errore nella risposta LLM."
+                    text="⚠️ LLM response error."
                 )
-            return "⚠️ Errore durante la generazione della risposta."
+            return "⚠️ Error during response generation."
 
     async def generate_response(self, prompt):
         from core.config import get_user_api_key
@@ -83,7 +84,7 @@ class OpenAIPlugin(AIPluginBase):
 
         messages.append({
             "role": "system",
-            "content": "Sei un assistente utile, preciso e sintetico."
+            "content": "You are a helpful, precise and concise assistant."
         })
 
         for entry in prompt.get("context", []):
@@ -96,7 +97,7 @@ class OpenAIPlugin(AIPluginBase):
             memory_text = "\n".join(f"- {m}" for m in prompt["memories"])
             messages.append({
                 "role": "system",
-                "content": f"[MEMORIE RILEVANTI]\n{memory_text}"
+                "content": f"[RELEVANT MEMORIES]\n{memory_text}"
             })
 
         messages.append({
@@ -104,7 +105,7 @@ class OpenAIPlugin(AIPluginBase):
             "content": prompt["message"]["text"]
         })
 
-        print(f"[DEBUG/openai] Invio a OpenAI con modello: {self._current_model}")
+        log_debug(f"[openai] Invio a OpenAI con modello: {self._current_model}")
         response = openai.ChatCompletion.create(
             model=self._current_model,
             messages=messages
@@ -117,10 +118,10 @@ class OpenAIPlugin(AIPluginBase):
         # Adatta il prompt al formato richiesto dalle OpenAI API
         messages = []
 
-        # Se vuoi, puoi aggiungere un messaggio system opzionale
+        # Optionally add a system message
         messages.append({
             "role": "system",
-            "content": "Sei un assistente utile, preciso e sintetico."
+            "content": "You are a helpful, precise and concise assistant."
         })
 
         # Aggiungi i messaggi di contesto
@@ -135,7 +136,7 @@ class OpenAIPlugin(AIPluginBase):
             memory_text = "\n".join(f"- {m}" for m in prompt["memories"])
             messages.append({
                 "role": "system",
-                "content": f"[MEMORIE RILEVANTI]\n{memory_text}"
+                "content": f"[RELEVANT MEMORIES]\n{memory_text}"
             })
 
         # Aggiungi il messaggio corrente dell'utente

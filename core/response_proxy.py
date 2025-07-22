@@ -1,6 +1,6 @@
 import time
 
-# ⏳ Durata di validità per una risposta in attesa
+# ⏳ Validity duration for a pending response
 TIMEOUT_SECONDS = 60
 
 # user_id: { chat_id, message_id, type, expires_at }
@@ -8,7 +8,7 @@ pending_targets = {}
 
 def set_target(user_id, chat_id, message_id, content_type):
     """
-    Registra un target temporaneo per una risposta (es. messaggio in attesa di addestramento).
+    Register a temporary target for a response (e.g. a message pending training).
     """
     expires_at = time.time() + TIMEOUT_SECONDS
     pending_targets[user_id] = {
@@ -20,7 +20,7 @@ def set_target(user_id, chat_id, message_id, content_type):
 
 def get_target(user_id):
     """
-    Recupera un target valido (se non scaduto).
+    Retrieve a valid target if not expired.
     """
     entry = pending_targets.get(user_id)
     if not entry:
@@ -32,12 +32,12 @@ def get_target(user_id):
 
 def clear_target(user_id):
     """
-    Rimuove un target assegnato.
+    Remove an assigned target.
     """
     pending_targets.pop(user_id, None)
 
 def has_pending(user_id):
     """
-    Verifica se un utente ha un target in attesa.
+    Check whether a user has a pending target.
     """
     return user_id in pending_targets

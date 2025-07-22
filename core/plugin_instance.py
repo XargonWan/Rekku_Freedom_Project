@@ -4,6 +4,9 @@ from core.config import get_active_llm, set_active_llm
 from core.prompt_engine import load_identity_prompt
 import json
 from core.prompt_engine import build_json_prompt
+import asyncio
+from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.action_parser import parse_action
 
 plugin = None
 rekku_identity_prompt = None
@@ -11,40 +14,40 @@ rekku_identity_prompt = None
 def load_plugin(name: str, notify_fn=None):
     global plugin, rekku_identity_prompt
 
-    # 🔁 Se già caricato ma diverso, sostituiscilo o aggiorna notify_fn
+    # 🔁 If already loaded but different, replace it or update notify_fn
     if plugin is not None:
         current_plugin_name = plugin.__class__.__module__.split(".")[-1]
         if current_plugin_name != name:
-            print(f"[DEBUG/plugin] 🔄 Cambio plugin da {current_plugin_name} a {name}")
+            log_debug(f"[plugin] 🔄 Cambio plugin da {current_plugin_name} a {name}")
         else:
-            # 🔁 Anche se è lo stesso plugin, aggiorna notify_fn se fornita
+            # 🔁 Even if it's the same plugin, update notify_fn if provided
             if notify_fn and hasattr(plugin, "set_notify_fn"):
                 try:
                     plugin.set_notify_fn(notify_fn)
-                    print("[DEBUG/plugin] ✅ notify_fn aggiornata dinamicamente")
+                    log_debug("[plugin] ✅ notify_fn updated dynamically")
                 except Exception as e:
-                    print(f"[ERROR/plugin] ❌ Impossibile aggiornare notify_fn: {e}")
+                    log_error(f"[plugin] ❌ Unable to update notify_fn: {e}", e)
             else:
-                print(f"[DEBUG/plugin] ⚠️ Plugin già caricato: {plugin.__class__.__name__}")
+                log_debug(f"[plugin] ⚠️ Plugin already loaded: {plugin.__class__.__name__}")
             return
 
     try:
         import importlib
         module = importlib.import_module(f"llm_engines.{name}")
-        print(f"[DEBUG/plugin] Modulo llm_engines.{name} importato con successo.")
+        log_debug(f"[plugin] Module llm_engines.{name} imported successfully.")
     except ModuleNotFoundError as e:
-        print(f"[ERROR/plugin] ❌ Impossibile importare llm_engines.{name}: {e}")
-        raise ValueError(f"LLM plugin non valido: {name}")
+        log_error(f"[plugin] ❌ Unable to import llm_engines.{name}: {e}", e)
+        raise ValueError(f"Invalid LLM plugin: {name}")
 
     if not hasattr(module, "PLUGIN_CLASS"):
-        raise ValueError(f"Il plugin `{name}` non definisce `PLUGIN_CLASS`.")
+        raise ValueError(f"Plugin `{name}` does not define `PLUGIN_CLASS`.")
 
     plugin_class = getattr(module, "PLUGIN_CLASS")
 
     if notify_fn:
-        print("[DEBUG/plugin] Funzione notify_fn passata al plugin.")
+        log_debug("[plugin] notify_fn function passed to plugin.")
     else:
-        print("[DEBUG/plugin] ⚠️ Nessuna funzione notify_fn fornita.")
+        log_debug("[plugin] ⚠️ No notify_fn function provided.")
 
     try:
         plugin_args = plugin_class.__init__.__code__.co_varnames
@@ -53,17 +56,38 @@ def load_plugin(name: str, notify_fn=None):
         else:
             plugin_instance = plugin_class()
     except Exception as e:
-        print(f"[ERROR/plugin] ❌ Errore nell'inizializzazione del plugin: {e}")
+        log_error(f"[plugin] ❌ Error during plugin initialization: {e}", e)
         raise
 
     plugin = plugin_instance
-    print(f"[DEBUG/plugin] Plugin inizializzato: {plugin.__class__.__name__}")
+    log_debug(f"[plugin] Plugin initialized: {plugin.__class__.__name__}")
+
+    if hasattr(plugin, "start"):
+        try:
+            start_fn = plugin.start
+            if asyncio.iscoroutinefunction(start_fn):
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                if loop and loop.is_running():
+                    loop.create_task(start_fn())
+                    log_debug("[plugin] Plugin start executed on running loop.")
+                else:
+                    log_debug(
+                        "[plugin] No running loop; plugin start will be invoked later."
+                    )
+            else:
+                start_fn()
+                log_debug("[plugin] Plugin start executed.")
+        except Exception as e:
+            log_error(f"[plugin] Error during plugin start: {e}", e)
 
     if name != "manual":
         rekku_identity_prompt = load_identity_prompt()
-        print("[DEBUG/plugin] Prompt identitario caricato.")
+        log_debug("[plugin] Identity prompt loaded.")
 
-    # Modello predefinito
+    # Default model
     if hasattr(plugin, "get_supported_models"):
         try:
             models = plugin.get_supported_models()
@@ -72,20 +96,30 @@ def load_plugin(name: str, notify_fn=None):
                 current = get_current_model()
                 if not current:
                     set_current_model(models[0])
-                    print(f"[DEBUG/plugin] Modello predefinito impostato: {models[0]}")
+                    log_debug(f"[plugin] Default model set: {models[0]}")
         except Exception as e:
-            print(f"[WARNING/plugin] Errore durante il setup del modello: {e}")
+            log_warning(f"[plugin] Error during model setup: {e}")
 
     set_active_llm(name)
 
 async def handle_incoming_message(bot, message, context_memory):
+    """Process incoming messages and handle actions."""
+    log_debug(f"[plugin_instance] Received message: {message.text}")
+    log_debug(f"[plugin_instance] Context memory: {context_memory}")
+
     if plugin is None:
-        raise RuntimeError("Nessun plugin LLM caricato.")
+        raise RuntimeError("No LLM plugin loaded.")
+
+    user_id = message.from_user.id if message.from_user else "unknown"
+    text = message.text or ""
+    log_debug(
+        f"[plugin] Incoming for {plugin.__class__.__name__}: chat_id={message.chat_id}, user_id={user_id}, text={text!r}"
+    )
 
     prompt = await build_json_prompt(message, context_memory)
 
-    print("[DEBUG] \U0001f310 PROMPT JSON costruito per il plugin:")
-    print(json.dumps(prompt, indent=2, ensure_ascii=False))
+    log_debug("🌐 JSON PROMPT built for the plugin:")
+    log_debug(json.dumps(prompt, indent=2, ensure_ascii=False))
 
     return await plugin.handle_incoming_message(bot, message, prompt)
 
@@ -100,6 +134,9 @@ def get_target(message_id):
     if plugin and hasattr(plugin, "get_target"):
         return plugin.get_target(message_id)
     return None
+
+def get_plugin():
+    return plugin
 
 def get_plugin():
     return plugin

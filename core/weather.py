@@ -1,13 +1,12 @@
 import asyncio
 import json
-import logging
 import os
 import urllib.parse
 import urllib.request
 
 current_weather = None
 
-_logger = logging.getLogger("rekku.weather")
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 
 def _choose_emoji(description: str) -> str:
@@ -35,25 +34,25 @@ async def update_weather() -> None:
     location = os.getenv("WEATHER_LOCATION", "Kyoto")
     encoded = urllib.parse.quote(location)
     url = f"https://wttr.in/{encoded}?format=j1"
-    _logger.info("Fetching weather for %s", location)
-    print(f"[DEBUG/weather] Fetching weather for location: {location}")
+    log_info(f"Fetching weather for {location}")
+    log_debug(f"Fetching weather for location: {location}")
 
     try:
         response = await asyncio.to_thread(urllib.request.urlopen, url)
         status = getattr(response, "status", 200)
-        _logger.info("HTTP status: %s", status)
-        print(f"[DEBUG/weather] HTTP response status: {status}")
+        log_info(f"HTTP status: {status}")
+        log_debug(f"HTTP response status: {status}")
         data_bytes = await asyncio.to_thread(response.read)
     except Exception as e:
-        _logger.warning("Failed to fetch weather: %s", e)
-        print(f"[ERROR/weather] Failed to update weather: {e}")
+        log_warning(f"Failed to fetch weather: {e}")
+        log_error("Failed to update weather", e)
         current_weather = "Weather data unavailable."
         return
 
     try:
-        print("[DEBUG/weather] Parsing started...")
+        log_debug("Parsing started...")
         data = json.loads(data_bytes.decode())
-        print("[DEBUG/weather] Weather JSON fetched successfully.")
+        log_debug("Weather JSON fetched successfully.")
         cc = data.get("current_condition", [{}])[0]
         desc = cc.get("weatherDesc", [{}])[0].get("value", "N/A")
         temp_c = cc.get("temp_C", "N/A")
@@ -65,17 +64,9 @@ async def update_weather() -> None:
         visibility = cc.get("visibility", "N/A")
         pressure = cc.get("pressure", "N/A")
 
-        _logger.info(
-            "Parsed values: desc=%s temp=%s feels=%s humidity=%s wind=%s%s cloud=%s visibility=%s pressure=%s",
-            desc,
-            temp_c,
-            feels_c,
-            humidity,
-            wind_speed,
-            wind_dir,
-            cloudcover,
-            visibility,
-            pressure,
+        log_debug(
+            f"Parsed values: desc={desc} temp={temp_c} feels={feels_c} humidity={humidity} "
+            f"wind={wind_speed}{wind_dir} cloud={cloudcover} visibility={visibility} pressure={pressure}"
         )
 
         emoji = _choose_emoji(desc)
@@ -85,21 +76,21 @@ async def update_weather() -> None:
             f"Wind {wind_speed}km/h {wind_dir}, Visibility {visibility}km, "
             f"Pressure {pressure}hPa, Cloud cover {cloudcover}%)"
         )
-        print(f"[DEBUG/weather] Final weather string: {weather_string}")
+        log_debug(f"Final weather string: {weather_string}")
         current_weather = weather_string
-        _logger.info("Weather string: %s", current_weather)
+        log_info(f"Weather string: {current_weather}")
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"[ERROR/weather] Failed to parse or format weather data: {e}")
-        _logger.warning("Error parsing weather data: %s", e)
+        log_error("Failed to parse or format weather data", e)
+        log_warning(f"Error parsing weather data: {e}")
         current_weather = "Weather data unavailable."
 
 
 def start_weather_updater():
     async def update_loop():
         await update_weather()
-        print("[DEBUG] Weather updater started and initial fetch done.")
+        log_debug("Weather updater started and initial fetch done.")
         while True:
             await asyncio.sleep(1800)
             await update_weather()

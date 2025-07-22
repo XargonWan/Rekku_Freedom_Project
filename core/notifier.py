@@ -2,12 +2,13 @@
 
 from core.config import OWNER_ID
 from typing import Callable, List, Tuple
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 _pending: List[Tuple[int, str]] = []
 
 def _default_notify(chat_id: int, message: str):
     """Fallback when no real notifier is configured."""
-    print(f"[NOTIFY:{chat_id}] {message}")
+    log_info(f"[NOTIFY:{chat_id}] {message}")
     _pending.append((chat_id, message))
 
 _notify_impl: Callable[[int, str], None] = _default_notify
@@ -20,13 +21,21 @@ def set_notifier(fn: Callable[[int, str], None]):
         try:
             fn(chat_id, msg)
         except Exception as e:
-            print(f"[ERROR/notifier] Failed to send pending message: {e}")
+            log_error(f"[notifier] Failed to send pending message: {e}")
     _pending.clear()
 
+CHUNK_SIZE = 4000
+
 def notify(chat_id: int, message: str):
-    print(f"[DEBUG/notifier] Inviando messaggio a {chat_id}: {message}")
-    _notify_impl(chat_id, message)
+    """Send ``message`` to ``chat_id`` in chunks to avoid Telegram limits."""
+    log_debug(f"[notifier] Sending message to {chat_id}: {message}")
+    for i in range(0, len(message or ""), CHUNK_SIZE):
+        chunk = message[i : i + CHUNK_SIZE]
+        try:
+            _notify_impl(chat_id, chunk)
+        except Exception as e:  # pragma: no cover - best effort
+            log_error(f"[notifier] Failed to send notification chunk: {e}")
 
 def notify_owner(message: str):
-    print(f"[DEBUG/notifier] Notifica per OWNER_ID={OWNER_ID}: {message}")
+    log_debug(f"[notifier] Notification for OWNER_ID={OWNER_ID}: {message}")
     notify(OWNER_ID, message)

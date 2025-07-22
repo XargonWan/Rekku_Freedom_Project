@@ -1,17 +1,23 @@
 services:
-  rekku_the_bot:
-    container_name: rekku_the_bot
-    image: rekku_the_bot:latest
-    restart: on-failure
-    environment:
-      - TELEGRAM_TOKEN=${REKKU_TELEGRAM_TOKEN}
-      - OWNER_ID=${TELEGRAM_OWNER_ID}
-      - WEBVIEW_PORT=${REKKU_WEBVIEW_PORT:-5005}
-      - WEBVIEW_HOST=${REKKU_WEBVIEW_HOST:-localhost}
+  rekku_freedom_project:
+    image: rekku_freedom_project:latest
+    container_name: rekku_freedom_project
+    hostname: luna-workstation
     ports:
-      - "${REKKU_WEBVIEW_PORT:-5005}:${REKKU_WEBVIEW_PORT:-5005}"
+      - "${WEBVIEW_PORT:-5006}:3000"
     volumes:
-      - ./logs:/app/debug_logs
-      - ./selenium_profile:/app/selenium_profile
-    env_file:
-      - .env
+      - ./persona/mind:/app/persona
+      - ./persona/home:/home/rekku
+      - ./persona/webtop_config:/config
+      - ./logs:/config/logs
+      - .env:/app/.env:ro
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Kyoto
+      - CUSTOM_USER=${CUSTOM_USER:-abc}
+      - PASSWORD=${PASSWORD}
+      - SECURE_CONNECTION=0
+    restart: unless-stopped
+    stdin_open: true
+    tty: true

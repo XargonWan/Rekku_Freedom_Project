@@ -2,6 +2,7 @@
 
 from core.db import get_db
 from datetime import datetime, timedelta, timezone
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 # Intervallo di osservazione per valutare se l\u2019emozione � rinforzata o attenuata
 LOOKBACK_MINUTES = 30
@@ -48,5 +49,5 @@ def process_triggers_for_emotion(emotion: dict) -> int:
         if any(k in text for k in soften_keywords.get(emotion_type, [])):
             delta -= 1
 
-    print(f"[TriggerProcessor] Delta valutato per {emotion_type}: {delta}")
+    log_debug(f"[TriggerProcessor] Delta valutato per {emotion_type}: {delta}")
     return delta

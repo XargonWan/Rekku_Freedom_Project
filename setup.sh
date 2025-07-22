@@ -1,82 +1,72 @@
 #!/bin/bash
-
 set -e
 
-# Modalità CI/CD: risponde automaticamente "yes" a tutte le richieste
+IMAGE_NAME="rekku_freedom_project"
+NEEDS_SUDO=""
 AUTO_YES=false
+NO_CACHE=false
+
+# Parse args
 for arg in "$@"; do
-  if [[ "$arg" == "--cicd" ]]; then
-    AUTO_YES=true
-  fi
+  case "$arg" in
+    --cicd) AUTO_YES=true ;;
+    --no-cache) NO_CACHE=true ;;
+  esac
 done
 
-IMAGE_NAME="rekku_the_bot"
-NEEDS_SUDO=""
-
+# Load .env if available
 if [ -f .env ]; then
   source .env
 else
-  echo "⚠️  File .env non trovato. Alcune variabili potrebbero mancare."
+  echo "⚠️  .env file not found. Some variables may be missing."
 fi
 
-# 🐳 Verifica se Docker è installato
+# Check Docker install
 if ! command -v docker &> /dev/null; then
-  echo "❌ Docker non è installato."
-  echo "Vuoi installarlo ora? (richiede sudo) [y/N]"
-  if [ "$AUTO_YES" = true ]; then
-    risposta="y"
-    echo "Risposta automatica: yes"
-  else
-    read -r risposta
-  fi
-  if [[ "$risposta" =~ ^[Yy]$ ]]; then
-    echo "🔧 Installazione di Docker..."
+  echo "❌ Docker is not installed. Install now? [y/N]"
+  if [ "$AUTO_YES" = true ]; then answer="y"; else read -r answer; fi
+  if [[ "$answer" =~ ^[Yy]$ ]]; then
+    echo "🔧 Installing Docker..."
     sudo apt-get update
     sudo apt-get install -y docker.io
     sudo systemctl enable docker
     sudo systemctl start docker
-    echo "✅ Docker installato con successo."
+    echo "✅ Docker installed."
   else
-    echo "⛔ Interrotto. Installa Docker manualmente e riprova."
+    echo "⛔ Aborted. Please install Docker manually and re-run."
     exit 1
   fi
 fi
 
-# 🔒 Verifica accesso al socket Docker
+# Check Docker permission
 if ! docker info > /dev/null 2>&1; then
-  echo "⚠️ L'utente $(whoami) non ha accesso al daemon Docker."
-  echo "Vuoi aggiungerlo al gruppo docker per evitare sudo in futuro? [y/N]"
-  if [ "$AUTO_YES" = true ]; then
-    addgroup="y"
-    echo "Risposta automatica: yes"
-  else
-    read -r addgroup
-  fi
+  echo "⚠️  User $(whoami) lacks Docker permissions. Add to group? [y/N]"
+  if [ "$AUTO_YES" = true ]; then addgroup="y"; else read -r addgroup; fi
   if [[ "$addgroup" =~ ^[Yy]$ ]]; then
-    sudo usermod -aG docker "$USER"
-    echo "✅ Utente aggiunto al gruppo docker."
-    echo "🔁 Riavvia la sessione o esegui 'newgrp docker' per applicare subito."
-    echo "⏳ Procedo comunque usando sudo per ora..."
+    HOST_USER=$(whoami)
+    sudo usermod -aG docker "$HOST_USER"
+    echo "✅ Added to docker group. Re-login recommended."
     NEEDS_SUDO="sudo"
   else
-    echo "⏳ Procedo usando sudo..."
+    echo "⏳ Using sudo for Docker commands."
     NEEDS_SUDO="sudo"
   fi
 fi
 
-# 🐳 Costruzione immagine Docker
-echo "🐳 Costruzione immagine Docker: $IMAGE_NAME"
-$NEEDS_SUDO docker build -t "$IMAGE_NAME" .
+# Build options
+BUILD_ARGS="-t $IMAGE_NAME"
+if [ "$NO_CACHE" = true ]; then
+  BUILD_ARGS="--no-cache $BUILD_ARGS"
+fi
 
-echo "✅ Immagine Docker aggiornata."
+# Build Docker image
+echo "🐳 Building Docker image: $IMAGE_NAME"
+$NEEDS_SUDO docker build $BUILD_ARGS .
+
+echo "✅ Docker image built."
 
 echo ""
-echo "📦 Volume persistente consigliato per i cookie Selenium:"
-echo "    $NEEDS_SUDO docker run -v $(pwd)/selenium_profile:/app/selenium_profile $IMAGE_NAME"
-
-echo ""
-echo "🔁 Per avviare con log live:"
+echo "🔁 To start with live logs:"
 echo "    ./start.sh"
-
 echo ""
-echo "🎉 Setup completato!"
+echo "🎉 Setup complete!"

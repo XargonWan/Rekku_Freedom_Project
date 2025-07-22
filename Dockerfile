@@ -1,71 +1,72 @@
-FROM debian:bookworm
+FROM lscr.io/linuxserver/webtop:ubuntu-xfce
 
-ENV CHROME_BIN=/usr/bin/chromium
-ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
-ENV DISPLAY=:0
-ENV WEBVIEW_PORT=5005
+# Basic packages and Snap removal
+RUN apt-get update && \
+    apt-get purge -y snapd && \
+    rm -rf /var/cache/snapd /snap /var/snap /var/lib/snapd && \
+    printf '#!/bin/sh\necho \"Snap is disabled\"\n' > /usr/local/bin/snap && \
+    chmod +x /usr/local/bin/snap && \
+    echo \"alias snap='echo Snap is disabled'\" > /etc/profile.d/no-snap.sh && \
+    apt-get install -y --no-install-recommends \
+      python3 python3-pip python3-venv git curl wget unzip \
+      apache2-utils websockify openssl x11vnc \
+      lsb-release ca-certificates fonts-liberation \
+      fonts-noto-cjk fonts-noto-color-emoji xfonts-base && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Installa Chrome + dipendenze + VNC stack
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    python3-distutils \
-    chromium \
-    chromium-driver \
-    xfce4 \
-    x11vnc \
-    xvfb \
-    dbus \
-    dbus-x11 \
-    xinit \
-    udev \
-    websockify \
-    wget \
-    curl \
-    unzip \
-    fonts-liberation \
-    fonts-dejavu-core \
-    fonts-noto-color-emoji \
-    libnss3 \
-    libx11-6 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libgtk-3-0 \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libdrm2 \
-    libxss1 \
-    sudo \
-    && rm -rf /var/lib/apt/lists/*
+# Install Google Chrome (let undetected-chromedriver handle compatibility)
+RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/trusted.gpg.d/google-chrome.gpg && \
+    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+    apt-get update && \
+    apt-get install -y google-chrome-stable && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    google-chrome --version
 
-# Crea l'utente non privilegiato 'rekku' con sudo senza password
-RUN useradd -m -s /bin/bash rekku \
-    && echo 'rekku ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-
-# Scarica noVNC
-RUN mkdir -p /opt/novnc && \
-    wget https://github.com/novnc/noVNC/archive/refs/heads/master.zip -O /tmp/novnc.zip && \
-    unzip /tmp/novnc.zip -d /opt && \
-    mv /opt/noVNC-master/* /opt/novnc && \
-    rm -rf /tmp/novnc.zip
-
-# Copia codice del bot
+# Copy project code
+COPY requirements.txt /app/requirements.txt
 WORKDIR /app
-COPY . .
 
-# Installa dipendenze Python
-RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
+# Python venv
+RUN python3 -m venv /app/venv && \
+    /app/venv/bin/pip install --no-cache-dir --upgrade pip setuptools && \
+    /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 
-# Copia script avvio VNC + bot
-COPY automation_tools/start-vnc.sh /start-vnc.sh
-RUN chmod +x /start-vnc.sh
+# Copy project code last to leverage layer caching
+COPY . /app
 
-# VOLUME persistente (se desiderato)
-VOLUME ["/app/selenium_profile"]
+# ENV
+ENV PYTHONPATH=/app \
+    TZ=Asia/Tokyo \
+    PATH=/app/venv/bin:$PATH \
+    HOME=/home/rekku \
+    PUID=1000 \
+    PGID=1000
 
-EXPOSE 5005
+# Inject GitVersion tags into the environment
+ARG GITVERSION_TAG
+ENV GITVERSION_TAG=$GITVERSION_TAG
 
-CMD ["/start-vnc.sh"]
+# Example usage of the tag (optional, for demonstration)
+RUN echo "Building with tag: $GITVERSION_TAG"
+
+# Save the GitVersion tag to a version file
+RUN echo "$GITVERSION_TAG" > /app/version.txt
+
+# LinuxServer hooks
+COPY automation_tools/rekku.sh /etc/cont-init.d/99-rekku.sh
+COPY automation_tools/98-fix-session.sh /etc/cont-init.d/98-fix-session.sh
+COPY automation_tools/01-password.sh /etc/cont-init.d/01-password.sh
+COPY automation_tools/cleanup_chrome.sh /etc/cont-init.d/97-cleanup-chrome.sh
+COPY automation_tools/init-selkies.sh /etc/s6-overlay/s6-rc.d/init-selkies/run
+COPY automation_tools/init-selkies.type /etc/s6-overlay/s6-rc.d/init-selkies/type
+COPY automation_tools/container_rekku.sh /app/rekku.sh
+RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
+        /etc/s6-overlay/s6-rc.d/init-selkies/run /etc/cont-init.d/98-fix-session.sh \
+        /etc/cont-init.d/97-cleanup-chrome.sh \
+        /app/rekku.sh \
+    && mkdir -p /home/rekku /config /etc/s6-overlay/s6-rc.d/user/contents.d \
+    && ln -sfn ../init-selkies /etc/s6-overlay/s6-rc.d/user/contents.d/init-selkies \
+    && chown -R 1000:1000 /app /home/rekku /config
+
+
+

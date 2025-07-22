@@ -1,11 +1,16 @@
 from telethon import TelegramClient, events, Button
 from telethon.tl.types import PeerUser, PeerChat, PeerChannel
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover - fallback if python-dotenv not installed
+    def load_dotenv(*args, **kwargs):
+        return False
 import os
 import re
 from collections import deque
 import core.plugin_instance as plugin_instance
 from core.plugin_instance import load_plugin
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.message_sender import detect_media_type, extract_response_target
 from core.config import get_active_llm, set_active_llm, list_available_llms
 from core.config import OWNER_ID
@@ -32,7 +37,7 @@ def escape_markdown(text):
 
 async def ensure_plugin_loaded(event):
     if plugin_instance.plugin is None:
-        print("[ERROR] Nessun plugin LLM caricato.")
+        log_error("Nessun plugin LLM caricato.")
         await event.reply("⚠️ Nessun plugin LLM attivo. Usa .llm per selezionarne uno.")
         return False
     return True
@@ -84,7 +89,7 @@ async def last_chats_command(event):
         return
     entries = await recent_chats.get_last_active_chats_verbose(10, client)
     if not entries:
-        await event.reply("\u26a0\ufe0f Nessuna chat recente trovata.")
+        await event.reply("\u26a0\ufe0f No recent chat found.")
         return
     lines = [f"[{escape_markdown(name)}](tg://user?id={cid}) — `{cid}`" for cid, name in entries]
     await event.reply(
@@ -157,16 +162,16 @@ async def say_command(event):
             await client.send_message(chat_id, text)
             await event.reply("\u2705 Messaggio inviato.")
         except Exception as e:
-            print(f"[ERROR] Errore .say diretto: {e}")
-            await event.reply("\u274c Errore nell'invio.")
+            log_error(f"Errore .say diretto: {e}", e)
+            await event.reply("\u274c Error during sending.")
         return
     # Caso 2: .say (senza argomenti)
     entries = await recent_chats.get_last_active_chats_verbose(10, client)
     if not entries:
-        await event.reply("\u26a0\ufe0f Nessuna chat recente trovata.")
+        await event.reply("\u26a0\ufe0f No recent chat found.")
         return
     numbered = "\n".join(f"{i+1}. {name} — `{cid}`" for i, (cid, name) in enumerate(entries))
-    numbered += "\n\n\u270f\ufe0f Rispondi con il numero per scegliere la chat."
+    numbered += "\n\n\u270f\ufe0f Reply with the number to choose the chat."
     say_proxy.clear(event.sender_id)
     say_sessions[event.sender_id] = entries
     await event.reply(numbered)
@@ -218,7 +223,10 @@ async def handle_message(event):
     try:
         await plugin_instance.handle_incoming_message(client, message, context_memory)
     except Exception as e:
-        print(f"[ERROR] plugin_instance.handle_incoming_message fallito: {e}")
+        log_error(
+            f"plugin_instance.handle_incoming_message fallito: {e}",
+            e,
+        )
 
 def main():
     def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None):
@@ -229,13 +237,14 @@ def main():
                     message,
                     reply_to=reply_to_message_id
                 )
-                print(f"[DEBUG/notify] Messaggio Telegram inviato a {chat_id}")
+                log_debug(f"[notify] Messaggio Telegram inviato a {chat_id}")
             except Exception as e:
-                print(f"[ERROR/notify] Fallito invio messaggio Telegram: {e}")
+                log_error(f"[notify] Fallito invio messaggio Telegram: {e}", e)
         import asyncio
         asyncio.create_task(send())
     plugin_instance.load_plugin(get_active_llm(), notify_fn=telegram_notify)
-    print("🧞‍♀️ Rekku Userbot (Telethon) è online.")
+    log_info("🧞‍♀️ Rekku Userbot (Telethon) is online.")
+    log_info("[telegram_userbot] Interface registered as telegram_userbot.")
     client.run_until_disconnected()
 
 if __name__ == "__main__":
