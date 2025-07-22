@@ -88,19 +88,18 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
                 log_warning("[transport] Could not extract bot instance for action parsing")
                 return await interface_send_func(*args, text=text, **kwargs)
             
-            # Process each action
-            for action in actions:
-                if not isinstance(action, dict) or not all(k in action for k in ("type", "interface", "payload")):
-                    log_debug(f"[transport] JSON action missing required fields or invalid: {action}")
-                    continue
+            # Create message context for actions
+            message = SimpleNamespace()
+            message.chat_id = kwargs.get('chat_id') or (args[0] if args else None)
+            message.text = ""
+            message.message_thread_id = kwargs.get('message_thread_id')
 
-                message = SimpleNamespace()
-                message.chat_id = kwargs.get('chat_id') or (args[0] if args else None)
-                message.text = ""
-
-                await parse_action(action, bot, message)
-                
-            log_info(f"[transport] Processed {len(actions)} JSON actions successfully")
+            # Use centralized action system for all action types
+            from core.action_parser import run_actions
+            context = {"interface": "telegram"}  # Add more context as needed
+            
+            await run_actions(actions, context, bot, message)
+            log_info(f"[transport] Processed {len(actions)} JSON actions via plugin system")
             return
             
         except Exception as e:
@@ -124,21 +123,18 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
             # Handle both single actions and arrays of actions
             actions = json_data if isinstance(json_data, list) else [json_data]
             
-            # Process each action
-            processed_count = 0
-            for action in actions:
-                if not isinstance(action, dict) or not all(k in action for k in ("type", "interface", "payload")):
-                    log_debug(f"[telegram_transport] JSON action missing required fields or invalid: {action}")
-                    continue
+            # Create message context for actions
+            message = SimpleNamespace()
+            message.chat_id = chat_id
+            message.text = ""
+            message.message_thread_id = kwargs.get('message_thread_id')
 
-                message = SimpleNamespace()
-                message.chat_id = chat_id
-                message.text = ""
-
-                await parse_action(action, bot, message)
-                processed_count += 1
-                
-            log_info(f"[telegram_transport] Processed {processed_count}/{len(actions)} JSON actions successfully")
+            # Use centralized action system for all action types
+            from core.action_parser import run_actions
+            context = {"interface": "telegram"}
+            
+            await run_actions(actions, context, bot, message)
+            log_info(f"[telegram_transport] Processed {len(actions)} JSON actions via plugin system")
             return
             
         except Exception as e:

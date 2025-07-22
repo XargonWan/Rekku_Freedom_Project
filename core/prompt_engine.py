@@ -116,6 +116,15 @@ async def build_json_prompt(message, context_memory) -> dict:
     except Exception as e:
         log_warning(f"[prompt_engine] Failed to gather supported actions: {e}")
 
+    # === 6. Available action types from action plugins ===
+    try:
+        from core.action_parser import get_action_plugin_instructions
+        action_instructions = get_action_plugin_instructions()
+        if action_instructions:
+            prompt_with_instructions["action_instructions"] = action_instructions
+    except Exception as e:
+        log_warning(f"[prompt_engine] Failed to gather action plugin instructions: {e}")
+
     return prompt_with_instructions
 
 def load_identity_prompt() -> str:
@@ -213,7 +222,8 @@ def load_json_instructions() -> str:
     """Load JSON response instructions for the AI."""
     return """Rekku, be yourself, reply as usual but wrapped in JSON format, details:
 
-Format:
+Response Formats:
+1. For normal messages:
 {
   "type": "message",
   "interface": "telegram",
@@ -224,18 +234,41 @@ Format:
   }
 }
 
+2. For actions (events, commands, memory) - return JSON array directly:
+[
+  {
+    "type": "event",
+    "payload": {
+      "when": "2025-07-22T15:30:00+00:00",
+      "action": {"type": "message", "interface": "telegram", "payload": {"text": "...", "target": input.payload.source.chat_id}}
+    }
+  }
+]
+
+3. Mixed responses (message + actions):
+[
+  {
+    "type": "message",
+    "interface": "telegram", 
+    "payload": {"text": "I'll schedule that for you!", "target": input.payload.source.chat_id}
+  },
+  {
+    "type": "event",
+    "payload": {"when": "...", "action": {...}}
+  }
+]
+
 JSON Response Rules:
 
 1. ALWAYS use input.payload.source.chat_id as payload.target
-2. If input.payload.source.thread_id exists and is not null, include it as payload.thread_id
+2. If input.payload.source.thread_id exists and is not null, include it as payload.thread_id  
 3. NEVER hardcode chat_id or thread_id values anywhere
 4. The response language MUST EXACTLY match the one used in input.payload.text
-   - No auto-detection
-   - No fallback
-   - No assumptions
 5. The reply MUST contain only the JSON structure, with no text before or after
 6. The JSON MUST be syntactically valid and parseable
-7. In group topics, both payload.target AND payload.thread_id MUST match the source exactly
+7. For events/actions: Return JSON array directly, don't wrap in message
+8. For normal replies: Use single message format
+9. For mixed: Use array with both message and actions
 
 For the rest, be yourself, use your personality, and respond as usual. Do not change your style or tone based on the JSON format. The JSON is just a wrapper for your response.
 """
