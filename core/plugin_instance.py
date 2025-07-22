@@ -152,6 +152,3 @@ def get_target(message_id):
 def get_plugin():
     return plugin
 
-def get_plugin():
-    return plugin
-
