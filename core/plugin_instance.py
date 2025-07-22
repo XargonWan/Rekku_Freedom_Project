@@ -10,6 +10,7 @@ from datetime import datetime
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.action_parser import parse_action
 
+# Plugin gestito centralmente in initialize_core_components
 plugin = None
 rekku_identity_prompt = None
 
@@ -151,4 +152,49 @@ def get_target(message_id):
 
 def get_plugin():
     return plugin
+
+def load_generic_plugin(name: str, notify_fn=None):
+    global plugin
+
+    # 🔁 Se il plugin è già caricato, verifica se è lo stesso
+    if plugin is not None:
+        current_plugin_name = plugin.__class__.__module__.split(".")[-1]
+        if current_plugin_name == name:
+            log_debug(f"[plugin] ⚠️ Plugin già caricato: {plugin.__class__.__name__}")
+            return
+
+    try:
+        import importlib
+        module = importlib.import_module(f"plugins.{name}_plugin")
+        log_debug(f"[plugin] Modulo plugins.{name}_plugin importato con successo.")
+    except ModuleNotFoundError as e:
+        log_error(f"[plugin] ❌ Impossibile importare plugins.{name}_plugin: {e}", e)
+        raise ValueError(f"Plugin non valido: {name}")
+
+    if not hasattr(module, "PLUGIN_CLASS"):
+        raise ValueError(f"Il plugin `{name}` non definisce `PLUGIN_CLASS`.")
+
+    plugin_class = getattr(module, "PLUGIN_CLASS")
+
+    try:
+        plugin = plugin_class(notify_fn=notify_fn) if notify_fn else plugin_class()
+        log_debug(f"[plugin] Plugin inizializzato: {plugin.__class__.__name__}")
+    except Exception as e:
+        log_error(f"[plugin] ❌ Errore durante l'inizializzazione del plugin: {e}", e)
+        raise
+
+    if hasattr(plugin, "start"):
+        try:
+            if asyncio.iscoroutinefunction(plugin.start):
+                loop = asyncio.get_running_loop()
+                if loop and loop.is_running():
+                    loop.create_task(plugin.start())
+                    log_debug("[plugin] Plugin avviato nel loop esistente.")
+                else:
+                    log_debug("[plugin] Nessun loop in esecuzione; il plugin sarà avviato successivamente.")
+            else:
+                plugin.start()
+                log_debug("[plugin] Plugin avviato.")
+        except Exception as e:
+            log_error(f"[plugin] ❌ Errore durante l'avvio del plugin: {e}", e)
 

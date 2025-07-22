@@ -1,0 +1,141 @@
+# core/core_initializer.py
+
+import os
+import importlib
+from pathlib import Path
+from core.logging_utils import log_info, log_error, log_warning, log_debug
+from core.config import get_active_llm
+
+
+class CoreInitializer:
+    """Centralizes the initialization of all Rekku components."""
+    
+    def __init__(self):
+        self.loaded_plugins = []
+        self.active_interfaces = []
+        self.active_llm = None
+        self.startup_errors = []
+    
+    def initialize_all(self, notify_fn=None):
+        """Initialize all Rekku components in the correct order."""
+        log_info("🚀 Initializing Rekku core components...")
+        
+        # 1. Load LLM engine
+        self._load_llm_engine(notify_fn)
+        
+        # 2. Load generic plugins
+        self._load_plugins()
+        
+        # 3. Auto-discover active interfaces
+        self._discover_interfaces()
+        
+        # 4. Final system status report
+        self._display_startup_summary()
+        
+        return True
+    
+    def _load_llm_engine(self, notify_fn=None):
+        """Load the active LLM engine."""
+        try:
+            self.active_llm = get_active_llm()
+            
+            # Import here to avoid circular imports
+            from core.plugin_instance import load_plugin
+            load_plugin(self.active_llm, notify_fn=notify_fn)
+            
+            log_debug(f"[core_initializer] Active LLM engine loaded: {self.active_llm}")
+        except Exception as e:
+            log_error(f"[core_initializer] Failed to load active LLM: {e}")
+            self.startup_errors.append(f"LLM engine error: {e}")
+    
+    def _load_plugins(self):
+        """Auto-discover and load all available plugins."""
+        # Import here to avoid circular imports
+        from core.plugin_instance import load_generic_plugin
+        
+        plugins_dir = Path(__file__).parent.parent / "plugins"
+        
+        if not plugins_dir.exists():
+            log_warning("[core_initializer] No plugins directory found")
+            return
+        
+        # Find all *_plugin.py files
+        plugin_files = list(plugins_dir.glob("*_plugin.py"))
+        
+        for plugin_file in plugin_files:
+            plugin_name = plugin_file.stem.replace("_plugin", "")
+            
+            # Skip __init__.py and other non-plugin files
+            if plugin_name.startswith("_"):
+                continue
+                
+            try:
+                load_generic_plugin(plugin_name)
+                self.loaded_plugins.append(plugin_name)
+                log_info(f"[core_initializer] ✅ Plugin loaded: {plugin_name}")
+            except Exception as e:
+                log_warning(f"[core_initializer] ⚠️ Failed to load plugin {plugin_name}: {e}")
+                self.startup_errors.append(f"Plugin {plugin_name}: {e}")
+    
+    def _discover_interfaces(self):
+        """Auto-discover active interfaces by checking running processes/modules."""
+        # This would be called by each interface when it starts up
+        # For now, we'll just log that interfaces should register themselves
+        log_debug("[core_initializer] Interfaces will register themselves when they start")
+    
+    def register_interface(self, interface_name: str):
+        """Register an active interface."""
+        if interface_name not in self.active_interfaces:
+            self.active_interfaces.append(interface_name)
+            log_info(f"[core_initializer] ✅ Interface registered: {interface_name}")
+            
+            # Show updated status after interface registration
+            self._show_interface_status()
+    
+    def _show_interface_status(self):
+        """Show current interface status."""
+        if self.active_interfaces:
+            interfaces_str = ", ".join(self.active_interfaces)
+            log_info(f"📡 Active Interfaces: {interfaces_str}")
+        else:
+            log_info("📡 Active Interfaces: None")
+    
+    def _display_startup_summary(self):
+        """Display a comprehensive startup summary."""
+        log_info("=" * 60)
+        log_info("🧞‍♀️ Rekku is online!")
+        log_info("=" * 60)
+        
+        # Active LLM
+        if self.active_llm:
+            log_info(f"Active LLM: {self.active_llm}")
+        else:
+            log_info("Active LLM: None")
+        
+        # Loaded Plugins
+        if self.loaded_plugins:
+            plugins_str = ", ".join(self.loaded_plugins)
+            log_info(f"Available Plugins: {plugins_str}")
+        else:
+            log_info("Available Plugins: None")
+        
+        # Active Interfaces (will be populated as interfaces start)
+        if self.active_interfaces:
+            interfaces_str = ", ".join(self.active_interfaces)
+            log_info(f"Loaded Interfaces: {interfaces_str}")
+        else:
+            log_info("Loaded Interfaces: Will be shown as interfaces start up")
+        
+        # Startup errors
+        if self.startup_errors:
+            log_warning("⚠️ Startup warnings/errors:")
+            for error in self.startup_errors:
+                log_warning(f"  - {error}")
+        
+        log_info("=" * 60)
+        log_info("🎯 System ready for operations")
+        log_info("=" * 60)
+
+
+# Global instance
+core_initializer = CoreInitializer()
