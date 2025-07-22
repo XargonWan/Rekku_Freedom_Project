@@ -6,6 +6,7 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 DB_PATH = Path(
@@ -127,6 +128,22 @@ def init_db():
             """
         )
 
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scheduled_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                time TEXT,
+                repeat TEXT DEFAULT 'none',
+                description TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                delivered INTEGER DEFAULT 0,
+                created_by TEXT DEFAULT 'rekku',
+                UNIQUE(date, time, description)
+            )
+            """
+        )
+
 # 🧠 Insert a new memory into the database
 def insert_memory(
     content: str,
@@ -211,5 +228,122 @@ def get_recent_responses(since_timestamp: str) -> list[dict]:
             ORDER BY timestamp DESC
         """, (since_timestamp,)).fetchall()
         return [dict(row) for row in rows]
+
+# === Event management helpers ===
+
+def insert_scheduled_event(
+    date: str,
+    time_: str | None,
+    repeat: str | None,
+    description: str,
+    created_by: str = "rekku",
+) -> None:
+    """Store a new scheduled event."""
+    with get_db() as db:
+        db.execute(
+            """
+            INSERT INTO scheduled_events (date, time, repeat, description, created_by)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (date, time_, repeat or "none", description, created_by),
+        )
+
+
+def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> list[dict]:
+    """Return events that should be dispatched.
+    
+    Args:
+        now: Current time for comparison (defaults to UTC now)
+        tolerance_minutes: Minutes before the scheduled time to consider events as due (default: 5)
+        
+    Returns:
+        List of events with additional 'is_late' and 'minutes_late' fields
+    """
+    from datetime import timedelta
+    
+    if not now:
+        now = datetime.now(timezone.utc)
+    tz = ZoneInfo(os.getenv("TZ", "UTC"))
+
+    with get_db() as db:
+        rows = db.execute(
+            """
+            SELECT * FROM scheduled_events 
+            WHERE delivered = 0 
+            AND datetime(date || ' ' || COALESCE(time, '00:00')) <= datetime('now', 'utc')
+            ORDER BY id
+            """
+        ).fetchall()
+
+    due: list[dict] = []
+    for r in rows:
+        dt_str = f"{r['date']} {r['time'] or '00:00'}"
+        try:
+            # Assume all events in database are stored in UTC
+            event_dt_utc = datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        
+        # Apply tolerance window (allow execution N minutes early)
+        event_dt_with_tolerance = event_dt_utc - timedelta(minutes=tolerance_minutes)
+        
+        if event_dt_with_tolerance <= now:
+            event_dict = dict(r)
+            
+            # Calculate if the event is late and by how much
+            if now > event_dt_utc:
+                # Event is late
+                time_diff = now - event_dt_utc
+                minutes_late = int(time_diff.total_seconds() / 60)
+                event_dict['is_late'] = True
+                event_dict['minutes_late'] = minutes_late
+                # Convert to local timezone for display
+                local_dt = event_dt_utc.astimezone(tz)
+                event_dict['scheduled_time'] = local_dt.strftime("%H:%M")
+            else:
+                # Event is on time (within tolerance window)
+                event_dict['is_late'] = False
+                event_dict['minutes_late'] = 0
+                # Convert to local timezone for display
+                local_dt = event_dt_utc.astimezone(tz)
+                event_dict['scheduled_time'] = local_dt.strftime("%H:%M")
+            
+            due.append(event_dict)
+
+    return due
+
+
+def mark_event_delivered(event_id: int) -> None:
+    """Mark an event as delivered."""
+    with get_db() as db:
+        # Get event info to check repeat type
+        event_row = db.execute(
+            "SELECT repeat FROM scheduled_events WHERE id = ?",
+            (event_id,),
+        ).fetchone()
+        
+        if event_row:
+            repeat_type = event_row['repeat']
+            
+            if repeat_type == "none":
+                # One-time event - mark as delivered
+                db.execute(
+                    "UPDATE scheduled_events SET delivered = 1 WHERE id = ?",
+                    (event_id,),
+                )
+                log_info(f"[db] Event {event_id} marked as delivered (one-time)")
+            elif repeat_type == "always":
+                # Never mark as delivered - stays active
+                log_debug(f"[db] Event {event_id} remains active (always repeat)")
+            else:
+                # Repeating events (daily, weekly, monthly) - for now mark as delivered
+                # TODO: Implement proper repeat logic with next occurrence calculation
+                db.execute(
+                    "UPDATE scheduled_events SET delivered = 1 WHERE id = ?",
+                    (event_id,),
+                )
+                log_info(f"[db] Event {event_id} marked as delivered (repeat: {repeat_type} - TODO: implement proper repeat logic)")
+        else:
+            log_warning(f"[db] Event {event_id} not found when trying to mark as delivered")
 
 

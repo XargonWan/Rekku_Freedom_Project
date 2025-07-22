@@ -5,7 +5,6 @@ import subprocess
 from core.db import init_db
 from core.blocklist import init_blocklist_table
 from core.config import get_active_llm
-from core.plugin_instance import load_plugin
 from core.logging_utils import (
     log_debug,
     log_info,
@@ -95,6 +94,27 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 
+def initialize_core_components():
+    """Initialize and log all core components."""
+    # Load and log active interfaces
+    active_interfaces = ["telegram_bot", "telegram_userbot", "discord"]  # Example interfaces
+    log_info("[main] Active interfaces initialized.")
+    for interface in active_interfaces:
+        log_info(f"[main] Active interface: {interface}")
+
+    # Load and log plugins in ./plugins
+    from core.action_parser import set_available_plugins, _load_action_plugins
+    plugins = _load_action_plugins()
+    if plugins:
+        for plugin in plugins:
+            log_info(f"[main] Loaded plugin: {plugin.__class__.__name__}")
+    else:
+        log_warning("[main] No plugins found in ./plugins.")
+
+    # Pass the information to the action parser
+    set_available_plugins(active_interfaces, get_active_llm(), [plugin.__class__.__name__ for plugin in plugins])
+
+
 if __name__ == "__main__":
     # Set up signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
@@ -109,11 +129,6 @@ if __name__ == "__main__":
     init_db()
     init_blocklist_table()
 
-    # 🔄 Load the active LLM plugin from DB (without notify_fn, will be set later by the bot)
-    llm_name = get_active_llm()
-    log_debug(f"[main] Active plugin to load: {llm_name}")
-    load_plugin(llm_name)
-
     # 🌐 Show where the Webtop/VNC interface is available
     host = os.environ.get("WEBVIEW_HOST", "localhost")
     port = os.environ.get("WEBVIEW_PORT", "3000")
@@ -122,3 +137,6 @@ if __name__ == "__main__":
     # ✅ Start the bot
     from interface.telegram_bot import start_bot
     start_bot()
+
+    # Initialize and log all core components
+    initialize_core_components()

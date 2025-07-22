@@ -34,3 +34,11 @@ class AIPluginBase:
     def set_notify_fn(self, notify_fn):
         """Optional: dynamically update the notification function."""
         self.notify_fn = notify_fn
+
+    def get_supported_action_types(self) -> list[str]:
+        """Return custom action types handled by this plugin."""
+        return []
+
+    async def handle_custom_action(self, action_type: str, payload: dict):
+        """Handle a plugin-defined custom action."""
+        raise NotImplementedError("handle_custom_action not implemented")

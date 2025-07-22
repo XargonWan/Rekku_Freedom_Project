@@ -98,11 +98,32 @@ async def build_json_prompt(message, context_memory) -> dict:
     interface_instructions = get_interface_instructions("telegram")  # Default to telegram for now
     
     prompt_with_instructions = {
-        "context": context_section, 
+        "context": context_section,
         "input": input_section,
         "instructions": json_instructions,
-        "interface_instructions": interface_instructions
+        "interface_instructions": interface_instructions,
     }
+
+    # === 5. Available actions from the active plugin ===
+    try:
+        from core import plugin_instance
+
+        plugin = plugin_instance.get_plugin()
+        if plugin and hasattr(plugin, "get_supported_actions"):
+            actions = plugin.get_supported_actions()
+            if actions is not None:
+                prompt_with_instructions["available_actions"] = actions
+    except Exception as e:
+        log_warning(f"[prompt_engine] Failed to gather supported actions: {e}")
+
+    # === 6. Available action types from action plugins ===
+    try:
+        from core.action_parser import get_action_plugin_instructions
+        action_instructions = get_action_plugin_instructions()
+        if action_instructions:
+            prompt_with_instructions["action_instructions"] = action_instructions
+    except Exception as e:
+        log_warning(f"[prompt_engine] Failed to gather action plugin instructions: {e}")
 
     return prompt_with_instructions
 
@@ -201,29 +222,73 @@ def load_json_instructions() -> str:
     """Load JSON response instructions for the AI."""
     return """Rekku, be yourself, reply as usual but wrapped in JSON format, details:
 
-Format:
+Response Format (multiple actions example):
 {
-  "type": "message",
-  "interface": "telegram",
-  "payload": {
-    "text": "Your response message here",
-    "target": "USE input.payload.source.chat_id",
-    "thread_id": "USE input.payload.source.thread_id IF PRESENT"
-  }
+  "actions": [
+    {
+      "type": "message",
+      "interface": "telegram",
+      "payload": {
+        "text": "I'll schedule that for you!",
+        "target": input.payload.source.chat_id,
+        "thread_id": input.payload.source.thread_id
+      }
+    },
+    {
+      "type": "event",
+      "payload": {
+        "when": "2025-07-22T15:30:00+00:00",
+        "action": {
+          "type": "message",
+          "interface": "telegram",
+          "payload": {
+            "text": "Reminder: Your scheduled event!",
+            "target": input.payload.source.chat_id
+          }
+        }
+      }
+    },
+    {
+      "type": "message",
+      "interface": "telegram",
+      "payload": {
+        "text": "Event scheduled successfully!",
+        "target": input.payload.source.chat_id
+      }
+    }
+  ]
+}
+
+Single action example:
+{
+  "actions": [
+    {
+      "type": "message",
+      "interface": "telegram",
+      "payload": {
+        "text": "Your response here",
+        "target": input.payload.source.chat_id,
+        "thread_id": input.payload.source.thread_id
+      }
+    }
+  ]
 }
 
 JSON Response Rules:
 
-1. ALWAYS use input.payload.source.chat_id as payload.target
-2. If input.payload.source.thread_id exists and is not null, include it as payload.thread_id
+1. ALWAYS use input.payload.source.chat_id as target for messages
+2. If input.payload.source.thread_id exists and is not null, include it as thread_id
 3. NEVER hardcode chat_id or thread_id values anywhere
 4. The response language MUST EXACTLY match the one used in input.payload.text
-   - No auto-detection
-   - No fallback
-   - No assumptions
 5. The reply MUST contain only the JSON structure, with no text before or after
 6. The JSON MUST be syntactically valid and parseable
-7. In group topics, both payload.target AND payload.thread_id MUST match the source exactly
+7. ALWAYS use "actions" array - even for single actions
+8. Actions are processed in order - you can mix any types: message, event, command, memory
+9. No limit on quantity: 5 messages + 3 events + 2 commands = perfectly valid
+10. Structure allows future extensions (metadata, timestamps, etc.)
+11. **EVENT TIMESTAMPS**: For 'event' actions, 'when' field MUST be UTC time with +00:00 suffix (e.g., "2025-07-22T15:30:00+00:00")
+
+All action types (message, event, command, memory) are plugins - treat them equally.
 
 For the rest, be yourself, use your personality, and respond as usual. Do not change your style or tone based on the JSON format. The JSON is just a wrapper for your response.
 """

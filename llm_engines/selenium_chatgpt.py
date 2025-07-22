@@ -897,7 +897,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             prompt_text = json.dumps(prompt, ensure_ascii=False)
             if not chat_id:
                 path = recent_chats.get_chat_path(message.chat_id)
-                if path and go_to_chat_by_path(driver, path):
+                if path and go_to_chat_by_path_with_retries(driver, path):
                     chat_id = _extract_chat_id(driver.current_url)
                     if chat_id:  # [FIX] save and notify about recovered chat
                         chat_link_store.save_link(message.chat_id, thread_id, chat_id)
@@ -1084,4 +1084,23 @@ def go_to_chat_by_path(driver, path: str) -> bool:
     except Exception as e:
         log_error(f"[selenium] Error navigating to chat path: {e}")
         return False
+
+def go_to_chat_by_path_with_retries(driver, path: str, retries: int = 3) -> bool:
+    """Navigate to a specific chat using its path with retries."""
+    for attempt in range(1, retries + 1):
+        try:
+            chat_url = f"https://chat.openai.com{path}"
+            driver.get(chat_url)
+            WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.ID, "prompt-textarea"))
+            )
+            log_debug(f"[selenium] Successfully navigated to chat path: {path} on attempt {attempt}")
+            return True
+        except TimeoutException:
+            log_warning(f"[selenium] Timeout while navigating to chat path: {path} on attempt {attempt}")
+        except Exception as e:
+            log_error(f"[selenium] Error navigating to chat path on attempt {attempt}: {e}")
+
+    log_warning(f"[selenium] Failed to navigate to chat path: {path} after {retries} attempts")
+    return False
 

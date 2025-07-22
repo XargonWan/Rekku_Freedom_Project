@@ -9,10 +9,9 @@ import os
 import re
 from collections import deque
 import core.plugin_instance as plugin_instance
-from core.plugin_instance import load_plugin
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.message_sender import detect_media_type, extract_response_target
-from core.config import get_active_llm, set_active_llm, list_available_llms
+from core.config import set_active_llm, list_available_llms, get_active_llm
 from core.config import OWNER_ID
 from core import blocklist, response_proxy, say_proxy, recent_chats
 from core.context import context_command
@@ -103,7 +102,7 @@ async def help_command(event):
         return
     from core.context import get_context_state
     context_status = "attiva ✅" if get_context_state() else "disattiva ❌"
-    llm_mode = get_active_llm()
+    llm_mode = "LLM gestito centralmente in initialize_core_components"
     help_text = (
         f"🧞‍♀️ *Rekku – Comandi disponibili*\n\n"
         "*🧠 Modalità context*\n"
@@ -143,11 +142,14 @@ async def llm_command(event):
         await event.reply(f"\u274c LLM `{choice}` non trovato.")
         return
     try:
-        load_plugin(choice)
         set_active_llm(choice)
-        await event.reply(f"\u2705 Modalità LLM aggiornata dinamicamente a `{choice}`.")
+        
+        # Non carichiamo plugin qui - è compito del core
+        # Il sistema si riavvierà con il nuovo LLM al prossimo restart
+        
+        await event.reply(f"\u2705 Modalità LLM aggiornata a `{choice}`. Riavvia per applicare le modifiche.")
     except Exception as e:
-        await event.reply(f"\u274c Errore nel caricamento del plugin: {e}")
+        await event.reply(f"\u274c Errore nel cambio LLM: {e}")
 
 @client.on(events.NewMessage(pattern=r"\.say(?: (\d+) (.+))?"))
 async def say_command(event):
@@ -242,9 +244,16 @@ def main():
                 log_error(f"[notify] Fallito invio messaggio Telegram: {e}", e)
         import asyncio
         asyncio.create_task(send())
-    plugin_instance.load_plugin(get_active_llm(), notify_fn=telegram_notify)
+    
+    # Initialize core system with notify function
+    from core.core_initializer import core_initializer
+    core_initializer.initialize_all(notify_fn=telegram_notify)
+    
     log_info("🧞‍♀️ Rekku Userbot (Telethon) is online.")
-    log_info("[telegram_userbot] Interface registered as telegram_userbot.")
+    
+    # Register this interface with the core
+    core_initializer.register_interface("telegram_userbot")
+    
     client.run_until_disconnected()
 
 if __name__ == "__main__":

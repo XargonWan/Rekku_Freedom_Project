@@ -35,10 +35,10 @@ from core.config import BOT_TOKEN, BOT_USERNAME, OWNER_ID
 # Import mention detector to recognize Rekku aliases even without explicit @username
 from core.mention_utils import is_rekku_mentioned, is_message_for_bot
 import core.plugin_instance as plugin_instance
-from core.plugin_instance import load_plugin
 from core.weather import start_weather_updater, update_weather
 import traceback
 from telethon import TelegramClient
+from core.action_parser import initialize_core
 
 # Carica variabili da .env
 load_dotenv()
@@ -614,7 +614,13 @@ async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        load_plugin(choice)
+        from core.config import set_active_llm
+        set_active_llm(choice)
+        
+        # Ricarica il sistema con il nuovo LLM
+        from core.core_initializer import core_initializer
+        core_initializer.initialize_all(notify_fn=telegram_notify)
+        
         await update.message.reply_text(f"\u2705 Modalità LLM aggiornata dinamicamente a `{choice}`.")
     except Exception as e:
         await update.message.reply_text(f"\u274c Errore nel caricamento del plugin: {e}")
@@ -720,10 +726,9 @@ async def plugin_startup_callback(application):
 
 
 def start_bot():
-
-
-    # 🔁 Passa la funzione di notifica corretta (per i plugin)
-    load_plugin(get_active_llm(), notify_fn=telegram_notify)
+    # Log system state at startup and initialize with Telegram notify function
+    from core.core_initializer import core_initializer
+    core_initializer.initialize_all(notify_fn=telegram_notify)
 
     # 🌀 Weather fetch subito e loop periodico
     loop = asyncio.new_event_loop()
@@ -775,7 +780,10 @@ def start_bot():
     ))
 
     log_info("🧞‍♀️ Rekku is online.")
-    log_info("[telegram_bot] Interface registered as telegram_bot.")
+    
+    # Register this interface with the core
+    from core.core_initializer import core_initializer
+    core_initializer.register_interface("telegram_bot")
 
     # Fallback: ensure plugin.start() invoked in case post_init failed
     plugin_obj = plugin_instance.get_plugin()
