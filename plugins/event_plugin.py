@@ -58,7 +58,27 @@ class EventPlugin(AIPluginBase):
     def get_supported_actions(self):
         """Return ultra-compact instructions for supported actions."""
         return {
-            "event": "Create scheduled reminders with UTC timestamps: {\"actions\":[{\"type\":\"event\",\"payload\":{\"when\":\"2025-07-22T15:30:00+00:00\",\"description\":\"Remember to check if Jay replied to the message\"}}]} - IMPORTANT: 'when' must be UTC time (append +00:00), 'description' should be a natural reminder text, NOT a prebuilt action"
+            "event": """
+Create scheduled reminders with UTC timestamps:
+
+{
+  "actions": [
+    {
+      "type": "event",
+      "payload": {
+        "when": "2025-07-22T15:30:00+00:00",
+        "description": "Remind Jay to check the system logs"
+      }
+    }
+  ]
+}
+
+⚠ REQUIRED FIELDS:
+- "when": must be a UTC ISO 8601 timestamp
+- "description": plain natural text
+
+❌ DO NOT include "action", "message", or any nested objects.
+"""
         }
 
     def execute_action(self, action: dict, context: dict, bot, original_message):

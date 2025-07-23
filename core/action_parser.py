@@ -177,6 +177,7 @@ def _load_action_plugins() -> List[Any]:
     """Load classes under plugins/ that implement get_supported_actions."""
     global _ACTION_PLUGINS
     if _ACTION_PLUGINS is not None:
+        log_debug(f"[action_parser] Returning cached plugins ({len(_ACTION_PLUGINS)})")
         return _ACTION_PLUGINS
 
     _ACTION_PLUGINS = []
@@ -223,7 +224,12 @@ def _load_action_plugins() -> List[Any]:
                     except Exception as e:
                         log_error(f"[action_parser] Failed to init {obj}: {e}")
                         continue
-                    _ACTION_PLUGINS.append(instance)
+                    # Avoid duplicate plugin registration
+                    if any(isinstance(p, obj) for p in _ACTION_PLUGINS):
+                        log_warning(f"[action_parser] Duplicate plugin {obj.__name__} ignored")
+                    else:
+                        _ACTION_PLUGINS.append(instance)
+    log_debug("[action_parser] Plugins loaded: " + ", ".join([p.__class__.__name__ for p in _ACTION_PLUGINS]))
     return _ACTION_PLUGINS
 
 
@@ -287,6 +293,7 @@ async def _handle_plugin_action(action: Dict[str, Any], context: Dict[str, Any],
 
 async def run_action(action: Any, context: Dict[str, Any], bot, original_message):
     """Validate and execute a single action or list of actions."""
+    log_debug(f"[action_parser] run_action called with: {action}")
     if isinstance(action, list):
         for act in action:
             await run_action(act, context, bot, original_message)
@@ -298,6 +305,7 @@ async def run_action(action: Any, context: Dict[str, Any], bot, original_message
         return
 
     action_type = action.get("type")
+    log_debug(f"[action_parser] Executing action type: {action_type}")
     
     # Use plugin system for all action types (including messages)
     await _handle_plugin_action(action, context, bot, original_message)
@@ -317,6 +325,9 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
     elif not isinstance(actions, list):
         log_error("[action_parser] run_actions expects a list or dict")
         return
+
+    log_debug(f"[action_parser] run_actions called with {len(actions)} actions")
+    log_debug(f"[action_parser] Actions: {actions}")
 
     for idx, action in enumerate(actions):
         try:
