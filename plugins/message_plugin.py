@@ -24,7 +24,7 @@ class MessagePlugin:
     def get_supported_actions(self):
         """Return ultra-compact instructions for supported actions."""
         return {
-            "message": "Send text messages: {\"actions\":[{\"type\":\"message\",\"interface\":\"telegram\",\"payload\":{\"text\":\"...\",\"target\":input.payload.source.chat_id,\"thread_id\":input.payload.source.thread_id}}]}"
+            "message": "Send text messages: {\"actions\":[{\"type\":\"message\",\"interface\":\"telegram\",\"payload\":{\"text\":\"...\",\"target\":input.payload.source.chat_id,\"thread_id\":input.payload.source.thread_id}}]} - When target equals source chat_id, message appears as reply to original message."
         }
 
     async def execute_action(self, action: dict, context: dict, bot, original_message):
@@ -94,8 +94,15 @@ class MessagePlugin:
             if thread_id:
                 send_kwargs["message_thread_id"] = thread_id
 
+            # Add reply_to_message_id if sending to the same chat as the original message
+            if (hasattr(original_message, "chat_id") and 
+                hasattr(original_message, "message_id") and 
+                target == original_message.chat_id):
+                send_kwargs["reply_to_message_id"] = original_message.message_id
+                log_debug(f"[message_plugin] Adding reply_to_message_id: {original_message.message_id}")
+
             await bot.send_message(**send_kwargs)
-            log_info(f"[message_plugin] Message successfully sent to {target} (thread: {thread_id})")
+            log_info(f"[message_plugin] Message successfully sent to {target} (thread: {thread_id}, reply_to: {send_kwargs.get('reply_to_message_id', 'None')})")
             
         except Exception as e:
             error_message = str(e)
@@ -104,10 +111,15 @@ class MessagePlugin:
             if thread_id and ("Message thread not found" in error_message or "thread not found" in error_message.lower()):
                 log_warning(f"[message_plugin] Thread {thread_id} not found in chat {target}, retrying without thread_id")
                 try:
-                    # Retry without thread_id
+                    # Retry without thread_id but keep reply_to_message_id if applicable
                     fallback_kwargs = {"chat_id": target, "text": text}
+                    if (hasattr(original_message, "chat_id") and 
+                        hasattr(original_message, "message_id") and 
+                        target == original_message.chat_id):
+                        fallback_kwargs["reply_to_message_id"] = original_message.message_id
+                    
                     await bot.send_message(**fallback_kwargs)
-                    log_info(f"[message_plugin] Message successfully sent to {target} (fallback: no thread)")
+                    log_info(f"[message_plugin] Message successfully sent to {target} (fallback: no thread, reply_to: {fallback_kwargs.get('reply_to_message_id', 'None')})")
                     return  # Success, exit the function
                 except Exception as no_thread_error:
                     log_error(f"[message_plugin] Fallback without thread also failed for {target}: {no_thread_error}")
@@ -122,10 +134,13 @@ class MessagePlugin:
                     fallback_kwargs = {"chat_id": original_message.chat_id, "text": text}
                     if fallback_thread_id:
                         fallback_kwargs["message_thread_id"] = fallback_thread_id
+                    # Always add reply_to_message_id when falling back to original chat
+                    if hasattr(original_message, "message_id"):
+                        fallback_kwargs["reply_to_message_id"] = original_message.message_id
 
-                    log_debug(f"[message_plugin] Retrying with original chat_id: {original_message.chat_id} (thread: {fallback_thread_id})")
+                    log_debug(f"[message_plugin] Retrying with original chat_id: {original_message.chat_id} (thread: {fallback_thread_id}, reply_to: {fallback_kwargs.get('reply_to_message_id', 'None')})")
                     await bot.send_message(**fallback_kwargs)
-                    log_info(f"[message_plugin] Message successfully sent to fallback chat: {original_message.chat_id} (thread: {fallback_thread_id})")
+                    log_info(f"[message_plugin] Message successfully sent to fallback chat: {original_message.chat_id} (thread: {fallback_thread_id}, reply_to: {fallback_kwargs.get('reply_to_message_id', 'None')})")
                     
                 except Exception as fallback_error:
                     log_error(f"[message_plugin] Fallback also failed: {fallback_error}")
@@ -133,3 +148,6 @@ class MessagePlugin:
 
 # Export the plugin class
 __all__ = ["MessagePlugin"]
+
+# Define the plugin class for automatic loading
+PLUGIN_CLASS = MessagePlugin

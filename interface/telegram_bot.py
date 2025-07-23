@@ -832,5 +832,7 @@ class TelegramInterface:
 - Target should be the exact chat_id from input.payload.source.chat_id
 - Thread_id should be the exact thread_id from input.payload.source.thread_id (if present)
 - Interface should always be "telegram_bot"
+- REPLYING TO MESSAGES: When responding to a user's message in the same chat, the message will automatically appear as a reply. Simply use the same target chat_id as the original message.
+- CROSS-CHAT MESSAGES: To send to a different chat than where the message came from, specify a different target chat_id. These won't appear as replies but as new messages.
 """
 
