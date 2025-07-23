@@ -715,7 +715,7 @@ async def plugin_startup_callback(application):
     # Start pending async plugins
     from core.core_initializer import core_initializer
     await core_initializer.start_pending_async_plugins()
-    
+
     # Also try to start the main LLM plugin if it has a start method
     plugin_obj = plugin_instance.get_plugin()
     if plugin_obj and hasattr(plugin_obj, "start"):
@@ -727,7 +727,8 @@ async def plugin_startup_callback(application):
             log_debug("[plugin] Plugin start executed")
         except Exception as e:
             log_error(f"[plugin] Error during post_init start: {e}", e)
-    
+
+    # Start the queue loop after the application is ready
     application.create_task(message_queue.start_queue_loop())
 
 
