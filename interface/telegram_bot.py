@@ -336,7 +336,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_debug(f"[telegram_bot] Reply to message from user ID: {message.reply_to_message.from_user.id if message.reply_to_message.from_user else 'None'}, "
                   f"username: {message.reply_to_message.from_user.username if message.reply_to_message.from_user else 'None'}")
     
-    is_for_bot = is_message_for_bot(message, context.bot)
+    is_for_bot = await is_message_for_bot(message, context.bot)
     log_debug(f"[telegram_bot] is_message_for_bot result: {is_for_bot}")
     
     if not is_for_bot:

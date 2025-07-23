@@ -10,18 +10,31 @@ from core.telegram_utils import _send_with_retry
 from types import SimpleNamespace
 
 
-def extract_json_from_text(text: str):
+def extract_json_from_text(text: str, processed_messages: set = None):
     """
     Extract JSON objects or arrays from text.
     
     Args:
         text: The text that may contain JSON
+        processed_messages: A set to track already processed messages
         
     Returns:
         A Python dictionary, list, or None if no valid JSON is found.
     """
     try:
         text = text.strip()
+
+        # Initialize processed_messages if not provided
+        if processed_messages is None:
+            processed_messages = set()
+
+        # Check if the message has already been processed
+        if text in processed_messages:
+            log_debug("[extract_json_from_text] Message already processed, skipping.")
+            return None
+
+        # Mark the message as processed
+        processed_messages.add(text)
         
         # Handle the common ChatGPT pattern: "json\nCopy\nEdit\n{...}"
         if text.startswith("json\nCopy\nEdit\n"):
@@ -66,13 +79,13 @@ def extract_json_from_text(text: str):
                             return json.loads(potential_json)
                         except json.JSONDecodeError:
                             continue
-            
-            # If complete object search failed, try the rest of the text from this position
-            try:
-                potential_json = text[start:]
-                return json.loads(potential_json)
-            except json.JSONDecodeError:
-                continue
+        
+        # If complete object search failed, try the rest of the text from this position
+        try:
+            potential_json = text[start:]
+            return json.loads(potential_json)
+        except json.JSONDecodeError:
+            pass
         
         # Scan for JSON arrays starting from each '['
         array_start_indices = [i for i, char in enumerate(text) if char == '[']
@@ -91,13 +104,13 @@ def extract_json_from_text(text: str):
                             return json.loads(potential_json)
                         except json.JSONDecodeError:
                             continue
-            
-            # If complete array search failed, try the rest of the text from this position
-            try:
-                potential_json = text[start:]
-                return json.loads(potential_json)
-            except json.JSONDecodeError:
-                continue
+        
+        # If complete array search failed, try the rest of the text from this position
+        try:
+            potential_json = text[start:]
+            return json.loads(potential_json)
+        except json.JSONDecodeError:
+            pass
 
         return None
     except Exception as e:
