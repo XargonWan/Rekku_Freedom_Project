@@ -17,7 +17,7 @@ class DiscordInterface:
             await universal_send(self._discord_send, channel_id, text=text)
             log_debug(f"[discord_interface] Message sent to {channel_id}: {text}")
         except Exception as e:
-            log_error(f"[discord_interface] Failed to send message to {channel_id}: {e}")
+            log_error(f"[discord_interface] Failed to send message to {channel_id}: {repr(e)}")
 
     async def _discord_send(self, channel_id, text):
         """Internal Discord send method."""

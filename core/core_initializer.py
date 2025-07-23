@@ -45,7 +45,7 @@ class CoreInitializer:
             
             log_debug(f"[core_initializer] Active LLM engine loaded: {self.active_llm}")
         except Exception as e:
-            log_error(f"[core_initializer] Failed to load active LLM: {e}")
+            log_error(f"[core_initializer] Failed to load active LLM: {repr(e)}")
             self.startup_errors.append(f"LLM engine error: {e}")
     
     def _load_plugins(self):
@@ -108,14 +108,14 @@ class CoreInitializer:
                                         instance.start()
                                         log_info(f"[core_initializer] Started sync plugin: {plugin_name}")
                                 except Exception as e:
-                                    log_error(f"[core_initializer] Error starting plugin {plugin_name}: {e}")
+                                    log_error(f"[core_initializer] Error starting plugin {plugin_name}: {repr(e)}")
                             else:
                                 log_debug(f"[core_initializer] Plugin {plugin_name} has no start method")
                                     
                             self.loaded_plugins.append(plugin_name)
                             log_info(f"[core_initializer] ✅ Plugin loaded and started: {plugin_name}")
                         except Exception as e:
-                            log_error(f"[core_initializer] Failed to start plugin {plugin_name}: {e}")
+                            log_error(f"[core_initializer] Failed to start plugin {plugin_name}: {repr(e)}")
                             self.startup_errors.append(f"Plugin {plugin_name}: {e}")
                     else:
                         log_warning(f"[core_initializer] ⚠️ Plugin {plugin_name} doesn't implement action interface")
@@ -159,7 +159,7 @@ class CoreInitializer:
                     await instance.start()
                     log_info(f"[core_initializer] ✅ Started pending async plugin: {plugin_name}")
                 except Exception as e:
-                    log_error(f"[core_initializer] Error starting pending plugin {plugin_name}: {e}")
+                    log_error(f"[core_initializer] Error starting pending plugin {plugin_name}: {repr(e)}")
             # Clear the pending list
             self._pending_async_plugins.clear()
             log_info("[core_initializer] All pending async plugins processed")

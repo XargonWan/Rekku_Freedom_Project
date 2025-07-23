@@ -66,7 +66,7 @@ def test_dispatch_repeating_event(tmp_path, monkeypatch):
 
     with db_module.get_db() as db:
         rows = db.execute(
-            "SELECT date, delivered FROM scheduled_events ORDER BY id"
+            "SELECT scheduled, delivered FROM scheduled_events ORDER BY id"
         ).fetchall()
         assert len(rows) == 2
         assert rows[0]["delivered"] == 1

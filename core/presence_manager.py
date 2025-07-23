@@ -29,6 +29,11 @@ async def evaluate_emotions():
         delta = process_triggers_for_emotion(em)  # returns +1, -1, 0, etc.
         update_emotion_intensity(em["id"], delta)
 
+        log_debug(f"[PresenceManager] Valutazione emozione: {em}")
+        log_debug(f"[PresenceManager] Delta calcolato: {delta}")
+        log_debug(f"[PresenceManager] Intensità aggiornata: {em['intensity'] + delta}")
+        log_debug(f"[PresenceManager] Stato emozione: {'risolta' if em['intensity'] + delta <= 0 else 'cristallizzata' if em['intensity'] + delta >= 10 else 'attiva'}")
+
         # 💀 If intensity reaches zero → resolved
         if em["intensity"] + delta <= 0:
             mark_emotion_resolved(em["id"])

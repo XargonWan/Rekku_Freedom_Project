@@ -37,7 +37,7 @@ def get_active_llm():
                 else:
                     _active_llm = "manual"
         except Exception as e:
-            log_error(f"[config] ❌ Error in get_active_llm(): {e}")
+            log_error(f"[config] ❌ Error in get_active_llm(): {repr(e)}")
             _active_llm = "manual"
     return _active_llm
 
@@ -53,7 +53,7 @@ def set_active_llm(name: str):
             db.commit()
             log_debug(f"[config] 💾 Saved active plugin in DB: {name}")
     except Exception as e:
-        log_error(f"[config] ❌ Error in set_active_llm(): {e}")
+        log_error(f"[config] ❌ Error in set_active_llm(): {repr(e)}")
 
 def list_available_llms():
     engines_dir = os.path.join(os.path.dirname(__file__), "../llm_engines")
@@ -84,5 +84,5 @@ def set_current_model(model: str):
         with open(MODEL_FILE, "w", encoding="utf-8") as f:
             json.dump({"model": model}, f, indent=2)
     except Exception as e:
-        log_error(f"Unable to save model: {e}")
+        log_error(f"Unable to save model: {repr(e)}")
         

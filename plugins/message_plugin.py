@@ -36,7 +36,7 @@ class MessagePlugin:
             await self._handle_message_action(action, context, bot, original_message)
             
         except Exception as e:
-            log_error(f"[message_plugin] Error executing message action: {e}")
+            log_error(f"[message_plugin] Error executing message action: {repr(e)}")
 
     async def handle_custom_action(self, action_type: str, payload: dict):
         """Handle custom message actions."""
@@ -125,7 +125,7 @@ class MessagePlugin:
                     log_error(f"[message_plugin] Fallback without thread also failed for {target}: {no_thread_error}")
                     # Continue to original fallback logic below
             else:
-                log_error(f"[message_plugin] Failed to send message to {target} (thread: {thread_id}): {e}")
+                log_error(f"[message_plugin] Failed to send message to {target} (thread: {thread_id}): {repr(e)}")
             
             # Try fallback to original chat if target was different
             if hasattr(original_message, "chat_id") and target != original_message.chat_id:

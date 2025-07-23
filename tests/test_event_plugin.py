@@ -27,7 +27,7 @@ def _load_plugin(tmp_path):
     os.environ["MEMORY_DB"] = str(db_path)
     reload(db_module)
     db_module.init_db()
-    plugin_mod = import_module("llm_engines.event_plugin")
+    plugin_mod = import_module("plugins.event_plugin")
     reload(plugin_mod)
     return plugin_mod.EventPlugin()
 
@@ -38,8 +38,7 @@ def test_event_saved(tmp_path):
             {
                 "type": "event",
                 "payload": {
-                    "date": "2025-08-10",
-                    "time": "14:00",
+                    "scheduled": "2025-08-10T14:00:00+00:00",
                     "repeat": "daily",
                     "description": "Call Mom",
                 },
@@ -64,7 +63,7 @@ def test_invalid_repeat(tmp_path):
             {
                 "type": "event",
                 "payload": {
-                    "date": "2025-08-10",
+                    "scheduled": "2025-08-10T14:00:00+00:00",
                     "repeat": "foobar",
                     "description": "Bad Repeat",
                 },
@@ -88,8 +87,7 @@ def test_duplicate_event(tmp_path):
             {
                 "type": "event",
                 "payload": {
-                    "date": "2025-08-10",
-                    "time": "08:00",
+                    "scheduled": "2025-08-10T08:00:00+00:00",
                     "description": "Water the plants",
                 },
             }

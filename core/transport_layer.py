@@ -64,6 +64,8 @@ def extract_json_from_text(text: str, processed_messages: set = None):
         
         # Scan greedily for JSON blocks starting from each '{' (backward compatibility)
         start_indices = [i for i, char in enumerate(text) if char == '{']
+        if not start_indices:
+            log_warning("[extract_json_from_text] No starting braces found in text")
         for start in start_indices:
             # Try to find the matching closing brace for a complete JSON object
             brace_count = 0
@@ -271,5 +273,5 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
             chunk = text[i : i + chunk_size]
             await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
     except Exception as e:
-        log_error(f"[telegram_transport] Failed to send text chunks: {e}")
+        log_error(f"[telegram_transport] Failed to send text chunks: {repr(e)}")
         raise

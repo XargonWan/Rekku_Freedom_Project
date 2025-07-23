@@ -169,7 +169,7 @@ def search_memories(tags=None, scope=None, limit=5):
         with get_db() as db:
             return [row[0] for row in db.execute(query, params)]
     except Exception as e:
-        log_error(f"Query failed: {e}")
+        log_error(f"Query failed: {repr(e)}")
         return []
 
 def build_prompt(
@@ -230,13 +230,13 @@ Rekku, be yourself, reply as usual but wrapped in JSON format.
   {
     "type": "event",
     "payload": {
-      "when": "2025-07-22T15:30:00+00:00",
+      "scheduled": "2025-07-22T15:30:00+00:00",
       "description": "Remind Jay to check the system logs"
     }
   }
 - DO NOT include "action", "message", or any nested action inside an event.
 - The event system will decide how to handle the reminder.
-- "when" must be a valid UTC ISO timestamp, with "+00:00" suffix.
+- "scheduled" must be a valid UTC ISO timestamp, with "+00:00" suffix.
 
 You can mix messages, events, and other types in the same action list.
 Respond naturally and creatively as usual — the JSON is just a wrapper.

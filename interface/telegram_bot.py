@@ -347,7 +347,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await message_queue.enqueue(context.bot, message, context_memory)
     except Exception as e:
-        log_error(f"message_queue enqueue failed: {e}", e)
+        log_error(f"message_queue enqueue failed: {repr(e)}", e)
         await message.reply_text("⚠️ Errore nell'elaborazione del messaggio.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -483,7 +483,7 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await safe_send(bot, chat_id=chat_id, text=text)  # [FIX]
             await update.message.reply_text("\u2705 Messaggio inviato.")
         except Exception as e:
-            log_error(f"Errore /say diretto: {e}", e)
+            log_error(f"Errore /say diretto: {repr(e)}", e)
             await update.message.reply_text("\u274c Errore nell'invio.")
         return
 
@@ -508,7 +508,7 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"\u274c Cannot send to {username}. They must start the chat with the bot first."
                 )
         except Exception as e:
-            log_error(f"Errore /say @username: {e}", e)
+            log_error(f"Errore /say @username: {repr(e)}", e)
             await update.message.reply_text(
                 f"\u274c Cannot send to {username}. They must start the chat with the bot first."
             )
@@ -694,9 +694,9 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
             )  # [FIX][telegram retry]
             log_debug(f"[notify] ✅ Messaggio Telegram inviato a {chat_id}")
         except TelegramError as e:
-            log_error(f"[notify] ❌ Errore Telegram: {e}", e)
+            log_error(f"[notify] ❌ Errore Telegram: {repr(e)}", e)
         except Exception as e:
-            log_error(f"[notify] ❌ Altro errore nel send(): {e}", e)
+            log_error(f"[notify] ❌ Altro errore nel send(): {repr(e)}", e)
 
     try:
         loop = asyncio.get_running_loop()
@@ -726,7 +726,7 @@ async def plugin_startup_callback(application):
                 plugin_obj.start()
             log_debug("[plugin] Plugin start executed")
         except Exception as e:
-            log_error(f"[plugin] Error during post_init start: {e}", e)
+            log_error(f"[plugin] Error during post_init start: {repr(e)}", e)
 
     # Start the queue loop after the application is ready
     application.create_task(message_queue.start_queue_loop())
@@ -808,7 +808,7 @@ class TelegramInterface:
             await universal_send(self.client.send_message, chat_id, text=text)
             log_debug(f"[telegram_bot] Message sent to {chat_id}: {text}")
         except Exception as e:
-            log_error(f"[telegram_bot] Failed to send message to {chat_id}: {e}")
+            log_error(f"[telegram_bot] Failed to send message to {chat_id}: {repr(e)}")
 
     @staticmethod
     def get_interface_instructions():

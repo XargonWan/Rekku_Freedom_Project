@@ -132,14 +132,13 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS scheduled_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT NOT NULL,
-                time TEXT,
+                "scheduled" TEXT NOT NULL,
                 repeat TEXT DEFAULT 'none',
                 description TEXT NOT NULL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 delivered INTEGER DEFAULT 0,
                 created_by TEXT DEFAULT 'rekku',
-                UNIQUE(date, time, description)
+                UNIQUE("scheduled", description)
             )
             """
         )
@@ -232,8 +231,7 @@ def get_recent_responses(since_timestamp: str) -> list[dict]:
 # === Event management helpers ===
 
 def insert_scheduled_event(
-    date: str,
-    time_: str | None,
+    scheduled: str,
     repeat: str | None,
     description: str,
     created_by: str = "rekku",
@@ -242,10 +240,10 @@ def insert_scheduled_event(
     with get_db() as db:
         db.execute(
             """
-            INSERT INTO scheduled_events (date, time, repeat, description, created_by)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO scheduled_events (scheduled, repeat, description, created_by)
+            VALUES (?, ?, ?, ?)
             """,
-            (date, time_, repeat or "none", description, created_by),
+            (scheduled, repeat or "none", description, created_by),
         )
 
 
@@ -267,24 +265,20 @@ def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> l
     if now is None:
         now = datetime.now(timezone.utc)
 
-    tz_local = ZoneInfo(os.getenv("TZ", "UTC"))
-
     with get_db() as db:
         rows = db.execute(
             "SELECT * FROM scheduled_events WHERE delivered = 0 ORDER BY id"
         ).fetchall()
 
-    log_debug(f"[get_due_events] Recuperati {len(rows)} eventi dal database")
+    due = []  # Initialize the list to store due events
+    log_debug(f"[get_due_events] Retrieved {len(rows)} events from the database")
 
-    due: list[dict] = []
     for r in rows:
-        dt_str = f"{r['date']} {r['time'] or '00:00'}"
+        log_debug(f"[get_due_events] Raw event data: {dict(r)}")
         try:
-            # Parse event time as local time, then convert to UTC for comparison
-            event_dt_local = datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=tz_local)
-            event_dt = event_dt_local.astimezone(timezone.utc)
-        except ValueError:
-            log_warning(f"[get_due_events] Evento con data/ora non valida: {dt_str}")
+            event_dt = datetime.fromisoformat(r['scheduled'])
+        except ValueError as e:
+            log_warning(f"[get_due_events] Invalid datetime format in 'scheduled': {r['scheduled']} - {e}")
             continue
 
         if event_dt - timedelta(minutes=tolerance_minutes) <= now:
@@ -296,13 +290,12 @@ def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> l
                 {
                     "is_late": is_late,
                     "minutes_late": minutes_late,
-                    "scheduled_time": event_dt_local.strftime("%H:%M"),
+                    "scheduled_time": event_dt.strftime("%H:%M"),
                 }
             )
             due.append(ev)
-            log_debug(f"[get_due_events] Evento dovuto: {ev}")
-
-    log_debug(f"[get_due_events] Totale eventi dovuti: {len(due)}")
+            log_debug(f"[get_due_events] Due event: {ev}")
+    log_debug(f"[get_due_events] Total due events: {len(due)}")
     return due
 
 
@@ -337,6 +330,17 @@ def mark_event_delivered(event_id: int) -> None:
                 )
                 log_info(f"[db] Event {event_id} marked as delivered (repeat: {repeat_type} - TODO: implement proper repeat logic)")
         else:
-            log_warning(f"[db] Event {event_id} not found when trying to mark as delivered")
+            log_warning(f"[db] Event {event_id} not found scheduled to be marked as delivered")
+
+def is_valid_datetime_format(date_str: str, time_str: str | None) -> bool:
+    """Verifica se la data e l'ora sono in un formato valido."""
+    dt_str = f"{date_str} {time_str or '00:00'}"
+    try:
+        datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
+        log_debug(f"[is_valid_datetime_format] Valid datetime format: {dt_str}")
+        return True
+    except ValueError as e:
+        log_warning(f"[is_valid_datetime_format] Invalid datetime format: {dt_str} - {e}")
+        return False
 
 

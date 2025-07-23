@@ -66,7 +66,7 @@ Create scheduled reminders with UTC timestamps:
     {
       "type": "event",
       "payload": {
-        "when": "2025-07-22T15:30:00+00:00",
+        "scheduled": "2025-07-22T15:30:00+00:00",
         "description": "Remind Jay to check the system logs"
       }
     }
@@ -74,7 +74,7 @@ Create scheduled reminders with UTC timestamps:
 }
 
 ⚠ REQUIRED FIELDS:
-- "when": must be a UTC ISO 8601 timestamp
+- "scheduled": must be a UTC ISO 8601 timestamp
 - "description": plain natural text
 
 ❌ DO NOT include "action", "message", or any nested objects.
@@ -83,52 +83,42 @@ Create scheduled reminders with UTC timestamps:
 
     def execute_action(self, action: dict, context: dict, bot, original_message):
         """Execute an event action using the new plugin interface."""
-        action_type = action.get("type")
-        payload = action.get("payload", {})
-
-        if action_type == "event":
-            log_info(f"[event_plugin] Executing event action with payload: {payload}")
+        if action.get("type") == "event":
+            log_info(f"[event_plugin] Executing event action with payload: {action.get('payload')}")
             try:
-                # Extract the reminder details (new format only)
-                when = payload.get("when")
-                description = payload.get("description", "")
-
-                if when and description:
-                    # Store the scheduled reminder as a natural description
-                    self._save_scheduled_reminder(when, description)
-                    log_info(f"[event_plugin] Reminder scheduled for {when}: {description}")
-                else:
-                    log_error("[event_plugin] Invalid event payload: missing 'when' or 'description'")
+                self._handle_event_payload(action.get("payload", {}))
             except Exception as e:
-                log_error(f"[event_plugin] Error executing event action: {e}")
+                log_error(f"[event_plugin] Error executing event action: {repr(e)}")
         else:
-            log_error(f"[event_plugin] Unsupported action type: {action_type}")
+            log_error(f"[event_plugin] Unsupported action type: {action.get('type')}")
 
     async def handle_custom_action(self, action_type: str, payload: dict):
         """Handle custom event actions (legacy method - kept for compatibility)."""
         if action_type == "event":
             log_info(f"[event_plugin] Handling event action with payload: {payload}")
             try:
-                # Extract the reminder details (new format only)
-                when = payload.get("when")
-                description = payload.get("description", "")
-
-                if when and description:
-                    # Store the scheduled reminder as a natural description
-                    self._save_scheduled_reminder(when, description)
-                    log_info(f"[event_plugin] Reminder scheduled for {when}: {description}")
-                else:
-                    log_error("[event_plugin] Invalid event payload: missing 'when' or 'description'")
+                self._handle_event_payload(payload)
             except Exception as e:
-                log_error(f"[event_plugin] Error handling event action: {e}")
+                log_error(f"[event_plugin] Error handling event action: {repr(e)}")
         else:
             log_error(f"[event_plugin] Unsupported action type: {action_type}")
 
-    def _save_scheduled_reminder(self, when: str, description: str):
+    def _handle_event_payload(self, payload: dict):
+        """Shared logic for processing an event payload."""
+        scheduled = payload.get("scheduled")
+        description = payload.get("description", "")
+
+        if scheduled and description:
+            self._save_scheduled_reminder(scheduled, description)
+            log_info(f"[event_plugin] Reminder scheduled for {scheduled}: {description}")
+        else:
+            log_error("[event_plugin] Invalid event payload: missing 'scheduled' or 'description'")
+
+    def _save_scheduled_reminder(self, scheduled: str, description: str):
         """Save a scheduled reminder to the database as natural language."""
         try:
-            # Parse the when timestamp
-            event_time = datetime.fromisoformat(when.replace('Z', '+00:00'))
+            # Parse the scheduled timestamp
+            event_time = datetime.fromisoformat(scheduled.replace('Z', '+00:00'))
 
             # Convert to UTC for consistent storage
             if event_time.tzinfo is None:
@@ -151,21 +141,20 @@ Create scheduled reminders with UTC timestamps:
             # Check if a similar event already exists in the database
             existing_events = get_due_events(event_time_utc)
             for ev in existing_events:
-                if ev['description'] == reminder_description and ev['date'] == date_str and ev['time'] == time_str:
+                if ev['description'] == reminder_description and ev['scheduled'] == event_time_utc.isoformat():
                     log_warning(f"[event_plugin] Duplicate event detected: {description}")
                     return
 
             # Store in database using the correct signature
             insert_scheduled_event(
-                date=date_str,
-                time_=time_str,
+                scheduled=event_time_utc.isoformat(),
                 repeat="none",  # Single execution
                 description=reminder_description,
                 created_by="rekku"
             )
             log_debug(f"[event_plugin] Saved scheduled reminder for {event_time} (stored as UTC: {event_time_utc}): {description}")
         except Exception as e:
-            log_error(f"[event_plugin] Failed to save scheduled reminder: {e}")
+            log_error(f"[event_plugin] Failed to save scheduled reminder: {repr(e)}")
 
     async def _event_scheduler(self):
         """Background task that checks and executes due events."""
@@ -179,19 +168,20 @@ Create scheduled reminders with UTC timestamps:
                 log_info("[event_plugin] Event scheduler cancelled")
                 break
             except Exception as e:
-                log_error(f"[event_plugin] Error in event scheduler: {e}")
+                log_error(f"[event_plugin] Error in event scheduler: {repr(e)}")
                 await asyncio.sleep(60)  # Wait longer on error
         log_info("[event_plugin] Event scheduler loop ended")
 
     async def _check_and_execute_events(self):
         """Check for due events and execute them with 5-minute tolerance window."""
         try:
+            log_debug("[EventPlugin] Inizio controllo eventi dovuti...")
             # Get events that are due (including 5 minutes early)
             due_events = get_due_events(tolerance_minutes=5)
 
             if due_events:
                 log_info(f"[event_plugin] Found {len(due_events)} due events to execute (with 5min tolerance)")
-
+                log_debug(f"[EventPlugin] Eventi trovati: {len(due_events)}")
                 # Separate on-time and late events for logging
                 on_time_events = [e for e in due_events if not e.get('is_late', False)]
                 late_events = [e for e in due_events if e.get('is_late', False)]
@@ -206,11 +196,12 @@ Create scheduled reminders with UTC timestamps:
                         log_warning(f"[event_plugin] Event {event['id']} is {minutes_late} minutes late (scheduled: {scheduled_time})")
 
                 for event in due_events:
+                    log_debug(f"[EventPlugin] Controllo evento: {event}")
                     await self._execute_scheduled_event(event)
             else:
                 log_debug("[event_plugin] No due events to execute (checked with 5min tolerance)")
         except Exception as e:
-            log_error(f"[event_plugin] Error checking due events: {e}")
+            log_error(f"[event_plugin] Error checking due events: {repr(e)}")
 
     async def _execute_scheduled_event(self, event: dict):
         """Execute a scheduled event and deliver it to the LLM for processing."""
@@ -229,14 +220,15 @@ Create scheduled reminders with UTC timestamps:
             else:
                 log_info(f"[event_plugin] Delivering scheduled event {event_id}: {description[:50]}...")
 
+            log_debug(f"[EventPlugin] Esecuzione evento: {event}")
             # Create a structured prompt for the LLM representing this scheduled event
             # The LLM will decide what to do with it
             await self._deliver_event_to_llm(event)
 
-            log_debug(f"[event_plugin] Event {event_id} delivered to LLM for processing")
+            log_debug(f"[EventPlugin] Evento {event['id']} eseguito con successo")
 
         except Exception as e:
-            log_error(f"[event_plugin] Error delivering event {event.get('id', 'unknown')}: {e}")
+            log_error(f"[event_plugin] Error delivering event {event.get('id', 'unknown')}: {repr(e)}")
 
     async def _deliver_event_to_llm(self, event: dict):
         """Deliver the event to the LLM as a structured input."""
@@ -273,7 +265,7 @@ Create scheduled reminders with UTC timestamps:
             log_info(f"[event_plugin] ✅ Event {event['id']} delivered and marked as processed")
 
         except Exception as e:
-            log_error(f"[event_plugin] Error delivering event {event['id']} to LLM: {e}")
+            log_error(f"[event_plugin] Error delivering event {event['id']} to LLM: {repr(e)}")
 
     def _create_event_prompt(self, event: dict):
         """Create a structured prompt for the event delivery."""
@@ -360,7 +352,7 @@ Example of a valid JSON structure for an event:
 {
   "type": "event",
   "payload": {
-    "when": "2025-07-22T15:30:00+00:00",
+    "scheduled": "2025-07-22T15:30:00+00:00",
     "description": "Remember to check if Jay replied to the message"
   }
 }
@@ -406,7 +398,7 @@ Example of a valid JSON structure for an event:
                 await self._execute_other_action_silently(action, event_id)
 
         except Exception as e:
-            log_error(f"[event_plugin] Error executing silent action for event {event_id}: {e}")
+            log_error(f"[event_plugin] Error executing silent action for event {event_id}: {repr(e)}")
 
     async def _send_scheduled_message(self, payload: dict, event_id: int):
         """Send a scheduled message directly without interface involvement."""
@@ -425,7 +417,7 @@ Example of a valid JSON structure for an event:
             await self._send_via_transport_layer(target_chat_id, text, thread_id, event_id)
 
         except Exception as e:
-            log_error(f"[event_plugin] Error sending scheduled message for event {event_id}: {e}")
+            log_error(f"[event_plugin] Error sending scheduled message for event {event_id}: {repr(e)}")
 
     async def _send_via_transport_layer(self, chat_id: int, text: str, thread_id: int = None, event_id: int = None):
         """Send message directly via transport layer, bypassing interfaces."""
@@ -439,7 +431,7 @@ Example of a valid JSON structure for an event:
                 await self._send_via_telegram_transport(chat_id, text, thread_id, event_id)
 
         except Exception as e:
-            log_error(f"[event_plugin] Error in transport layer for event {event_id}: {e}")
+            log_error(f"[event_plugin] Error in transport layer for event {event_id}: {repr(e)}")
 
     async def _send_via_telegram_transport(self, chat_id: int, text: str, thread_id: int = None, event_id: int = None):
         """Send message directly via Telegram transport layer."""
@@ -467,7 +459,7 @@ Example of a valid JSON structure for an event:
             # Fallback: use the bot instance directly if available
             await self._fallback_send_telegram(chat_id, text, thread_id, event_id)
         except Exception as e:
-            log_error(f"[event_plugin] Error in Telegram transport for event {event_id}: {e}")
+            log_error(f"[event_plugin] Error in Telegram transport for event {event_id}: {repr(e)}")
 
     async def _fallback_send_telegram(self, chat_id: int, text: str, thread_id: int = None, event_id: int = None):
         """Fallback method to send via Telegram bot directly."""
@@ -491,7 +483,7 @@ Example of a valid JSON structure for an event:
                 log_error(f"[event_plugin] No Telegram bot available for fallback send (event {event_id})")
 
         except Exception as e:
-            log_error(f"[event_plugin] Fallback Telegram send failed for event {event_id}: {e}")
+            log_error(f"[event_plugin] Fallback Telegram send failed for event {event_id}: {repr(e)}")
 
     async def _execute_other_action_silently(self, action: dict, event_id: int):
         """Execute non-message actions silently."""
@@ -513,7 +505,7 @@ Example of a valid JSON structure for an event:
             log_debug(f"[event_plugin] Silent action executed for event {event_id}")
 
         except Exception as e:
-            log_error(f"[event_plugin] Error executing silent action for event {event_id}: {e}")
+            log_error(f"[event_plugin] Error executing silent action for event {event_id}: {repr(e)}")
 
     def _create_silent_bot(self):
         """Create a bot that silently logs actions instead of sending them."""
@@ -565,7 +557,7 @@ Example of a valid JSON structure for an event:
                     delattr(self, '_current_processing_event_id')
 
         except Exception as e:
-            log_error(f"[event_plugin] Error delegating to active LLM for event {event_id}: {e}")
+            log_error(f"[event_plugin] Error delegating to active LLM for event {event_id}: {repr(e)}")
             # Clean up the tracking on error
             if hasattr(self, '_current_processing_event_id'):
                 delattr(self, '_current_processing_event_id')
@@ -683,7 +675,7 @@ You can use {{"type": "event"}} to schedule a reminder in the future.
 
 IMPORTANT RULES for event actions:
 - The payload MUST contain:
-    • "when": ISO 8601 UTC timestamp (e.g. "2025-07-22T15:30:00+00:00")
+    • "scheduled": ISO 8601 UTC timestamp (e.g. "2025-07-22T15:30:00+00:00")
     • "description": natural language reminder (not a command or action)
 - DO NOT include nested "action", "message", or any other structure inside the event.
 - The plugin will decide later how to handle the reminder.
@@ -692,7 +684,7 @@ Valid example:
 {{
   "type": "event",
   "payload": {{
-    "when": "2025-07-22T15:30:00+00:00",
+    "scheduled": "2025-07-22T15:30:00+00:00",
     "description": "Remind Jay to check the system logs for errors"
   }}
 }}
@@ -738,7 +730,7 @@ Valid example:
                             # Placeholder for the missing logic
                             pass
                     except Exception as e:
-                        log_error(f"[event_plugin] Error parsing LLM response action: {e}")
+                        log_error(f"[event_plugin] Error parsing LLM response action: {repr(e)}")
                 else:
                     log_warning(f"[event_plugin] Ignored non-JSON LLM response: {text}")
 

@@ -287,7 +287,7 @@ def _safe_notify(text: str) -> None:
         try:
             notify_owner(chunk)
         except Exception as e:  # pragma: no cover - best effort
-            log_error(f"[selenium] notify_owner failed: {e}", e)
+            log_error(f"[selenium] notify_owner failed: {repr(e)}", e)
 
 def _notify_gui(message: str = ""):
     """Send a notification with the VNC URL, optionally prefixed."""
@@ -369,7 +369,7 @@ def is_chat_archived(driver, chat_id: str) -> bool:
         log_debug("[selenium] Chat is not archived.")
         return False
     except Exception as e:
-        log_error(f"[selenium] Error checking if chat is archived: {e}")
+        log_error(f"[selenium] Error checking if chat is archived: {repr(e)}")
         return False
 
 # Update process_prompt_in_chat to use the new functions
@@ -417,7 +417,7 @@ def process_prompt_in_chat(
             time.sleep(2)
             continue
         except Exception as e:
-            log_error(f"[selenium][ERROR] Failed to send prompt: {e}")
+            log_error(f"[selenium][ERROR] Failed to send prompt: {repr(e)}")
             return None
 
         log_debug("🔍 Waiting for response block...")
@@ -502,7 +502,7 @@ def process_prompt_in_chat(
 #         paste_and_send(textarea, prompt_text)
 #         textarea.send_keys(Keys.ENTER)
 #     except Exception as e:
-#         log_error(f"[selenium][ERROR] failed to send prompt: {e}")
+#         log_error(f"[selenium][ERROR] failed to send prompt: {repr(e)}")
 #         return None
 # 
 #     previous_text = get_previous_response(chat_info.chat_id)
@@ -510,7 +510,7 @@ def process_prompt_in_chat(
 #     try:
 #         response_text = wait_until_response_stabilizes(driver)
 #     except Exception as e:
-#         log_error(f"[selenium][ERROR] waiting for response failed: {e}")
+#         log_error(f"[selenium][ERROR] waiting for response failed: {repr(e)}")
 #         return None
 # 
 #     if not response_text or response_text == previous_text:
@@ -996,7 +996,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 _notify_gui(f"❌ Selenium error: {e}. Open UI")
                 return
             except Exception as e:
-                log_error(f"[selenium][ERROR] failed to process message: {e}", e)
+                log_error(f"[selenium][ERROR] failed to process message: {repr(e)}", e)
                 _notify_gui(f"❌ Selenium error: {e}. Open UI")
                 return
 
@@ -1032,7 +1032,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 log_debug(f"[clean_chat_link] No link found. Created new link: {new_chat_id}")
                 return f"⚠️ No link found for chat_id={chat_id}. Created new link: {new_chat_id}."
         except Exception as e:
-            log_error(f"[clean_chat_link] Error while removing or creating the link: {e}", e)
+            log_error(f"[clean_chat_link] Error while removing or creating the link: {repr(e)}", e)
             return f"❌ Error while removing or creating the link: {e}"
 
     async def handle_clear_chat_link_command(bot, message):
@@ -1082,7 +1082,7 @@ def go_to_chat_by_path(driver, path: str) -> bool:
         log_warning(f"[selenium] Timeout while navigating to chat path: {path}")
         return False
     except Exception as e:
-        log_error(f"[selenium] Error navigating to chat path: {e}")
+        log_error(f"[selenium] Error navigating to chat path: {repr(e)}")
         return False
 
 def go_to_chat_by_path_with_retries(driver, path: str, retries: int = 3) -> bool:
@@ -1099,7 +1099,7 @@ def go_to_chat_by_path_with_retries(driver, path: str, retries: int = 3) -> bool
         except TimeoutException:
             log_warning(f"[selenium] Timeout while navigating to chat path: {path} on attempt {attempt}")
         except Exception as e:
-            log_error(f"[selenium] Error navigating to chat path on attempt {attempt}: {e}")
+            log_error(f"[selenium] Error navigating to chat path on attempt {attempt}: {repr(e)}")
 
     log_warning(f"[selenium] Failed to navigate to chat path: {path} after {retries} attempts")
     return False

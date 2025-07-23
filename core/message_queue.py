@@ -37,7 +37,7 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
     try:
         max_messages, window_seconds, owner_fraction = plugin.get_rate_limit()
     except Exception as e:  # pragma: no cover - plugin may misbehave
-        log_error(f"[QUEUE] Error obtaining rate limit: {e}", e)
+        log_error(f"[QUEUE] Error obtaining rate limit: {repr(e)}", e)
         max_messages, window_seconds, owner_fraction = float("inf"), 1, 1.0
 
     user_id = message.from_user.id if message.from_user else 0
@@ -133,7 +133,7 @@ async def start_queue_loop() -> None:
             try:
                 max_messages, window_seconds, owner_fraction = plugin.get_rate_limit()
             except Exception as e:  # pragma: no cover - plugin may misbehave
-                log_error(f"[QUEUE] Error obtaining rate limit: {e}", e)
+                log_error(f"[QUEUE] Error obtaining rate limit: {repr(e)}", e)
                 max_messages, window_seconds, owner_fraction = float("inf"), 1, 1.0
 
             user_id = final["message"].from_user.id if final["message"].from_user else 0
@@ -200,8 +200,8 @@ async def enqueue_event(bot, prompt_data) -> None:
     log_debug(f"[QUEUE] Verifying event payload: {prompt_data}")
 
     # Check required fields in the payload
-    if not prompt_data.get("when") or not prompt_data.get("description"):
-        log_error("[QUEUE] Invalid event payload: missing 'when' or 'description'")
+    if not prompt_data.get("scheduled") or not prompt_data.get("description"):
+        log_error("[QUEUE] Invalid event payload: missing 'scheduled' or 'description'")
         return
 
     async with _condition:

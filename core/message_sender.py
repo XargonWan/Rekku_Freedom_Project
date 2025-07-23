@@ -80,7 +80,7 @@ async def send_content(bot, chat_id, message, content_type, reply_to_message_id=
         return True, "\u2705 Content sent successfully."
 
     except Exception as e:
-        log_error(f"Error sending content: {e}")
+        log_error(f"Error sending content: {repr(e)}")
         traceback.print_exc()
         return False, f"\u274c Error: {e}"
 
