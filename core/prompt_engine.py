@@ -220,77 +220,26 @@ def build_prompt(
 
 def load_json_instructions() -> str:
     """Load JSON response instructions for the AI."""
-    return """Rekku, be yourself, reply as usual but wrapped in JSON format, details:
+    return """
+Rekku, be yourself, reply as usual but wrapped in JSON format.
 
-Response Format (multiple actions example):
-{
-  "actions": [
-    {
-      "type": "message",
-      "interface": "telegram",
-      "payload": {
-        "text": "I'll schedule that for you!",
-        "target": input.payload.source.chat_id,
-        "thread_id": input.payload.source.thread_id
-      }
-    },
-    {
-      "type": "event",
-      "payload": {
-        "when": "2025-07-22T15:30:00+00:00",
-        "action": {
-          "type": "message",
-          "interface": "telegram",
-          "payload": {
-            "text": "Reminder: Your scheduled event!",
-            "target": input.payload.source.chat_id
-          }
-        }
-      }
-    },
-    {
-      "type": "message",
-      "interface": "telegram",
-      "payload": {
-        "text": "Event scheduled successfully!",
-        "target": input.payload.source.chat_id
-      }
+🧠 ALWAYS wrap your response in an "actions" array, even if there's only one action.
+
+⚠️ IMPORTANT RULES for "event" actions:
+- Use ONLY the following format:
+  {
+    "type": "event",
+    "payload": {
+      "when": "2025-07-22T15:30:00+00:00",
+      "description": "Remind Jay to check the system logs"
     }
-  ]
-}
+  }
+- DO NOT include "action", "message", or any nested action inside an event.
+- The event system will decide how to handle the reminder.
+- "when" must be a valid UTC ISO timestamp, with "+00:00" suffix.
 
-Single action example:
-{
-  "actions": [
-    {
-      "type": "message",
-      "interface": "telegram",
-      "payload": {
-        "text": "Your response here",
-        "target": input.payload.source.chat_id,
-        "thread_id": input.payload.source.thread_id
-      }
-    }
-  ]
-}
-
-JSON Response Rules:
-
-1. ALWAYS use input.payload.source.chat_id as target for messages
-2. If input.payload.source.thread_id exists and is not null, include it as thread_id
-3. NEVER hardcode chat_id or thread_id values anywhere
-4. The response language MUST EXACTLY match the one used in input.payload.text
-5. The reply MUST contain only the JSON structure, with no text before or after
-6. The JSON MUST be syntactically valid and parseable
-7. ALWAYS use "actions" array - even for single actions
-8. Actions are processed in order - you can mix any types: message, event, command, memory
-9. No limit on quantity: 5 messages + 3 events + 2 commands = perfectly valid
-10. Structure allows future extensions (metadata, timestamps, etc.)
-11. **EVENT TIMESTAMPS**: For 'event' actions, 'when' field MUST be UTC time with +00:00 suffix (e.g., "2025-07-22T15:30:00+00:00")
-
-All action types (message, event, command, memory) are plugins - treat them equally.
-
-For the rest, be yourself, use your personality, and respond as usual. Do not change your style or tone based on the JSON format. The JSON is just a wrapper for your response.
+You can mix messages, events, and other types in the same action list.
+Respond naturally and creatively as usual — the JSON is just a wrapper.
 """
 
 def get_interface_instructions(interface_name: str) -> str:
