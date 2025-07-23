@@ -199,9 +199,10 @@ async def enqueue_event(bot, prompt_data) -> None:
     # Debug log to verify the payload content
     log_debug(f"[QUEUE] Verifying event payload: {prompt_data}")
 
-    # Check required fields in the payload
-    if not prompt_data.get("scheduled") or not prompt_data.get("description"):
-        log_error("[QUEUE] Invalid event payload: missing 'scheduled' or 'description'")
+    # Check required fields in the payload - adjust for the actual structure
+    payload = prompt_data.get("input", {}).get("payload", {})
+    if not payload.get("description"):
+        log_error("[QUEUE] Invalid event payload: missing 'description' in input.payload")
         return
 
     async with _condition:
