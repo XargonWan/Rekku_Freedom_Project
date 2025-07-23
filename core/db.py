@@ -250,66 +250,52 @@ def insert_scheduled_event(
 
 
 def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> list[dict]:
-    """Return events that should be dispatched.
-    
+    """Return scheduled events that are ready for dispatch.
+
     Args:
-        now: Current time for comparison (defaults to UTC now)
-        tolerance_minutes: Minutes before the scheduled time to consider events as due (default: 5)
-        
+        now: Current time in UTC used for comparison. Defaults to ``datetime.now(timezone.utc)``.
+        tolerance_minutes: How many minutes before the scheduled time an event can
+            be considered due.
+
     Returns:
-        List of events with additional 'is_late' and 'minutes_late' fields
+        A list of events with ``is_late``, ``minutes_late`` and ``scheduled_time``
+        fields added.
     """
+
     from datetime import timedelta
-    
-    if not now:
+
+    if now is None:
         now = datetime.now(timezone.utc)
-    tz = ZoneInfo(os.getenv("TZ", "UTC"))
+
+    tz_local = ZoneInfo(os.getenv("TZ", "UTC"))
 
     with get_db() as db:
-        rows = (
-            db.execute(
-                """
-                SELECT * FROM scheduled_events
-                WHERE delivered = 0
-                ORDER BY id
-                """
-            ).fetchall()
-        )
+        rows = db.execute(
+            "SELECT * FROM scheduled_events WHERE delivered = 0 ORDER BY id"
+        ).fetchall()
 
     due: list[dict] = []
     for r in rows:
         dt_str = f"{r['date']} {r['time'] or '00:00'}"
         try:
-            # Assume all events in database are stored in UTC
-            event_dt_utc = datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+            event_dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
         except ValueError:
+            # Skip invalid events
             continue
-        
-        # Apply tolerance window (allow execution N minutes early)
-        event_dt_with_tolerance = event_dt_utc - timedelta(minutes=tolerance_minutes)
-        
-        if event_dt_with_tolerance <= now:
-            event_dict = dict(r)
-            
-            # Calculate if the event is late and by how much
-            if now > event_dt_utc:
-                # Event is late
-                time_diff = now - event_dt_utc
-                minutes_late = int(time_diff.total_seconds() / 60)
-                event_dict['is_late'] = True
-                event_dict['minutes_late'] = minutes_late
-                # Convert to local timezone for display
-                local_dt = event_dt_utc.astimezone(tz)
-                event_dict['scheduled_time'] = local_dt.strftime("%H:%M")
-            else:
-                # Event is on time (within tolerance window)
-                event_dict['is_late'] = False
-                event_dict['minutes_late'] = 0
-                # Convert to local timezone for display
-                local_dt = event_dt_utc.astimezone(tz)
-                event_dict['scheduled_time'] = local_dt.strftime("%H:%M")
-            
-            due.append(event_dict)
+
+        if event_dt - timedelta(minutes=tolerance_minutes) <= now:
+            is_late = now > event_dt
+            minutes_late = int((now - event_dt).total_seconds() / 60) if is_late else 0
+
+            ev = dict(r)
+            ev.update(
+                {
+                    "is_late": is_late,
+                    "minutes_late": minutes_late,
+                    "scheduled_time": event_dt.astimezone(tz_local).strftime("%H:%M"),
+                }
+            )
+            due.append(ev)
 
     return due
 
