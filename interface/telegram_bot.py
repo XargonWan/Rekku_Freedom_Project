@@ -712,6 +712,11 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
 
 async def plugin_startup_callback(application):
     """Launch plugin start() once the bot's event loop is ready."""
+    # Start pending async plugins
+    from core.core_initializer import core_initializer
+    await core_initializer.start_pending_async_plugins()
+    
+    # Also try to start the main LLM plugin if it has a start method
     plugin_obj = plugin_instance.get_plugin()
     if plugin_obj and hasattr(plugin_obj, "start"):
         try:
@@ -722,6 +727,7 @@ async def plugin_startup_callback(application):
             log_debug("[plugin] Plugin start executed")
         except Exception as e:
             log_error(f"[plugin] Error during post_init start: {e}", e)
+    
     application.create_task(message_queue.start_queue_loop())
 
 
@@ -785,17 +791,8 @@ def start_bot():
     from core.core_initializer import core_initializer
     core_initializer.register_interface("telegram_bot")
 
-    # Fallback: ensure plugin.start() invoked in case post_init failed
-    plugin_obj = plugin_instance.get_plugin()
-    if plugin_obj and hasattr(plugin_obj, "start"):
-        try:
-            if asyncio.iscoroutinefunction(plugin_obj.start):
-                asyncio.get_event_loop().create_task(plugin_obj.start())
-            else:
-                plugin_obj.start()
-            log_debug("[plugin] Plugin start scheduled from start_bot")
-        except Exception as e:
-            log_error(f"[plugin] Fallback start error: {e}", e)
+    # Plugin startup is handled by plugin_startup_callback
+    # No need for fallback as the callback ensures proper async startup
 
     app.run_polling()
 

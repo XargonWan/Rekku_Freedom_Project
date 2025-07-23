@@ -25,13 +25,17 @@ class EventPlugin(AIPluginBase):
         self._running = False
         # Track events currently being processed to mark them as delivered after successful send
         self._pending_events: dict[str, dict] = {}  # message_id -> event_info
+        log_info("[event_plugin] EventPlugin instance created")
 
     async def start(self):
         """Start the event scheduler."""
+        log_info(f"[event_plugin] start() called, _running={self._running}")
         if not self._running:
             self._running = True
             self._scheduler_task = asyncio.create_task(self._event_scheduler())
             log_info("[event_plugin] Event scheduler started")
+        else:
+            log_warning("[event_plugin] Scheduler already running, ignoring start() call")
 
     async def stop(self):
         """Stop the event scheduler."""
@@ -182,43 +186,166 @@ class EventPlugin(AIPluginBase):
             log_error(f"[event_plugin] Error checking due events: {e}")
 
     async def _execute_scheduled_event(self, event: dict):
-        """Execute a scheduled event and mark it as consumed if needed."""
+        """Execute a scheduled event and deliver it to the LLM for processing."""
         try:
             description = event.get("description", "")
+            event_id = event.get("id", "unknown")
             
-            # Check if this is a Rekku action
-            if not description.startswith("REKKU_ACTION:"):
-                log_debug(f"[event_plugin] Skipping non-action event: {event['id']}")
-                return
-            
-            # Parse the action from description
-            # Format: REKKU_ACTION:{timestamp}:{json_action}
-            parts = description.split(":", 2)
-            if len(parts) < 3:
-                log_error(f"[event_plugin] Invalid action format in event {event['id']}")
-                return
-            
-            action_json = parts[2]
-            action = json.loads(action_json)
+            # Extract lateness info
+            is_late = event.get('is_late', False)
+            minutes_late = event.get('minutes_late', 0)
+            scheduled_time = event.get('scheduled_time', 'unknown')
             
             # Log execution with lateness info
-            is_late = event.get('is_late', False)
             if is_late:
-                minutes_late = event.get('minutes_late', 0)
-                log_info(f"[event_plugin] Executing LATE event {event['id']} ({minutes_late} min late): {action.get('type', 'unknown')}")
+                log_info(f"[event_plugin] Delivering LATE event {event_id} ({minutes_late} min late): {description[:50]}...")
             else:
-                log_info(f"[event_plugin] Executing scheduled event {event['id']}: {action.get('type', 'unknown')}")
+                log_info(f"[event_plugin] Delivering scheduled event {event_id}: {description[:50]}...")
             
-            # Send the event action back through LLM to generate appropriate response
-            # Pass the full event info including lateness data
-            # NOTE: The event will be marked as delivered only after successful interface delivery
-            await self._delegate_to_active_llm(action, event['id'], event)
+            # Create a structured prompt for the LLM representing this scheduled event
+            # The LLM will decide what to do with it
+            await self._deliver_event_to_llm(event)
             
-            # DO NOT mark as delivered here - this will be done by the interface after successful send
-            log_debug(f"[event_plugin] Event {event['id']} delegated to LLM, waiting for interface confirmation")
+            log_debug(f"[event_plugin] Event {event_id} delivered to LLM for processing")
                 
         except Exception as e:
-            log_error(f"[event_plugin] Error executing event {event.get('id', 'unknown')}: {e}")
+            log_error(f"[event_plugin] Error delivering event {event.get('id', 'unknown')}: {e}")
+
+    async def _deliver_event_to_llm(self, event: dict):
+        """Deliver the event to the LLM as a structured input."""
+        try:
+            # Get the active LLM plugin
+            import core.plugin_instance as plugin_instance
+            active_plugin = plugin_instance.get_plugin()
+            
+            if not active_plugin:
+                log_error(f"[event_plugin] No active LLM plugin available for event {event['id']}")
+                return
+            
+            # Create a structured event prompt for the LLM
+            event_prompt = self._create_event_prompt(event)
+            
+            # Create a special "scheduler" message object
+            scheduler_message = self._create_scheduler_message(event)
+            
+            log_debug(f"[event_plugin] Delivering event {event['id']} to LLM: {active_plugin.__class__.__name__}")
+            
+            # Execute through the active LLM plugin using the message queue
+            from core import message_queue
+            await message_queue.enqueue_event(None, event_prompt)  # No bot needed for events
+            
+            # Mark event as delivered since we've successfully queued it
+            from core.db import mark_event_delivered
+            mark_event_delivered(event['id'])
+            log_info(f"[event_plugin] ✅ Event {event['id']} delivered and marked as processed")
+                
+        except Exception as e:
+            log_error(f"[event_plugin] Error delivering event {event['id']} to LLM: {e}")
+
+    def _create_event_prompt(self, event: dict):
+        """Create a structured prompt for the event delivery."""
+        
+        # Extract event details
+        event_id = event.get('id', 'unknown')
+        date = event.get('date', '')
+        time = event.get('time', '')
+        description = event.get('description', '')
+        is_late = event.get('is_late', False)
+        minutes_late = event.get('minutes_late', 0)
+        scheduled_time = event.get('scheduled_time', 'unknown')
+        
+        # Create lateness context
+        lateness_context = ""
+        if is_late:
+            if minutes_late < 60:
+                lateness_context = f"⚠️ QUESTO EVENTO È IN RITARDO DI {minutes_late} MINUTI! Era programmato per le {scheduled_time}."
+            else:
+                hours_late = minutes_late // 60
+                remaining_minutes = minutes_late % 60
+                if remaining_minutes > 0:
+                    lateness_context = f"⚠️ QUESTO EVENTO È IN RITARDO DI {hours_late}h {remaining_minutes}m! Era programmato per le {scheduled_time}."
+                else:
+                    lateness_context = f"⚠️ QUESTO EVENTO È IN RITARDO DI {hours_late} {'ora' if hours_late == 1 else 'ore'}! Era programmato per le {scheduled_time}."
+        else:
+            lateness_context = f"✅ Evento in orario (programmato per le {scheduled_time})"
+        
+        return {
+            "context": {
+                "messages": [],
+                "memories": [],
+                "location": "",
+                "weather": "",
+                "date": datetime.utcnow().strftime("%Y-%m-%d"),
+                "time": datetime.utcnow().strftime("%H:%M"),
+                "event_status": {
+                    "is_late": is_late,
+                    "minutes_late": minutes_late,
+                    "scheduled_time": scheduled_time,
+                    "lateness_context": lateness_context
+                }
+            },
+            "input": {
+                "type": "scheduled_event",
+                "event_id": event_id,
+                "payload": {
+                    "text": f"Evento programmato: {description}",
+                    "event_date": date,
+                    "event_time": time,
+                    "description": description,
+                    "is_late": is_late,
+                    "minutes_late": minutes_late,
+                    "source": {
+                        "chat_id": "SYSTEM_SCHEDULER",
+                        "message_id": f"event_{event_id}",
+                        "username": "Rekku Scheduler",
+                        "usertag": "@rekku_scheduler",
+                        "interface": "scheduler"
+                    },
+                    "timestamp": datetime.utcnow().isoformat() + "+00:00",
+                    "privacy": "system",
+                    "scope": "global"
+                }
+            },
+            "instructions": f"""
+EVENTO PROGRAMMATO #{event_id} {"(IN RITARDO)" if is_late else "(IN ORARIO)"}
+
+Evento: {description}
+Data programmata: {date} {time}
+Stato: {lateness_context}
+
+Questo è un evento che era stato programmato nel sistema. Valuta se e come rispondere:
+
+1. Se l'evento è un promemoria o qualcosa che richiede una notifica, rispondi con un'azione appropriata
+2. Se l'evento non è più rilevante o non richiede azione, rispondi con no_action
+3. Se l'evento è in ritardo, considera di menzionarlo nella risposta
+
+Rispondi in formato JSON come sempre. Se decidi di non fare nulla, usa:
+{{"actions": [{{"type": "no_action", "payload": {{"reason": "Evento non più rilevante"}}}}]}}
+            """.strip()
+        }
+
+    def _create_scheduler_message(self, event: dict):
+        """Create a scheduler message object for the event."""
+        from types import SimpleNamespace
+        
+        return SimpleNamespace(
+            message_id=f"event_{event['id']}",
+            chat_id="SYSTEM_SCHEDULER",
+            text=f"Evento programmato: {event.get('description', '')}",
+            from_user=SimpleNamespace(
+                id=-1,  # System user ID
+                full_name="Rekku Scheduler",
+                username="rekku_scheduler"
+            ),
+            date=datetime.utcnow(),
+            reply_to_message=None,
+            chat=SimpleNamespace(
+                id="SYSTEM_SCHEDULER",
+                type="private",
+                title="System Scheduler"
+            ),
+            message_thread_id=None
+        )
 
     async def _execute_action_silently(self, action: dict, event_id: int):
         """Execute an action silently without involving any interfaces."""
