@@ -50,9 +50,13 @@ async def dispatch_pending_events(bot):
             summary += f" {ev['time']}"
         summary += f" → {ev['description']}"
 
+        # Controllo per evitare duplicazioni nella coda dei messaggi
+        if not mark_event_delivered(ev["id"]):
+            log_warning(f"[event_dispatcher] Evento già marcato come consegnato: {ev['id']}")
+            continue
+
         try:
             await message_queue.enqueue_event(bot, prompt)
-            mark_event_delivered(ev["id"])
             log_debug(f"[DISPATCH] Queued event with priority: {summary}")
             dispatched += 1
         except Exception as exc:

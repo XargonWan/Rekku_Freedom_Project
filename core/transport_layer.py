@@ -155,8 +155,18 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
             from core.action_parser import run_actions
             context = {"interface": "telegram"}  # Add more context as needed
             
-            await run_actions(actions, context, bot, message)
-            log_info(f"[transport] Processed {len(actions)} JSON actions via plugin system")
+            # Rimuovi azioni duplicate
+            unique_actions = []
+            seen_actions = set()
+            for action in actions:
+                action_id = str(action)  # Converti l'azione in stringa per un confronto semplice
+                if action_id not in seen_actions:
+                    unique_actions.append(action)
+                    seen_actions.add(action_id)
+
+            # Usa il sistema centralizzato per le azioni uniche
+            await run_actions(unique_actions, context, bot, message)
+            log_info(f"[transport] Processed {len(unique_actions)} unique JSON actions via plugin system")
             return
             
         except Exception as e:
@@ -224,8 +234,18 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
             from core.action_parser import run_actions
             context = {"interface": "telegram"}
             
-            await run_actions(actions, context, bot, message)
-            log_info(f"[telegram_transport] Processed {len(actions)} JSON actions via plugin system")
+            # Rimuovi azioni duplicate
+            unique_actions = []
+            seen_actions = set()
+            for action in actions:
+                action_id = str(action)  # Converti l'azione in stringa per un confronto semplice
+                if action_id not in seen_actions:
+                    unique_actions.append(action)
+                    seen_actions.add(action_id)
+
+            # Usa il sistema centralizzato per le azioni uniche
+            await run_actions(unique_actions, context, bot, message)
+            log_info(f"[telegram_transport] Processed {len(unique_actions)} unique JSON actions via plugin system")
             return
             
         except Exception as e:

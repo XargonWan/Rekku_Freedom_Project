@@ -1,10 +1,11 @@
 import asyncio
 import time
 from collections import deque
+from datetime import datetime
 
 from core.config import OWNER_ID
 from core import plugin_instance, rate_limit, recent_chats
-from core.logging_utils import log_debug, log_error
+from core.logging_utils import log_debug, log_error, log_warning
 
 # Use a deque for priority insertion
 _queue: deque = deque()
@@ -154,9 +155,34 @@ async def start_queue_loop() -> None:
             try:
                 # Check if this is an event prompt
                 if "event_prompt" in final:
-                    await plugin_instance.handle_incoming_message(
-                        final["bot"], None, final["event_prompt"]
-                    )
+                    # For events, we need to use the LLM plugin directly with the structured prompt
+                    plugin = plugin_instance.get_plugin()
+                    if plugin and hasattr(plugin, 'handle_incoming_message'):
+                        # Create a mock message for event processing
+                        from types import SimpleNamespace
+                        event_message = SimpleNamespace(
+                            message_id=f"event_{final['event_prompt']['input']['event_id']}",
+                            chat_id="SYSTEM_SCHEDULER",
+                            text=f"Scheduled event: {final['event_prompt']['input']['payload']['description']}",
+                            from_user=SimpleNamespace(
+                                id=-1,
+                                full_name="Rekku Scheduler",
+                                username="rekku_scheduler"
+                            ),
+                            date=datetime.utcnow(),
+                            reply_to_message=None,
+                            chat=SimpleNamespace(
+                                id="SYSTEM_SCHEDULER",
+                                type="private",
+                                title="System Scheduler"
+                            ),
+                            message_thread_id=None
+                        )
+                        await plugin.handle_incoming_message(
+                            final["bot"], event_message, final["event_prompt"]
+                        )
+                    else:
+                        log_error("[QUEUE] No LLM plugin available or doesn't support handle_incoming_message")
                 else:
                     await plugin_instance.handle_incoming_message(
                         final["bot"], final["message"], final["context"]
@@ -170,6 +196,14 @@ async def start_queue_loop() -> None:
 
 async def enqueue_event(bot, prompt_data) -> None:
     """Enqueue an event prompt with highest priority."""
+    # Debug log to verify the payload content
+    log_debug(f"[QUEUE] Verifying event payload: {prompt_data}")
+
+    # Check required fields in the payload
+    if not prompt_data.get("when") or not prompt_data.get("description"):
+        log_error("[QUEUE] Invalid event payload: missing 'when' or 'description'")
+        return
+
     async with _condition:
         item = {
             "bot": bot,
@@ -180,7 +214,16 @@ async def enqueue_event(bot, prompt_data) -> None:
             "priority": True,
             "event_prompt": prompt_data,  # Special event data
         }
+
+        # Check to avoid duplicates in the queue
+        for queued_item in _queue:
+            if queued_item.get("event_prompt") == prompt_data:
+                log_warning("[QUEUE] Duplicate event detected, not added to the queue")
+                return
+
+        # Add the event to the queue
         # Events always go to the front
         _queue.appendleft(item)
-        log_debug("[QUEUE] Event prompt enqueued with highest priority")
+        log_debug(f"[QUEUE] Event added to the queue with priority: {prompt_data}")
+        log_debug(f"[QUEUE] Current queue state: {list(_queue)}")
         _condition.notify()
