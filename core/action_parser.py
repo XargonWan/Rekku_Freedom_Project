@@ -353,7 +353,7 @@ async def parse_action(action: dict, bot, message):
         log_warning("[action_parser] Invalid action structure: missing type or payload")
         return
 
-    log_debug(f"[action_parser] Action type: {action_type}, Interface: {interface}, Payload: {payload}")
+    log_debug("[action_parser] Action type: " + str(action_type) + ", Interface: " + str(interface) + ", Payload: " + str(payload))
 
     # Use centralized action plugin system for all action types
     action_plugins = _plugins_for(action_type)

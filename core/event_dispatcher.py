@@ -49,7 +49,7 @@ async def dispatch_pending_events(bot):
 
         # Create a summary using the scheduled timestamp
         scheduled_dt = datetime.fromisoformat(ev['scheduled'])
-        summary = f"{scheduled_dt.strftime('%Y-%m-%d %H:%M')} → {ev['description']}"
+        summary = scheduled_dt.strftime('%Y-%m-%d %H:%M') + " → " + str(ev['description'])
 
         # Check to avoid duplicate messages in the queue
         if not mark_event_delivered(ev["id"]):
@@ -97,7 +97,7 @@ async def dispatch_pending_events(bot):
                         ev["description"],
                         ev.get("created_by", "rekku"),
                     )
-                    repeat_summary = f"{new_dt.strftime('%Y-%m-%d %H:%M')} → {ev['description']}"
+                    repeat_summary = new_dt.strftime('%Y-%m-%d %H:%M') + " → " + str(ev['description'])
                     log_debug(f"[REPEAT] Rescheduled event: {repeat_summary}")
             except Exception as exc:
                 log_warning(

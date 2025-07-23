@@ -41,7 +41,7 @@ class MessagePlugin:
     async def handle_custom_action(self, action_type: str, payload: dict):
         """Handle custom message actions."""
         if action_type == "message":
-            log_info(f"[message_plugin] Handling message action with payload: {payload}")
+            log_info("[message_plugin] Handling message action with payload: " + str(payload))
             # This method is called by the centralized action system
             # The actual execution is done via execute_action
 

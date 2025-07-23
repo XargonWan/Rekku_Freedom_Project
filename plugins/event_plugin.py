@@ -84,7 +84,7 @@ Create scheduled reminders with UTC timestamps:
     def execute_action(self, action: dict, context: dict, bot, original_message):
         """Execute an event action using the new plugin interface."""
         if action.get("type") == "event":
-            log_info(f"[event_plugin] Executing event action with payload: {action.get('payload')}")
+            log_info("[event_plugin] Executing event action with payload: " + str(action.get('payload')))
             try:
                 self._handle_event_payload(action.get("payload", {}))
             except Exception as e:
@@ -95,7 +95,7 @@ Create scheduled reminders with UTC timestamps:
     async def handle_custom_action(self, action_type: str, payload: dict):
         """Handle custom event actions (legacy method - kept for compatibility)."""
         if action_type == "event":
-            log_info(f"[event_plugin] Handling event action with payload: {payload}")
+            log_info("[event_plugin] Handling event action with payload: " + str(payload))
             try:
                 self._handle_event_payload(payload)
             except Exception as e:
@@ -110,7 +110,7 @@ Create scheduled reminders with UTC timestamps:
 
         if scheduled and description:
             self._save_scheduled_reminder(scheduled, description)
-            log_info(f"[event_plugin] Reminder scheduled for {scheduled}: {description}")
+            log_info("[event_plugin] Reminder scheduled for " + str(scheduled) + ": " + str(description))
         else:
             log_error("[event_plugin] Invalid event payload: missing 'scheduled' or 'description'")
 
@@ -136,13 +136,13 @@ Create scheduled reminders with UTC timestamps:
 
             # Store the reminder as natural language description
             # This allows Rekku to freely decide what to do with it
-            reminder_description = f"REMINDER: {description}"
+            reminder_description = "REMINDER: " + str(description)
 
             # Check if a similar event already exists in the database
             existing_events = get_due_events(event_time_utc)
             for ev in existing_events:
                 if ev['description'] == reminder_description and ev['scheduled'] == event_time_utc.isoformat():
-                    log_warning(f"[event_plugin] Duplicate event detected: {description}")
+                    log_warning("[event_plugin] Duplicate event detected: " + str(description))
                     return
 
             # Store in database using the correct signature
@@ -152,7 +152,7 @@ Create scheduled reminders with UTC timestamps:
                 description=reminder_description,
                 created_by="rekku"
             )
-            log_debug(f"[event_plugin] Saved scheduled reminder for {event_time} (stored as UTC: {event_time_utc}): {description}")
+            log_debug("[event_plugin] Saved scheduled reminder for " + str(event_time) + " (stored as UTC: " + str(event_time_utc) + "): " + str(description))
         except Exception as e:
             log_error(f"[event_plugin] Failed to save scheduled reminder: {repr(e)}")
 
@@ -313,7 +313,7 @@ Create scheduled reminders with UTC timestamps:
                 "type": "scheduled_event",
                 "event_id": event_id,
                 "payload": {
-                    "text": f"Reminder: {description}",
+                    "text": "Reminder: " + str(description),
                     "event_date": date,
                     "event_time": time,
                     "description": description,
@@ -334,7 +334,7 @@ Create scheduled reminders with UTC timestamps:
             "instructions": f"""
 SCHEDULED REMINDER #{event_id} {"(LATE)" if is_late else "(ON TIME)"}
 
-Reminder: {description}
+Reminder: """ + str(description) + f"""
 Scheduled date: {date} {time}
 Status: {lateness_context}
 
@@ -349,13 +349,13 @@ You can respond with any action (message, etc.) or combination of actions.
 If you decide to do nothing, the JSON should not contain any action.
 
 Example of a valid JSON structure for an event:
-{
+{{
   "type": "event",
-  "payload": {
+  "payload": {{
     "scheduled": "2025-07-22T15:30:00+00:00",
     "description": "Remember to check if Jay replied to the message"
-  }
-}
+  }}
+}}
             """.strip()
         }
 
@@ -366,7 +366,7 @@ Example of a valid JSON structure for an event:
         return SimpleNamespace(
             message_id=f"event_{event['id']}",
             chat_id="SYSTEM_SCHEDULER",
-            text=f"Reminder: {event.get('description', '')}",
+            text="Reminder: " + str(event.get('description', '')),
             from_user=SimpleNamespace(
                 id=-1,  # System user ID
                 full_name="Rekku Scheduler",

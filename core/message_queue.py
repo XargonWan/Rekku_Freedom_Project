@@ -163,7 +163,7 @@ async def start_queue_loop() -> None:
                         event_message = SimpleNamespace(
                             message_id=f"event_{final['event_prompt']['input']['event_id']}",
                             chat_id="SYSTEM_SCHEDULER",
-                            text=f"Scheduled event: {final['event_prompt']['input']['payload']['description']}",
+                            text="Scheduled event: " + str(final['event_prompt']['input']['payload']['description']),
                             from_user=SimpleNamespace(
                                 id=-1,
                                 full_name="Rekku Scheduler",
