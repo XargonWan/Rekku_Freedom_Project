@@ -239,6 +239,12 @@ class EventPlugin(AIPluginBase):
 
             # Execute through the active LLM plugin using the message queue
             from core import message_queue
+
+            # Use a dedicated chat ID for all events
+            dedicated_chat_id = "CHATGPT_EVENT_CHAT"
+            scheduler_message.chat_id = dedicated_chat_id
+            event_prompt['input']['payload']['source']['chat_id'] = dedicated_chat_id
+
             await message_queue.enqueue_event(None, event_prompt)  # No bot needed for events
 
             # Mark event as delivered since we've successfully queued it
@@ -693,4 +699,11 @@ EVENT {event_id} {"LATE+" + str(minutes_late) + "m" if is_late else "ON TIME"} |
                         real_bot = await self._get_active_bot()
 
                         if real_bot:
-                         
+                            # Placeholder for the missing logic
+                            pass
+                    except Exception as e:
+                        log_error(f"[event_plugin] Error parsing LLM response action: {e}")
+                else:
+                    log_warning(f"[event_plugin] Ignored non-JSON LLM response: {text}")
+
+        return ScheduledEventBot(self)
