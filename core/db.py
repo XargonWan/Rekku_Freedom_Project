@@ -274,6 +274,8 @@ def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> l
             "SELECT * FROM scheduled_events WHERE delivered = 0 ORDER BY id"
         ).fetchall()
 
+    log_debug(f"[get_due_events] Recuperati {len(rows)} eventi dal database")
+
     due: list[dict] = []
     for r in rows:
         dt_str = f"{r['date']} {r['time'] or '00:00'}"
@@ -282,7 +284,7 @@ def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> l
             event_dt_local = datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=tz_local)
             event_dt = event_dt_local.astimezone(timezone.utc)
         except ValueError:
-            # Skip invalid events
+            log_warning(f"[get_due_events] Evento con data/ora non valida: {dt_str}")
             continue
 
         if event_dt - timedelta(minutes=tolerance_minutes) <= now:
@@ -298,7 +300,9 @@ def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> l
                 }
             )
             due.append(ev)
+            log_debug(f"[get_due_events] Evento dovuto: {ev}")
 
+    log_debug(f"[get_due_events] Totale eventi dovuti: {len(due)}")
     return due
 
 
