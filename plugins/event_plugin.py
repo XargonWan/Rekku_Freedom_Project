@@ -659,7 +659,23 @@ Example of a valid JSON structure for an event:
                 }
             },
             "instructions": f"""
-EVENT {event_id} {"LATE+" + str(minutes_late) + "m" if is_late else "ON TIME"} | Execute: {json.dumps(action, separators=(',', ':'))} | Reply JSON: {{"type":"message","interface":"telegram","payload":{{"text":"...","target":N,"thread_id":N}}}} | REMINDER: All timestamps are in UTC (database stores events in UTC timezone)
+You can use {"type": "event"} to schedule a reminder in the future.
+
+IMPORTANT RULES for event actions:
+- The payload MUST contain:
+    • "when": an ISO 8601 UTC timestamp (e.g. "2025-07-22T15:30:00+00:00")
+    • "description": natural text describing the reminder
+- DO NOT include nested "action" or "message" fields inside the event payload.
+- Rekku will decide what to do when the time comes — just describe what it should be reminded of.
+
+Example of valid event action:
+{
+  "type": "event",
+  "payload": {
+    "when": "2025-07-22T15:30:00+00:00",
+    "description": "Remind Jay to check the system logs for errors"
+  }
+}
             """.strip(),
             "interface_instructions": "SCHED: Single JSON reply"
         }
