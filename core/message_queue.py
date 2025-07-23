@@ -1,21 +1,33 @@
 import asyncio
 import time
+from collections import deque
 
 from core.config import OWNER_ID
 from core import plugin_instance, rate_limit, recent_chats
 from core.logging_utils import log_debug, log_error
 
-_queue: asyncio.Queue = asyncio.Queue()
+# Use a deque for priority insertion
+_queue: deque = deque()
+_condition = asyncio.Condition()
 _lock = asyncio.Lock()
 
 
 async def _delayed_put(item: dict, delay: float) -> None:
     await asyncio.sleep(delay)
-    await _queue.put(item)
+    async with _condition:
+        _queue.append(item)
+        _condition.notify()
 
 
-async def enqueue(bot, message, context_memory) -> None:
-    """Enqueue a message for serialized processing with rate limiting."""
+async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
+    """Enqueue a message for serialized processing with rate limiting.
+    
+    Args:
+        bot: The bot instance
+        message: The message to process
+        context_memory: Message context
+        priority: If True, message is added to front of queue (for events)
+    """
     plugin = plugin_instance.get_plugin()
     if not plugin:
         log_error("[QUEUE] No active plugin")
@@ -45,6 +57,7 @@ async def enqueue(bot, message, context_memory) -> None:
             "chat_id": chat_id,
             "timestamp": time.time(),
             "context": context_memory,
+            "priority": priority,
         }
         asyncio.create_task(_delayed_put(item, delay))
         return
@@ -52,16 +65,24 @@ async def enqueue(bot, message, context_memory) -> None:
     meta = message.chat.title or message.chat.username or message.chat.first_name
     recent_chats.track_chat(chat_id, meta)
 
-    await _queue.put(
-        {
-            "bot": bot,
-            "message": message,
-            "chat_id": chat_id,
-            "timestamp": time.time(),
-            "context": context_memory,
-        }
-    )
-    log_debug(f"[QUEUE] Enqueued message from chat {chat_id} by user {user_id}")
+    item = {
+        "bot": bot,
+        "message": message,
+        "chat_id": chat_id,
+        "timestamp": time.time(),
+        "context": context_memory,
+        "priority": priority,
+    }
+
+    async with _condition:
+        if priority:
+            # Events go to the front of the queue
+            _queue.appendleft(item)
+            log_debug(f"[QUEUE] High-priority message enqueued from chat {chat_id} by user {user_id}")
+        else:
+            _queue.append(item)
+            log_debug(f"[QUEUE] Regular message enqueued from chat {chat_id} by user {user_id}")
+        _condition.notify()
 
 
 async def compact_similar_messages(first: dict) -> list:
@@ -70,14 +91,17 @@ async def compact_similar_messages(first: dict) -> list:
     chat_id = first["chat_id"]
     ts = first["timestamp"]
     candidates = []
-    for item in list(_queue._queue):
+    
+    # Convert deque to list for iteration and removal
+    queue_items = list(_queue)
+    for item in queue_items:
         if len(batch) >= 5:
             break
         if item["chat_id"] == chat_id and item["timestamp"] - ts <= 600:
             candidates.append(item)
 
     for item in candidates:
-        _queue._queue.remove(item)
+        _queue.remove(item)
         batch.append(item)
 
     batch.sort(key=lambda x: x["timestamp"])
@@ -91,7 +115,10 @@ async def compact_similar_messages(first: dict) -> list:
 async def start_queue_loop() -> None:
     """Continuously process queued messages one at a time."""
     while True:
-        item = await _queue.get()
+        async with _condition:
+            while not _queue:
+                await _condition.wait()
+            item = _queue.popleft()
 
         async with _lock:
             batch = await compact_similar_messages(item)
@@ -100,8 +127,6 @@ async def start_queue_loop() -> None:
             plugin = plugin_instance.get_plugin()
             if not plugin:
                 log_error("[QUEUE] No active plugin when dispatching")
-                for _ in batch:
-                    _queue.task_done()
                 continue
 
             try:
@@ -124,19 +149,38 @@ async def start_queue_loop() -> None:
                     f"[RATE LIMIT] Delaying user {user_id} by {delay} seconds (quota exceeded)"
                 )
                 asyncio.create_task(_delayed_put(final, delay))
-                for _ in batch:
-                    _queue.task_done()
                 continue
 
             try:
-                await plugin_instance.handle_incoming_message(
-                    final["bot"], final["message"], final["context"]
-                )
+                # Check if this is an event prompt
+                if "event_prompt" in final:
+                    await plugin_instance.handle_incoming_message(
+                        final["bot"], None, final["event_prompt"]
+                    )
+                else:
+                    await plugin_instance.handle_incoming_message(
+                        final["bot"], final["message"], final["context"]
+                    )
             except Exception as e:  # pragma: no cover - plugin may misbehave
                 log_error(
                     f"[ERROR] Failed to process message from chat {final['chat_id']}: {e}",
                     e,
                 )
 
-            for _ in batch:
-                _queue.task_done()
+
+async def enqueue_event(bot, prompt_data) -> None:
+    """Enqueue an event prompt with highest priority."""
+    async with _condition:
+        item = {
+            "bot": bot,
+            "message": None,  # Events don't have actual messages
+            "chat_id": "TARDIS/system/events",
+            "timestamp": time.time(),
+            "context": {},
+            "priority": True,
+            "event_prompt": prompt_data,  # Special event data
+        }
+        # Events always go to the front
+        _queue.appendleft(item)
+        log_debug("[QUEUE] Event prompt enqueued with highest priority")
+        _condition.notify()

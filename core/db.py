@@ -278,7 +278,9 @@ def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> l
     for r in rows:
         dt_str = f"{r['date']} {r['time'] or '00:00'}"
         try:
-            event_dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+            # Parse event time as local time, then convert to UTC for comparison
+            event_dt_local = datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=tz_local)
+            event_dt = event_dt_local.astimezone(timezone.utc)
         except ValueError:
             # Skip invalid events
             continue
@@ -292,7 +294,7 @@ def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> l
                 {
                     "is_late": is_late,
                     "minutes_late": minutes_late,
-                    "scheduled_time": event_dt.astimezone(tz_local).strftime("%H:%M"),
+                    "scheduled_time": event_dt_local.strftime("%H:%M"),
                 }
             )
             due.append(ev)

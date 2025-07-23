@@ -138,15 +138,19 @@ class EventPlugin(AIPluginBase):
 
     async def _event_scheduler(self):
         """Background task that checks and executes due events."""
+        log_info("[event_plugin] Event scheduler loop started")
         while self._running:
             try:
+                log_debug("[event_plugin] Event scheduler checking for due events...")
                 await self._check_and_execute_events()
                 await asyncio.sleep(30)  # Check every 30 seconds
             except asyncio.CancelledError:
+                log_info("[event_plugin] Event scheduler cancelled")
                 break
             except Exception as e:
                 log_error(f"[event_plugin] Error in event scheduler: {e}")
                 await asyncio.sleep(60)  # Wait longer on error
+        log_info("[event_plugin] Event scheduler loop ended")
 
     async def _check_and_execute_events(self):
         """Check for due events and execute them with 5-minute tolerance window."""

@@ -10,7 +10,7 @@ from core.db import (
     mark_event_delivered,
     insert_scheduled_event,
 )
-from core import plugin_instance
+from core import plugin_instance, message_queue
 from core.logging_utils import log_debug, log_warning
 
 
@@ -51,9 +51,9 @@ async def dispatch_pending_events(bot):
         summary += f" → {ev['description']}"
 
         try:
-            await plugin_instance.handle_incoming_message(bot, None, prompt)
+            await message_queue.enqueue_event(bot, prompt)
             mark_event_delivered(ev["id"])
-            log_debug(f"[DISPATCH] Sent event: {summary}")
+            log_debug(f"[DISPATCH] Queued event with priority: {summary}")
             dispatched += 1
         except Exception as exc:
             log_warning(
