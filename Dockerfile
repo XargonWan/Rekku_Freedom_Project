@@ -31,9 +31,6 @@ RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir --upgrade pip setuptools && \
     /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 
-# Copy project code last to leverage layer caching
-COPY . /app
-
 # ENV
 ENV PYTHONPATH=/app \
     TZ=Asia/Tokyo \
@@ -45,12 +42,6 @@ ENV PYTHONPATH=/app \
 # Inject GitVersion tags into the environment
 ARG GITVERSION_TAG
 ENV GITVERSION_TAG=$GITVERSION_TAG
-
-# Example usage of the tag (optional, for demonstration)
-RUN echo "Building with tag: $GITVERSION_TAG"
-
-# Save the GitVersion tag to a version file
-RUN echo "$GITVERSION_TAG" > /app/version.txt
 
 # LinuxServer hooks
 COPY automation_tools/rekku.sh /etc/cont-init.d/99-rekku.sh
@@ -68,5 +59,13 @@ RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
     && ln -sfn ../init-selkies /etc/s6-overlay/s6-rc.d/user/contents.d/init-selkies \
     && chown -R 1000:1000 /app /home/rekku /config
 
+# Copy project code last to leverage layer caching
+COPY . /app
+
+# Example usage of the tag (optional, for demonstration)
+RUN echo "Building with tag: $GITVERSION_TAG"
+
+# Save the GitVersion tag to a version file
+RUN echo "$GITVERSION_TAG" > /app/version.txt
 
 
