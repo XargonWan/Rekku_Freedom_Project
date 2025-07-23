@@ -659,24 +659,24 @@ Example of a valid JSON structure for an event:
                 }
             },
             "instructions": f"""
-You can use {"type": "event"} to schedule a reminder in the future.
+You can use {{"type": "event"}} to schedule a reminder in the future.
 
 IMPORTANT RULES for event actions:
 - The payload MUST contain:
-    • "when": an ISO 8601 UTC timestamp (e.g. "2025-07-22T15:30:00+00:00")
-    • "description": natural text describing the reminder
-- DO NOT include nested "action" or "message" fields inside the event payload.
-- Rekku will decide what to do when the time comes — just describe what it should be reminded of.
+    • "when": ISO 8601 UTC timestamp (e.g. "2025-07-22T15:30:00+00:00")
+    • "description": natural language reminder (not a command or action)
+- DO NOT include nested "action", "message", or any other structure inside the event.
+- The plugin will decide later how to handle the reminder.
 
-Example of valid event action:
-{
+Valid example:
+{{
   "type": "event",
-  "payload": {
+  "payload": {{
     "when": "2025-07-22T15:30:00+00:00",
     "description": "Remind Jay to check the system logs for errors"
-  }
-}
-            """.strip(),
+  }}
+}}
+        """.strip(),
             "interface_instructions": "SCHED: Single JSON reply"
         }
 
