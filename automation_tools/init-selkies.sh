@@ -4,7 +4,24 @@ set -Eeuo pipefail
 LOGFILE=/var/log/selkies.log
 exec >>"$LOGFILE" 2>&1
 
-echo "[init-selkies] starting"
+echo "[init-selkies] Starting Selkies display"
+
+DISPLAY="${DISPLAY:-:1}"
+export DISPLAY
+
+# Launch Xvfb if not already running
+if ! pgrep -f "Xvfb $DISPLAY" >/dev/null; then
+    echo "[init-selkies] launching Xvfb on $DISPLAY"
+    Xvfb "$DISPLAY" -screen 0 1280x720x24 &
+    sleep 2
+fi
+
+# Launch the XFCE desktop
+if ! pgrep -f startxfce4 >/dev/null; then
+    echo "[init-selkies] starting XFCE4 session"
+    startxfce4 &
+    sleep 2
+fi
 
 # require PASSWORD for VNC access
 if [ -z "${PASSWORD:-}" ]; then
@@ -12,21 +29,20 @@ if [ -z "${PASSWORD:-}" ]; then
     exit 1
 fi
 
-# Start x11vnc if nothing is listening on :5900
+# Start x11vnc on the Xvfb display
 if ! ss -lnt | grep -q ':5900'; then
-    echo "[init-selkies] launching x11vnc on :5900"
-    x11vnc -display "${DISPLAY:-:0}" -forever -rfbport 5900 -passwd "$PASSWORD" -shared &
+    echo "[init-selkies] launching x11vnc on $DISPLAY"
+    x11vnc -display "$DISPLAY" -forever -rfbport 5900 -shared -noxdamage -noshm -passwd "$PASSWORD" &
     sleep 2
 fi
 
-# Ensure websockify can bind to 8082
-if lsof -i TCP:8082 >/dev/null 2>&1; then
-    echo "[init-selkies] port 8082 busy, killing existing instance"
-    pkill -f 'websockify.*8082' || true
+if ss -lnt | grep -q ':6901'; then
+    echo "[init-selkies] existing websockify found on 6901, killing"
+    pkill -f 'websockify.*6901' || true
     sleep 1
 fi
 
-echo "[init-selkies] starting websockify"
-nohup websockify 0.0.0.0:8082 127.0.0.1:5900 &
+echo "[init-selkies] starting websockify on port 6901"
+websockify --web=/usr/share/novnc/ 0.0.0.0:6901 localhost:5900 &
 
 echo "[init-selkies] done"

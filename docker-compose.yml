@@ -9,7 +9,7 @@ services:
     hostname: luna-workstation
     ports:
       - "${WEBVIEW_PORT:-5006}:3000"
-      - "6901:6901"
+      - "5007:6901"
     volumes:
       - ./persona/mind:/app/persona
       - ./persona/home:/home/rekku
@@ -20,7 +20,7 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Asia/Tokyo
-      - CUSTOM_USER=${CUSTOM_USER:-abc}
+      - CUSTOM_USER=${CUSTOM_USER:-rekku}
       - PASSWORD=${PASSWORD}
       - SECURE_CONNECTION=0
     restart: unless-stopped

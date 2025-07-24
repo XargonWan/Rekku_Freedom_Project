@@ -48,7 +48,8 @@ ENV PYTHONPATH=/app \
     PATH=/app/venv/bin:$PATH \
     HOME=/home/rekku \
     PUID=1000 \
-    PGID=1000
+    PGID=1000 \
+    CUSTOM_USER=rekku
 
 # Inject GitVersion tags into the environment
 ARG GITVERSION_TAG
