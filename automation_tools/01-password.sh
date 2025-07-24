@@ -6,8 +6,8 @@ HTPASSWD_FILE=/config/.htpasswd
 # Ensure /config is writable by the runtime user
 chown -R "${PUID:-1000}:${PGID:-1000}" /config || true
 
-USERNAME="${CUSTOM_USER:-rekku}"
-PASSWD=${PASSWORD:-rekku}
+USERNAME=abc
+PASSWD=${PASSWORD:-abc}
 
 # Create or update the htpasswd entry for abc
 if [ ! -f "$HTPASSWD_FILE" ] || ! grep -q "^${USERNAME}:" "$HTPASSWD_FILE"; then

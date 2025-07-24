@@ -1,7 +1,7 @@
 #!/usr/bin/with-contenv bash
 set -euo pipefail
 
-USER_NAME="${CUSTOM_USER:-rekku}"
+USER_NAME=abc
 LOG_FILE="/config/logs/rekku_backend.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 

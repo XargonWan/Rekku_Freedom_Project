@@ -46,10 +46,9 @@ COPY . /app
 ENV PYTHONPATH=/app \
     TZ=Asia/Tokyo \
     PATH=/app/venv/bin:$PATH \
-    HOME=/home/rekku \
+    HOME=/home/abc \
     PUID=1000 \
-    PGID=1000 \
-    CUSTOM_USER=rekku
+    PGID=1000
 
 # Inject GitVersion tags into the environment
 ARG GITVERSION_TAG
@@ -73,9 +72,9 @@ RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
         /etc/services.d/x11vnc/run \
         /etc/services.d/websockify/run \
         /app/rekku.sh \
-    && mkdir -p /home/rekku /config /etc/s6-overlay/s6-rc.d/user/contents.d \
+    && mkdir -p /home/abc /config /etc/s6-overlay/s6-rc.d/user/contents.d \
     && ln -sfn ../init-selkies /etc/s6-overlay/s6-rc.d/user/contents.d/init-selkies \
-    && chown -R 1000:1000 /app /home/rekku /config
+    && chown -R 1000:1000 /app /home/abc /config
 
 EXPOSE 6901 3000
 

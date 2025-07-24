@@ -12,7 +12,7 @@ services:
       - "5007:6901"
     volumes:
       - ./persona/mind:/app/persona
-      - ./persona/home:/home/rekku
+      - ./persona/home:/home/abc
       - ./persona/webtop_config:/config
       - ./logs:/config/logs
       - .env:/app/.env:ro
@@ -20,7 +20,6 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Asia/Tokyo
-      - CUSTOM_USER=${CUSTOM_USER:-rekku}
       - PASSWORD=${PASSWORD}
       - SECURE_CONNECTION=0
     restart: unless-stopped

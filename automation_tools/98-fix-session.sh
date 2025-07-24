@@ -2,11 +2,11 @@
 echo "[fix-session] 🔧 Starting session fix..."
 
 # Fix ownership e permessi
-chown -R 1000:1000 /home/rekku /config
-chmod -R u+rwX,g+rwX,o+rX /home/rekku /config
+chown -R 1000:1000 /home/abc /config
+chmod -R u+rwX,g+rwX,o+rX /home/abc /config
 
 # Rimuove X lock e authority corrotti
-rm -f /home/rekku/.Xauthority /home/rekku/.X*-lock
+rm -f /home/abc/.Xauthority /home/abc/.X*-lock
 
 # Fix permessi .htpasswd se esiste
 if [ -f /config/.htpasswd ]; then
