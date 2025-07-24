@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -e
+#!/usr/bin/with-contenv bash
+set -euo pipefail
 
 log() { echo "[rekku.sh] $*"; }
 
@@ -14,6 +14,8 @@ if [ -f "$ENV_FILE" ]; then
     set +a
 fi
 
+PYTHON="/app/venv/bin/python"
+
 MODE="${1:-run}"
 shift || true
 
@@ -22,10 +24,10 @@ case "$MODE" in
         if [ "${1:-}" = "--as-service" ]; then
             shift
             log "Running main.py in service mode"
-            exec python3 /app/main.py --service "$@"
+            exec "$PYTHON" /app/main.py --service "$@"
         else
             log "Running main.py interactively"
-            exec python3 /app/main.py "$@"
+            exec "$PYTHON" /app/main.py "$@"
         fi
         ;;
     notify)
