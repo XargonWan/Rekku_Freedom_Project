@@ -1,0 +1,2 @@
+#!/usr/bin/with-contenv bash
+exec websockify --web=/opt/noVNC 6901 localhost:5901
