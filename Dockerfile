@@ -12,8 +12,7 @@ RUN apt-get update && \
       apache2-utils websockify novnc x11vnc xterm openssl \
       lsb-release ca-certificates fonts-liberation \
       fonts-noto-cjk fonts-noto-color-emoji fonts-noto xfonts-base && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /opt && ln -s /usr/share/novnc /opt/noVNC
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome (let undetected-chromedriver handle compatibility)
 RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/trusted.gpg.d/google-chrome.gpg && \
