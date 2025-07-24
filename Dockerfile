@@ -9,9 +9,9 @@ RUN apt-get update && \
     echo \"alias snap='echo Snap is disabled'\" > /etc/profile.d/no-snap.sh && \
     apt-get install -y --no-install-recommends \
       python3 python3-pip python3-venv git curl wget unzip \
-      apache2-utils websockify openssl x11vnc \
+      apache2-utils websockify novnc x11vnc xterm openssl \
       lsb-release ca-certificates fonts-liberation \
-      fonts-noto-cjk fonts-noto-color-emoji xfonts-base && \
+      fonts-noto-cjk fonts-noto-color-emoji fonts-noto xfonts-base && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome (let undetected-chromedriver handle compatibility)
@@ -35,7 +35,7 @@ RUN python3 -m venv /app/venv && \
 COPY automation_tools/rekku.sh /etc/cont-init.d/99-rekku.sh
 COPY automation_tools/98-fix-session.sh /etc/cont-init.d/98-fix-session.sh
 COPY automation_tools/01-password.sh /etc/cont-init.d/01-password.sh
-COPY automation_tools/cleanup_chrome.sh /etc/cont-init.d/97-cleanup-chrome.sh
+COPY automation_tools/97-cleanup-chrome.sh /etc/cont-init.d/97-cleanup-chrome.sh
 COPY automation_tools/init-selkies.sh /etc/s6-overlay/s6-rc.d/init-selkies/run
 COPY automation_tools/init-selkies.type /etc/s6-overlay/s6-rc.d/init-selkies/type
 
@@ -46,7 +46,7 @@ COPY . /app
 ENV PYTHONPATH=/app \
     TZ=Asia/Tokyo \
     PATH=/app/venv/bin:$PATH \
-    HOME=/home/rekku \
+    HOME=/home/abc \
     PUID=1000 \
     PGID=1000
 
@@ -56,17 +56,26 @@ ENV GITVERSION_TAG=$GITVERSION_TAG
 
 # Example usage of the tag (optional, for demonstration)
 RUN echo "Building with tag: $GITVERSION_TAG"
+RUN echo "Rekku built with tag: $GITVERSION_TAG" >> /etc/motd
 
 # Save the GitVersion tag to a version file
 RUN echo "$GITVERSION_TAG" > /app/version.txt
 
 COPY automation_tools/container_rekku.sh /app/rekku.sh
+COPY automation_tools/service_rekku_run.sh /etc/services.d/rekku/run
+COPY automation_tools/x11vnc.run /etc/services.d/x11vnc/run
+COPY automation_tools/websockify.run /etc/services.d/websockify/run
 RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
         /etc/s6-overlay/s6-rc.d/init-selkies/run /etc/cont-init.d/98-fix-session.sh \
         /etc/cont-init.d/97-cleanup-chrome.sh \
+        /etc/services.d/rekku/run \
+        /etc/services.d/x11vnc/run \
+        /etc/services.d/websockify/run \
         /app/rekku.sh \
-    && mkdir -p /home/rekku /config /etc/s6-overlay/s6-rc.d/user/contents.d \
+    && mkdir -p /home/abc /config /etc/s6-overlay/s6-rc.d/user/contents.d \
     && ln -sfn ../init-selkies /etc/s6-overlay/s6-rc.d/user/contents.d/init-selkies \
-    && chown -R 1000:1000 /app /home/rekku /config
+    && chown -R 1000:1000 /app /home/abc /config
+
+EXPOSE 6901 3000
 
 

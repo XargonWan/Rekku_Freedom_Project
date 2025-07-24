@@ -1,0 +1,2 @@
+#!/usr/bin/with-contenv bash
+exec s6-setuidgid abc websockify --web=/usr/share/novnc 6901 localhost:5901

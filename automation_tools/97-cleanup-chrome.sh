@@ -24,9 +24,6 @@ echo "🗑️  Removing lock files and temporary cache (preserving login session
 rm -f ~/.config/google-chrome*/SingletonLock 2>/dev/null || true
 rm -f ~/.config/google-chrome*/Default/SingletonLock 2>/dev/null || true
 rm -f ~/.config/google-chrome*/lockfile 2>/dev/null || true
-rm -f /home/rekku/.config/google-chrome*/SingletonLock 2>/dev/null || true
-rm -f /home/rekku/.config/google-chrome*/Default/SingletonLock 2>/dev/null || true
-rm -f /home/rekku/.config/google-chrome*/lockfile 2>/dev/null || true
 
 # Remove undetected-chromedriver cache (this can be safely regenerated)
 rm -rf /tmp/undetected_chromedriver 2>/dev/null || true
@@ -34,7 +31,6 @@ rm -rf /tmp/undetected_chromedriver 2>/dev/null || true
 # Remove ONLY temporary profile directories (those with timestamp suffix)
 # This preserves the main persistent profile "google-chrome-rekku" but removes temporary ones
 rm -rf ~/.config/google-chrome-[0-9]* 2>/dev/null || true
-rm -rf /home/rekku/.config/google-chrome-[0-9]* 2>/dev/null || true
 
 # Note: We specifically preserve ~/.config/google-chrome-rekku (the persistent profile)
 # This keeps ChatGPT login sessions and other site data intact
@@ -45,7 +41,11 @@ rm -rf /tmp/chrome_* 2>/dev/null || true
 
 # Remove Chrome process crash dumps and temp directories
 rm -rf ~/.config/google-chrome*/Crash\ Reports/pending/* 2>/dev/null || true
-rm -rf /home/rekku/.config/google-chrome*/Crash\ Reports/pending/* 2>/dev/null || true
+rm -f /home/abc/.config/google-chrome*/SingletonLock 2>/dev/null || true
+rm -f /home/abc/.config/google-chrome*/Default/SingletonLock 2>/dev/null || true
+rm -f /home/abc/.config/google-chrome*/lockfile 2>/dev/null || true
+rm -rf /home/abc/.config/google-chrome-[0-9]* 2>/dev/null || true
+rm -rf /home/abc/.config/google-chrome*/Crash\ Reports/pending/* 2>/dev/null || true
 
 echo "✅ Cleanup completed!"
 

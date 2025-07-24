@@ -1,0 +1,2 @@
+#!/usr/bin/with-contenv bash
+exec s6-setuidgid abc x11vnc -display :1 -rfbport 5901 -passwd rekku -shared -noshm -noxdamage

@@ -1,32 +1,25 @@
 #!/usr/bin/with-contenv bash
 set -Eeuo pipefail
 
-LOGFILE=/var/log/selkies.log
-exec >>"$LOGFILE" 2>&1
+LOGFILE=/config/logs/selkies.log
+mkdir -p "$(dirname "$LOGFILE")"
+echo "[SELKIES INIT] Starting..." >> "$LOGFILE"
 
-echo "[init-selkies] starting"
+DISPLAY="${DISPLAY:-:1}"
+export DISPLAY
 
-# require PASSWORD for VNC access
-if [ -z "${PASSWORD:-}" ]; then
-    echo "[init-selkies] ERROR: PASSWORD not set" >&2
-    exit 1
-fi
-
-# Start x11vnc if nothing is listening on :5900
-if ! ss -lnt | grep -q ':5900'; then
-    echo "[init-selkies] launching x11vnc on :5900"
-    x11vnc -display "${DISPLAY:-:0}" -forever -rfbport 5900 -passwd "$PASSWORD" -shared &
+# Launch Xvfb if not already running
+if ! pgrep -f "Xvfb $DISPLAY" >/dev/null; then
+    echo "[init-selkies] launching Xvfb on $DISPLAY" >> "$LOGFILE"
+    Xvfb "$DISPLAY" -screen 0 1280x720x24 &
     sleep 2
 fi
 
-# Ensure websockify can bind to 8082
-if lsof -i TCP:8082 >/dev/null 2>&1; then
-    echo "[init-selkies] port 8082 busy, killing existing instance"
-    pkill -f 'websockify.*8082' || true
-    sleep 1
+# Launch the XFCE desktop
+if ! pgrep -f startxfce4 >/dev/null; then
+    echo "[init-selkies] starting XFCE4 session" >> "$LOGFILE"
+    startxfce4 &
+    sleep 2
 fi
 
-echo "[init-selkies] starting websockify"
-nohup websockify 0.0.0.0:8082 127.0.0.1:5900 &
-
-echo "[init-selkies] done"
+echo "[init-selkies] done" >> "$LOGFILE"

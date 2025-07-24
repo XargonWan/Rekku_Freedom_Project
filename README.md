@@ -150,7 +150,7 @@ Create a `.env` file with the required variables. See `env.example`.
 ./start.sh
 ```
 
-This mounts `rekku_home/` to `/home/rekku` in the container for persistent data.
+This mounts `rekku_home/` to `/home/abc` in the container for persistent data.
 
 For non-interactive environments (e.g., CI/CD), use:
 
