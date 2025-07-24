@@ -9,9 +9,9 @@ RUN apt-get update && \
     echo \"alias snap='echo Snap is disabled'\" > /etc/profile.d/no-snap.sh && \
     apt-get install -y --no-install-recommends \
       python3 python3-pip python3-venv git curl wget unzip \
-      apache2-utils websockify openssl x11vnc \
+      apache2-utils websockify novnc x11vnc xterm openssl \
       lsb-release ca-certificates fonts-liberation \
-      fonts-noto-cjk fonts-noto-color-emoji xfonts-base && \
+      fonts-noto-cjk fonts-noto-color-emoji fonts-noto xfonts-base && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome (let undetected-chromedriver handle compatibility)
@@ -35,7 +35,7 @@ RUN python3 -m venv /app/venv && \
 COPY automation_tools/rekku.sh /etc/cont-init.d/99-rekku.sh
 COPY automation_tools/98-fix-session.sh /etc/cont-init.d/98-fix-session.sh
 COPY automation_tools/01-password.sh /etc/cont-init.d/01-password.sh
-COPY automation_tools/cleanup_chrome.sh /etc/cont-init.d/97-cleanup-chrome.sh
+COPY automation_tools/97-cleanup-chrome.sh /etc/cont-init.d/97-cleanup-chrome.sh
 COPY automation_tools/init-selkies.sh /etc/s6-overlay/s6-rc.d/init-selkies/run
 COPY automation_tools/init-selkies.type /etc/s6-overlay/s6-rc.d/init-selkies/type
 
@@ -61,12 +61,16 @@ RUN echo "Building with tag: $GITVERSION_TAG"
 RUN echo "$GITVERSION_TAG" > /app/version.txt
 
 COPY automation_tools/container_rekku.sh /app/rekku.sh
+COPY automation_tools/service_rekku_run.sh /etc/services.d/rekku/run
 RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
         /etc/s6-overlay/s6-rc.d/init-selkies/run /etc/cont-init.d/98-fix-session.sh \
         /etc/cont-init.d/97-cleanup-chrome.sh \
+        /etc/services.d/rekku/run \
         /app/rekku.sh \
     && mkdir -p /home/rekku /config /etc/s6-overlay/s6-rc.d/user/contents.d \
     && ln -sfn ../init-selkies /etc/s6-overlay/s6-rc.d/user/contents.d/init-selkies \
     && chown -R 1000:1000 /app /home/rekku /config
+
+EXPOSE 6901 3000
 
 
