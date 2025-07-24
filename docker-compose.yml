@@ -1,10 +1,15 @@
 services:
   rekku_freedom_project:
+    build:
+      context: .
+      args:
+        - GITVERSION_TAG=${GITVERSION_TAG:-dev}
     image: rekku_freedom_project:latest
     container_name: rekku_freedom_project
     hostname: luna-workstation
     ports:
       - "${WEBVIEW_PORT:-5006}:3000"
+      - "6901:6901"
     volumes:
       - ./persona/mind:/app/persona
       - ./persona/home:/home/rekku
