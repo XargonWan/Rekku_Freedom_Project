@@ -1,13 +1,14 @@
 services:
   rekku_freedom_project:
-    image: rekku_freedom_project:latest
+    build: .
     container_name: rekku_freedom_project
     hostname: luna-workstation
     ports:
       - "${WEBVIEW_PORT:-5006}:3000"
+      - "6901:6901"
     volumes:
-      - ./persona/mind:/app/persona
       - ./persona/home:/home/rekku
+      - ./persona/mind:/app/persona
       - ./persona/webtop_config:/config
       - ./logs:/config/logs
       - .env:/app/.env:ro
