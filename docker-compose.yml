@@ -1,22 +1,29 @@
 services:
   rekku_freedom_project:
-    image: rekku_freedom_project:latest
+    build: .
     container_name: rekku_freedom_project
     hostname: luna-workstation
     ports:
       - "${WEBVIEW_PORT:-5006}:3000"
+      - "${VNC_PORT:-6901}:6901"
     volumes:
-      - ./persona/mind:/app/persona
       - ./persona/home:/home/rekku
+      - ./persona/mind:/app/persona
       - ./persona/webtop_config:/config
       - ./logs:/config/logs
       - .env:/app/.env:ro
     environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Asia/Tokyo
-      - CUSTOM_USER=${CUSTOM_USER:-abc}
-      - PASSWORD=${PASSWORD}
+      - WEBVIEW_PORT=${WEBVIEW_PORT:-5006}
+      - WEBVIEW_HOST=${WEBVIEW_HOST:-localhost}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - DISPLAY_WIDTH=${DISPLAY_WIDTH:-1280}
+      - DISPLAY_HEIGHT=${DISPLAY_HEIGHT:-720}
+      - ROOT_PASSWORD=${ROOT_PASSWORD:-"password"}
+      - TZ=${TZ:-Asia/Tokyo}
+      - CUSTOM_USER=${CUSTOM_USER:-rekku}
+      - HOME=${REKKU_HOME:-/home/rekku}
+      - PASSWORD=${PASSWORD:-"password"}
       - SECURE_CONNECTION=0
     restart: unless-stopped
     stdin_open: true
