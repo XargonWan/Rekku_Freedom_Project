@@ -1,5 +1,13 @@
 FROM lscr.io/linuxserver/webtop:ubuntu-xfce
 
+# Create noVNC directory immediately with debug info
+RUN mkdir -p /usr/share/novnc && \
+    echo '<!DOCTYPE html><html><head><title>noVNC</title></head><body><h1>noVNC placeholder</h1></body></html>' > /usr/share/novnc/vnc.html && \
+    echo 'index.html' > /usr/share/novnc/index.html && \
+    chmod -R 755 /usr/share/novnc && \
+    ls -la /usr/share/novnc && \
+    echo "noVNC directory created successfully during build"
+
 # Basic packages and Snap removal
 RUN apt-get update && \
     apt-get purge -y snapd && \
@@ -7,10 +15,8 @@ RUN apt-get update && \
     printf '#!/bin/sh\necho "Snap is disabled"\n' > /usr/local/bin/snap && \
     chmod +x /usr/local/bin/snap && \
     echo "alias snap='echo Snap is disabled'" > /etc/profile.d/no-snap.sh && \
-    apt-get install -y --no-install-recommends software-properties-common && \
-    add-apt-repository -y ppa:deadsnakes/ppa && \
-    apt-get update && \
     apt-get install -y --no-install-recommends \
+      software-properties-common \
       python3 python3-venv \
       git curl wget unzip nano vim \
       apache2-utils websockify openssl x11vnc \
@@ -25,6 +31,13 @@ RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearm
     apt-get install -y google-chrome-stable && \
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
     google-chrome --version
+
+# Display configuration
+ENV DISPLAY=:1
+RUN Xvfb :1 -screen 0 1280x720x24 &
+
+# Keyboard configuration
+RUN xvfb-run setxkbmap us
 
 # Configure user abc with UID/GID 1000 and custom home
 # RUN usermod -u 1000 abc && groupmod -g 1000 abc && \
@@ -76,5 +89,3 @@ RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
     && ln -sfn ../x11vnc /etc/s6-overlay/s6-rc.d/user/contents.d/x11vnc \
     && ln -sfn ../websockify /etc/s6-overlay/s6-rc.d/user/contents.d/websockify \
     && chown -R abc:abc /app /home/rekku /config
-
-

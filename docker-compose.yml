@@ -5,7 +5,7 @@ services:
     hostname: luna-workstation
     ports:
       - "${WEBVIEW_PORT:-5006}:3000"
-      - "6901:6901"
+      - "${VNC_PORT:-6901}:6901"
     volumes:
       - ./persona/home:/home/rekku
       - ./persona/mind:/app/persona
