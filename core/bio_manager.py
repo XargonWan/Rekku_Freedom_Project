@@ -23,7 +23,7 @@ DEFAULTS = {
 
 
 def _ensure_user_exists(user_id: str) -> None:
-    """Insert a blank bio row if missing."""
+    """Create an empty bio entry if the user is missing."""
     with get_db() as db:
         row = db.execute("SELECT 1 FROM bio WHERE id=?", (user_id,)).fetchone()
         if not row:
@@ -45,27 +45,34 @@ def _ensure_user_exists(user_id: str) -> None:
             )
 
 
-def _load_json(text: str | None, key: str) -> Any:
-    if not text:
-        return DEFAULTS[key]
+def _load_json_field(value: str | None, key: str, default: Any) -> Any:
+    """Safely deserialize a JSON field."""
+    if not value:
+        return default
     try:
-        return json.loads(text)
+        return json.loads(value)
     except Exception as e:  # pragma: no cover - corruption
         log_error(f"[bio_manager] Failed to decode {key}: {e}")
-        return DEFAULTS[key]
+        return default
+
+
+def _save_json_field(user_id: str, key: str, value: Any) -> None:
+    """Serialize and store a JSON field."""
+    with get_db() as db:
+        db.execute(f"UPDATE bio SET {key}=? WHERE id=?", (json.dumps(value), user_id))
 
 
 def _update_json_field(user_id: str, key: str, update_fn: Callable[[Any], Any]) -> None:
     _ensure_user_exists(user_id)
     with get_db() as db:
         row = db.execute(f"SELECT {key} FROM bio WHERE id=?", (user_id,)).fetchone()
-        current = _load_json(row[key], key)
+        current = _load_json_field(row[key], key, DEFAULTS.get(key))
         try:
             updated = update_fn(current)
         except Exception as e:  # pragma: no cover - logic error
             log_error(f"[bio_manager] Error updating {key}: {e}")
             return
-        db.execute(f"UPDATE bio SET {key}=? WHERE id=?", (json.dumps(updated), user_id))
+        _save_json_field(user_id, key, updated)
 
 
 def get_bio_light(user_id: str) -> dict:
@@ -78,10 +85,10 @@ def get_bio_light(user_id: str) -> dict:
         if not row:
             return {}
         return {
-            "known_as": _load_json(row["known_as"], "known_as"),
-            "likes": _load_json(row["likes"], "likes"),
-            "not_likes": _load_json(row["not_likes"], "not_likes"),
-            "feelings": _load_json(row["feelings"], "feelings"),
+            "known_as": _load_json_field(row["known_as"], "known_as", DEFAULTS["known_as"]),
+            "likes": _load_json_field(row["likes"], "likes", DEFAULTS["likes"]),
+            "not_likes": _load_json_field(row["not_likes"], "not_likes", DEFAULTS["not_likes"]),
+            "feelings": _load_json_field(row["feelings"], "feelings", DEFAULTS["feelings"]),
             "information": row["information"] or "",
         }
 
@@ -94,7 +101,7 @@ def get_bio_full(user_id: str) -> dict:
             return {}
         result = {"id": row["id"], "information": row["information"] or ""}
         for key in JSON_LIST_FIELDS | JSON_DICT_FIELDS:
-            result[key] = _load_json(row[key], key)
+            result[key] = _load_json_field(row[key], key, DEFAULTS[key])
         return result
 
 
@@ -107,61 +114,87 @@ def update_bio_fields(user_id: str, updates: dict) -> None:
     if not row:
         return
 
-    current = {key: row[key] for key in row.keys()}
+    current = {k: row[k] for k in row.keys()}
 
     for key, value in updates.items():
         if key in JSON_LIST_FIELDS:
-            existing = _load_json(current[key], key)
+            existing = _load_json_field(current[key], key, DEFAULTS[key])
             if isinstance(value, list):
                 for item in value:
                     if item not in existing:
                         existing.append(item)
-                current[key] = json.dumps(existing)
-            else:  # replace if not list
-                current[key] = json.dumps(value)
-        elif key in JSON_DICT_FIELDS:
-            existing = _load_json(current[key], key)
-            if isinstance(value, dict):
-                merged = existing | value
-                current[key] = json.dumps(merged)
+                current[key] = existing
             else:
-                current[key] = json.dumps(value)
+                # treat single value as list replacement
+                current[key] = [value]
+        elif key in JSON_DICT_FIELDS:
+            existing = _load_json_field(current[key], key, DEFAULTS[key])
+            if isinstance(value, dict):
+                merged = existing.copy()
+                for sub_k, sub_v in value.items():
+                    if isinstance(sub_v, list):
+                        cur_list = merged.get(sub_k, [])
+                        if not isinstance(cur_list, list):
+                            cur_list = []
+                        for item in sub_v:
+                            if item not in cur_list:
+                                cur_list.append(item)
+                        merged[sub_k] = cur_list
+                    else:
+                        merged[sub_k] = sub_v
+                current[key] = merged
+            else:
+                current[key] = value
         elif key == "information":
             current[key] = value
         else:
-            # unknown field, store as text
-            current[key] = json.dumps(value)
+            current[key] = value
 
-    cols = [k for k in updates.keys()]
-    set_clause = ", ".join(f"{c}=?" for c in cols)
-    values = [current[c] for c in cols]
-    values.append(user_id)
+    cols_sql: list[str] = []
+    params: list[Any] = []
+    for c in updates.keys():
+        cols_sql.append(f"{c}=?")
+        val = current[c]
+        if c in JSON_LIST_FIELDS or c in JSON_DICT_FIELDS:
+            params.append(json.dumps(val))
+        else:
+            params.append(val)
+    params.append(user_id)
     with get_db() as db:
-        db.execute(f"UPDATE bio SET {set_clause} WHERE id=?", values)
+        db.execute(f"UPDATE bio SET {', '.join(cols_sql)} WHERE id=?", params)
 
 
 def append_to_bio_list(user_id: str, field: str, value: Any) -> None:
+    """Append a value to a list field, supporting dot notation for nesting."""
     parts = field.split(".")
-    if len(parts) == 1:
-        key = parts[0]
-        def updater(lst):
-            if not isinstance(lst, list):
-                lst = []
-            if value not in lst:
-                lst.append(value)
+    key = parts[0]
+
+    def updater(data: Any) -> Any:
+        if not isinstance(data, (list, dict)):
+            data = [] if len(parts) == 1 else {}
+
+        target = data
+        for p in parts[1:-1]:
+            if not isinstance(target, dict):
+                target = {}
+            target = target.setdefault(p, {})
+
+        if len(parts) == 1:
+            lst = target
+        else:
+            lst = target.get(parts[-1], [])
+
+        if not isinstance(lst, list):
+            lst = []
+        if value not in lst:
+            lst.append(value)
+
+        if len(parts) == 1:
             return lst
-        _update_json_field(user_id, key, updater)
-    else:
-        key, sub = parts[0], parts[1]
-        def updater(obj):
-            if not isinstance(obj, dict):
-                obj = {}
-            lst = obj.get(sub, [])
-            if value not in lst:
-                lst.append(value)
-            obj[sub] = lst
-            return obj
-        _update_json_field(user_id, key, updater)
+        target[parts[-1]] = lst
+        return data
+
+    _update_json_field(user_id, key, updater)
 
 
 def add_past_event(user_id: str, summary: str, dt: datetime | None = None) -> None:
@@ -175,15 +208,17 @@ def add_past_event(user_id: str, summary: str, dt: datetime | None = None) -> No
 
 
 def alter_feeling(user_id: str, feeling_type: str, intensity: int) -> None:
-    def updater(feels):
+    normalized = feeling_type.lower().strip()
+
+    def updater(feels: Any) -> list[dict]:
         if not isinstance(feels, list):
             feels = []
-        lower = feeling_type.lower()
         for f in feels:
-            if isinstance(f, dict) and f.get("type", "").lower() == lower:
+            if isinstance(f, dict) and f.get("type", "").lower() == normalized:
                 f["intensity"] = intensity
                 break
         else:
-            feels.append({"type": feeling_type, "intensity": intensity})
+            feels.append({"type": normalized, "intensity": intensity})
         return feels
+
     _update_json_field(user_id, "feelings", updater)

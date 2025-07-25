@@ -62,7 +62,7 @@ def test_append_and_feelings(tmp_path):
     assert full["likes"] == ["apples"]
     assert full["contacts"]["telegram"] == ["@u2"]
     assert full["past_events"][0]["summary"] == "Wake"
-    assert full["feelings"] == [{"type": "LOVE", "intensity": 8}]
+    assert full["feelings"] == [{"type": "love", "intensity": 8}]
     os.environ.pop("MEMORY_DB")
 
 
