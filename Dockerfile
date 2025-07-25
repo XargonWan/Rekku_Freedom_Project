@@ -1,14 +1,24 @@
 FROM lscr.io/linuxserver/webtop:ubuntu-xfce
 
+# Temporarily switch to root to create noVNC directory
+RUN mkdir -p /usr/share/novnc && \
+    echo '<!DOCTYPE html><html><head><title>noVNC</title></head><body><h1>noVNC placeholder</h1></body></html>' > /usr/share/novnc/vnc.html && \
+    echo 'index.html' > /usr/share/novnc/index.html && \
+    chmod -R 755 /usr/share/novnc && \
+    ls -la /usr/share/novnc && \
+    echo "noVNC directory created successfully during build"
+
 # Basic packages and Snap removal
 RUN apt-get update && \
     apt-get purge -y snapd && \
     rm -rf /var/cache/snapd /snap /var/snap /var/lib/snapd && \
-    printf '#!/bin/sh\necho \"Snap is disabled\"\n' > /usr/local/bin/snap && \
+    printf '#!/bin/sh\necho "Snap is disabled"\n' > /usr/local/bin/snap && \
     chmod +x /usr/local/bin/snap && \
-    echo \"alias snap='echo Snap is disabled'\" > /etc/profile.d/no-snap.sh && \
+    echo "alias snap='echo Snap is disabled'" > /etc/profile.d/no-snap.sh && \
     apt-get install -y --no-install-recommends \
-      python3 python3-pip python3-venv git curl wget unzip \
+      software-properties-common \
+      python3 python3-venv \
+      git curl wget unzip nano vim \
       apache2-utils websockify openssl x11vnc \
       lsb-release ca-certificates fonts-liberation \
       fonts-noto-cjk fonts-noto-color-emoji xfonts-base && \
@@ -22,6 +32,14 @@ RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearm
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
     google-chrome --version
 
+# Display configuration
+ENV DISPLAY=:1
+RUN Xvfb :1 -screen 0 1280x720x24 &
+
+# Keyboard configuration
+RUN xvfb-run setxkbmap us
+
+
 # Copy project code
 COPY requirements.txt /app/requirements.txt
 WORKDIR /app
@@ -31,16 +49,18 @@ RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir --upgrade pip setuptools && \
     /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 
+# LinuxServer hooks
+COPY automation_tools/rekku.sh /etc/cont-init.d/99-rekku.sh
+COPY automation_tools/98-fix-session.sh /etc/cont-init.d/98-fix-session.sh
+COPY automation_tools/01-password.sh /etc/cont-init.d/01-password.sh
+COPY automation_tools/cleanup_chrome.sh /etc/cont-init.d/97-cleanup-chrome.sh
+COPY automation_tools/s6-rc.d/rekku /etc/s6-overlay/s6-rc.d/rekku
+COPY automation_tools/s6-rc.d/x11vnc /etc/s6-overlay/s6-rc.d/x11vnc
+COPY automation_tools/s6-rc.d/websockify /etc/s6-overlay/s6-rc.d/websockify
+
 # Copy project code last to leverage layer caching
 COPY . /app
-
-# ENV
-ENV PYTHONPATH=/app \
-    TZ=Asia/Tokyo \
-    PATH=/app/venv/bin:$PATH \
-    HOME=/home/rekku \
-    PUID=1000 \
-    PGID=1000
+ENV PYTHONPATH=/app
 
 # Inject GitVersion tags into the environment
 ARG GITVERSION_TAG
@@ -52,21 +72,16 @@ RUN echo "Building with tag: $GITVERSION_TAG"
 # Save the GitVersion tag to a version file
 RUN echo "$GITVERSION_TAG" > /app/version.txt
 
-# LinuxServer hooks
-COPY automation_tools/rekku.sh /etc/cont-init.d/99-rekku.sh
-COPY automation_tools/98-fix-session.sh /etc/cont-init.d/98-fix-session.sh
-COPY automation_tools/01-password.sh /etc/cont-init.d/01-password.sh
-COPY automation_tools/cleanup_chrome.sh /etc/cont-init.d/97-cleanup-chrome.sh
-COPY automation_tools/init-selkies.sh /etc/s6-overlay/s6-rc.d/init-selkies/run
-COPY automation_tools/init-selkies.type /etc/s6-overlay/s6-rc.d/init-selkies/type
 COPY automation_tools/container_rekku.sh /app/rekku.sh
 RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
-        /etc/s6-overlay/s6-rc.d/init-selkies/run /etc/cont-init.d/98-fix-session.sh \
+        /etc/cont-init.d/98-fix-session.sh \
         /etc/cont-init.d/97-cleanup-chrome.sh \
+        /etc/s6-overlay/s6-rc.d/rekku/run \
+        /etc/s6-overlay/s6-rc.d/x11vnc/run \
+        /etc/s6-overlay/s6-rc.d/websockify/run \
         /app/rekku.sh \
     && mkdir -p /home/rekku /config /etc/s6-overlay/s6-rc.d/user/contents.d \
-    && ln -sfn ../init-selkies /etc/s6-overlay/s6-rc.d/user/contents.d/init-selkies \
-    && chown -R 1000:1000 /app /home/rekku /config
-
-
-
+    && ln -sfn ../rekku /etc/s6-overlay/s6-rc.d/user/contents.d/rekku \
+    && ln -sfn ../x11vnc /etc/s6-overlay/s6-rc.d/user/contents.d/x11vnc \
+    && ln -sfn ../websockify /etc/s6-overlay/s6-rc.d/user/contents.d/websockify \
+    && chown -R abc:abc /app /home/rekku /config

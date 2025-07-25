@@ -71,9 +71,9 @@ def _validate_message_payload(payload: dict, errors: List[str]) -> None:
 
 def _validate_event_payload(payload: dict, errors: List[str]) -> None:
     """Validate payload for event actions."""
-    when = payload.get("when")
-    if not isinstance(when, str) or not when:
-        errors.append("payload.when must be a non-empty string for event action")
+    scheduled = payload.get("scheduled")
+    if not isinstance(scheduled, str) or not scheduled:
+        errors.append("payload.scheduled must be a non-empty string for event action")
 
     action = payload.get("action")
     if action is not None and not isinstance(action, dict):
@@ -177,6 +177,7 @@ def _load_action_plugins() -> List[Any]:
     """Load classes under plugins/ that implement get_supported_actions."""
     global _ACTION_PLUGINS
     if _ACTION_PLUGINS is not None:
+        log_debug(f"[action_parser] Returning cached plugins ({len(_ACTION_PLUGINS)})")
         return _ACTION_PLUGINS
 
     _ACTION_PLUGINS = []
@@ -190,7 +191,7 @@ def _load_action_plugins() -> List[Any]:
             try:
                 module = importlib.import_module(module_name)
             except Exception as e:
-                log_error(f"[action_parser] Failed to import {module_name}: {e}")
+                log_error(f"[action_parser] Failed to import {module_name}: {repr(e)}")
                 continue
             log_debug(f"[action_parser] Checking module: {module_name}")
             for _name, obj in inspect.getmembers(module, inspect.isclass):
@@ -218,12 +219,17 @@ def _load_action_plugins() -> List[Any]:
                                     instance.start()
                                     log_debug(f"[action_parser] Started sync plugin: {obj.__name__}")
                             except Exception as e:
-                                log_error(f"[action_parser] Error starting plugin {obj.__name__}: {e}")
+                                log_error(f"[action_parser] Error starting plugin {obj.__name__}: {repr(e)}")
                                 
                     except Exception as e:
-                        log_error(f"[action_parser] Failed to init {obj}: {e}")
+                        log_error(f"[action_parser] Failed to init {obj}: {repr(e)}")
                         continue
-                    _ACTION_PLUGINS.append(instance)
+                    # Avoid duplicate plugin registration
+                    if any(isinstance(p, obj) for p in _ACTION_PLUGINS):
+                        log_warning(f"[action_parser] Duplicate plugin {obj.__name__} ignored")
+                    else:
+                        _ACTION_PLUGINS.append(instance)
+    log_debug("[action_parser] Plugins loaded: " + ", ".join([p.__class__.__name__ for p in _ACTION_PLUGINS]))
     return _ACTION_PLUGINS
 
 
@@ -242,7 +248,7 @@ def _plugins_for(action_type: str) -> List[Any]:
             if action_type in supported:
                 plugins.append(plugin)
         except Exception as e:
-            log_error(f"[action_parser] Error querying plugin {plugin}: {e}")
+            log_error(f"[action_parser] Error querying plugin {plugin}: {repr(e)}")
     return plugins
 
 
@@ -278,7 +284,7 @@ async def _handle_plugin_action(action: Dict[str, Any], context: Dict[str, Any],
                 if inspect.iscoroutine(result):
                     await result
             except Exception as e:
-                log_error(f"[action_parser] Error executing {action_type} with {plugin}: {e}")
+                log_error(f"[action_parser] Error executing {action_type} with {plugin}: {repr(e)}")
         else:
             log_warning(f"[action_parser] Plugin {plugin} has no execute_action()")
     if not _plugins_for(action_type):
@@ -287,6 +293,7 @@ async def _handle_plugin_action(action: Dict[str, Any], context: Dict[str, Any],
 
 async def run_action(action: Any, context: Dict[str, Any], bot, original_message):
     """Validate and execute a single action or list of actions."""
+    log_debug(f"[action_parser] run_action called with: {action}")
     if isinstance(action, list):
         for act in action:
             await run_action(act, context, bot, original_message)
@@ -298,6 +305,7 @@ async def run_action(action: Any, context: Dict[str, Any], bot, original_message
         return
 
     action_type = action.get("type")
+    log_debug(f"[action_parser] Executing action type: {action_type}")
     
     # Use plugin system for all action types (including messages)
     await _handle_plugin_action(action, context, bot, original_message)
@@ -318,6 +326,9 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
         log_error("[action_parser] run_actions expects a list or dict")
         return
 
+    log_debug(f"[action_parser] run_actions called with {len(actions)} actions")
+    log_debug(f"[action_parser] Actions: {actions}")
+
     for idx, action in enumerate(actions):
         try:
             valid, errors = validate_action(action)
@@ -327,7 +338,7 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             log_debug(f"[action_parser] Running action {idx}: {action.get('type')}")
             await run_action(action, context, bot, original_message)
         except Exception as e:
-            log_error(f"[action_parser] Error executing action {idx}: {e}")
+            log_error(f"[action_parser] Error executing action {idx}: {repr(e)}")
 
 
 async def parse_action(action: dict, bot, message):
@@ -342,7 +353,7 @@ async def parse_action(action: dict, bot, message):
         log_warning("[action_parser] Invalid action structure: missing type or payload")
         return
 
-    log_debug(f"[action_parser] Action type: {action_type}, Interface: {interface}, Payload: {payload}")
+    log_debug("[action_parser] Action type: " + str(action_type) + ", Interface: " + str(interface) + ", Payload: " + str(payload))
 
     # Use centralized action plugin system for all action types
     action_plugins = _plugins_for(action_type)
@@ -358,7 +369,7 @@ async def parse_action(action: dict, bot, message):
                 else:
                     log_warning(f"[action_parser] Plugin {plugin.__class__.__name__} lacks execute_action/handle_custom_action methods")
             except Exception as e:
-                log_error(f"[action_parser] Error delegating {action_type} to plugin {plugin.__class__.__name__}: {e}")
+                log_error(f"[action_parser] Error delegating {action_type} to plugin {plugin.__class__.__name__}: {repr(e)}")
         return
     
     log_warning(f"[action_parser] No plugin supports action type '{action_type}' — no plugin handler found")
@@ -382,7 +393,7 @@ def get_action_plugin_instructions():
                     instructions.update(plugin_instructions)
                     log_debug(f"[action_parser] Collected instructions from {plugin.__class__.__name__}")
     except Exception as e:
-        log_error(f"[action_parser] Error collecting plugin instructions: {e}")
+        log_error(f"[action_parser] Error collecting plugin instructions: {repr(e)}")
     
     return instructions
 

@@ -10,7 +10,7 @@ from core.db import (
     mark_event_delivered,
     insert_scheduled_event,
 )
-from core import plugin_instance
+from core import plugin_instance, message_queue
 from core.logging_utils import log_debug, log_warning
 
 
@@ -24,16 +24,18 @@ async def dispatch_pending_events(bot):
     if not events:
         return 0
 
+    log_debug(f"[event_dispatcher] Retrieved {len(events)} events from the database")
     dispatched = 0
     for ev in events:
+        log_debug(f"[event_dispatcher] Processing event: {ev}")
+
         prompt = {
             "context": [],
             "memories": [],
             "input": {
                 "type": "event",
                 "payload": {
-                    "date": ev["date"],
-                    "time": ev["time"],
+                    "scheduled": ev["scheduled"],
                     "repeat": ev["repeat"],
                     "description": ev["description"],
                 },
@@ -45,22 +47,26 @@ async def dispatch_pending_events(bot):
             "actions": [],
         }
 
-        summary = f"{ev['date']}"
-        if ev["time"]:
-            summary += f" {ev['time']}"
-        summary += f" → {ev['description']}"
+        # Create a summary using the scheduled timestamp
+        scheduled_dt = datetime.fromisoformat(ev['scheduled'])
+        summary = scheduled_dt.strftime('%Y-%m-%d %H:%M') + " → " + str(ev['description'])
 
-        try:
-            await plugin_instance.handle_incoming_message(bot, None, prompt)
-            mark_event_delivered(ev["id"])
-            log_debug(f"[DISPATCH] Sent event: {summary}")
-            dispatched += 1
-        except Exception as exc:
-            log_warning(
-                f"[event_dispatcher] Failed to dispatch event {ev['id']}: {exc}"
-            )
+        # Check to avoid duplicate messages in the queue
+        if not mark_event_delivered(ev["id"]):
+            log_warning(f"[event_dispatcher] Event already marked as delivered: {ev['id']}")
             continue
 
+        log_debug(f"[event_dispatcher] Event marked as delivered: {ev['id']}")
+
+        try:
+            await message_queue.enqueue_event(bot, prompt)
+            log_debug(f"[DISPATCH] Event queued with priority: {summary}")
+            dispatched += 1
+        except Exception as exc:
+            log_warning(f"[event_dispatcher] Error while queuing event {ev['id']}: {exc}")
+            continue
+
+        log_debug(f"[event_dispatcher] Processing repetition for event: {ev['id']}")
         repeat = (ev.get("repeat") or "none").lower()
         if repeat not in {"none", "daily", "weekly", "monthly"}:
             log_warning(
@@ -70,10 +76,7 @@ async def dispatch_pending_events(bot):
 
         if repeat != "none":
             try:
-                dt = datetime.strptime(
-                    f"{ev['date']} {ev['time'] or '00:00'}",
-                    "%Y-%m-%d %H:%M",
-                ).replace(tzinfo=tz)
+                dt = datetime.fromisoformat(ev['scheduled'])
 
                 if repeat == "daily":
                     new_dt = dt + timedelta(days=1)
@@ -89,21 +92,18 @@ async def dispatch_pending_events(bot):
 
                 if new_dt is not None:
                     insert_scheduled_event(
-                        new_dt.strftime("%Y-%m-%d"),
-                        ev["time"],
+                        new_dt.isoformat(),
                         repeat,
                         ev["description"],
                         ev.get("created_by", "rekku"),
                     )
-                    repeat_summary = new_dt.strftime("%Y-%m-%d")
-                    if ev["time"]:
-                        repeat_summary += f" {ev['time']}"
-                    repeat_summary += f" → {ev['description']}"
+                    repeat_summary = new_dt.strftime('%Y-%m-%d %H:%M') + " → " + str(ev['description'])
                     log_debug(f"[REPEAT] Rescheduled event: {repeat_summary}")
             except Exception as exc:
                 log_warning(
                     f"[event_dispatcher] Failed to reschedule event {ev['id']}: {exc}"
                 )
+        log_debug(f"[event_dispatcher] Repetition completed for event: {ev['id']}")
 
     log_debug(f"[event_dispatcher] Dispatched {dispatched} event(s)")
     return dispatched

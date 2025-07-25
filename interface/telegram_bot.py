@@ -336,7 +336,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_debug(f"[telegram_bot] Reply to message from user ID: {message.reply_to_message.from_user.id if message.reply_to_message.from_user else 'None'}, "
                   f"username: {message.reply_to_message.from_user.username if message.reply_to_message.from_user else 'None'}")
     
-    is_for_bot = is_message_for_bot(message, context.bot)
+    is_for_bot = await is_message_for_bot(message, context.bot)
     log_debug(f"[telegram_bot] is_message_for_bot result: {is_for_bot}")
     
     if not is_for_bot:
@@ -347,7 +347,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await message_queue.enqueue(context.bot, message, context_memory)
     except Exception as e:
-        log_error(f"message_queue enqueue failed: {e}", e)
+        log_error(f"message_queue enqueue failed: {repr(e)}", e)
         await message.reply_text("⚠️ Errore nell'elaborazione del messaggio.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -483,7 +483,7 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await safe_send(bot, chat_id=chat_id, text=text)  # [FIX]
             await update.message.reply_text("\u2705 Messaggio inviato.")
         except Exception as e:
-            log_error(f"Errore /say diretto: {e}", e)
+            log_error(f"Errore /say diretto: {repr(e)}", e)
             await update.message.reply_text("\u274c Errore nell'invio.")
         return
 
@@ -508,7 +508,7 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"\u274c Cannot send to {username}. They must start the chat with the bot first."
                 )
         except Exception as e:
-            log_error(f"Errore /say @username: {e}", e)
+            log_error(f"Errore /say @username: {repr(e)}", e)
             await update.message.reply_text(
                 f"\u274c Cannot send to {username}. They must start the chat with the bot first."
             )
@@ -694,9 +694,9 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
             )  # [FIX][telegram retry]
             log_debug(f"[notify] ✅ Messaggio Telegram inviato a {chat_id}")
         except TelegramError as e:
-            log_error(f"[notify] ❌ Errore Telegram: {e}", e)
+            log_error(f"[notify] ❌ Errore Telegram: {repr(e)}", e)
         except Exception as e:
-            log_error(f"[notify] ❌ Altro errore nel send(): {e}", e)
+            log_error(f"[notify] ❌ Altro errore nel send(): {repr(e)}", e)
 
     try:
         loop = asyncio.get_running_loop()
@@ -712,6 +712,11 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
 
 async def plugin_startup_callback(application):
     """Launch plugin start() once the bot's event loop is ready."""
+    # Start pending async plugins
+    from core.core_initializer import core_initializer
+    await core_initializer.start_pending_async_plugins()
+
+    # Also try to start the main LLM plugin if it has a start method
     plugin_obj = plugin_instance.get_plugin()
     if plugin_obj and hasattr(plugin_obj, "start"):
         try:
@@ -721,7 +726,9 @@ async def plugin_startup_callback(application):
                 plugin_obj.start()
             log_debug("[plugin] Plugin start executed")
         except Exception as e:
-            log_error(f"[plugin] Error during post_init start: {e}", e)
+            log_error(f"[plugin] Error during post_init start: {repr(e)}", e)
+
+    # Start the queue loop after the application is ready
     application.create_task(message_queue.start_queue_loop())
 
 
@@ -785,17 +792,8 @@ def start_bot():
     from core.core_initializer import core_initializer
     core_initializer.register_interface("telegram_bot")
 
-    # Fallback: ensure plugin.start() invoked in case post_init failed
-    plugin_obj = plugin_instance.get_plugin()
-    if plugin_obj and hasattr(plugin_obj, "start"):
-        try:
-            if asyncio.iscoroutinefunction(plugin_obj.start):
-                asyncio.get_event_loop().create_task(plugin_obj.start())
-            else:
-                plugin_obj.start()
-            log_debug("[plugin] Plugin start scheduled from start_bot")
-        except Exception as e:
-            log_error(f"[plugin] Fallback start error: {e}", e)
+    # Plugin startup is handled by plugin_startup_callback
+    # No need for fallback as the callback ensures proper async startup
 
     app.run_polling()
 
@@ -810,7 +808,7 @@ class TelegramInterface:
             await universal_send(self.client.send_message, chat_id, text=text)
             log_debug(f"[telegram_bot] Message sent to {chat_id}: {text}")
         except Exception as e:
-            log_error(f"[telegram_bot] Failed to send message to {chat_id}: {e}")
+            log_error(f"[telegram_bot] Failed to send message to {chat_id}: {repr(e)}")
 
     @staticmethod
     def get_interface_instructions():
@@ -820,10 +818,10 @@ class TelegramInterface:
 - For groups with topics, include thread_id to reply in the correct topic, but don't use the thread_id if not specified in the input, else the message will fail to be delivered.
 - Keep messages under 4096 characters
 - Use Markdown formatting:
-    * *bold* → `*bold*`
-    * _italic_ → `_italic_`
-    * __underline__ → `__underline__`
-    * ~strikethrough~ → `~strikethrough~`
+    * **bold** → `**bold**`
+    * __italic__ → `__italic__`
+    * --underline-- → `--underline--`
+    * ~~strikethrough~~ → `~~strikethrough~~`
     * `monospace` → `` `monospace` ``
     * ```code block``` → triple backticks (```)
     * [inline URL](https://example.com) → standard Markdown link
@@ -832,5 +830,7 @@ class TelegramInterface:
 - Target should be the exact chat_id from input.payload.source.chat_id
 - Thread_id should be the exact thread_id from input.payload.source.thread_id (if present)
 - Interface should always be "telegram_bot"
+- REPLYING TO MESSAGES: When responding to a user's message in the same chat, the message will automatically appear as a reply. Simply use the same target chat_id as the original message.
+- CROSS-CHAT MESSAGES: To send to a different chat than where the message came from, specify a different target chat_id. These won't appear as replies but as new messages.
 """
 

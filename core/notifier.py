@@ -21,7 +21,7 @@ def set_notifier(fn: Callable[[int, str], None]):
         try:
             fn(chat_id, msg)
         except Exception as e:
-            log_error(f"[notifier] Failed to send pending message: {e}")
+            log_error(f"[notifier] Failed to send pending message: {repr(e)}")
     _pending.clear()
 
 CHUNK_SIZE = 4000
@@ -34,7 +34,7 @@ def notify(chat_id: int, message: str):
         try:
             _notify_impl(chat_id, chunk)
         except Exception as e:  # pragma: no cover - best effort
-            log_error(f"[notifier] Failed to send notification chunk: {e}")
+            log_error(f"[notifier] Failed to send notification chunk: {repr(e)}")
 
 def notify_owner(message: str):
     log_debug(f"[notifier] Notification for OWNER_ID={OWNER_ID}: {message}")

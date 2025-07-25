@@ -10,18 +10,31 @@ from core.telegram_utils import _send_with_retry
 from types import SimpleNamespace
 
 
-def extract_json_from_text(text: str):
+def extract_json_from_text(text: str, processed_messages: set = None):
     """
     Extract JSON objects or arrays from text.
     
     Args:
         text: The text that may contain JSON
+        processed_messages: A set to track already processed messages
         
     Returns:
         A Python dictionary, list, or None if no valid JSON is found.
     """
     try:
         text = text.strip()
+
+        # Initialize processed_messages if not provided
+        if processed_messages is None:
+            processed_messages = set()
+
+        # Check if the message has already been processed
+        if text in processed_messages:
+            log_debug("[extract_json_from_text] Message already processed, skipping.")
+            return None
+
+        # Mark the message as processed
+        processed_messages.add(text)
         
         # Handle the common ChatGPT pattern: "json\nCopy\nEdit\n{...}"
         if text.startswith("json\nCopy\nEdit\n"):
@@ -51,6 +64,8 @@ def extract_json_from_text(text: str):
         
         # Scan greedily for JSON blocks starting from each '{' (backward compatibility)
         start_indices = [i for i, char in enumerate(text) if char == '{']
+        if not start_indices:
+            log_warning("[extract_json_from_text] No starting braces found in text")
         for start in start_indices:
             # Try to find the matching closing brace for a complete JSON object
             brace_count = 0
@@ -66,13 +81,13 @@ def extract_json_from_text(text: str):
                             return json.loads(potential_json)
                         except json.JSONDecodeError:
                             continue
-            
-            # If complete object search failed, try the rest of the text from this position
-            try:
-                potential_json = text[start:]
-                return json.loads(potential_json)
-            except json.JSONDecodeError:
-                continue
+        
+        # If complete object search failed, try the rest of the text from this position
+        try:
+            potential_json = text[start:]
+            return json.loads(potential_json)
+        except json.JSONDecodeError:
+            pass
         
         # Scan for JSON arrays starting from each '['
         array_start_indices = [i for i, char in enumerate(text) if char == '[']
@@ -91,13 +106,13 @@ def extract_json_from_text(text: str):
                             return json.loads(potential_json)
                         except json.JSONDecodeError:
                             continue
-            
-            # If complete array search failed, try the rest of the text from this position
-            try:
-                potential_json = text[start:]
-                return json.loads(potential_json)
-            except json.JSONDecodeError:
-                continue
+        
+        # If complete array search failed, try the rest of the text from this position
+        try:
+            potential_json = text[start:]
+            return json.loads(potential_json)
+        except json.JSONDecodeError:
+            pass
 
         return None
     except Exception as e:
@@ -155,8 +170,18 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
             from core.action_parser import run_actions
             context = {"interface": "telegram"}  # Add more context as needed
             
-            await run_actions(actions, context, bot, message)
-            log_info(f"[transport] Processed {len(actions)} JSON actions via plugin system")
+            # Rimuovi azioni duplicate
+            unique_actions = []
+            seen_actions = set()
+            for action in actions:
+                action_id = str(action)  # Converti l'azione in stringa per un confronto semplice
+                if action_id not in seen_actions:
+                    unique_actions.append(action)
+                    seen_actions.add(action_id)
+
+            # Usa il sistema centralizzato per le azioni uniche
+            await run_actions(unique_actions, context, bot, message)
+            log_info(f"[transport] Processed {len(unique_actions)} unique JSON actions via plugin system")
             return
             
         except Exception as e:
@@ -224,8 +249,18 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
             from core.action_parser import run_actions
             context = {"interface": "telegram"}
             
-            await run_actions(actions, context, bot, message)
-            log_info(f"[telegram_transport] Processed {len(actions)} JSON actions via plugin system")
+            # Rimuovi azioni duplicate
+            unique_actions = []
+            seen_actions = set()
+            for action in actions:
+                action_id = str(action)  # Converti l'azione in stringa per un confronto semplice
+                if action_id not in seen_actions:
+                    unique_actions.append(action)
+                    seen_actions.add(action_id)
+
+            # Usa il sistema centralizzato per le azioni uniche
+            await run_actions(unique_actions, context, bot, message)
+            log_info(f"[telegram_transport] Processed {len(unique_actions)} unique JSON actions via plugin system")
             return
             
         except Exception as e:
@@ -238,5 +273,5 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
             chunk = text[i : i + chunk_size]
             await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
     except Exception as e:
-        log_error(f"[telegram_transport] Failed to send text chunks: {e}")
+        log_error(f"[telegram_transport] Failed to send text chunks: {repr(e)}")
         raise

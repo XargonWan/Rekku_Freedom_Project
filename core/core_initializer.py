@@ -45,7 +45,7 @@ class CoreInitializer:
             
             log_debug(f"[core_initializer] Active LLM engine loaded: {self.active_llm}")
         except Exception as e:
-            log_error(f"[core_initializer] Failed to load active LLM: {e}")
+            log_error(f"[core_initializer] Failed to load active LLM: {repr(e)}")
             self.startup_errors.append(f"LLM engine error: {e}")
     
     def _load_plugins(self):
@@ -91,21 +91,31 @@ class CoreInitializer:
                                             loop = asyncio.get_running_loop()
                                             if loop and loop.is_running():
                                                 loop.create_task(instance.start())
-                                                log_debug(f"[core_initializer] Started async plugin: {plugin_name}")
+                                                log_info(f"[core_initializer] Started async plugin: {plugin_name}")
                                             else:
-                                                log_debug(f"[core_initializer] No running loop for plugin: {plugin_name}")
+                                                log_warning(f"[core_initializer] No running loop for async plugin: {plugin_name}")
+                                                # Store for later startup
+                                                if not hasattr(self, '_pending_async_plugins'):
+                                                    self._pending_async_plugins = []
+                                                self._pending_async_plugins.append((plugin_name, instance))
                                         except RuntimeError:
-                                            log_debug(f"[core_initializer] No event loop for async start: {plugin_name}")
+                                            log_warning(f"[core_initializer] No event loop for async plugin: {plugin_name}")
+                                            # Store for later startup
+                                            if not hasattr(self, '_pending_async_plugins'):
+                                                self._pending_async_plugins = []
+                                            self._pending_async_plugins.append((plugin_name, instance))
                                     else:
                                         instance.start()
-                                        log_debug(f"[core_initializer] Started sync plugin: {plugin_name}")
+                                        log_info(f"[core_initializer] Started sync plugin: {plugin_name}")
                                 except Exception as e:
-                                    log_error(f"[core_initializer] Error starting plugin {plugin_name}: {e}")
+                                    log_error(f"[core_initializer] Error starting plugin {plugin_name}: {repr(e)}")
+                            else:
+                                log_debug(f"[core_initializer] Plugin {plugin_name} has no start method")
                                     
                             self.loaded_plugins.append(plugin_name)
                             log_info(f"[core_initializer] ✅ Plugin loaded and started: {plugin_name}")
                         except Exception as e:
-                            log_error(f"[core_initializer] Failed to start plugin {plugin_name}: {e}")
+                            log_error(f"[core_initializer] Failed to start plugin {plugin_name}: {repr(e)}")
                             self.startup_errors.append(f"Plugin {plugin_name}: {e}")
                     else:
                         log_warning(f"[core_initializer] ⚠️ Plugin {plugin_name} doesn't implement action interface")
@@ -140,6 +150,19 @@ class CoreInitializer:
             log_info(f"📡 Active Interfaces: {interfaces_str}")
         else:
             log_info("📡 Active Interfaces: None")
+    
+    async def start_pending_async_plugins(self):
+        """Start async plugins that were pending due to no event loop."""
+        if hasattr(self, '_pending_async_plugins'):
+            for plugin_name, instance in self._pending_async_plugins:
+                try:
+                    await instance.start()
+                    log_info(f"[core_initializer] ✅ Started pending async plugin: {plugin_name}")
+                except Exception as e:
+                    log_error(f"[core_initializer] Error starting pending plugin {plugin_name}: {repr(e)}")
+            # Clear the pending list
+            self._pending_async_plugins.clear()
+            log_info("[core_initializer] All pending async plugins processed")
     
     def _display_startup_summary(self):
         """Display a comprehensive startup summary."""

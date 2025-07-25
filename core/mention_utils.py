@@ -60,7 +60,7 @@ def is_rekku_mentioned(text: str) -> bool:
     return False
 
 
-def is_message_for_bot(message, bot, bot_username: str = None) -> bool:
+async def is_message_for_bot(message, bot, bot_username: str = None) -> bool:
     """
     Check if a message is directed to the bot considering:
     - Explicit @mention of the bot
@@ -88,7 +88,7 @@ def is_message_for_bot(message, bot, bot_username: str = None) -> bool:
         # Get bot username if not provided
         if not bot_username:
             try:
-                bot_user = bot.get_me() if hasattr(bot, 'get_me') else None
+                bot_user = await bot.get_me() if hasattr(bot, 'get_me') else None
                 if bot_user and hasattr(bot_user, 'username'):
                     bot_username = bot_user.username.lower()
                 else:

@@ -77,20 +77,6 @@ When context mode is enabled, Rekku includes the last 10 messages from the conve
 
 ---
 
-## 🎭 Manual Proxy Mode
-
-Manual mode enables human-in-the-loop interaction.
-
-* Trainer receives a full JSON prompt and forwarded message
-* Replies with any content (text, photo, file, audio, video, sticker)
-* Rekku will deliver the response to the original sender/chat
-
-| Command   | Description            |
-| --------- | ---------------------- |
-| `/cancel` | Cancel a pending reply |
-
----
-
 ## ✏️ `/say` Command
 
 Send messages or media to a chosen chat:
@@ -146,40 +132,71 @@ Create a `.env` file with the required variables. See `env.example`.
 ### ▶️ Build and Start
 
 ```bash
-./setup.sh
-./start.sh
-```
-
-This mounts `rekku_home/` to `/home/rekku` in the container for persistent data.
-
-For non-interactive environments (e.g., CI/CD), use:
-
-```bash
-./setup.sh --cicd
+docker compose up
 ```
 
 ---
 
-## 🔐 Selenium Setup (Manual Login Required)
+## LLM Engines
+
+By default the RFP uses the `manual` LLM plugin, however this is not recomended for real life usage.
+Use `/llm` command on Telegram, for instance, to ask the BOT to hotswap LLM Engine.
+Here listed all the LLM available at the time of writing.
+
+### Selenium ChatGPT
+
+#### 🔐 Selenium Setup (Manual Login Required)
 
 The `selenium_chatgpt` plugin uses a real browser and requires a manual login to ChatGPT **only once**.
 
 This is done **inside the container** via a graphical VNC session — no external machine or profile preparation needed.
 
-### ✅ Steps
+##### ✅ Steps
 
-1. Make sure `chromium` and `chromedriver` are installed in your image (already handled in `Dockerfile`)
-2. Start the container normally with:
+1. Start the container normally with:
 
    ```bash
-   ./start.sh
+   docker compose up
    ```
-3. Open the VNC session in your browser:
+2. Open the Selkies session via `http` in your browser:
 
    ```
-   http://<your-server-ip>:6901
+   http://<your-server-ip>:5006
    ```
-4. Inside the virtual desktop, open Chrome and log in to [https://chat.openai.com](https://chat.openai.com)
-5. Once you're logged in, type `✔️ Fatto` in the Telegram chat with Rekku to confirm
+3. Inside the virtual desktop, open Chrome and log in to [https://chat.openai.com](https://chat.openai.com)
 
-✅ Rekku will now be able to interact with ChatGPT in real time using a real browser.
+4. Solve the Captcha manually if needed
+
+✅ Rekku will now be able to interact with ChatGPT in real time using a real browser, but be aware that this sometimes might need a human action to solve the captcha.
+
+NOTE: skipping this step might also be possible as ChatGPT offers a three prompt chats for the non logged users, however this might cause issues with the Selenium LLM, especially if blocked by captcha.
+
+Other LLM plugins are available
+
+### Manual
+
+```mermaid
+graph TD
+  User("User")
+  Rekku("Rekku Bot")
+  Trainer("Trainer (Manual Mode)")
+  LLM("LLM of Choice")
+
+  User -- "Message" --> Rekku
+  Rekku -- "Prompt" --> Trainer
+  Trainer -- "Response Prompt" --> LLM
+  LLM -- "LLM Response" --> Rekku
+  Rekku -- "Final Reply" --> User
+```
+
+- User sends a message to Rekku
+- Rekku forwards the prompt to the Trainer (Manual Mode)
+- Trainer forwards the produced JSON to an LLM of choice
+- Rekku delivers the final response back to the trainer as a JSON
+- Trainer Replies to Rekku prompt
+- RFP will process it and send to the user
+
+### ChatGPT API (Untested)
+
+This might be the most solid method, I wrote it but I never tried so I don't expect itś working out of the box as I naver had an API key to test it.
+Feel free to test it and enhance it if you got an API ke, all contributions are welcomed.

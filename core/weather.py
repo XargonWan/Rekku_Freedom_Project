@@ -43,16 +43,17 @@ async def update_weather() -> None:
         log_info(f"HTTP status: {status}")
         log_debug(f"HTTP response status: {status}")
         data_bytes = await asyncio.to_thread(response.read)
-    except Exception as e:
-        log_warning(f"Failed to fetch weather: {e}")
-        log_error("Failed to update weather", e)
-        current_weather = "Weather data unavailable."
-        return
 
-    try:
-        log_debug("Parsing started...")
-        data = json.loads(data_bytes.decode())
-        log_debug("Weather JSON fetched successfully.")
+        try:
+            if not data_bytes:
+                raise ValueError("Empty response received")
+
+            data = json.loads(data_bytes.decode())
+            log_debug("Weather JSON fetched successfully.")
+        except (json.JSONDecodeError, ValueError) as e:
+            log_error(f"Failed to parse or format weather data: {e}")
+            return
+
         cc = data.get("current_condition", [{}])[0]
         desc = cc.get("weatherDesc", [{}])[0].get("value", "N/A")
         temp_c = cc.get("temp_C", "N/A")
@@ -79,6 +80,12 @@ async def update_weather() -> None:
         log_debug(f"Final weather string: {weather_string}")
         current_weather = weather_string
         log_info(f"Weather string: {current_weather}")
+    except json.JSONDecodeError as e:
+        log_error(f"Error parsing JSON: {e}")
+        current_weather = "Invalid weather data received."
+    except ValueError as e:
+        log_warning(f"Error: {e}")
+        current_weather = "Weather data unavailable."
     except Exception as e:
         import traceback
         traceback.print_exc()

@@ -164,7 +164,7 @@ async def say_command(event):
             await client.send_message(chat_id, text)
             await event.reply("\u2705 Messaggio inviato.")
         except Exception as e:
-            log_error(f"Errore .say diretto: {e}", e)
+            log_error(f"Errore .say diretto: {repr(e)}", e)
             await event.reply("\u274c Error during sending.")
         return
     # Caso 2: .say (senza argomenti)
@@ -241,7 +241,7 @@ def main():
                 )
                 log_debug(f"[notify] Messaggio Telegram inviato a {chat_id}")
             except Exception as e:
-                log_error(f"[notify] Fallito invio messaggio Telegram: {e}", e)
+                log_error(f"[notify] Fallito invio messaggio Telegram: {repr(e)}", e)
         import asyncio
         asyncio.create_task(send())
     
