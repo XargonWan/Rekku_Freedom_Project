@@ -20,7 +20,7 @@ def process_triggers_for_emotion(emotion: dict) -> int:
     scope = emotion.get("scope", "auto")  # fallback se non definito
     query = """
         SELECT content FROM memories
-        WHERE timestamp >= ? AND scope = ?
+        WHERE timestamp >= %s AND scope = %s
         ORDER BY timestamp DESC
     """
     with get_db() as db:

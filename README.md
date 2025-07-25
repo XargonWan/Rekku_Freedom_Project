@@ -44,7 +44,7 @@ Plugins currently supported:
 ### ⏰ Event Plugin
 
 The `event` plugin stores future actions (like reminders or rituals) in a
-persistent SQLite table. A background dispatcher periodically checks for due
+persistent MariaDB table. A background dispatcher periodically checks for due
 events using the timezone specified by the `TZ` environment variable and feeds
 them back into Rekku through the virtual chat path `TARDIS / system / events`.
 
@@ -128,6 +128,27 @@ Blocked users are ignored across all interaction modes.
 ### ⚙️ Requirements
 
 Create a `.env` file with the required variables. See `env.example`.
+
+#### Database Variables
+
+Configure the MariaDB connection by setting these variables in your `.env` file:
+
+```
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=rekku
+DB_PASS=rekku
+DB_NAME=rekku
+DB_ROOT_PASS=root
+```
+
+The provided `docker-compose.yml` starts a `mariadb` service for persistent
+storage and a `rekku-db-backup` companion container. Backups are written to
+`./backups/` hourly and kept for one day. Database credentials can be customized
+via environment variables such as `DB_USER` and `DB_PASS`.
+
+To set up the schema, run the statements in `mariadb_schema.sql` against your
+MariaDB instance.
 
 ### ▶️ Build and Start
 

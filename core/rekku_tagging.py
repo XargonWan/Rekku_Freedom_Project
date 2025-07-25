@@ -23,7 +23,7 @@ def expand_tags(tags: list[str]) -> list[str]:
     if not tags:
         return list(expanded)
 
-    placeholders = ",".join("?" for _ in tags)
+    placeholders = ",".join("%s" for _ in tags)
     query = f"""
         SELECT related_tag FROM tag_links WHERE tag IN ({placeholders})
         UNION

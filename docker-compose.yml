@@ -29,3 +29,37 @@ services:
     restart: unless-stopped
     stdin_open: true
     tty: true
+
+  mariadb:
+    image: mariadb:11
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:-root}
+      MYSQL_DATABASE: ${DB_NAME:-rekku}
+      MYSQL_USER: ${DB_USER:-rekku}
+      MYSQL_PASSWORD: ${DB_PASS:-rekku}
+    volumes:
+      - rekku_db_data:/var/lib/mysql
+
+  rekku-db-backup:
+    image: tiredofit/db-backup
+    depends_on:
+      - mariadb
+    environment:
+      DB_TYPE: mysql
+      DB_HOST: mariadb
+      DB_NAME: ${DB_NAME:-rekku}
+      DB_USER: ${DB_USER:-rekku}
+      DB_PASS: ${DB_PASS:-rekku}
+      DB_DUMP_FREQ: 60
+      DB_CLEANUP_TIME: 1440
+      CONTAINER_TIMEZONE: Asia/Tokyo
+      COMPRESSION: GZ
+      DB_DUMP_TARGET: /backup
+    volumes:
+      - ./backups:/backup
+    restart: unless-stopped
+
+volumes:
+  rekku_db_data:

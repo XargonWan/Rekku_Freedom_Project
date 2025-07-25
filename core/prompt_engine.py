@@ -139,7 +139,7 @@ def search_memories(tags=None, scope=None, limit=5):
     if not tags:
         return []
 
-    placeholders = ",".join(["?"] * len(tags))
+    placeholders = ",".join(["%s"] * len(tags))
 
     query = f"""
         SELECT DISTINCT content
@@ -155,10 +155,10 @@ def search_memories(tags=None, scope=None, limit=5):
     params = tags.copy()
 
     if scope:
-        query += " AND scope = ?"
+        query += " AND scope = %s"
         params.append(scope)
 
-    query += " ORDER BY timestamp DESC LIMIT ?"
+    query += " ORDER BY timestamp DESC LIMIT %s"
     params.append(limit)
 
     log_debug("Query:")

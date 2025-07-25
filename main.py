@@ -2,6 +2,7 @@ import os
 import signal
 import sys
 import subprocess
+import asyncio
 from core.db import init_db
 from core.blocklist import init_blocklist_table
 from core.config import get_active_llm
@@ -126,7 +127,7 @@ if __name__ == "__main__":
     cleanup_chrome_processes()
     
     # Initialize DB and tables
-    init_db()
+    asyncio.run(init_db())
     init_blocklist_table()
 
     # 🌐 Show where the Webtop/VNC interface is available

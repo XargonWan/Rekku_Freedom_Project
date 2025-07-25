@@ -49,7 +49,10 @@ def set_active_llm(name: str):
     _active_llm = name
     try:
         with get_db() as db:
-            db.execute("REPLACE INTO settings (key, value) VALUES (?, ?)", ("active_llm", name))
+            db.execute(
+                "REPLACE INTO settings (key, value) VALUES (%s, %s)",
+                ("active_llm", name),
+            )
             db.commit()
             log_debug(f"[config] 💾 Saved active plugin in DB: {name}")
     except Exception as e:

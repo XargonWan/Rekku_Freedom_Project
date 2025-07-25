@@ -1,147 +1,127 @@
 # core/db.py
 
-import sqlite3
-import time
 import os
+import time
 from contextlib import contextmanager
-from pathlib import Path
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+
+import pymysql
+from pymysql.cursors import DictCursor
+import aiomysql
+
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
-DB_PATH = Path(
-    os.getenv(
-        "MEMORY_DB",
-        Path(__file__).parent.parent / "persona" / "rekku_memories.db",
+# Database connection parameters
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = int(os.getenv("DB_PORT", "3306"))
+DB_USER = os.getenv("DB_USER", "rekku")
+DB_PASS = os.getenv("DB_PASS", "rekku")
+DB_NAME = os.getenv("DB_NAME", "rekku")
+
+
+def get_conn():
+    """Return a live MariaDB connection."""
+    return pymysql.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        user=DB_USER,
+        password=DB_PASS,
+        database=DB_NAME,
+        cursorclass=DictCursor,
+        autocommit=False,
     )
-)
 
 @contextmanager
 def get_db():
-    first_time = not DB_PATH.exists()
-    if first_time:
-        log_warning(f"{DB_PATH.name} not found, creating new database")
+    """Context manager that yields a connection wrapper for MariaDB."""
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row  # ✅ key-based access
+    conn = get_conn()
 
-    if first_time:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-            """
-        )
+    class _Wrapper:
+        def __init__(self, connection):
+            self.conn = connection
+
+        def execute(self, query, params=None):
+            if params is None:
+                params = ()
+            with self.conn.cursor() as cur:
+                cur.execute(query, params)
+                return cur
+
+        def commit(self):
+            self.conn.commit()
+
+    wrapper = _Wrapper(conn)
     try:
-        yield conn
+        yield wrapper
         conn.commit()
     finally:
         conn.close()
 
-def init_db():
-    with get_db() as db:
-        # recent_chats table (tracks active chats)
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS recent_chats (
-                chat_id INTEGER PRIMARY KEY,
-                last_active REAL
-            )
-        """)
-
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-        """)
-
-        # memories table (stored memories)
-        db.execute("""
+async def init_db() -> None:
+    """Asynchronously initialize essential MariaDB tables."""
+    conn = await aiomysql.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        user=DB_USER,
+        password=DB_PASS,
+        db=DB_NAME,
+        autocommit=True,
+    )
+    async with conn.cursor() as cur:
+        # memories table
+        await cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS memories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT,
-                content TEXT,
-                author TEXT,
-                source TEXT,
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                timestamp DATETIME NOT NULL,
+                content TEXT NOT NULL,
+                author VARCHAR(100),
+                source VARCHAR(100),
                 tags TEXT,
-                scope TEXT,
-                emotion TEXT,
-                intensity INTEGER,
-                emotion_state TEXT
+                scope VARCHAR(50),
+                emotion VARCHAR(50),
+                intensity INT,
+                emotion_state VARCHAR(50)
             )
-        """)
+            """
+        )
 
-        # emotion_diary table (emotional events)
-        db.execute("""
+        # emotion_diary table
+        await cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS emotion_diary (
-                id TEXT PRIMARY KEY,
-                source TEXT,
+                id VARCHAR(100) PRIMARY KEY,
+                source VARCHAR(100),
                 event TEXT,
-                emotion TEXT,
-                intensity INTEGER,
-                state TEXT,
+                emotion VARCHAR(50),
+                intensity INT,
+                state VARCHAR(50),
                 trigger_condition TEXT,
                 decision_logic TEXT,
-                next_check TEXT
-            )
-        """)
-
-        # tag_links table (relationships between tags)
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS tag_links (
-                tag TEXT,
-                related_tag TEXT
-            )
-        """)
-
-        # blocklist table (blocked users)
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS blocklist (
-                user_id INTEGER PRIMARY KEY
-            )
-        """)
-
-        # message_map table (maps forwarded messages to the original)
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS message_map (
-                trainer_message_id INTEGER PRIMARY KEY,
-                chat_id INTEGER NOT NULL,
-                message_id INTEGER NOT NULL,
-                timestamp REAL
+                next_check DATETIME
             )
             """
         )
 
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS chatgpt_links (
-                telegram_chat_id INTEGER NOT NULL,
-                thread_id INTEGER,
-                chatgpt_chat_id TEXT NOT NULL,
-                is_full INTEGER DEFAULT 0,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (telegram_chat_id, thread_id)
-            )
-            """
-        )
-
-        db.execute(
+        # scheduled_events table
+        await cur.execute(
             """
             CREATE TABLE IF NOT EXISTS scheduled_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                "scheduled" TEXT NOT NULL,
-                repeat TEXT DEFAULT 'none',
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                `date` DATE NOT NULL,
+                `time` TIME,
+                repeat VARCHAR(20) DEFAULT 'none',
                 description TEXT NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                delivered INTEGER DEFAULT 0,
-                created_by TEXT DEFAULT 'rekku',
-                UNIQUE("scheduled", description)
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                delivered BOOLEAN DEFAULT FALSE,
+                created_by VARCHAR(100) DEFAULT 'rekku',
+                UNIQUE KEY unique_event (`date`, `time`, description(100))
             )
             """
         )
+    conn.close()
 
 # 🧠 Insert a new memory into the database
 def insert_memory(
@@ -159,10 +139,13 @@ def insert_memory(
         timestamp = datetime.now(timezone.utc).isoformat()
 
     with get_db() as db:
-        db.execute("""
+        db.execute(
+            """
             INSERT INTO memories (timestamp, content, author, source, tags, scope, emotion, intensity, emotion_state)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (timestamp, content, author, source, tags, scope, emotion, intensity, emotion_state))
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (timestamp, content, author, source, tags, scope, emotion, intensity, emotion_state),
+        )
 
 # 💥 Insert a new emotional event
 def insert_emotion_event(
@@ -177,10 +160,23 @@ def insert_emotion_event(
     next_check: str
 ):
     with get_db() as db:
-        db.execute("""
+        db.execute(
+            """
             INSERT INTO emotion_diary (id, source, event, emotion, intensity, state, trigger_condition, decision_logic, next_check)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (eid, source, event, emotion, intensity, state, trigger_condition, decision_logic, next_check))
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                eid,
+                source,
+                event,
+                emotion,
+                intensity,
+                state,
+                trigger_condition,
+                decision_logic,
+                next_check,
+            ),
+        )
 
 # 🔍 Retrieve active emotions
 def get_active_emotions():
@@ -196,8 +192,8 @@ def update_emotion_intensity(eid: str, delta: int):
     with get_db() as db:
         db.execute("""
             UPDATE emotion_diary
-            SET intensity = intensity + ?
-            WHERE id = ?
+            SET intensity = intensity + %s
+            WHERE id = %s
         """, (delta, eid))
 
 # 💀 Mark an emotion as resolved
@@ -206,7 +202,7 @@ def mark_emotion_resolved(eid: str):
         db.execute("""
             UPDATE emotion_diary
             SET state = 'resolved'
-            WHERE id = ?
+            WHERE id = %s
         """, (eid,))
 
 # 💎 Crystallize an active emotion
@@ -215,7 +211,7 @@ def crystallize_emotion(eid: str):
         db.execute("""
             UPDATE emotion_diary
             SET state = 'crystallized'
-            WHERE id = ?
+            WHERE id = %s
         """, (eid,))
 
 # 🔁 Retrieve recent responses generated by the bot
@@ -223,7 +219,7 @@ def get_recent_responses(since_timestamp: str) -> list[dict]:
     with get_db() as db:
         rows = db.execute("""
             SELECT * FROM memories
-            WHERE source = 'rekku' AND timestamp >= ?
+            WHERE source = 'rekku' AND timestamp >= %s
             ORDER BY timestamp DESC
         """, (since_timestamp,)).fetchall()
         return [dict(row) for row in rows]
@@ -241,7 +237,7 @@ def insert_scheduled_event(
         db.execute(
             """
             INSERT INTO scheduled_events (scheduled, repeat, description, created_by)
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s)
             """,
             (scheduled, repeat or "none", description, created_by),
         )
@@ -304,7 +300,7 @@ def mark_event_delivered(event_id: int) -> None:
     with get_db() as db:
         # Get event info to check repeat type
         event_row = db.execute(
-            "SELECT repeat FROM scheduled_events WHERE id = ?",
+            "SELECT repeat FROM scheduled_events WHERE id = %s",
             (event_id,),
         ).fetchone()
         
@@ -314,7 +310,7 @@ def mark_event_delivered(event_id: int) -> None:
             if repeat_type == "none":
                 # One-time event - mark as delivered
                 db.execute(
-                    "UPDATE scheduled_events SET delivered = 1 WHERE id = ?",
+                    "UPDATE scheduled_events SET delivered = 1 WHERE id = %s",
                     (event_id,),
                 )
                 log_info(f"[db] Event {event_id} marked as delivered (one-time)")
@@ -325,7 +321,7 @@ def mark_event_delivered(event_id: int) -> None:
                 # Repeating events (daily, weekly, monthly) - for now mark as delivered
                 # TODO: Implement proper repeat logic with next occurrence calculation
                 db.execute(
-                    "UPDATE scheduled_events SET delivered = 1 WHERE id = ?",
+                    "UPDATE scheduled_events SET delivered = 1 WHERE id = %s",
                     (event_id,),
                 )
                 log_info(f"[db] Event {event_id} marked as delivered (repeat: {repeat_type} - TODO: implement proper repeat logic)")
