@@ -194,6 +194,10 @@ def _load_action_plugins() -> List[Any]:
                 continue
             log_debug(f"[action_parser] Checking module: {module_name}")
             for _name, obj in inspect.getmembers(module, inspect.isclass):
+                # Skip imported classes or alias constants like PLUGIN_CLASS
+                if obj.__module__ != module.__name__ or _name == "PLUGIN_CLASS":
+                    continue
+
                 # Support both method names for backward compatibility
                 if hasattr(obj, "get_supported_actions") or hasattr(obj, "get_supported_action_types"):
                     try:
@@ -271,7 +275,25 @@ AVAILABLE_PLUGINS = []
 
 async def _handle_plugin_action(action: Dict[str, Any], context: Dict[str, Any], bot, original_message):
     action_type = action.get("type")
-    for plugin in _plugins_for(action_type):
+
+    # Special case for legacy message handling via plugin_instance
+    if action_type == "message":
+        handler = getattr(plugin_instance, "handle_incoming_message", None)
+        if handler:
+            msg_data = vars(original_message).copy() if original_message else {}
+            msg_data["text"] = action.get("payload", {}).get("text", "")
+            from types import SimpleNamespace
+            message_obj = SimpleNamespace(**msg_data)
+            try:
+                result = handler(bot, message_obj, context)
+                if inspect.iscoroutine(result):
+                    await result
+            except Exception as e:
+                log_error(f"[action_parser] Error delegating message to plugin_instance: {e}")
+            return
+
+    plugins = _plugins_for(action_type)
+    for plugin in plugins:
         if hasattr(plugin, "execute_action"):
             try:
                 result = plugin.execute_action(action, context, bot, original_message)
@@ -281,7 +303,8 @@ async def _handle_plugin_action(action: Dict[str, Any], context: Dict[str, Any],
                 log_error(f"[action_parser] Error executing {action_type} with {plugin}: {e}")
         else:
             log_warning(f"[action_parser] Plugin {plugin} has no execute_action()")
-    if not _plugins_for(action_type):
+
+    if not plugins:
         log_warning(f"[action_parser] No plugin supports action type '{action_type}'")
 
 
@@ -344,7 +367,24 @@ async def parse_action(action: dict, bot, message):
 
     log_debug(f"[action_parser] Action type: {action_type}, Interface: {interface}, Payload: {payload}")
 
-    # Use centralized action plugin system for all action types
+    # First allow the active LLM plugin to handle custom actions
+    llm_plugin = getattr(plugin_instance, "plugin", None)
+    if llm_plugin:
+        try:
+            supported = []
+            if hasattr(llm_plugin, "get_supported_action_types"):
+                supported = llm_plugin.get_supported_action_types()
+            elif hasattr(llm_plugin, "get_supported_actions"):
+                acts = llm_plugin.get_supported_actions()
+                if isinstance(acts, dict):
+                    supported = list(acts.keys())
+            if action_type in supported and hasattr(llm_plugin, "handle_custom_action"):
+                await llm_plugin.handle_custom_action(action_type, payload)
+                return
+        except Exception:
+            pass
+
+    # Use centralized action plugin system for all other action types
     action_plugins = _plugins_for(action_type)
     if action_plugins:
         for plugin in action_plugins:
