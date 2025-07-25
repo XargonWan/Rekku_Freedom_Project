@@ -106,62 +106,73 @@ def get_bio_full(user_id: str) -> dict:
 
 
 def update_bio_fields(user_id: str, updates: dict) -> None:
-    """Upsert and merge bio fields."""
-    _ensure_user_exists(user_id)
-    with get_db() as db:
-        row = db.execute("SELECT * FROM bio WHERE id=?", (user_id,)).fetchone()
+    """Safely merge ``updates`` into an existing bio."""
 
-    if not row:
+    if not updates:
         return
 
-    current = {k: row[k] for k in row.keys()}
+    _ensure_user_exists(user_id)
+    current = get_bio_full(user_id)
+    if not current:
+        current = {**DEFAULTS, "information": ""}
 
     for key, value in updates.items():
+        if key not in DEFAULTS and key != "information":
+            # Ignore fields outside the schema
+            continue
+
         if key in JSON_LIST_FIELDS:
-            existing = _load_json_field(current[key], key, DEFAULTS[key])
+            existing = current.get(key, [])
+            if not isinstance(existing, list):
+                existing = []
             if isinstance(value, list):
                 for item in value:
                     if item not in existing:
                         existing.append(item)
-                current[key] = existing
             else:
-                # treat single value as list replacement
-                current[key] = [value]
+                if value not in existing:
+                    existing.append(value)
+            current[key] = existing
         elif key in JSON_DICT_FIELDS:
-            existing = _load_json_field(current[key], key, DEFAULTS[key])
+            existing = current.get(key, {})
+            if not isinstance(existing, dict):
+                existing = {}
             if isinstance(value, dict):
-                merged = existing.copy()
                 for sub_k, sub_v in value.items():
                     if isinstance(sub_v, list):
-                        cur_list = merged.get(sub_k, [])
+                        cur_list = existing.get(sub_k, [])
                         if not isinstance(cur_list, list):
                             cur_list = []
                         for item in sub_v:
                             if item not in cur_list:
                                 cur_list.append(item)
-                        merged[sub_k] = cur_list
+                        existing[sub_k] = cur_list
                     else:
-                        merged[sub_k] = sub_v
-                current[key] = merged
+                        existing[sub_k] = sub_v
             else:
-                current[key] = value
-        elif key == "information":
-            current[key] = value
-        else:
+                existing = value
+            current[key] = existing
+        else:  # information or any simple field
             current[key] = value
 
-    cols_sql: list[str] = []
-    params: list[Any] = []
-    for c in updates.keys():
-        cols_sql.append(f"{c}=?")
-        val = current[c]
-        if c in JSON_LIST_FIELDS or c in JSON_DICT_FIELDS:
-            params.append(json.dumps(val))
-        else:
-            params.append(val)
-    params.append(user_id)
     with get_db() as db:
-        db.execute(f"UPDATE bio SET {', '.join(cols_sql)} WHERE id=?", params)
+        db.execute(
+            """
+            REPLACE INTO bio (
+                id, known_as, likes, not_likes, information, past_events, feelings, contacts
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                json.dumps(current.get("known_as", [])),
+                json.dumps(current.get("likes", [])),
+                json.dumps(current.get("not_likes", [])),
+                current.get("information", ""),
+                json.dumps(current.get("past_events", [])),
+                json.dumps(current.get("feelings", [])),
+                json.dumps(current.get("contacts", {})),
+            ),
+        )
 
 
 def append_to_bio_list(user_id: str, field: str, value: Any) -> None:
