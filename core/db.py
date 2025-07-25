@@ -144,6 +144,21 @@ def init_db():
             """
         )
 
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bio (
+                id TEXT PRIMARY KEY,
+                known_as TEXT,
+                likes TEXT,
+                not_likes TEXT,
+                information TEXT,
+                past_events TEXT,
+                feelings TEXT,
+                contacts TEXT
+            )
+            """
+        )
+
 # 🧠 Insert a new memory into the database
 def insert_memory(
     content: str,
