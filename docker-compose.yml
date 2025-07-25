@@ -25,6 +25,7 @@ services:
       - HOME=${REKKU_HOME:-/home/rekku}
       - PASSWORD=${PASSWORD:-"password"}
       - SECURE_CONNECTION=0
+      - VNC_PASSWORD=${PASSWORD:-"password"}
     restart: unless-stopped
     stdin_open: true
     tty: true
