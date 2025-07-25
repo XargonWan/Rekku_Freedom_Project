@@ -11,8 +11,8 @@ RUN apt-get update && \
     add-apt-repository -y ppa:deadsnakes/ppa && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-      python3.12 python3.12-venv python3.12-distutils \
-      git curl wget unzip \
+      python3 python3-venv \
+      git curl wget unzip nano vim \
       apache2-utils websockify openssl x11vnc \
       lsb-release ca-certificates fonts-liberation \
       fonts-noto-cjk fonts-noto-color-emoji xfonts-base && \
@@ -27,16 +27,16 @@ RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearm
     google-chrome --version
 
 # Configure user abc with UID/GID 1000 and custom home
-RUN usermod -u 1000 abc && groupmod -g 1000 abc && \
-    usermod -d /home/rekku abc && mkdir -p /home/rekku && \
-    chown -R abc:abc /home/rekku
+# RUN usermod -u 1000 abc && groupmod -g 1000 abc && \
+#     usermod -d /home/rekku abc && mkdir -p /home/rekku && \
+#     chown -R abc:abc /home/rekku
 
 # Copy project code
 COPY requirements.txt /app/requirements.txt
 WORKDIR /app
 
 # Python venv
-RUN python3.12 -m venv /app/venv && \
+RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir --upgrade pip setuptools && \
     /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 
@@ -51,14 +51,7 @@ COPY automation_tools/s6-rc.d/websockify /etc/s6-overlay/s6-rc.d/websockify
 
 # Copy project code last to leverage layer caching
 COPY . /app
-
-# ENV
-ENV PYTHONPATH=/app \
-    TZ=Asia/Tokyo \
-    PATH=/app/venv/bin:$PATH \
-    HOME=/home/rekku \
-    PUID=1000 \
-    PGID=1000
+ENV PYTHONPATH=/app
 
 # Inject GitVersion tags into the environment
 ARG GITVERSION_TAG
@@ -83,7 +76,5 @@ RUN chmod +x /etc/cont-init.d/99-rekku.sh /etc/cont-init.d/01-password.sh \
     && ln -sfn ../x11vnc /etc/s6-overlay/s6-rc.d/user/contents.d/x11vnc \
     && ln -sfn ../websockify /etc/s6-overlay/s6-rc.d/user/contents.d/websockify \
     && chown -R abc:abc /app /home/rekku /config
-
-EXPOSE 3000 6901
 
 
