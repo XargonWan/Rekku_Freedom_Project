@@ -106,71 +106,66 @@ def get_bio_full(user_id: str) -> dict:
 
 
 def update_bio_fields(user_id: str, updates: dict) -> None:
-    """Safely merge ``updates`` into an existing bio."""
+    """Safely update multiple fields in the user's bio, preserving existing values."""
 
     if not updates:
         return
 
     _ensure_user_exists(user_id)
     current = get_bio_full(user_id)
-    if not current:
-        current = {**DEFAULTS, "information": ""}
 
-    for key, value in updates.items():
-        if key not in DEFAULTS and key != "information":
-            # Ignore fields outside the schema
+    merged: dict[str, Any] = {}
+
+    valid_fields = {
+        "known_as",
+        "likes",
+        "not_likes",
+        "information",
+        "past_events",
+        "feelings",
+        "contacts",
+    }
+
+    for field in valid_fields:
+        old_val = current.get(field)
+        new_val = updates.get(field)
+
+        if isinstance(old_val, str) and field != "information":
+            try:
+                old_val = json.loads(old_val)
+            except Exception:
+                old_val = []
+
+        if new_val is None:
+            merged[field] = old_val
             continue
 
-        if key in JSON_LIST_FIELDS:
-            existing = current.get(key, [])
-            if not isinstance(existing, list):
-                existing = []
-            if isinstance(value, list):
-                for item in value:
-                    if item not in existing:
-                        existing.append(item)
-            else:
-                if value not in existing:
-                    existing.append(value)
-            current[key] = existing
-        elif key in JSON_DICT_FIELDS:
-            existing = current.get(key, {})
-            if not isinstance(existing, dict):
-                existing = {}
-            if isinstance(value, dict):
-                for sub_k, sub_v in value.items():
-                    if isinstance(sub_v, list):
-                        cur_list = existing.get(sub_k, [])
-                        if not isinstance(cur_list, list):
-                            cur_list = []
-                        for item in sub_v:
-                            if item not in cur_list:
-                                cur_list.append(item)
-                        existing[sub_k] = cur_list
-                    else:
-                        existing[sub_k] = sub_v
-            else:
-                existing = value
-            current[key] = existing
-        else:  # information or any simple field
-            current[key] = value
+        if isinstance(old_val, list) and isinstance(new_val, list):
+            unique = {json.dumps(x) for x in old_val + new_val}
+            merged[field] = [json.loads(x) for x in unique]
+        elif isinstance(old_val, dict) and isinstance(new_val, dict):
+            old_val.update(new_val)
+            merged[field] = old_val
+        else:
+            merged[field] = new_val
 
     with get_db() as db:
         db.execute(
             """
             REPLACE INTO bio (
-                id, known_as, likes, not_likes, information, past_events, feelings, contacts
+                id, known_as, likes, not_likes, information,
+                past_events, feelings, contacts
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
-                json.dumps(current.get("known_as", [])),
-                json.dumps(current.get("likes", [])),
-                json.dumps(current.get("not_likes", [])),
-                current.get("information", ""),
-                json.dumps(current.get("past_events", [])),
-                json.dumps(current.get("feelings", [])),
-                json.dumps(current.get("contacts", {})),
+                json.dumps(merged.get("known_as", [])),
+                json.dumps(merged.get("likes", [])),
+                json.dumps(merged.get("not_likes", [])),
+                merged.get("information", ""),
+                json.dumps(merged.get("past_events", [])),
+                json.dumps(merged.get("feelings", [])),
+                json.dumps(merged.get("contacts", {})),
             ),
         )
 

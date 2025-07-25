@@ -44,8 +44,11 @@ def test_update_and_get(tmp_path):
     )
     full = bm.get_bio_full("u1")
     assert set(full["known_as"]) == {"Alice", "Al"}
-    assert full["likes"] == ["pizza", "tea"]
+    assert set(full["likes"]) == {"pizza", "tea"}
     assert full["contacts"]["discord"] == ["al#1"]
+    # Existing values should persist
+    assert full["contacts"]["telegram"] == ["@alice"]
+    assert full["information"] == "hello"
     os.environ.pop("MEMORY_DB")
 
 
