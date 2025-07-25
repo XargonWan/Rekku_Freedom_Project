@@ -28,9 +28,9 @@ def add_mapping(trainer_message_id: int, chat_id: int, message_id: int):
     with get_db() as db:
         db.execute(
             """
-            INSERT OR REPLACE INTO message_map
+            REPLACE INTO message_map
                 (trainer_message_id, chat_id, message_id, timestamp)
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s)
             """,
             (trainer_message_id, chat_id, message_id, ts),
         )
@@ -41,7 +41,7 @@ def get_mapping(trainer_message_id: int):
     """Retrieve mapping if exists."""
     with get_db() as db:
         row = db.execute(
-            "SELECT chat_id, message_id FROM message_map WHERE trainer_message_id = ?",
+            "SELECT chat_id, message_id FROM message_map WHERE trainer_message_id = %s",
             (trainer_message_id,),
         ).fetchone()
     if row:
@@ -55,7 +55,7 @@ def get_mapping(trainer_message_id: int):
 def delete_mapping(trainer_message_id: int):
     """Remove a mapping."""
     with get_db() as db:
-        db.execute("DELETE FROM message_map WHERE trainer_message_id = ?", (trainer_message_id,))
+        db.execute("DELETE FROM message_map WHERE trainer_message_id = %s", (trainer_message_id,))
     log_debug(f"[message_map] Deleted mapping for {trainer_message_id}")
 
 
@@ -64,7 +64,7 @@ def purge_old_entries(max_age_seconds: int) -> int:
     cutoff = time.time() - max_age_seconds
     with get_db() as db:
         cur = db.execute(
-            "DELETE FROM message_map WHERE timestamp < ?",
+            "DELETE FROM message_map WHERE timestamp < %s",
             (cutoff,),
         )
         deleted = cur.rowcount

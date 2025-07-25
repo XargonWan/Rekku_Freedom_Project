@@ -28,7 +28,7 @@ class ChatLinkStore:
                 """
                 SELECT chatgpt_chat_id, is_full
                 FROM chatgpt_links
-                WHERE telegram_chat_id = ? AND thread_id IS ?
+                WHERE telegram_chat_id = %s AND thread_id <=> %s
                 """,
                 (telegram_chat_id, thread_id),
             ).fetchone()
@@ -52,9 +52,9 @@ class ChatLinkStore:
         with get_db() as db:
             db.execute(
                 """
-                INSERT OR REPLACE INTO chatgpt_links
+                REPLACE INTO chatgpt_links
                     (telegram_chat_id, thread_id, chatgpt_chat_id, is_full, updated_at)
-                VALUES (?, ?, ?, 0, CURRENT_TIMESTAMP)
+                VALUES (%s, %s, %s, 0, CURRENT_TIMESTAMP)
                 """,
                 (telegram_chat_id, thread_id, chatgpt_chat_id),
             )
@@ -65,7 +65,7 @@ class ChatLinkStore:
     def mark_full(self, chatgpt_chat_id: str) -> None:
         with get_db() as db:
             db.execute(
-                "UPDATE chatgpt_links SET is_full=1, updated_at=CURRENT_TIMESTAMP WHERE chatgpt_chat_id=?",
+                "UPDATE chatgpt_links SET is_full=1, updated_at=CURRENT_TIMESTAMP WHERE chatgpt_chat_id=%s",
                 (chatgpt_chat_id,),
             )
         log_debug(f"[chatlink] Marked chat {chatgpt_chat_id} as full")
@@ -73,7 +73,7 @@ class ChatLinkStore:
     def is_full(self, chatgpt_chat_id: str) -> bool:
         with get_db() as db:
             row = db.execute(
-                "SELECT is_full FROM chatgpt_links WHERE chatgpt_chat_id=?",
+                "SELECT is_full FROM chatgpt_links WHERE chatgpt_chat_id=%s",
                 (chatgpt_chat_id,),
             ).fetchone()
         result = bool(row and row["is_full"])
@@ -89,7 +89,7 @@ class ChatLinkStore:
             result = db.execute(
                 """
                 DELETE FROM chatgpt_links
-                WHERE telegram_chat_id = ? AND thread_id IS ?
+                WHERE telegram_chat_id = %s AND thread_id <=> %s
                 """,
                 (telegram_chat_id, thread_id),
             )

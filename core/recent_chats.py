@@ -39,9 +39,9 @@ def track_chat(chat_id: int, metadata=None):
         db.execute(
             """
             INSERT INTO recent_chats (chat_id, last_active)
-            VALUES (?, ?)
-            ON CONFLICT(chat_id) DO UPDATE SET last_active=excluded.last_active
-        """,
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE last_active = VALUES(last_active)
+            """,
             (chat_id, now),
         )
     if metadata:
@@ -49,7 +49,7 @@ def track_chat(chat_id: int, metadata=None):
 
 def reset_chat(chat_id: int):
     with get_db() as db:
-        db.execute("DELETE FROM recent_chats WHERE chat_id = ?", (chat_id,))
+        db.execute("DELETE FROM recent_chats WHERE chat_id = %s", (chat_id,))
     _metadata.pop(chat_id, None)
     if chat_path_map.pop(chat_id, None) is not None:
         _save_chat_paths()
@@ -66,7 +66,7 @@ def get_last_active_chats(n=10):
         rows = db.execute("""
             SELECT chat_id FROM recent_chats
             ORDER BY last_active DESC
-            LIMIT ?
+            LIMIT %s
         """, (n,))
         return [row[0] for row in rows]  # or row["chat_id"] if using row_factory
 
