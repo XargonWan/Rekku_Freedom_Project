@@ -13,7 +13,7 @@ def test_chatlink_store(tmp_path):
     os.environ["MEMORY_DB"] = str(db_path)
     reload(db_module)
 
-    from core.chatgpt_link_store import ChatLinkStore  # import after DB reload
+    from llm_engines.selenium_chatgpt import ChatLinkStore  # import after DB reload
 
     store = ChatLinkStore()
 
