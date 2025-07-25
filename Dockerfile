@@ -1,6 +1,6 @@
 FROM lscr.io/linuxserver/webtop:ubuntu-xfce
 
-# Create noVNC directory immediately with debug info
+# Temporarily switch to root to create noVNC directory
 RUN mkdir -p /usr/share/novnc && \
     echo '<!DOCTYPE html><html><head><title>noVNC</title></head><body><h1>noVNC placeholder</h1></body></html>' > /usr/share/novnc/vnc.html && \
     echo 'index.html' > /usr/share/novnc/index.html && \
@@ -39,10 +39,6 @@ RUN Xvfb :1 -screen 0 1280x720x24 &
 # Keyboard configuration
 RUN xvfb-run setxkbmap us
 
-# Configure user abc with UID/GID 1000 and custom home
-# RUN usermod -u 1000 abc && groupmod -g 1000 abc && \
-#     usermod -d /home/rekku abc && mkdir -p /home/rekku && \
-#     chown -R abc:abc /home/rekku
 
 # Copy project code
 COPY requirements.txt /app/requirements.txt
