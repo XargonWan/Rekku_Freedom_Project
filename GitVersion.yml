@@ -1,0 +1,42 @@
+mode: ContinuousDelivery
+next-version: 1.0.0
+
+branches:
+  main:
+    regex: ^main$
+    tag: ''
+    increment: Patch
+    is-mainline: true
+
+  develop:
+    regex: ^develop$
+    tag: 'develop'
+    increment: Minor
+    source-branches: ['main']
+
+  feature:
+    regex: ^(feature|feat)/.*
+    tag: 'feat'
+    increment: Minor
+    source-branches: ['develop', 'main']
+
+  fix:
+    regex: ^fix/.*
+    tag: 'fix'
+    increment: Patch
+    source-branches: ['develop', 'main']
+
+  codex:
+    regex: ^codex/.*
+    tag: 'codex'
+    increment: Minor
+    source-branches: ['develop', 'main']
+
+  other:
+    regex: ^.+/.*
+    tag: 'branch'
+    increment: Patch
+    source-branches: ['develop', 'main']
+
+ignore:
+  sha: []
