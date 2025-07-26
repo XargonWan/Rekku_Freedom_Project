@@ -1,17 +1,17 @@
 # 🧞‍♀️ Rekku Freedom Project
 
 <p align="left">
-  <a href="https://github.com/xargon1/rekku_the_bot/actions">
-    <img src="https://github.com/xargon1/rekku_the_bot/workflows/CI/badge.svg" alt="CI Status">
+  <a href="https://github.com/xargonwan/rekku_the_bot/actions">
+    <img src="https://github.com/xargonwan/rekku_the_bot/workflows/CI/badge.svg" alt="CI Status">
   </a>
-  <a href="https://github.com/xargon1/rekku_the_bot/releases">
-    <img src="https://img.shields.io/github/v/release/xargon1/rekku_the_bot?include_prereleases&label=release" alt="Latest Release">
+  <a href="https://github.com/xargonwan/rekku_the_bot/releases">
+    <img src="https://img.shields.io/github/v/release/xargonwan/rekku_the_bot?include_prereleases&label=release" alt="Latest Release">
   </a>
-  <a href="https://github.com/xargon1/rekku_the_bot/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/xargon1/rekku_the_bot" alt="License">
+  <a href="https://github.com/xargonwan/rekku_the_bot/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/xargonwan/rekku_the_bot" alt="License">
   </a>
-  <a href="https://hub.docker.com/r/xargon1/rekku_the_bot">
-    <img src="https://img.shields.io/docker/pulls/xargon1/rekku_the_bot" alt="Docker Pulls">
+  <a href="https://hub.docker.com/r/xargonwan/rekku_the_bot">
+    <img src="https://img.shields.io/docker/pulls/xargonwan/rekku_the_bot" alt="Docker Pulls">
   </a>
 </p>
 
