@@ -25,64 +25,59 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-
-    - name: Set up image tag
-      id: vars
-      run: echo "tag=rekku_freedom_project:${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+      with:
+        fetch-depth: 0
 
     - name: Install GitVersion
-      run: |
-        dotnet tool install --global GitVersion.Tool --version 5.*
-        export PATH="$PATH:/root/.dotnet/tools"
-        echo "PATH updated: $PATH"
-        which gitversion || { echo "GitVersion not found in PATH"; exit 1; }
+      uses: gittools/actions/gitversion/setup@v0
+      with:
+        versionSpec: '5.x'
 
     - name: Determine version with GitVersion
-      id: gitversion
-      run: |
-        dotnet-gitversion > gitversion.json
-        cat gitversion.json
-        VERSION=$(jq -r '.SemVer' gitversion.json)
-        echo "version=$VERSION" >> $GITHUB_ENV
+      id: gitversion_build
+      uses: gittools/actions/gitversion/execute@v0
+      with:
+        useConfigFile: true
 
-    - name: Build the Docker image with version tag
-      run: |
-        docker build . --file Dockerfile --tag rekku_freedom_project:${{ steps.gitversion.outputs.version }}
-
-    - name: Log in to GitHub Container Registry
+    - name: Log in to Docker Hub
       uses: docker/login-action@v3
       with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.CR_PAT }}
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-    - name: Tag image for GHCR with version
-      run: |
-        REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        docker tag rekku_freedom_project:${{ steps.gitversion.outputs.version }} ghcr.io/$REPO_OWNER_LC/rekku_freedom_project:${{ steps.gitversion.outputs.version }}
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}
 
-    - name: Push image to GHCR with version
+    - name: Tag image as latest (main branch only)
+      if: github.ref == 'refs/heads/main'
       run: |
-        REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        docker push ghcr.io/$REPO_OWNER_LC/rekku_freedom_project:${{ steps.gitversion.outputs.version }}
-
-    - name: Make image public (one-time per package)
-      if: github.event_name == 'push'
-      run: |
-        echo "🔓 Making the package public..."
-        gh auth login --with-token <<< "${{ secrets.CR_PAT }}"
-        REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        gh api --method PATCH /users/${{ github.actor }}/packages/container/rekku_freedom_project \
-          -H "Accept: application/vnd.github+json" \
-          -f visibility=public || true
-      env:
-        GH_TOKEN: ${{ secrets.CR_PAT }}
+        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest
 
   run-tests:
     runs-on: ubuntu-latest
 
+    needs: build-and-push
+
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install GitVersion
+      uses: gittools/actions/gitversion/setup@v0
+      with:
+        versionSpec: '5.x'
+
+    - name: Determine version with GitVersion
+      id: gitversion_test
+      uses: gittools/actions/gitversion/execute@v0
+      with:
+        useConfigFile: true
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -116,8 +111,8 @@ jobs:
       if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
       uses: actions/create-release@v1
       with:
-        tag_name: ${{ steps.gitversion.outputs.version }}
-        release_name: Release ${{ steps.gitversion.outputs.version }}
+        tag_name: ${{ steps.gitversion_test.outputs.semVer }}
+        release_name: Release ${{ steps.gitversion_test.outputs.semVer }}
         body: |
           Changelog:
           ${{ steps.changelog.outputs.changelog }}
@@ -126,9 +121,14 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
     - name: Tag image as latest (main branch only)
       if: github.ref == 'refs/heads/main'
       run: |
-        REPO_OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        docker tag rekku_freedom_project:${{ steps.gitversion.outputs.version }} ghcr.io/$REPO_OWNER_LC/rekku_freedom_project:latest
-        docker push ghcr.io/$REPO_OWNER_LC/rekku_freedom_project:latest
+        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_test.outputs.semVer }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest
