@@ -229,3 +229,23 @@ graph TD
 
 This might be the most solid method, I wrote it but I never tried so I don't expect itś working out of the box as I naver had an API key to test it.
 Feel free to test it and enhance it if you got an API ke, all contributions are welcomed.
+
+---
+
+## 🛠️ Dev Notes
+
+### Commit Semantics
+
+To maintain a clear and consistent commit log, follow these guidelines for commit messages:
+
+- **fix(element): description** - To fix bugs or specific issues.
+- **feat(element): description** - To add new features.
+- **minor(element): description** - For minor changes or improvements.
+- **doc(element): description** - For documentation updates.
+- **patch(element): description** - For small fixes or incremental updates.
+
+Examples:
+
+- `fix(api): resolved an authentication issue`
+- `feat(ui): added a new dark theme`
+- `doc(readme): updated installation instructions`

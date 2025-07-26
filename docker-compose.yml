@@ -26,6 +26,7 @@ services:
       - PASSWORD=${PASSWORD:-"password"}
       - SECURE_CONNECTION=0
       - VNC_PASSWORD=${PASSWORD:-"password"}
+      - DB_HOST=${DB_HOST:-rfp-db}
     restart: unless-stopped
     stdin_open: true
     tty: true

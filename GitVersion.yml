@@ -40,3 +40,12 @@ branches:
 
 ignore:
   sha: []
+
+commit-message-incrementing: Enabled
+
+commit-message-mapping:
+  fix: Minor
+  minor: Minor
+  feat: Minor
+  doc: Patch
+  patch: Patch
