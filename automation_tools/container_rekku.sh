@@ -22,15 +22,15 @@ case "$MODE" in
         if [ "${1:-}" = "--as-service" ]; then
             shift
             log "Running main.py in service mode"
-            exec python3 /app/main.py --service "$@"
+            exec /app/venv/bin/python /app/main.py --service "$@"
         else
             log "Running main.py interactively"
-            exec python3 /app/main.py "$@"
+            exec /app/venv/bin/python /app/main.py "$@"
         fi
         ;;
     notify)
         log "Sending test notification"
-        python3 - <<'PY'
+        /app/venv/bin/python - <<'PY'
 import asyncio
 from telegram import Bot
 from core.config import BOT_TOKEN, OWNER_ID

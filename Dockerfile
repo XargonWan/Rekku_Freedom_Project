@@ -44,7 +44,7 @@ RUN xvfb-run setxkbmap us
 COPY requirements.txt /app/requirements.txt
 WORKDIR /app
 
-# Python venv
+# Python venv (necessary for webtop environment)
 RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir --upgrade pip setuptools && \
     /app/venv/bin/pip install --no-cache-dir -r requirements.txt
