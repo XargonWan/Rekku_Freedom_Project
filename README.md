@@ -1,5 +1,20 @@
 # 🧞‍♀️ Rekku Freedom Project
 
+<p align="left">
+  <a href="https://github.com/xargon1/rekku_the_bot/actions">
+    <img src="https://github.com/xargon1/rekku_the_bot/workflows/CI/badge.svg" alt="CI Status">
+  </a>
+  <a href="https://github.com/xargon1/rekku_the_bot/releases">
+    <img src="https://img.shields.io/github/v/release/xargon1/rekku_the_bot?include_prereleases&label=release" alt="Latest Release">
+  </a>
+  <a href="https://github.com/xargon1/rekku_the_bot/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/xargon1/rekku_the_bot" alt="License">
+  </a>
+  <a href="https://hub.docker.com/r/xargon1/rekku_the_bot">
+    <img src="https://img.shields.io/docker/pulls/xargon1/rekku_the_bot" alt="Docker Pulls">
+  </a>
+</p>
+
 **Rekku Freedom Project** is a modular infrastructure to support a full-autonomous AI "person" with full real-world interaction capabilities via messaging platforms like Telegram, powered by switchable LLM engines (including manual proxy, OpenAI API, and a live browser-controlled ChatGPT session via Selenium) and beyond.
 
 ![Rekku Wink](res/wink.webp)
