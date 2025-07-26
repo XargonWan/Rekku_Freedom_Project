@@ -41,11 +41,9 @@ branches:
 ignore:
   sha: []
 
-commit-message-incrementing: Enabled
-
-commit-message-mapping:
-  fix: Minor
-  minor: Minor
-  feat: Minor
-  doc: Patch
+commit-message-incrementing:
+  enabled: true
+  increment-settings:
+    minor-pattern: '(feat|feature|minor)'
+    patch-pattern: '(fix|patch|doc)'
   patch: Patch
