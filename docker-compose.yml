@@ -45,7 +45,7 @@ services:
       - rfp_db_data:/var/lib/mysql
 
   rfp-db-backup:
-    container-name: rfp-db-backup
+    container_name: rfp-db-backup
     image: tiredofit/db-backup
     depends_on:
       - rfp-db
