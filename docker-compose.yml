@@ -30,7 +30,8 @@ services:
     stdin_open: true
     tty: true
 
-  mariadb:
+  rfp-db:
+    container_name: rfp-db
     image: mariadb:11
     ports:
       - "3306:3306"
@@ -40,15 +41,16 @@ services:
       MYSQL_USER: ${DB_USER:-rekku}
       MYSQL_PASSWORD: ${DB_PASS:-rekku}
     volumes:
-      - rekku_db_data:/var/lib/mysql
+      - rfp_db_data:/var/lib/mysql
 
-  rekku-db-backup:
+  rfp-db-backup:
+    container-name: rfp-db-backup
     image: tiredofit/db-backup
     depends_on:
-      - mariadb
+      - rfp-db
     environment:
       DB_TYPE: mysql
-      DB_HOST: mariadb
+      DB_HOST: rfp-db
       DB_NAME: ${DB_NAME:-rekku}
       DB_USER: ${DB_USER:-rekku}
       DB_PASS: ${DB_PASS:-rekku}
@@ -62,4 +64,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  rekku_db_data:
+  rfp_db_data:
