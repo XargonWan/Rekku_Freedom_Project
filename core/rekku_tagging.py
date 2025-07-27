@@ -1,6 +1,7 @@
 # core/rekku_tagging.py
 
-from core.db import get_db
+from core.db import get_conn
+import aiomysql
 
 def extract_tags(text: str) -> list[str]:
     text = text.lower()
@@ -13,7 +14,7 @@ def extract_tags(text: str) -> list[str]:
         tags.append("emozioni")
     return tags
 
-def expand_tags(tags: list[str]) -> list[str]:
+async def expand_tags(tags: list[str]) -> list[str]:
     """
     Expand the provided tags based on relationships defined in the `tag_links` table.
     Relationships are considered symmetrical (tag → related_tag and vice versa).
@@ -30,9 +31,14 @@ def expand_tags(tags: list[str]) -> list[str]:
         SELECT tag FROM tag_links WHERE related_tag IN ({placeholders})
     """
 
-    with get_db() as db:
-        rows = db.execute(query, tags * 2).fetchall()
-        for row in rows:
-            expanded.add(row[0])
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(query, tags * 2)
+            rows = await cur.fetchall()
+            for row in rows:
+                expanded.add(row[0])
+    finally:
+        conn.close()
 
     return list(expanded)

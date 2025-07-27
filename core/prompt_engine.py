@@ -3,9 +3,10 @@
 from core.rekku_tagging import extract_tags, expand_tags
 import os
 from datetime import datetime
-from core.db import get_db
+from core.db import get_conn
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+import aiomysql
 
 
 async def build_json_prompt(message, context_memory) -> dict:
@@ -135,7 +136,7 @@ def load_identity_prompt() -> str:
         log_warning("prompt.txt not found. Identity prompt not loaded.")
         return ""
 
-def search_memories(tags=None, scope=None, limit=5):
+async def search_memories(tags=None, scope=None, limit=5):
     if not tags:
         return []
 
@@ -165,12 +166,17 @@ def search_memories(tags=None, scope=None, limit=5):
     log_debug(query)
     log_debug(f"Parameters: {params}")
 
+    conn = await get_conn()
     try:
-        with get_db() as db:
-            return [row[0] for row in db.execute(query, params)]
+        async with conn.cursor() as cur:
+            await cur.execute(query, params)
+            rows = await cur.fetchall()
+            return [row[0] for row in rows]
     except Exception as e:
         log_error(f"Query failed: {repr(e)}")
         return []
+    finally:
+        conn.close()
 
 def build_prompt(
     user_text: str,

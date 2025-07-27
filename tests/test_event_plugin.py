@@ -22,7 +22,7 @@ class FakeMessage:
         self.message_id = message_id
 
 
-def _load_plugin(tmp_path):
+async def _load_plugin(tmp_path):
     db_path = tmp_path / "events.db"
     os.environ["MEMORY_DB"] = str(db_path)
     reload(db_module)
@@ -32,7 +32,7 @@ def _load_plugin(tmp_path):
     return plugin_mod.EventPlugin()
 
 
-def test_event_saved(tmp_path):
+async def test_event_saved(tmp_path):
     prompt = {
         "actions": [
             {
@@ -45,19 +45,24 @@ def test_event_saved(tmp_path):
             }
         ]
     }
-    plugin = _load_plugin(tmp_path)
+    plugin = await _load_plugin(tmp_path)
     bot = FakeBot()
     msg = FakeMessage()
-    asyncio.run(plugin.handle_incoming_message(bot, msg, prompt))
+    await plugin.handle_incoming_message(bot, msg, prompt)
     assert bot.sent[0]["text"].startswith("📅 Event(s) saved")
-    with db_module.get_db() as db:
-        row = db.execute("SELECT description, repeat FROM scheduled_events").fetchone()
-        assert row["description"] == "Call Mom"
-        assert row["repeat"] == "daily"
+    conn = await db_module.get_conn()
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT description, repeat FROM scheduled_events")
+            row = await cur.fetchone()
+            assert row["description"] == "Call Mom"
+            assert row["repeat"] == "daily"
+    finally:
+        conn.close()
     os.environ.pop("MEMORY_DB")
 
 
-def test_invalid_repeat(tmp_path):
+async def test_invalid_repeat(tmp_path):
     prompt = {
         "actions": [
             {
@@ -70,18 +75,23 @@ def test_invalid_repeat(tmp_path):
             }
         ]
     }
-    plugin = _load_plugin(tmp_path)
+    plugin = await _load_plugin(tmp_path)
     bot = FakeBot()
     msg = FakeMessage()
-    asyncio.run(plugin.handle_incoming_message(bot, msg, prompt))
+    await plugin.handle_incoming_message(bot, msg, prompt)
     assert bot.sent[0]["text"].startswith("\u274c Invalid repeat value")
-    with db_module.get_db() as db:
-        row = db.execute("SELECT COUNT(*) AS c FROM scheduled_events").fetchone()
-        assert row["c"] == 0
+    conn = await db_module.get_conn()
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT COUNT(*) AS c FROM scheduled_events")
+            row = await cur.fetchone()
+            assert row["c"] == 0
+    finally:
+        conn.close()
     os.environ.pop("MEMORY_DB")
 
 
-def test_duplicate_event(tmp_path):
+async def test_duplicate_event(tmp_path):
     prompt = {
         "actions": [
             {
@@ -93,21 +103,21 @@ def test_duplicate_event(tmp_path):
             }
         ]
     }
-    plugin = _load_plugin(tmp_path)
+    plugin = await _load_plugin(tmp_path)
     bot = FakeBot()
     msg = FakeMessage()
-    asyncio.run(plugin.handle_incoming_message(bot, msg, prompt))
-    asyncio.run(plugin.handle_incoming_message(bot, msg, prompt))
+    await plugin.handle_incoming_message(bot, msg, prompt)
+    await plugin.handle_incoming_message(bot, msg, prompt)
     # second call should produce duplicate warning
     assert any(text.startswith("\u26a0\ufe0f Event already exists") for text in [m["text"] for m in bot.sent])
     os.environ.pop("MEMORY_DB")
 
 
-def test_no_valid_event(tmp_path):
+async def test_no_valid_event(tmp_path):
     prompt = {"actions": [{"type": "command", "payload": {"name": "noop"}}]}
-    plugin = _load_plugin(tmp_path)
+    plugin = await _load_plugin(tmp_path)
     bot = FakeBot()
     msg = FakeMessage()
-    asyncio.run(plugin.handle_incoming_message(bot, msg, prompt))
+    await plugin.handle_incoming_message(bot, msg, prompt)
     assert bot.sent[0]["text"] == "⚠️ No valid event actions in this prompt."
     os.environ.pop("MEMORY_DB")

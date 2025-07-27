@@ -22,37 +22,42 @@ async def fake_handle(bot, message, prompt):
 fake_handle.called = []
 
 
-def test_dispatch_pending_events(tmp_path, monkeypatch):
+async def test_dispatch_pending_events(tmp_path, monkeypatch):
     db_path = tmp_path / "events.db"
     os.environ["MEMORY_DB"] = str(db_path)
     reload(db_module)
-    db_module.init_db()
+    await db_module.init_db()
 
     past = datetime.utcnow() - timedelta(minutes=1)
-    db_module.insert_scheduled_event(past.strftime("%Y-%m-%d"), past.strftime("%H:%M"), None, "Test Event")
+    await db_module.insert_scheduled_event(past.strftime("%Y-%m-%d"), past.strftime("%H:%M"), None, "Test Event")
 
     monkeypatch.setattr(plugin_instance, "handle_incoming_message", fake_handle)
 
     bot = FakeBot()
-    asyncio.run(dispatch_pending_events(bot))
+    await dispatch_pending_events(bot)
 
     assert len(fake_handle.called) == 1
     assert fake_handle.called[0]["input"]["payload"]["description"] == "Test Event"
 
-    with db_module.get_db() as db:
-        row = db.execute("SELECT delivered FROM scheduled_events").fetchone()
-        assert row["delivered"] == 1
+    conn = await db_module.get_conn()
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT delivered FROM scheduled_events")
+            row = await cur.fetchone()
+            assert row["delivered"] == 1
+    finally:
+        conn.close()
     os.environ.pop("MEMORY_DB")
 
 
-def test_dispatch_repeating_event(tmp_path, monkeypatch):
+async def test_dispatch_repeating_event(tmp_path, monkeypatch):
     db_path = tmp_path / "events.db"
     os.environ["MEMORY_DB"] = str(db_path)
     reload(db_module)
-    db_module.init_db()
+    await db_module.init_db()
 
     past = datetime.utcnow() - timedelta(minutes=1)
-    db_module.insert_scheduled_event(
+    await db_module.insert_scheduled_event(
         past.strftime("%Y-%m-%d"), past.strftime("%H:%M"), "daily", "Repeat"
     )
 
@@ -60,29 +65,34 @@ def test_dispatch_repeating_event(tmp_path, monkeypatch):
 
     bot = FakeBot()
     fake_handle.called.clear()
-    asyncio.run(dispatch_pending_events(bot))
+    await dispatch_pending_events(bot)
 
     assert len(fake_handle.called) == 1
 
-    with db_module.get_db() as db:
-        rows = db.execute(
-            "SELECT scheduled, delivered FROM scheduled_events ORDER BY id"
-        ).fetchall()
-        assert len(rows) == 2
-        assert rows[0]["delivered"] == 1
-        assert rows[1]["delivered"] == 0
+    conn = await db_module.get_conn()
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT scheduled, delivered FROM scheduled_events ORDER BY id"
+            )
+            rows = await cur.fetchall()
+            assert len(rows) == 2
+            assert rows[0]["delivered"] == 1
+            assert rows[1]["delivered"] == 0
+    finally:
+        conn.close()
 
     os.environ.pop("MEMORY_DB")
 
 
-def test_unknown_repeat_value(tmp_path, monkeypatch, caplog):
+async def test_unknown_repeat_value(tmp_path, monkeypatch, caplog):
     db_path = tmp_path / "events.db"
     os.environ["MEMORY_DB"] = str(db_path)
     reload(db_module)
-    db_module.init_db()
+    await db_module.init_db()
 
     past = datetime.utcnow() - timedelta(minutes=1)
-    db_module.insert_scheduled_event(
+    await db_module.insert_scheduled_event(
         past.strftime("%Y-%m-%d"), past.strftime("%H:%M"), "foobar", "Mystery"
     )
 
@@ -91,16 +101,22 @@ def test_unknown_repeat_value(tmp_path, monkeypatch, caplog):
     bot = FakeBot()
     fake_handle.called.clear()
     caplog.set_level("WARNING", logger="rekku")
-    asyncio.run(dispatch_pending_events(bot))
+    await dispatch_pending_events(bot)
 
     assert len(fake_handle.called) == 1
-    with db_module.get_db() as db:
-        rows = db.execute(
-            "SELECT repeat, delivered FROM scheduled_events ORDER BY id"
-        ).fetchall()
-        # event marked delivered, no reschedule
-        assert len(rows) == 1
-        assert rows[0]["delivered"] == 1
+
+    conn = await db_module.get_conn()
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT repeat, delivered FROM scheduled_events ORDER BY id"
+            )
+            rows = await cur.fetchall()
+            # event marked delivered, no reschedule
+            assert len(rows) == 1
+            assert rows[0]["delivered"] == 1
+    finally:
+        conn.close()
 
     assert any(
         "Unknown repeat value" in record.getMessage() for record in caplog.records
