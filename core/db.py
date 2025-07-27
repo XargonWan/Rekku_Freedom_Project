@@ -44,9 +44,18 @@ async def test_connection() -> bool:
 
 async def init_db() -> None:
     """Asynchronously initialize essential MariaDB tables."""
-    conn = await get_conn()
+    log_info("[init_db] Starting database initialization...")
+    
+    try:
+        conn = await get_conn()
+        log_info("[init_db] Database connection established")
+    except Exception as e:
+        log_error(f"[init_db] Failed to connect to database: {e}")
+        raise
+        
     try:
         async with conn.cursor() as cur:
+            log_info("[init_db] Creating memories table...")
             # memories table
             await cur.execute(
                 """
@@ -65,6 +74,7 @@ async def init_db() -> None:
                 """
             )
 
+            log_info("[init_db] Creating emotion_diary table...")
             # emotion_diary table
             await cur.execute(
                 """
@@ -82,6 +92,7 @@ async def init_db() -> None:
                 """
             )
 
+            log_info("[init_db] Creating scheduled_events table...")
             # scheduled_events table
             await cur.execute(
                 """
@@ -99,6 +110,7 @@ async def init_db() -> None:
                 """
             )
 
+            log_info("[init_db] Creating settings table...")
             # settings table for configuration values
             await cur.execute(
                 """
@@ -111,6 +123,7 @@ async def init_db() -> None:
                 """
             )
 
+            log_info("[init_db] Creating recent_chats table...")
             # recent_chats table for tracking active chats
             await cur.execute(
                 """
@@ -124,16 +137,22 @@ async def init_db() -> None:
                 """
             )
 
+            log_info("[init_db] Inserting default settings...")
             # Insert default settings if they don't exist
             await cur.execute(
                 """
                 INSERT IGNORE INTO settings (`key`, `value`) VALUES ('active_llm', 'manual')
                 """
             )
+            
+        log_info("[init_db] ✅ Database initialization completed successfully!")
+        
     except Exception as e:
-        print(f"[init_db] Error: {e}")
+        log_error(f"[init_db] ❌ Database initialization failed: {e}")
+        raise
     finally:
         conn.close()
+        log_debug("[init_db] Database connection closed")
 
 # 🧠 Insert a new memory into the database
 async def insert_memory(

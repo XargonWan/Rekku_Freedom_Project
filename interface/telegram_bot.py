@@ -738,10 +738,12 @@ async def start_bot():
     await core_initializer.initialize_all(notify_fn=telegram_notify)
 
     # 🌀 Weather fetch immediately and periodic loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(update_weather())
-    start_weather_updater()
+    try:
+        await update_weather()
+        start_weather_updater()
+        log_info("[telegram_bot] Weather system initialized")
+    except Exception as e:
+        log_error(f"[telegram_bot] Weather initialization failed: {e}")
 
     app = (
         ApplicationBuilder()

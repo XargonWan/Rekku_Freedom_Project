@@ -143,25 +143,27 @@ if __name__ == "__main__":
     max_retries = 30
     retry_delay = 2
     
+    async def initialize_database():
+        """Initialize database with all necessary components."""
+        # Check permissions
+        from core.db import execute_query
+        query = "SHOW GRANTS FOR CURRENT_USER;"
+        grants = await execute_query(query)
+        log_info(f"[main] Database user permissions: {grants}")
+        
+        # Test connection
+        if not await test_connection():
+            raise Exception("Database connection failed")
+            
+        # Initialize tables
+        await init_db()
+        init_blocklist_table()
+        log_info("[main] Database initialization completed successfully!")
+    
     for attempt in range(max_retries):
         try:
             log_info(f"[main] Attempting database connection (attempt {attempt + 1}/{max_retries})...")
-            
-            # Verifica dei permessi dell'utente del database
-            async def check_permissions():
-                from core.db import execute_query
-                query = "SHOW GRANTS FOR CURRENT_USER;"
-                grants = await execute_query(query)
-                log_info(f"[main] Database user permissions: {grants}")
-
-            asyncio.run(check_permissions())
-
-            if not asyncio.run(test_connection()):
-                log_error("[main] Database connection failed. Exiting.")
-                sys.exit(1)
-            asyncio.run(init_db())
-            init_blocklist_table()
-            log_info("[main] Database initialization completed successfully!")
+            asyncio.run(initialize_database())
             break
             
         except Exception as e:
