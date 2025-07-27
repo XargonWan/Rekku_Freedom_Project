@@ -139,11 +139,24 @@ if __name__ == "__main__":
     cleanup_chrome_processes()
     
     # Test DB connectivity and initialize tables
-    if not asyncio.run(test_connection()):
-        log_error("[main] Database connection failed. Exiting.")
+    try:
+        # Verifica dei permessi dell'utente del database
+        async def check_permissions():
+            from core.db import execute_query
+            query = "SHOW GRANTS FOR CURRENT_USER;"
+            grants = await execute_query(query)
+            log_info(f"[main] Database user permissions: {grants}")
+
+        asyncio.run(check_permissions())
+
+        if not asyncio.run(test_connection()):
+            log_error("[main] Database connection failed. Exiting.")
+            sys.exit(1)
+        asyncio.run(init_db())
+        init_blocklist_table()
+    except Exception as e:
+        log_error(f"[main] Critical error during database initialization: {e}")
         sys.exit(1)
-    asyncio.run(init_db())
-    init_blocklist_table()
 
     # 🌐 Show where the Webtop/VNC interface is available
     host = os.environ.get("WEBVIEW_HOST", "localhost")
