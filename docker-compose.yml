@@ -29,7 +29,6 @@ services:
       - SECURE_CONNECTION=0
       - VNC_PASSWORD=${PASSWORD:-"password"}
       - DB_HOST=${DB_HOST:-rfp-db}
-      - DB_PORT=${DB_PORT:-3306}
     restart: unless-stopped
     stdin_open: true
     tty: true
@@ -40,7 +39,7 @@ services:
     env_file:
       - .env
     ports:
-      - "${DB_PORT:-5008}:3306"
+      - "${EXT_DB_PORT:-5008}:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:-root}
       MYSQL_DATABASE: ${DB_NAME:-rekku}
@@ -60,7 +59,6 @@ services:
     environment:
       DB_TYPE: mysql
       DB_HOST: ${DB_HOST:-rfp-db}
-      DEFAULT_PORT: ${DB_PORT:-3306}
       DB_NAME: ${DB_NAME:-rekku}
       DB_USER: ${DB_USER:-rekku}
       DB_PASS: ${DB_PASS:-rekku}
