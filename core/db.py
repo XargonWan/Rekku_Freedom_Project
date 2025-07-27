@@ -398,4 +398,17 @@ def is_valid_datetime_format(date_str: str, time_str: str | None) -> bool:
         log_warning(f"[is_valid_datetime_format] Invalid datetime format: {dt_str} - {e}")
         return False
 
+async def execute_query(query: str, params: tuple = ()) -> list:
+    """Execute a SQL query and return the results."""
+    try:
+        conn = await get_conn()
+        async with conn.cursor() as cur:
+            await cur.execute(query, params)
+            results = await cur.fetchall()
+        conn.close()
+        return results
+    except Exception as e:
+        log_error(f"[execute_query] Error executing query: {query}, Error: {e}")
+        raise
+
 
