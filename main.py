@@ -13,6 +13,17 @@ from core.logging_utils import (
     setup_logging,
 )
 
+# WORKAROUND, TODO: INVESTIGATE THIS
+# Ensure /usr/share/novnc exists
+novnc_path = "/usr/share/novnc"
+if not os.path.exists(novnc_path):
+    os.makedirs(novnc_path)
+    with open(os.path.join(novnc_path, "vnc.html"), "w") as f:
+        f.write("<!DOCTYPE html><html><head><title>noVNC</title></head><body><h1>noVNC placeholder</h1></body></html>")
+    with open(os.path.join(novnc_path, "index.html"), "w") as f:
+        f.write("index.html")
+    print("[main] Created /usr/share/novnc with placeholder files")
+
 def cleanup_chrome_processes():
     """Clean up any remaining Chrome processes and lock files while preserving login sessions."""
     try:
