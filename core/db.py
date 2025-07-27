@@ -1,13 +1,8 @@
 # core/db.py
 
 import os
-import time
-from contextlib import contextmanager
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 
-import pymysql
-from pymysql.cursors import DictCursor
 import aiomysql
 
 from core.logging_utils import log_debug, log_info, log_warning, log_error
@@ -19,49 +14,9 @@ DB_USER = os.getenv("DB_USER", "rekku")
 DB_PASS = os.getenv("DB_PASS", "rekku")
 DB_NAME = os.getenv("DB_NAME", "rekku")
 
-
-def get_conn():
-    """Return a live MariaDB connection."""
-    return pymysql.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASS,
-        database=DB_NAME,
-        cursorclass=DictCursor,
-        autocommit=False,
-    )
-
-@contextmanager
-def get_db():
-    """Context manager that yields a connection wrapper for MariaDB."""
-
-    conn = get_conn()
-
-    class _Wrapper:
-        def __init__(self, connection):
-            self.conn = connection
-
-        def execute(self, query, params=None):
-            if params is None:
-                params = ()
-            with self.conn.cursor() as cur:
-                cur.execute(query, params)
-                return cur
-
-        def commit(self):
-            self.conn.commit()
-
-    wrapper = _Wrapper(conn)
-    try:
-        yield wrapper
-        conn.commit()
-    finally:
-        conn.close()
-
-async def init_db() -> None:
-    """Asynchronously initialize essential MariaDB tables."""
-    conn = await aiomysql.connect(
+async def get_conn() -> aiomysql.Connection:
+    """Return an async MariaDB connection using aiomysql."""
+    return await aiomysql.connect(
         host=DB_HOST,
         port=DB_PORT,
         user=DB_USER,
@@ -69,86 +24,113 @@ async def init_db() -> None:
         db=DB_NAME,
         autocommit=True,
     )
-    async with conn.cursor() as cur:
-        # memories table
-        await cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS memories (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                timestamp DATETIME NOT NULL,
-                content TEXT NOT NULL,
-                author VARCHAR(100),
-                source VARCHAR(100),
-                tags TEXT,
-                scope VARCHAR(50),
-                emotion VARCHAR(50),
-                intensity INT,
-                emotion_state VARCHAR(50)
-            )
-            """
-        )
 
-        # emotion_diary table
-        await cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS emotion_diary (
-                id VARCHAR(100) PRIMARY KEY,
-                source VARCHAR(100),
-                event TEXT,
-                emotion VARCHAR(50),
-                intensity INT,
-                state VARCHAR(50),
-                trigger_condition TEXT,
-                decision_logic TEXT,
-                next_check DATETIME
-            )
-            """
-        )
+async def test_connection() -> bool:
+    """Check if the database is reachable."""
+    try:
+        conn = await get_conn()
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT 1")
+            await cur.fetchone()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"[test_connection] Error: {e}")
+        return False
 
-        # scheduled_events table
-        await cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS scheduled_events (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                `date` DATE NOT NULL,
-                `time` TIME,
-                repeat VARCHAR(20) DEFAULT 'none',
-                description TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                delivered BOOLEAN DEFAULT FALSE,
-                created_by VARCHAR(100) DEFAULT 'rekku',
-                UNIQUE KEY unique_event (`date`, `time`, description(100))
+async def init_db() -> None:
+    """Asynchronously initialize essential MariaDB tables."""
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            # memories table
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memories (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    timestamp DATETIME NOT NULL,
+                    content TEXT NOT NULL,
+                    author VARCHAR(100),
+                    source VARCHAR(100),
+                    tags TEXT,
+                    scope VARCHAR(50),
+                    emotion VARCHAR(50),
+                    intensity INT,
+                    emotion_state VARCHAR(50)
+                )
+                """
             )
-            """
-        )
-    conn.close()
+
+            # emotion_diary table
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS emotion_diary (
+                    id VARCHAR(100) PRIMARY KEY,
+                    source VARCHAR(100),
+                    event TEXT,
+                    emotion VARCHAR(50),
+                    intensity INT,
+                    state VARCHAR(50),
+                    trigger_condition TEXT,
+                    decision_logic TEXT,
+                    next_check DATETIME
+                )
+                """
+            )
+
+            # scheduled_events table
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scheduled_events (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    `date` DATE NOT NULL,
+                    `time` TIME,
+                    repeat VARCHAR(20) DEFAULT 'none',
+                    description TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    delivered BOOLEAN DEFAULT FALSE,
+                    created_by VARCHAR(100) DEFAULT 'rekku',
+                    UNIQUE KEY unique_event (`date`, `time`, description(100))
+                )
+                """
+            )
+    except Exception as e:
+        print(f"[init_db] Error: {e}")
+    finally:
+        conn.close()
 
 # 🧠 Insert a new memory into the database
-def insert_memory(
+async def insert_memory(
     content: str,
     author: str,
     source: str,
     tags: str,
-    scope: str = None,
-    emotion: str = None,
-    intensity: int = None,
-    emotion_state: str = None,
-    timestamp: str = None
-):
+    scope: str | None = None,
+    emotion: str | None = None,
+    intensity: int | None = None,
+    emotion_state: str | None = None,
+    timestamp: str | None = None,
+) -> None:
     if not timestamp:
         timestamp = datetime.now(timezone.utc).isoformat()
 
-    with get_db() as db:
-        db.execute(
-            """
-            INSERT INTO memories (timestamp, content, author, source, tags, scope, emotion, intensity, emotion_state)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (timestamp, content, author, source, tags, scope, emotion, intensity, emotion_state),
-        )
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                INSERT INTO memories (timestamp, content, author, source, tags, scope, emotion, intensity, emotion_state)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (timestamp, content, author, source, tags, scope, emotion, intensity, emotion_state),
+            )
+    except Exception as e:
+        print(f"[insert_memory] Error: {e}")
+    finally:
+        conn.close()
 
 # 💥 Insert a new emotional event
-def insert_emotion_event(
+async def insert_emotion_event(
     eid: str,
     source: str,
     event: str,
@@ -157,93 +139,153 @@ def insert_emotion_event(
     state: str,
     trigger_condition: str,
     decision_logic: str,
-    next_check: str
-):
-    with get_db() as db:
-        db.execute(
-            """
-            INSERT INTO emotion_diary (id, source, event, emotion, intensity, state, trigger_condition, decision_logic, next_check)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                eid,
-                source,
-                event,
-                emotion,
-                intensity,
-                state,
-                trigger_condition,
-                decision_logic,
-                next_check,
-            ),
-        )
+    next_check: str,
+) -> None:
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                INSERT INTO emotion_diary (id, source, event, emotion, intensity, state, trigger_condition, decision_logic, next_check)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    eid,
+                    source,
+                    event,
+                    emotion,
+                    intensity,
+                    state,
+                    trigger_condition,
+                    decision_logic,
+                    next_check,
+                ),
+            )
+    except Exception as e:
+        print(f"[insert_emotion_event] Error: {e}")
+    finally:
+        conn.close()
 
 # 🔍 Retrieve active emotions
-def get_active_emotions():
-    with get_db() as db:
-        rows = db.execute("""
-            SELECT * FROM emotion_diary
-            WHERE state = 'active'
-        """).fetchall()
-        return [dict(row) for row in rows]
+async def get_active_emotions() -> list[dict]:
+    conn = await get_conn()
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                """
+                SELECT * FROM emotion_diary
+                WHERE state = 'active'
+                """
+            )
+            rows = await cur.fetchall()
+    except Exception as e:
+        print(f"[get_active_emotions] Error: {e}")
+        rows = []
+    finally:
+        conn.close()
+    return [dict(row) for row in rows]
 
 # ➕ Modify the intensity of an emotion
-def update_emotion_intensity(eid: str, delta: int):
-    with get_db() as db:
-        db.execute("""
-            UPDATE emotion_diary
-            SET intensity = intensity + %s
-            WHERE id = %s
-        """, (delta, eid))
+async def update_emotion_intensity(eid: str, delta: int) -> None:
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                UPDATE emotion_diary
+                SET intensity = intensity + %s
+                WHERE id = %s
+                """,
+                (delta, eid),
+            )
+    except Exception as e:
+        print(f"[update_emotion_intensity] Error: {e}")
+    finally:
+        conn.close()
 
 # 💀 Mark an emotion as resolved
-def mark_emotion_resolved(eid: str):
-    with get_db() as db:
-        db.execute("""
-            UPDATE emotion_diary
-            SET state = 'resolved'
-            WHERE id = %s
-        """, (eid,))
+async def mark_emotion_resolved(eid: str) -> None:
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                UPDATE emotion_diary
+                SET state = 'resolved'
+                WHERE id = %s
+                """,
+                (eid,),
+            )
+    except Exception as e:
+        print(f"[mark_emotion_resolved] Error: {e}")
+    finally:
+        conn.close()
 
 # 💎 Crystallize an active emotion
-def crystallize_emotion(eid: str):
-    with get_db() as db:
-        db.execute("""
-            UPDATE emotion_diary
-            SET state = 'crystallized'
-            WHERE id = %s
-        """, (eid,))
+async def crystallize_emotion(eid: str) -> None:
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                UPDATE emotion_diary
+                SET state = 'crystallized'
+                WHERE id = %s
+                """,
+                (eid,),
+            )
+    except Exception as e:
+        print(f"[crystallize_emotion] Error: {e}")
+    finally:
+        conn.close()
 
 # 🔁 Retrieve recent responses generated by the bot
-def get_recent_responses(since_timestamp: str) -> list[dict]:
-    with get_db() as db:
-        rows = db.execute("""
-            SELECT * FROM memories
-            WHERE source = 'rekku' AND timestamp >= %s
-            ORDER BY timestamp DESC
-        """, (since_timestamp,)).fetchall()
-        return [dict(row) for row in rows]
+async def get_recent_responses(since_timestamp: str) -> list[dict]:
+    conn = await get_conn()
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                """
+                SELECT * FROM memories
+                WHERE source = 'rekku' AND timestamp >= %s
+                ORDER BY timestamp DESC
+                """,
+                (since_timestamp,),
+            )
+            rows = await cur.fetchall()
+    except Exception as e:
+        print(f"[get_recent_responses] Error: {e}")
+        rows = []
+    finally:
+        conn.close()
+    return [dict(row) for row in rows]
 
 # === Event management helpers ===
 
-def insert_scheduled_event(
+async def insert_scheduled_event(
     scheduled: str,
     repeat: str | None,
     description: str,
     created_by: str = "rekku",
 ) -> None:
     """Store a new scheduled event."""
-    with get_db() as db:
-        db.execute(
-            """
-            INSERT INTO scheduled_events (scheduled, repeat, description, created_by)
-            VALUES (%s, %s, %s, %s)
-            """,
-            (scheduled, repeat or "none", description, created_by),
-        )
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                INSERT INTO scheduled_events (scheduled, repeat, description, created_by)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (scheduled, repeat or "none", description, created_by),
+            )
+    except Exception as e:
+        print(f"[insert_scheduled_event] Error: {e}")
+    finally:
+        conn.close()
 
 
-def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> list[dict]:
+async def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> list[dict]:
     """Return scheduled events that are ready for dispatch.
 
     Args:
@@ -261,10 +303,18 @@ def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> l
     if now is None:
         now = datetime.now(timezone.utc)
 
-    with get_db() as db:
-        rows = db.execute(
-            "SELECT * FROM scheduled_events WHERE delivered = 0 ORDER BY id"
-        ).fetchall()
+    conn = await get_conn()
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM scheduled_events WHERE delivered = 0 ORDER BY id"
+            )
+            rows = await cur.fetchall()
+    except Exception as e:
+        print(f"[get_due_events] Error: {e}")
+        rows = []
+    finally:
+        conn.close()
 
     due = []  # Initialize the list to store due events
     log_debug(f"[get_due_events] Retrieved {len(rows)} events from the database")
@@ -295,38 +345,47 @@ def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5) -> l
     return due
 
 
-def mark_event_delivered(event_id: int) -> None:
+async def mark_event_delivered(event_id: int) -> None:
     """Mark an event as delivered."""
-    with get_db() as db:
-        # Get event info to check repeat type
-        event_row = db.execute(
-            "SELECT repeat FROM scheduled_events WHERE id = %s",
-            (event_id,),
-        ).fetchone()
-        
-        if event_row:
-            repeat_type = event_row['repeat']
-            
-            if repeat_type == "none":
-                # One-time event - mark as delivered
-                db.execute(
-                    "UPDATE scheduled_events SET delivered = 1 WHERE id = %s",
-                    (event_id,),
-                )
-                log_info(f"[db] Event {event_id} marked as delivered (one-time)")
-            elif repeat_type == "always":
-                # Never mark as delivered - stays active
-                log_debug(f"[db] Event {event_id} remains active (always repeat)")
+    conn = await get_conn()
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            # Get event info to check repeat type
+            await cur.execute(
+                "SELECT repeat FROM scheduled_events WHERE id = %s",
+                (event_id,),
+            )
+            event_row = await cur.fetchone()
+
+            if event_row:
+                repeat_type = event_row['repeat']
+
+                if repeat_type == "none":
+                    # One-time event - mark as delivered
+                    await cur.execute(
+                        "UPDATE scheduled_events SET delivered = 1 WHERE id = %s",
+                        (event_id,),
+                    )
+                    log_info(f"[db] Event {event_id} marked as delivered (one-time)")
+                elif repeat_type == "always":
+                    # Never mark as delivered - stays active
+                    log_debug(f"[db] Event {event_id} remains active (always repeat)")
+                else:
+                    # Repeating events (daily, weekly, monthly)
+                    # TODO: Implement proper repeat logic with next occurrence calculation
+                    await cur.execute(
+                        "UPDATE scheduled_events SET delivered = 1 WHERE id = %s",
+                        (event_id,),
+                    )
+                    log_info(
+                        f"[db] Event {event_id} marked as delivered (repeat: {repeat_type} - TODO: implement proper repeat logic)"
+                    )
             else:
-                # Repeating events (daily, weekly, monthly) - for now mark as delivered
-                # TODO: Implement proper repeat logic with next occurrence calculation
-                db.execute(
-                    "UPDATE scheduled_events SET delivered = 1 WHERE id = %s",
-                    (event_id,),
-                )
-                log_info(f"[db] Event {event_id} marked as delivered (repeat: {repeat_type} - TODO: implement proper repeat logic)")
-        else:
-            log_warning(f"[db] Event {event_id} not found scheduled to be marked as delivered")
+                log_warning(f"[db] Event {event_id} not found scheduled to be marked as delivered")
+    except Exception as e:
+        print(f"[mark_event_delivered] Error: {e}")
+    finally:
+        conn.close()
 
 def is_valid_datetime_format(date_str: str, time_str: str | None) -> bool:
     """Verifica se la data e l'ora sono in un formato valido."""
