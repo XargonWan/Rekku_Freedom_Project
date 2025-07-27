@@ -35,10 +35,10 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
         return
 
     try:
-        max_messages, window_seconds, owner_fraction = plugin.get_rate_limit()
+        max_messages, window_seconds, trainer_fraction = plugin.get_rate_limit()
     except Exception as e:  # pragma: no cover - plugin may misbehave
         log_error(f"[QUEUE] Error obtaining rate limit: {repr(e)}", e)
-        max_messages, window_seconds, owner_fraction = float("inf"), 1, 1.0
+        max_messages, window_seconds, trainer_fraction = float("inf"), 1, 1.0
 
     user_id = message.from_user.id if message.from_user else 0
     chat_id = message.chat_id
@@ -47,7 +47,7 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
     if (
         user_id != TRAINER_ID
         and not rate_limit.is_allowed(
-            llm_name, user_id, max_messages, window_seconds, owner_fraction, consume=False
+            llm_name, user_id, max_messages, window_seconds, trainer_fraction, consume=False
         )
     ):
         delay = 300
@@ -131,10 +131,10 @@ async def start_queue_loop() -> None:
                 continue
 
             try:
-                max_messages, window_seconds, owner_fraction = plugin.get_rate_limit()
+                max_messages, window_seconds, trainer_fraction = plugin.get_rate_limit()
             except Exception as e:  # pragma: no cover - plugin may misbehave
                 log_error(f"[QUEUE] Error obtaining rate limit: {repr(e)}", e)
-                max_messages, window_seconds, owner_fraction = float("inf"), 1, 1.0
+                max_messages, window_seconds, trainer_fraction = float("inf"), 1, 1.0
 
             user_id = final["message"].from_user.id if final["message"].from_user else 0
             llm_name = plugin.__class__.__module__.split(".")[-1]
@@ -142,7 +142,7 @@ async def start_queue_loop() -> None:
             if (
                 user_id != TRAINER_ID
                 and not rate_limit.is_allowed(
-                    llm_name, user_id, max_messages, window_seconds, owner_fraction, consume=True
+                    llm_name, user_id, max_messages, window_seconds, trainer_fraction, consume=True
                 )
             ):
                 delay = 300

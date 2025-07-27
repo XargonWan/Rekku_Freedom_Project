@@ -93,7 +93,7 @@ class BashPlugin(AIPluginBase):
                     f"[bash_plugin] Notification sent to trainer for command: {cmd}"
                 )
             except Exception as e:
-                log_error(f"[bash_plugin] Failed to notify owner: {e}")
+                log_error(f"[bash_plugin] Failed to notify trainer: {e}")
         return output
 
     async def generate_response(self, messages):

@@ -53,7 +53,7 @@ def _notify_trainer(message: str) -> None:
         notify_trainer(message)
     except Exception as e:  # pragma: no cover - notification best effort
         logger = setup_logging()
-        logger.error("Failed to notify owner: %s", e, stacklevel=2)
+        logger.error("Failed to notify trainer: %s", e, stacklevel=2)
 
 
 def _log(level: str, message: str, exc: Optional[Exception] = None) -> None:

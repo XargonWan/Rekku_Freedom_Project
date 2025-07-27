@@ -13,7 +13,7 @@ class AIPluginBase:
         raise NotImplementedError("handle_incoming_message not implemented")
 
     def get_target(self, trainer_message_id):
-        """Return the owner of a training message."""
+        """Return the trainer of a training message."""
         return None  # Default: does nothing
 
     def clear(self, trainer_message_id):
