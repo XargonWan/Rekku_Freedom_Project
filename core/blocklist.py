@@ -1,47 +1,75 @@
 # core/blocklist.py
 
-from core.db import get_db
+from core.db import get_conn
+import aiomysql
 
-def init_blocklist_table():
-    with get_db() as db:
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS blocklist (
-                user_id BIGINT PRIMARY KEY,
-                reason TEXT,
-                blocked_at DATETIME DEFAULT CURRENT_TIMESTAMP
+async def init_blocklist_table():
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS blocklist (
+                    user_id BIGINT PRIMARY KEY,
+                    reason TEXT,
+                    blocked_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+                """
             )
-            """
-        )
+    finally:
+        conn.close()
 
-def block_user(user_id: int, reason: str = None):
-    with get_db() as db:
-        db.execute(
-            """
-            REPLACE INTO blocklist (user_id, reason, blocked_at)
-            VALUES (%s, %s, NOW())
-            """,
-            (user_id, reason),
-        )
+async def block_user(user_id: int, reason: str = None):
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                REPLACE INTO blocklist (user_id, reason, blocked_at)
+                VALUES (%s, %s, NOW())
+                """,
+                (user_id, reason),
+            )
+    finally:
+        conn.close()
 
-def unblock_user(user_id: int):
-    with get_db() as db:
-        db.execute("DELETE FROM blocklist WHERE user_id = %s", (user_id,))
+async def unblock_user(user_id: int):
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute("DELETE FROM blocklist WHERE user_id = %s", (user_id,))
+    finally:
+        conn.close()
 
-def is_blocked(user_id: int) -> bool:
-    with get_db() as db:
-        row = db.execute("SELECT 1 FROM blocklist WHERE user_id = %s", (user_id,)).fetchone()
-        return row is not None
+async def is_blocked(user_id: int) -> bool:
+    conn = await get_conn()
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT 1 FROM blocklist WHERE user_id = %s", (user_id,))
+            row = await cur.fetchone()
+            return row is not None
+    finally:
+        conn.close()
 
-def get_block_list() -> list:
-    with get_db() as db:
-        rows = db.execute("SELECT user_id FROM blocklist ORDER BY blocked_at DESC").fetchall()
-        return [row["user_id"] for row in rows]
+async def get_block_list() -> list:
+    conn = await get_conn()
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT user_id FROM blocklist ORDER BY blocked_at DESC")
+            rows = await cur.fetchall()
+            return [row["user_id"] for row in rows]
+    finally:
+        conn.close()
 
-def get_block_details() -> list[dict]:
-    with get_db() as db:
-        rows = db.execute("""
-            SELECT user_id, reason, blocked_at FROM blocklist
-            ORDER BY blocked_at DESC
-        """).fetchall()
-        return [dict(row) for row in rows]
+async def get_block_details() -> list[dict]:
+    conn = await get_conn()
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("""
+                SELECT user_id, reason, blocked_at FROM blocklist
+                ORDER BY blocked_at DESC
+            """)
+            rows = await cur.fetchall()
+            return [dict(row) for row in rows]
+    finally:
+        conn.close()
