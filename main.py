@@ -11,6 +11,7 @@ from core.logging_utils import (
     log_info,
     log_warning,
     setup_logging,
+    log_error,
 )
 
 # WORKAROUND, TODO: INVESTIGATE THIS
