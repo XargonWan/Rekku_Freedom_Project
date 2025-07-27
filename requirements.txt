@@ -9,5 +9,4 @@ setuptools
 pytz
 fastapi
 uvicorn[standard]
-pymysql
 aiomysql

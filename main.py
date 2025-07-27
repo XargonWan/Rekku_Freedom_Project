@@ -3,7 +3,7 @@ import signal
 import sys
 import subprocess
 import asyncio
-from core.db import init_db
+from core.db import init_db, test_connection
 from core.blocklist import init_blocklist_table
 from core.config import get_active_llm
 from core.logging_utils import (
@@ -126,7 +126,10 @@ if __name__ == "__main__":
     # Clean up any leftover Chrome processes from previous runs
     cleanup_chrome_processes()
     
-    # Initialize DB and tables
+    # Test DB connectivity and initialize tables
+    if not asyncio.run(test_connection()):
+        log_error("[main] Database connection failed. Exiting.")
+        sys.exit(1)
     asyncio.run(init_db())
     init_blocklist_table()
 
