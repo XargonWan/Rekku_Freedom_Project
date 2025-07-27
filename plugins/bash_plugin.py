@@ -3,7 +3,7 @@ A Bash plugin for Rekku Freedom Project.
 
 This plugin executes arbitrary shell commands and returns the output to the
 requesting chat.  Additionally, every time a command is executed the
-plugin notifies the configured OWNER_ID via Telegram so that the trainer
+plugin notifies the configured TRAINER_ID via Telegram so that the trainer
 can audit the operations being performed.  This design mirrors the
 existing `TerminalPlugin` but operates on a per-command basis instead of
 maintaining a persistent shell session.  Commands are extracted from
@@ -17,14 +17,14 @@ import asyncio
 from typing import Optional
 
 from core.ai_plugin_base import AIPluginBase
-from core.config import OWNER_ID
+from core.config import TRAINER_ID
 from core.logging_utils import log_debug, log_error, log_info, log_warning
 from core.telegram_utils import truncate_message
 from telegram.constants import ParseMode
 
 
 class BashPlugin(AIPluginBase):
-    """Execute shell commands and notify the owner on each invocation."""
+    """Execute shell commands and notify the trainer on each invocation."""
 
     def __init__(self, notify_fn: Optional[callable] = None) -> None:
         self.notify_fn = notify_fn
@@ -58,7 +58,7 @@ class BashPlugin(AIPluginBase):
         command to execute is resolved by checking the `action.input` field
         first and falling back to the raw text of the message.  After
         execution the output is sent back to the user and a notification is
-        delivered to the OWNER_ID.  Output is truncated to avoid hitting
+        delivered to the TRAINER_ID.  Output is truncated to avoid hitting
         Telegram limits.
         """
         # Determine the command from the prompt or message
@@ -84,13 +84,13 @@ class BashPlugin(AIPluginBase):
             except Exception as e:
                 log_error(f"[bash_plugin] Failed to send command result: {e}")
 
-        # Notify the owner about the executed command and its output
+        # Notify the trainer about the executed command and its output
         if bot:
             try:
                 notification_text = f"[Bash Plugin] Executed:\n{cmd}\n\nOutput:\n{truncated or '(no output)'}"
-                await bot.send_message(chat_id=OWNER_ID, text=notification_text)
+                await bot.send_message(chat_id=TRAINER_ID, text=notification_text)
                 log_debug(
-                    f"[bash_plugin] Notification sent to owner for command: {cmd}"
+                    f"[bash_plugin] Notification sent to trainer for command: {cmd}"
                 )
             except Exception as e:
                 log_error(f"[bash_plugin] Failed to notify owner: {e}")

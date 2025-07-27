@@ -33,10 +33,10 @@ case "$MODE" in
         /app/venv/bin/python - <<'PY'
 import asyncio
 from telegram import Bot
-from core.config import BOT_TOKEN, OWNER_ID
+from core.config import BOT_TOKEN, TRAINER_ID
 async def main():
     bot = Bot(token=BOT_TOKEN)
-    await bot.send_message(chat_id=OWNER_ID, text="Test notification")
+    await bot.send_message(chat_id=TRAINER_ID, text="Test notification")
 asyncio.run(main())
 PY
         ;;

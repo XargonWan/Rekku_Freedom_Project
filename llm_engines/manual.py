@@ -2,7 +2,7 @@
 
 from core import say_proxy, message_map
 from core.telegram_utils import truncate_message
-from core.config import OWNER_ID
+from core.config import TRAINER_ID
 from core.ai_plugin_base import AIPluginBase
 import json
 from telegram.constants import ParseMode
@@ -37,9 +37,9 @@ class ManualAIPlugin(AIPluginBase):
         return (80, 10800, 0.5)
 
     async def handle_incoming_message(self, bot, message, prompt):
-        from core.notifier import notify_owner
+        from core.notifier import notify_trainer
 
-        notify_owner("🚨 Generating the reply...")
+        notify_trainer("🚨 Generating the reply...")
 
         user_id = message.from_user.id
         text = message.text or ""
@@ -53,7 +53,7 @@ class ManualAIPlugin(AIPluginBase):
             say_proxy.clear(user_id)
             return
 
-        # === Invia prompt JSON al trainer (OWNER_ID) ===
+        # === Invia prompt JSON al trainer (TRAINER_ID) ===
         import json
         from telegram.constants import ParseMode
 
@@ -61,7 +61,7 @@ class ManualAIPlugin(AIPluginBase):
         prompt_json = truncate_message(prompt_json)
 
         await bot.send_message(
-            chat_id=OWNER_ID,
+            chat_id=TRAINER_ID,
             text=f"\U0001f4e6 *Generated JSON prompt:*\n```json\n{prompt_json}\n```",
             parse_mode=ParseMode.MARKDOWN
         )
@@ -69,10 +69,10 @@ class ManualAIPlugin(AIPluginBase):
         # === Inoltra il messaggio originale per facilitare la risposta ===
         sender = message.from_user
         user_ref = f"@{sender.username}" if sender.username else sender.full_name
-        await bot.send_message(chat_id=OWNER_ID, text=truncate_message(f"{user_ref}:"))
+        await bot.send_message(chat_id=TRAINER_ID, text=truncate_message(f"{user_ref}:"))
 
         sent = await bot.forward_message(
-            chat_id=OWNER_ID,
+            chat_id=TRAINER_ID,
             from_chat_id=message.chat_id,
             message_id=message.message_id
         )

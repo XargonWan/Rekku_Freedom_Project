@@ -40,7 +40,7 @@ The trainer can dynamically switch modes using the `/llm` command.
 
 ### 📤 Automatic Forwarding
 
-Rekku will automatically forward messages to the trainer (`OWNER_ID`) if:
+Rekku will automatically forward messages to the trainer (`TRAINER_ID`) if:
 
 * She is **mentioned** in a group (`@rekku_freedom_project`)
 * Someone **replies** to one of her messages
@@ -112,7 +112,7 @@ After selection, send any content (text, image, file, audio, etc.) to be deliver
 
 ## 🧱 User Management
 
-Only the `OWNER_ID` can control these commands:
+Only the `TRAINER_ID` can control these commands:
 
 | Command              | Description        |
 | -------------------- | ------------------ |

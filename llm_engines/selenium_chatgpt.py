@@ -21,7 +21,7 @@ from typing import Dict, Optional
 from collections import defaultdict
 import threading
 from core.ai_plugin_base import AIPluginBase
-from core.notifier import notify_owner, set_notifier
+from core.notifier import notify_trainer, set_notifier
 from core.telegram_utils import safe_send
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 import asyncio
@@ -397,9 +397,9 @@ def _safe_notify(text: str) -> None:
         chunk = text[i : i + 4000]
         log_debug(f"[selenium] Notifying chunk length {len(chunk)}")
         try:
-            notify_owner(chunk)
+            notify_trainer(chunk)
         except Exception as e:  # pragma: no cover - best effort
-            log_error(f"[selenium] notify_owner failed: {repr(e)}", e)
+            log_error(f"[selenium] notify_trainer failed: {repr(e)}", e)
 
 def _notify_gui(message: str = ""):
     """Send a notification with the VNC URL, optionally prefixed."""
@@ -557,7 +557,7 @@ def process_prompt_in_chat(
         log_warning(f"[selenium] Saved screenshot to {fname}")
     except Exception as e:
         log_warning(f"[selenium] Failed to save screenshot: {e}")
-    notify_owner(
+    notify_trainer(
         f"\u26A0\uFE0F No response received for chat_id={chat_id}. Screenshot: {fname}"
     )
     return None
@@ -644,7 +644,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         self.driver = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task = None
-        self._notify_fn = notify_fn or notify_owner
+        self._notify_fn = notify_fn or notify_trainer
         log_debug(f"[selenium] notify_fn passed: {bool(notify_fn)}")
         set_notifier(self._notify_fn)
 

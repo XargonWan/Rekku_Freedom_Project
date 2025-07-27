@@ -14,7 +14,7 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 # ✅ Load all environment variables from .env
 load_dotenv(dotenv_path="/app/.env", override=False)
 
-OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
+TRAINER_ID = int(os.getenv("TRAINER_ID", "123456789"))
 BOT_TOKEN = os.getenv("BOTFATHER_TOKEN") or os.getenv("TELEGRAM_TOKEN")
 BOT_USERNAME = "rekku_freedom_project"
 LLM_MODE = os.getenv("LLM_MODE", "manual")

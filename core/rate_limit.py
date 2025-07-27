@@ -1,6 +1,6 @@
 import time
 from collections import defaultdict, deque
-from core.config import OWNER_ID
+from core.config import TRAINER_ID
 
 
 class _RateLimiter:
@@ -13,9 +13,9 @@ class _RateLimiter:
         while dq and now - dq[0] > window_seconds:
             dq.popleft()
 
-        quota_owner = int(max_messages * owner_fraction)
+        quota_trainer = int(max_messages * owner_fraction)
         quota_other = max_messages - quota_owner
-        quota = quota_owner if user_id == OWNER_ID else quota_other
+        quota = quota_trainer if user_id == TRAINER_ID else quota_other
 
         if len(dq) < quota:
             if consume:

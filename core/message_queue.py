@@ -3,7 +3,7 @@ import time
 from collections import deque
 from datetime import datetime
 
-from core.config import OWNER_ID
+from core.config import TRAINER_ID
 from core import plugin_instance, rate_limit, recent_chats
 from core.logging_utils import log_debug, log_error, log_warning
 
@@ -45,7 +45,7 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
     llm_name = plugin.__class__.__module__.split(".")[-1]
 
     if (
-        user_id != OWNER_ID
+        user_id != TRAINER_ID
         and not rate_limit.is_allowed(
             llm_name, user_id, max_messages, window_seconds, owner_fraction, consume=False
         )
@@ -140,7 +140,7 @@ async def start_queue_loop() -> None:
             llm_name = plugin.__class__.__module__.split(".")[-1]
 
             if (
-                user_id != OWNER_ID
+                user_id != TRAINER_ID
                 and not rate_limit.is_allowed(
                     llm_name, user_id, max_messages, window_seconds, owner_fraction, consume=True
                 )

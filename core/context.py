@@ -1,6 +1,6 @@
 from telegram import Update
 from telegram.ext import ContextTypes
-from core.config import OWNER_ID
+from core.config import TRAINER_ID
 import json
 import os
 from core.logging_utils import log_debug, log_info, log_warning, log_error
@@ -27,7 +27,7 @@ def set_context_state(state: bool):
     save_config(config)
 
 async def context_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
+    if update.effective_user.id != TRAINER_ID:
         return
 
     current = get_context_state()

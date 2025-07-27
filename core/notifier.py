@@ -1,6 +1,6 @@
 # core/notifier.py
 
-from core.config import OWNER_ID
+from core.config import TRAINER_ID
 from typing import Callable, List, Tuple
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
@@ -36,6 +36,6 @@ def notify(chat_id: int, message: str):
         except Exception as e:  # pragma: no cover - best effort
             log_error(f"[notifier] Failed to send notification chunk: {repr(e)}")
 
-def notify_owner(message: str):
-    log_debug(f"[notifier] Notification for OWNER_ID={OWNER_ID}: {message}")
-    notify(OWNER_ID, message)
+def notify_trainer(message: str):
+    log_debug(f"[notifier] Notification for TRAINER_ID={TRAINER_ID}: {message}")
+    notify(TRAINER_ID, message)

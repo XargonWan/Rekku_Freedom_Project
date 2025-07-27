@@ -9,7 +9,7 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 import json
 from pathlib import Path
 
-OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
+TRAINER_ID = int(os.getenv("TRAINER_ID", "123456789"))
 MAX_ENTRIES = 100
 _metadata = {}
 chat_path_map = {}
@@ -101,7 +101,7 @@ def format_chat_entry(chat):
         return f"{safe_name} — `{chat.id}`"
 
 async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
+    if update.effective_user.id != TRAINER_ID:
         return
 
     bot = context.bot
