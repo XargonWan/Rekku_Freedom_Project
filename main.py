@@ -138,25 +138,40 @@ if __name__ == "__main__":
     # Clean up any leftover Chrome processes from previous runs
     cleanup_chrome_processes()
     
-    # Test DB connectivity and initialize tables
-    try:
-        # Verifica dei permessi dell'utente del database
-        async def check_permissions():
-            from core.db import execute_query
-            query = "SHOW GRANTS FOR CURRENT_USER;"
-            grants = await execute_query(query)
-            log_info(f"[main] Database user permissions: {grants}")
+    # Test DB connectivity and initialize tables with retry mechanism
+    import time
+    max_retries = 30
+    retry_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            log_info(f"[main] Attempting database connection (attempt {attempt + 1}/{max_retries})...")
+            
+            # Verifica dei permessi dell'utente del database
+            async def check_permissions():
+                from core.db import execute_query
+                query = "SHOW GRANTS FOR CURRENT_USER;"
+                grants = await execute_query(query)
+                log_info(f"[main] Database user permissions: {grants}")
 
-        asyncio.run(check_permissions())
+            asyncio.run(check_permissions())
 
-        if not asyncio.run(test_connection()):
-            log_error("[main] Database connection failed. Exiting.")
-            sys.exit(1)
-        asyncio.run(init_db())
-        init_blocklist_table()
-    except Exception as e:
-        log_error(f"[main] Critical error during database initialization: {e}")
-        sys.exit(1)
+            if not asyncio.run(test_connection()):
+                log_error("[main] Database connection failed. Exiting.")
+                sys.exit(1)
+            asyncio.run(init_db())
+            init_blocklist_table()
+            log_info("[main] Database initialization completed successfully!")
+            break
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                log_warning(f"[main] Database connection attempt {attempt + 1} failed: {e}")
+                log_info(f"[main] Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                log_error(f"[main] Critical error during database initialization after {max_retries} attempts: {e}")
+                sys.exit(1)
 
     # 🌐 Show where the Webtop/VNC interface is available
     host = os.environ.get("WEBVIEW_HOST", "localhost")

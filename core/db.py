@@ -14,6 +14,10 @@ DB_USER = os.getenv("DB_USER", "rekku")
 DB_PASS = os.getenv("DB_PASS", "rekku")
 DB_NAME = os.getenv("DB_NAME", "rekku")
 
+# Log della configurazione del database per debug
+log_info(f"[db] Configuration: HOST={DB_HOST}, PORT={DB_PORT}, USER={DB_USER}, DB_NAME={DB_NAME}")
+log_debug(f"[db] Password length: {len(DB_PASS)} characters")
+
 async def get_conn() -> aiomysql.Connection:
     """Return an async MariaDB connection using aiomysql."""
     return await aiomysql.connect(
