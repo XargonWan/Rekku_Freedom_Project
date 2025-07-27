@@ -375,10 +375,10 @@ async def parse_action(action: dict, bot, message):
     log_warning(f"[action_parser] No plugin supports action type '{action_type}' — no plugin handler found")
 
 
-def initialize_core(notify_fn=None):
+async def initialize_core(notify_fn=None):
     """Initialize and log all core components."""
     from core.core_initializer import core_initializer
-    return core_initializer.initialize_all(notify_fn=notify_fn)
+    return await core_initializer.initialize_all(notify_fn=notify_fn)
 
 
 def get_action_plugin_instructions():

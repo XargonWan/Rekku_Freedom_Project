@@ -16,12 +16,12 @@ class CoreInitializer:
         self.active_llm = None
         self.startup_errors = []
     
-    def initialize_all(self, notify_fn=None):
+    async def initialize_all(self, notify_fn=None):
         """Initialize all Rekku components in the correct order."""
         log_info("🚀 Initializing Rekku core components...")
         
         # 1. Load LLM engine
-        self._load_llm_engine(notify_fn)
+        await self._load_llm_engine(notify_fn)
         
         # 2. Load generic plugins
         self._load_plugins()
@@ -34,14 +34,14 @@ class CoreInitializer:
         
         return True
     
-    def _load_llm_engine(self, notify_fn=None):
+    async def _load_llm_engine(self, notify_fn=None):
         """Load the active LLM engine."""
         try:
-            self.active_llm = get_active_llm()
+            self.active_llm = await get_active_llm()
             
             # Import here to avoid circular imports
             from core.plugin_instance import load_plugin
-            load_plugin(self.active_llm, notify_fn=notify_fn)
+            await load_plugin(self.active_llm, notify_fn=notify_fn)
             
             log_debug(f"[core_initializer] Active LLM engine loaded: {self.active_llm}")
         except Exception as e:

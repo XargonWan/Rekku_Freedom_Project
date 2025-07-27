@@ -358,7 +358,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     context_status = "attiva ✅" if get_context_state() else "disattiva ❌"
-    llm_mode = get_active_llm()
+    llm_mode = await get_active_llm()
 
     help_text = (
         f"🧞‍♀️ *Rekku – Comandi disponibili*\n\n"
@@ -598,7 +598,7 @@ async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     args = context.args
-    current = get_active_llm()
+    current = await get_active_llm()
     available = list_available_llms()
 
     if not args:
@@ -615,11 +615,11 @@ async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         from core.config import set_active_llm
-        set_active_llm(choice)
+        await set_active_llm(choice)
         
         # Ricarica il sistema con il nuovo LLM
         from core.core_initializer import core_initializer
-        core_initializer.initialize_all(notify_fn=telegram_notify)
+        await core_initializer.initialize_all(notify_fn=telegram_notify)
         
         await update.message.reply_text(f"\u2705 Modalità LLM aggiornata dinamicamente a `{choice}`.")
     except Exception as e:
@@ -732,10 +732,10 @@ async def plugin_startup_callback(application):
     application.create_task(message_queue.start_queue_loop())
 
 
-def start_bot():
+async def start_bot():
     # Log system state at startup and initialize with Telegram notify function
     from core.core_initializer import core_initializer
-    core_initializer.initialize_all(notify_fn=telegram_notify)
+    await core_initializer.initialize_all(notify_fn=telegram_notify)
 
     # 🌀 Weather fetch subito e loop periodico
     loop = asyncio.new_event_loop()

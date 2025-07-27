@@ -14,7 +14,7 @@ from core.action_parser import parse_action
 plugin = None
 rekku_identity_prompt = None
 
-def load_plugin(name: str, notify_fn=None):
+async def load_plugin(name: str, notify_fn=None):
     global plugin, rekku_identity_prompt
 
     # 🔁 If already loaded but different, replace it or update notify_fn
@@ -103,7 +103,7 @@ def load_plugin(name: str, notify_fn=None):
         except Exception as e:
             log_warning(f"[plugin] Error during model setup: {e}")
 
-    set_active_llm(name)
+    await set_active_llm(name)
 
 async def handle_incoming_message(bot, message, context_memory_or_prompt):
     """Process incoming messages or pre-built prompts."""

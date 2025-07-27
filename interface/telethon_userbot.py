@@ -7,6 +7,7 @@ except Exception:  # pragma: no cover - fallback if python-dotenv not installed
         return False
 import os
 import re
+import asyncio
 from collections import deque
 import core.plugin_instance as plugin_instance
 from core.logging_utils import log_debug, log_info, log_warning, log_error
@@ -129,7 +130,7 @@ async def llm_command(event):
     if event.sender_id != OWNER_ID:
         return
     args = event.pattern_match.group(1)
-    current = get_active_llm()
+    current = await get_active_llm()
     available = list_available_llms()
     if not args:
         msg = f"*LLM attivo:* `{current}`\n\n*Disponibili:*"
@@ -142,7 +143,7 @@ async def llm_command(event):
         await event.reply(f"\u274c LLM `{choice}` non trovato.")
         return
     try:
-        set_active_llm(choice)
+        await set_active_llm(choice)
         
         # Non carichiamo plugin qui - è compito del core
         # Il sistema si riavvierà con il nuovo LLM al prossimo restart
@@ -230,7 +231,7 @@ async def handle_message(event):
             e,
         )
 
-def main():
+async def main():
     def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None):
         async def send():
             try:
@@ -247,7 +248,7 @@ def main():
     
     # Initialize core system with notify function
     from core.core_initializer import core_initializer
-    core_initializer.initialize_all(notify_fn=telegram_notify)
+    await core_initializer.initialize_all(notify_fn=telegram_notify)
     
     log_info("🧞‍♀️ Rekku Userbot (Telethon) is online.")
     
@@ -257,4 +258,4 @@ def main():
     client.run_until_disconnected()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

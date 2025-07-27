@@ -107,7 +107,7 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 
-def initialize_core_components():
+async def initialize_core_components():
     """Initialize and log all core components."""
     # Load and log active interfaces
     active_interfaces = ["telegram_bot", "telegram_userbot", "discord"]  # Example interfaces
@@ -125,7 +125,7 @@ def initialize_core_components():
         log_warning("[main] No plugins found in ./plugins.")
 
     # Pass the information to the action parser
-    set_available_plugins(active_interfaces, get_active_llm(), [plugin.__class__.__name__ for plugin in plugins])
+    set_available_plugins(active_interfaces, await get_active_llm(), [plugin.__class__.__name__ for plugin in plugins])
 
 
 if __name__ == "__main__":
@@ -180,7 +180,7 @@ if __name__ == "__main__":
 
     # ✅ Start the bot
     from interface.telegram_bot import start_bot
-    start_bot()
+    asyncio.run(start_bot())
 
     # Initialize and log all core components
-    initialize_core_components()
+    asyncio.run(initialize_core_components())
