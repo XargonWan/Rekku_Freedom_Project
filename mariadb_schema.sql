@@ -1,3 +1,17 @@
+-- 🌱 Create database and user if not exists (defaults from .env)
+CREATE DATABASE IF NOT EXISTS rekku;
+
+-- 👤 Create user for Rekku (non root)
+CREATE USER IF NOT EXISTS 'rekku'@'%' IDENTIFIED BY '${DB_PASS}';
+GRANT ALL PRIVILEGES ON rekku.* TO 'rekku'@'%';
+
+-- 👤 Create root access from any host (for DBeaver or remote admin)
+CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY '${DB_ROOT_PASS}';
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
+
+-- ♻️ Apply changes
+FLUSH PRIVILEGES;
+
 CREATE TABLE IF NOT EXISTS settings (
     key VARCHAR(255) PRIMARY KEY,
     value TEXT
