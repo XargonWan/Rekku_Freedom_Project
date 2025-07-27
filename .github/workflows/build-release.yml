@@ -58,11 +58,11 @@ jobs:
         docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest
         docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest
 
-    - name: Tag image as latest-dev (develop branch only)
+    - name: Tag image as latest-develop (develop branch only)
       if: github.ref == 'refs/heads/develop'
       run: |
-        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest-dev
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest-dev
+        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest-develop
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest-develop
 
   run-tests:
     runs-on: ubuntu-latest
