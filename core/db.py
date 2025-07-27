@@ -98,6 +98,38 @@ async def init_db() -> None:
                 )
                 """
             )
+
+            # settings table for configuration values
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS settings (
+                    `key` VARCHAR(255) PRIMARY KEY,
+                    `value` TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+            # recent_chats table for tracking active chats
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS recent_chats (
+                    chat_id BIGINT PRIMARY KEY,
+                    last_active DOUBLE NOT NULL,
+                    metadata TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_last_active (last_active)
+                )
+                """
+            )
+
+            # Insert default settings if they don't exist
+            await cur.execute(
+                """
+                INSERT IGNORE INTO settings (`key`, `value`) VALUES ('active_llm', 'manual')
+                """
+            )
     except Exception as e:
         print(f"[init_db] Error: {e}")
     finally:
