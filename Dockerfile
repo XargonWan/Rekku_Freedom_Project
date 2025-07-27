@@ -1,4 +1,4 @@
-FROM lscr.io/linuxserver/webtop:ubuntu-xfce
+FROM lscr.io/linuxserver/webtop:ubuntu-xfce-version-20ec514a
 
 # Temporarily switch to root to create noVNC directory
 RUN mkdir -p /usr/share/novnc && \
@@ -38,7 +38,6 @@ RUN Xvfb :1 -screen 0 1280x720x24 &
 
 # Keyboard configuration
 RUN xvfb-run setxkbmap us
-
 
 # Copy project code
 COPY requirements.txt /app/requirements.txt
