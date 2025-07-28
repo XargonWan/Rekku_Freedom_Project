@@ -20,7 +20,10 @@ log_debug(f"[db] Password length: {len(DB_PASS)} characters")
 
 async def get_conn() -> aiomysql.Connection:
     """Return an async MariaDB connection using aiomysql."""
-    return await aiomysql.connect(
+    log_debug(
+        f"[db] Opening connection to {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    )
+    conn = await aiomysql.connect(
         host=DB_HOST,
         port=DB_PORT,
         user=DB_USER,
@@ -28,6 +31,8 @@ async def get_conn() -> aiomysql.Connection:
         db=DB_NAME,
         autocommit=True,
     )
+    log_debug("[db] Connection opened")
+    return conn
 
 async def test_connection() -> bool:
     """Check if the database is reachable."""
@@ -339,24 +344,29 @@ async def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5
     if now is None:
         now = datetime.now(timezone.utc)
 
+    log_debug(f"[get_due_events] Checking events at UTC {now.isoformat()}")
+
+    query = "SELECT * FROM scheduled_events WHERE delivered = 0 ORDER BY id"
+    log_debug(f"[get_due_events] Executing query: {query}")
+
     conn = await get_conn()
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute(
-                "SELECT * FROM scheduled_events WHERE delivered = 0 ORDER BY id"
-            )
+            await cur.execute(query)
             rows = await cur.fetchall()
+            log_debug(f"[get_due_events] Retrieved {len(rows)} rows")
+            for row in rows:
+                log_debug(f"[get_due_events] Row: {dict(row)}")
     except Exception as e:
-        print(f"[get_due_events] Error: {e}")
+        log_error(f"[get_due_events] Error executing query: {repr(e)}")
         rows = []
     finally:
         conn.close()
+        log_debug("[get_due_events] Connection closed")
 
     due = []  # Initialize the list to store due events
-    log_debug(f"[get_due_events] Retrieved {len(rows)} events from the database")
 
     for r in rows:
-        log_debug(f"[get_due_events] Raw event data: {dict(r)}")
         try:
             event_dt = datetime.fromisoformat(r['scheduled'])
         except ValueError as e:
