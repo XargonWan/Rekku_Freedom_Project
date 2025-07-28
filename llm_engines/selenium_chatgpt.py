@@ -49,12 +49,12 @@ class ChatLinkStore:
                 await cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS chatgpt_links (
-                        telegram_chat_id VARCHAR(64) NOT NULL,
+                        chat_id VARCHAR(64) NOT NULL,
                         thread_id INTEGER,
                         chatgpt_chat_id TEXT NOT NULL,
                         is_full INTEGER DEFAULT 0,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        PRIMARY KEY (telegram_chat_id, thread_id)
+                        PRIMARY KEY (chat_id, thread_id)
                     )
                     """
                 )
@@ -62,21 +62,23 @@ class ChatLinkStore:
         finally:
             conn.close()
 
-    async def get_link(self, telegram_chat_id: str, thread_id: Optional[int]) -> Optional[str]:
+    async def get_link(self, chat_id: str, thread_id: Optional[int]) -> Optional[str]:
         await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
         try:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(
-                    "SELECT chatgpt_chat_id FROM chatgpt_links WHERE telegram_chat_id = %s AND thread_id = %s",
-                    (telegram_chat_id, thread_id),
+                    "SELECT chatgpt_chat_id FROM chatgpt_links WHERE chat_id = %s AND thread_id = %s",
+                    (str(chat_id), thread_id),
                 )
                 row = await cur.fetchone()
-                return row["chatgpt_chat_id"] if row else None
+                chat = row["chatgpt_chat_id"] if row else None
+                log_debug(f"[chatlink] get_link {chat_id}/{thread_id} -> {chat}")
+                return chat
         finally:
             conn.close()
 
-    async def save_link(self, telegram_chat_id: str, thread_id: Optional[int], chatgpt_chat_id: str) -> None:
+    async def save_link(self, chat_id: str, thread_id: Optional[int], chatgpt_chat_id: str) -> None:
         await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
         try:
@@ -84,16 +86,16 @@ class ChatLinkStore:
                 await cur.execute(
                     """
                     REPLACE INTO chatgpt_links
-                        (telegram_chat_id, thread_id, chatgpt_chat_id, is_full, updated_at)
+                        (chat_id, thread_id, chatgpt_chat_id, is_full, updated_at)
                     VALUES (%s, %s, %s, 0, CURRENT_TIMESTAMP)
                     """,
-                    (telegram_chat_id, thread_id, chatgpt_chat_id),
+                    (str(chat_id), thread_id, chatgpt_chat_id),
                 )
                 await conn.commit()
         finally:
             conn.close()
         log_debug(
-            f"[chatlink] Saved mapping {telegram_chat_id}/{thread_id} -> {chatgpt_chat_id}"
+            f"[chatlink] Saved mapping {chat_id}/{thread_id} -> {chatgpt_chat_id}"
         )
 
     async def mark_full(self, chatgpt_chat_id: str) -> None:
@@ -126,7 +128,7 @@ class ChatLinkStore:
         log_debug(f"[chatlink] is_full({chatgpt_chat_id}) -> {result}")
         return result
 
-    async def remove(self, telegram_chat_id: str, thread_id: Optional[int]) -> bool:
+    async def remove(self, chat_id: str, thread_id: Optional[int]) -> bool:
         """Remove mapping for given Telegram chat."""
         await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
@@ -135,9 +137,9 @@ class ChatLinkStore:
                 result = await cur.execute(
                     """
                     DELETE FROM chatgpt_links
-                    WHERE telegram_chat_id = %s AND thread_id <=> %s
+                    WHERE chat_id = %s AND thread_id <=> %s
                     """,
-                    (telegram_chat_id, thread_id),
+                    (str(chat_id), thread_id),
                 )
                 await conn.commit()
                 rows_deleted = result > 0
@@ -146,11 +148,11 @@ class ChatLinkStore:
 
         if rows_deleted:
             log_debug(
-                f"[chatlink] Rimosso il collegamento per telegram_chat_id={telegram_chat_id}, thread_id={thread_id}"
+                f"[chatlink] Removed link for chat_id={chat_id}, thread_id={thread_id}"
             )
         else:
             log_debug(
-                f"[chatlink] Nessun collegamento trovato per telegram_chat_id={telegram_chat_id}, thread_id={thread_id}"
+                f"[chatlink] No link found for chat_id={chat_id}, thread_id={thread_id}"
             )
         return rows_deleted
 
