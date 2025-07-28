@@ -28,16 +28,20 @@ class MessagePlugin:
         return ["message"]
 
     def get_supported_actions(self):
-        """Return instructions and metadata for supported actions."""
+        """Return structured instructions for supported actions."""
         return {
             "message": {
+                "description": "Send a text message using a supported chat interface",
                 "interfaces": self.supported_interfaces,
-                "usage": (
-                    "Send text messages: {\"actions\":[{\"type\":\"message\","
-                    "\"interface\":\"telegram_bot\",\"payload\":{\"text\":\"...\",""
-                    "\"target\":input.payload.source.chat_id,\"thread_id\":input.payload.source.thread_id}}]}"
-                    " - When target equals source chat_id, message appears as reply to original message."
-                ),
+                "example": {
+                    "type": "message",
+                    "interface": self.supported_interfaces[0],
+                    "payload": {
+                        "text": "Hello!",
+                        "target": "123456789",
+                        "thread_id": 42,
+                    },
+                },
             }
         }
 

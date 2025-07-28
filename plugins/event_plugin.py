@@ -73,33 +73,20 @@ class EventPlugin(AIPluginBase):
         return ["event"]
 
     def get_supported_actions(self):
-        """Return ultra-compact instructions for supported actions."""
+        """Return structured instructions for supported actions."""
         return {
-            "event": """
-Create scheduled reminders with UTC timestamps:
-
-{
-  "actions": [
-    {
-      "type": "event",
-      "payload": {
-        "scheduled": "2025-07-22T15:30:00+00:00",
-        "description": "Remind Jay to check the system logs",
-        "recurrence_type": "none"
-      }
-    }
-  ]
-}
-
-⚠ REQUIRED FIELDS:
-- "scheduled": must be a UTC ISO 8601 timestamp
-- "description": plain natural text
-
-🔄 OPTIONAL RECURRENCE:
-- "recurrence_type": "none" (default), "daily", "weekly", "monthly", "always"
-
-❌ DO NOT include "action", "message", or any nested objects.
-"""
+            "event": {
+                "description": "Schedule a reminder or recurring event",
+                "interfaces": ["scheduler"],
+                "example": {
+                    "type": "event",
+                    "payload": {
+                        "scheduled": "2025-07-22T15:30:00+00:00",
+                        "description": "Remind Jay to check the system logs",
+                        "recurrence_type": "none"
+                    }
+                }
+            }
         }
 
     def execute_action(self, action: dict, context: dict, bot, original_message):
