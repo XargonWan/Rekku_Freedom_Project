@@ -365,8 +365,10 @@ async def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5
         log_debug("[get_due_events] Connection closed")
 
     due = []  # Initialize the list to store due events
+    log_debug(f"[get_due_events] Retrieved {len(rows)} events from the database")
 
     for r in rows:
+        log_debug(f"[get_due_events] Raw event data: {dict(r)}")
         try:
             event_dt = datetime.fromisoformat(r['scheduled'])
         except ValueError as e:
