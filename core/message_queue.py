@@ -112,7 +112,7 @@ async def compact_similar_messages(first: dict) -> list:
     return batch
 
 
-async def start_queue_loop() -> None:
+async def _consumer_loop() -> None:
     """Continuously process queued messages one at a time."""
     log_info("[QUEUE] Consumer loop started")
     while True:
@@ -247,6 +247,6 @@ async def run() -> None:
         log_debug("[QUEUE] Consumer already running")
         return
 
-    _consumer_task = asyncio.create_task(start_queue_loop())
+    _consumer_task = asyncio.create_task(_consumer_loop())
     log_info("[QUEUE] Consumer task started")
 
