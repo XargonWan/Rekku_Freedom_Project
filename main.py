@@ -139,17 +139,6 @@ async def initialize_core_components():
         raise
 
 
-if __name__ == "__main__":
-    # Set up signal handlers for graceful shutdown
-    signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
-    signal.signal(signal.SIGTERM, signal_handler)  # Docker stop
-    
-    setup_logging()
-    
-    # Clean up any leftover Chrome processes from previous runs
-    cleanup_chrome_processes()
-    
-        
 async def initialize_database():
     """Initialize database with proper async handling."""
     log_info("[main] initialize_database() started")
@@ -195,6 +184,18 @@ async def initialize_database():
         import traceback
         traceback.print_exc()
         return False
+
+
+if __name__ == "__main__":
+    # Set up signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
+    signal.signal(signal.SIGTERM, signal_handler)  # Docker stop
+    
+    setup_logging()
+    log_info("[main] Starting Rekku application...")
+    
+    # Clean up any leftover Chrome processes from previous runs
+    cleanup_chrome_processes()
     
     # Test DB connectivity and initialize tables with retry mechanism
     import time
