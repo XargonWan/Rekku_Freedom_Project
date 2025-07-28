@@ -32,7 +32,7 @@ async def get_active_llm():
         conn = await get_conn()
         try:
             async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute("SELECT value FROM settings WHERE key = 'active_llm'")
+                await cur.execute("SELECT value FROM settings WHERE `setting_key` = 'active_llm'")
                 row = await cur.fetchone()
                 if row:
                     _active_llm = row["value"]
@@ -55,7 +55,7 @@ async def set_active_llm(name: str):
     try:
         async with conn.cursor() as cur:
             await cur.execute(
-                "REPLACE INTO settings (key, value) VALUES (%s, %s)",
+                "REPLACE INTO settings (`setting_key`, value) VALUES (%s, %s)",
                 ("active_llm", name),
             )
             await conn.commit()

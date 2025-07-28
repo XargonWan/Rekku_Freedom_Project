@@ -782,3 +782,7 @@ Weekly recurring reminder:
                     log_warning(f"[event_plugin] Ignored non-JSON LLM response: {text}")
 
         return ScheduledEventBot(self)
+
+
+# Export the plugin class for the loader
+PLUGIN_CLASS = EventPlugin

@@ -793,7 +793,18 @@ async def start_bot():
     # Plugin startup is handled by plugin_startup_callback
     # No need for fallback as the callback ensures proper async startup
 
-    app.run_polling()
+    # Use async initialization instead of run_polling to avoid event loop conflicts
+    await app.initialize()
+    await app.start()
+    
+    # Keep running until interrupted
+    try:
+        await app.updater.start_polling()
+        # This keeps the application running
+        await asyncio.Event().wait()  # Wait forever until interrupted
+    finally:
+        await app.stop()
+        await app.shutdown()
 
 class TelegramInterface:
     def __init__(self, api_id, api_hash, bot_token):
