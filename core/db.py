@@ -44,18 +44,9 @@ async def test_connection() -> bool:
 
 async def init_db() -> None:
     """Asynchronously initialize essential MariaDB tables."""
-    log_info("[init_db] Starting database initialization...")
-    
-    try:
-        conn = await get_conn()
-        log_info("[init_db] Database connection established")
-    except Exception as e:
-        log_error(f"[init_db] Failed to connect to database: {e}")
-        raise
-        
+    conn = await get_conn()
     try:
         async with conn.cursor() as cur:
-            log_info("[init_db] Creating memories table...")
             # memories table
             await cur.execute(
                 """
@@ -74,7 +65,6 @@ async def init_db() -> None:
                 """
             )
 
-            log_info("[init_db] Creating emotion_diary table...")
             # emotion_diary table
             await cur.execute(
                 """
@@ -92,7 +82,6 @@ async def init_db() -> None:
                 """
             )
 
-            log_info("[init_db] Creating scheduled_events table...")
             # scheduled_events table
             await cur.execute(
                 """
@@ -100,7 +89,7 @@ async def init_db() -> None:
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     `date` DATE NOT NULL,
                     `time` TIME,
-                    repeat VARCHAR(20) DEFAULT 'none',
+                    recurrence_type VARCHAR(20) DEFAULT 'none',
                     description TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     delivered BOOLEAN DEFAULT FALSE,
@@ -110,7 +99,6 @@ async def init_db() -> None:
                 """
             )
 
-            log_info("[init_db] Creating settings table...")
             # settings table for configuration values
             await cur.execute(
                 """
@@ -123,7 +111,6 @@ async def init_db() -> None:
                 """
             )
 
-            log_info("[init_db] Creating recent_chats table...")
             # recent_chats table for tracking active chats
             await cur.execute(
                 """
@@ -137,22 +124,16 @@ async def init_db() -> None:
                 """
             )
 
-            log_info("[init_db] Inserting default settings...")
             # Insert default settings if they don't exist
             await cur.execute(
                 """
                 INSERT IGNORE INTO settings (`key`, `value`) VALUES ('active_llm', 'manual')
                 """
             )
-            
-        log_info("[init_db] ✅ Database initialization completed successfully!")
-        
     except Exception as e:
-        log_error(f"[init_db] ❌ Database initialization failed: {e}")
-        raise
+        print(f"[init_db] Error: {e}")
     finally:
         conn.close()
-        log_debug("[init_db] Database connection closed")
 
 # 🧠 Insert a new memory into the database
 async def insert_memory(
@@ -319,7 +300,7 @@ async def get_recent_responses(since_timestamp: str) -> list[dict]:
 
 async def insert_scheduled_event(
     scheduled: str,
-    repeat: str | None,
+    recurrence_type: str | None,
     description: str,
     created_by: str = "rekku",
 ) -> None:
@@ -329,10 +310,10 @@ async def insert_scheduled_event(
         async with conn.cursor() as cur:
             await cur.execute(
                 """
-                INSERT INTO scheduled_events (scheduled, repeat, description, created_by)
+                INSERT INTO scheduled_events (scheduled, recurrence_type, description, created_by)
                 VALUES (%s, %s, %s, %s)
                 """,
-                (scheduled, repeat or "none", description, created_by),
+                (scheduled, recurrence_type or "none", description, created_by),
             )
     except Exception as e:
         print(f"[insert_scheduled_event] Error: {e}")
@@ -405,15 +386,15 @@ async def mark_event_delivered(event_id: int) -> None:
     conn = await get_conn()
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:
-            # Get event info to check repeat type
+            # Get event info to check recurrence type
             await cur.execute(
-                "SELECT repeat FROM scheduled_events WHERE id = %s",
+                "SELECT recurrence_type FROM scheduled_events WHERE id = %s",
                 (event_id,),
             )
             event_row = await cur.fetchone()
 
             if event_row:
-                repeat_type = event_row['repeat']
+                repeat_type = event_row['recurrence_type']
 
                 if repeat_type == "none":
                     # One-time event - mark as delivered
@@ -424,16 +405,16 @@ async def mark_event_delivered(event_id: int) -> None:
                     log_info(f"[db] Event {event_id} marked as delivered (one-time)")
                 elif repeat_type == "always":
                     # Never mark as delivered - stays active
-                    log_debug(f"[db] Event {event_id} remains active (always repeat)")
+                    log_debug(f"[db] Event {event_id} remains active (always recurrence)")
                 else:
                     # Repeating events (daily, weekly, monthly)
-                    # TODO: Implement proper repeat logic with next occurrence calculation
+                    # TODO: Implement proper recurrence logic with next occurrence calculation
                     await cur.execute(
                         "UPDATE scheduled_events SET delivered = 1 WHERE id = %s",
                         (event_id,),
                     )
                     log_info(
-                        f"[db] Event {event_id} marked as delivered (repeat: {repeat_type} - TODO: implement proper repeat logic)"
+                        f"[db] Event {event_id} marked as delivered (recurrence: {repeat_type} - TODO: implement proper recurrence logic)"
                     )
             else:
                 log_warning(f"[db] Event {event_id} not found scheduled to be marked as delivered")

@@ -66,7 +66,8 @@ Create scheduled reminders with UTC timestamps:
       "type": "event",
       "payload": {
         "scheduled": "2025-07-22T15:30:00+00:00",
-        "description": "Remind Jay to check the system logs"
+        "description": "Remind Jay to check the system logs",
+        "recurrence_type": "none"
       }
     }
   ]
@@ -75,6 +76,9 @@ Create scheduled reminders with UTC timestamps:
 ⚠ REQUIRED FIELDS:
 - "scheduled": must be a UTC ISO 8601 timestamp
 - "description": plain natural text
+
+🔄 OPTIONAL RECURRENCE:
+- "recurrence_type": "none" (default), "daily", "weekly", "monthly", "always"
 
 ❌ DO NOT include "action", "message", or any nested objects.
 """
@@ -106,16 +110,23 @@ Create scheduled reminders with UTC timestamps:
         """Shared logic for processing an event payload."""
         scheduled = payload.get("scheduled")
         description = payload.get("description", "")
+        recurrence_type = payload.get("recurrence_type", "none")
 
         if scheduled and description:
-            self._save_scheduled_reminder(scheduled, description)
-            log_info("[event_plugin] Reminder scheduled for " + str(scheduled) + ": " + str(description))
+            self._save_scheduled_reminder(scheduled, description, recurrence_type)
+            log_info(f"[event_plugin] Reminder scheduled for {scheduled} ({recurrence_type}): {description}")
         else:
             log_error("[event_plugin] Invalid event payload: missing 'scheduled' or 'description'")
 
-    def _save_scheduled_reminder(self, scheduled: str, description: str):
+    def _save_scheduled_reminder(self, scheduled: str, description: str, recurrence_type: str = "none"):
         """Save a scheduled reminder to the database as natural language."""
         try:
+            # Validate recurrence_type
+            valid_recurrence_types = {"none", "daily", "weekly", "monthly", "always"}
+            if recurrence_type not in valid_recurrence_types:
+                log_warning(f"[event_plugin] Invalid recurrence_type '{recurrence_type}', defaulting to 'none'")
+                recurrence_type = "none"
+
             # Parse the scheduled timestamp
             event_time = datetime.fromisoformat(scheduled.replace('Z', '+00:00'))
 
@@ -147,11 +158,11 @@ Create scheduled reminders with UTC timestamps:
             # Store in database using the correct signature
             insert_scheduled_event(
                 scheduled=event_time_utc.isoformat(),
-                repeat="none",  # Single execution
+                recurrence_type=recurrence_type,
                 description=reminder_description,
                 created_by="rekku"
             )
-            log_debug("[event_plugin] Saved scheduled reminder for " + str(event_time) + " (stored as UTC: " + str(event_time_utc) + "): " + str(description))
+            log_debug(f"[event_plugin] Saved scheduled reminder for {event_time} (stored as UTC: {event_time_utc}, recurrence: {recurrence_type}): {description}")
         except Exception as e:
             log_error(f"[event_plugin] Failed to save scheduled reminder: {repr(e)}")
 
@@ -352,9 +363,17 @@ Example of a valid JSON structure for an event:
   "type": "event",
   "payload": {{
     "scheduled": "2025-07-22T15:30:00+00:00",
-    "description": "Remember to check if Jay replied to the message"
+    "description": "Remember to check if Jay replied to the message",
+    "recurrence_type": "none"
   }}
 }}
+
+For recurring events, you can use:
+- "none": single reminder (default)
+- "daily": repeat every day
+- "weekly": repeat every week
+- "monthly": repeat every month
+- "always": keep active indefinitely
             """.strip()
         }
 
@@ -676,15 +695,44 @@ IMPORTANT RULES for event actions:
 - The payload MUST contain:
     • "scheduled": ISO 8601 UTC timestamp (e.g. "2025-07-22T15:30:00+00:00")
     • "description": natural language reminder (not a command or action)
+- The payload CAN optionally contain:
+    • "recurrence_type": how often to repeat the event
+      - "none" (default): single execution only
+      - "daily": repeat every day
+      - "weekly": repeat every week  
+      - "monthly": repeat every month
+      - "always": keep active indefinitely
 - DO NOT include nested "action", "message", or any other structure inside the event.
 - The plugin will decide later how to handle the reminder.
 
-Valid example:
+Valid examples:
+
+Single reminder (default):
 {{
   "type": "event",
   "payload": {{
     "scheduled": "2025-07-22T15:30:00+00:00",
     "description": "Remind Jay to check the system logs for errors"
+  }}
+}}
+
+Daily recurring reminder:
+{{
+  "type": "event",
+  "payload": {{
+    "scheduled": "2025-07-22T09:00:00+00:00",
+    "description": "Daily standup meeting reminder",
+    "recurrence_type": "daily"
+  }}
+}}
+
+Weekly recurring reminder:
+{{
+  "type": "event",
+  "payload": {{
+    "scheduled": "2025-07-22T14:00:00+00:00", 
+    "description": "Weekly team sync",
+    "recurrence_type": "weekly"
   }}
 }}
         """.strip(),

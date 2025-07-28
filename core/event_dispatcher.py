@@ -36,7 +36,7 @@ async def dispatch_pending_events(bot):
                 "type": "event",
                 "payload": {
                     "scheduled": ev["scheduled"],
-                    "repeat": ev["repeat"],
+                    "recurrence_type": ev["recurrence_type"],
                     "description": ev["description"],
                 },
                 "meta": {
@@ -67,22 +67,22 @@ async def dispatch_pending_events(bot):
             continue
 
         log_debug(f"[event_dispatcher] Processing repetition for event: {ev['id']}")
-        repeat = (ev.get("repeat") or "none").lower()
-        if repeat not in {"none", "daily", "weekly", "monthly"}:
+        recurrence_type = (ev.get("recurrence_type") or "none").lower()
+        if recurrence_type not in {"none", "daily", "weekly", "monthly"}:
             log_warning(
-                f"[REPEAT] Unknown repeat value: '{repeat}' for event ID {ev['id']} — skipped."
+                f"[REPEAT] Unknown recurrence type: '{recurrence_type}' for event ID {ev['id']} — skipped."
             )
-            repeat = "none"
+            recurrence_type = "none"
 
-        if repeat != "none":
+        if recurrence_type != "none":
             try:
                 dt = datetime.fromisoformat(ev['scheduled'])
 
-                if repeat == "daily":
+                if recurrence_type == "daily":
                     new_dt = dt + timedelta(days=1)
-                elif repeat == "weekly":
+                elif recurrence_type == "weekly":
                     new_dt = dt + timedelta(days=7)
-                elif repeat == "monthly":
+                elif recurrence_type == "monthly":
                     year = dt.year + (dt.month // 12)
                     month = dt.month % 12 + 1
                     day = min(dt.day, calendar.monthrange(year, month)[1])
@@ -93,7 +93,7 @@ async def dispatch_pending_events(bot):
                 if new_dt is not None:
                     insert_scheduled_event(
                         new_dt.isoformat(),
-                        repeat,
+                        recurrence_type,
                         ev["description"],
                         ev.get("created_by", "rekku"),
                     )
