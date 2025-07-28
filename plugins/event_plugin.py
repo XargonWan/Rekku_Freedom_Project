@@ -185,13 +185,13 @@ Create scheduled reminders with UTC timestamps:
     async def _check_and_execute_events(self):
         """Check for due events and execute them with 5-minute tolerance window."""
         try:
-            log_debug("[EventPlugin] Inizio controllo eventi dovuti...")
+            log_debug("[EventPlugin] Starting due events check...")
             # Get events that are due (including 5 minutes early)
             due_events = get_due_events(tolerance_minutes=5)
 
             if due_events:
                 log_info(f"[event_plugin] Found {len(due_events)} due events to execute (with 5min tolerance)")
-                log_debug(f"[EventPlugin] Eventi trovati: {len(due_events)}")
+                log_debug(f"[EventPlugin] Found events: {len(due_events)}")
                 # Separate on-time and late events for logging
                 on_time_events = [e for e in due_events if not e.get('is_late', False)]
                 late_events = [e for e in due_events if e.get('is_late', False)]
@@ -206,7 +206,7 @@ Create scheduled reminders with UTC timestamps:
                         log_warning(f"[event_plugin] Event {event['id']} is {minutes_late} minutes late (scheduled: {scheduled_time})")
 
                 for event in due_events:
-                    log_debug(f"[EventPlugin] Controllo evento: {event}")
+                    log_debug(f"[EventPlugin] Checking event: {event}")
                     await self._execute_scheduled_event(event)
             else:
                 log_debug("[event_plugin] No due events to execute (checked with 5min tolerance)")
@@ -230,12 +230,12 @@ Create scheduled reminders with UTC timestamps:
             else:
                 log_info(f"[event_plugin] Delivering scheduled event {event_id}: {description[:50]}...")
 
-            log_debug(f"[EventPlugin] Esecuzione evento: {event}")
+            log_debug(f"[EventPlugin] Executing event: {event}")
             # Create a structured prompt for the LLM representing this scheduled event
             # The LLM will decide what to do with it
             await self._deliver_event_to_llm(event)
 
-            log_debug(f"[EventPlugin] Evento {event['id']} eseguito con successo")
+            log_debug(f"[EventPlugin] Event {event['id']} executed successfully")
 
         except Exception as e:
             log_error(f"[event_plugin] Error delivering event {event.get('id', 'unknown')}: {repr(e)}")
