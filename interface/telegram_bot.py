@@ -37,8 +37,8 @@ from core.mention_utils import is_rekku_mentioned, is_message_for_bot
 import core.plugin_instance as plugin_instance
 from core.weather import start_weather_updater, update_weather
 import traceback
-from telethon import TelegramClient
 from core.action_parser import initialize_core
+from core.interfaces import register_interface
 
 # Load variables from .env
 load_dotenv()
@@ -837,6 +837,12 @@ async def start_bot():
         # Use async initialization instead of run_polling to avoid event loop conflicts
         await app.initialize()
         log_info("[telegram_bot] Telegram application initialized")
+
+        # Register interface instance for plugins
+        telegram_interface = TelegramInterface(app.bot)
+        register_interface("telegram", telegram_interface)
+        register_interface("telegram_bot", telegram_interface)
+        log_debug("[telegram_bot] Interface instance registered")
         
         await app.start()
         log_info("[telegram_bot] Telegram application started")
@@ -859,8 +865,11 @@ async def start_bot():
         log_info("[telegram_bot] Telegram application shutdown completed")
 
 class TelegramInterface:
-    def __init__(self, api_id, api_hash, bot_token):
-        self.client = TelegramClient('bot', api_id, api_hash).start(bot_token=bot_token)
+    """Interface wrapper providing a standard send_message method for Telegram."""
+
+    def __init__(self, bot: Bot):
+        """Store the python-telegram-bot ``Bot`` instance."""
+        self.bot = bot
 
     @staticmethod
     def get_interface_id() -> str:
@@ -890,14 +899,108 @@ class TelegramInterface:
             }
         }
 
-    async def send_message(self, chat_id, text):
-        """Send a message to a specific chat."""
-        from core.transport_layer import universal_send
+    async def send_message(self, payload: dict, original_message: object | None = None) -> None:
+        """Send a message using the stored bot.
+
+        Parameters
+        ----------
+        payload: dict
+            Must contain at least ``text`` and ``target``. Optionally may include
+            ``thread_id``.
+        original_message: object | None
+            The triggering message; used for reply fallback handling.
+        """
+
+        text = payload.get("text", "")
+        target = payload.get("target")
+        thread_id = payload.get("thread_id")
+
+        log_debug(
+            f"[telegram_interface] Sending to {target} (thread_id: {thread_id})"
+        )
+
+        if not text or not target:
+            log_warning("[telegram_interface] Missing text or target, aborting")
+            return
+
+        send_kwargs = {"chat_id": target, "text": text}
+        if thread_id:
+            send_kwargs["message_thread_id"] = thread_id
+
+        if (
+            original_message
+            and hasattr(original_message, "chat_id")
+            and hasattr(original_message, "message_id")
+            and target == getattr(original_message, "chat_id")
+        ):
+            send_kwargs["reply_to_message_id"] = original_message.message_id
+            log_debug(
+                f"[telegram_interface] reply_to_message_id: {original_message.message_id}"
+            )
+
         try:
-            await universal_send(self.client.send_message, chat_id, text=text)
-            log_debug(f"[telegram_bot] Message sent to {chat_id}: {text}")
+            await self.bot.send_message(**send_kwargs)
+            log_info(
+                f"[telegram_interface] Message sent to {target} "
+                f"(thread: {thread_id}, reply_to: {send_kwargs.get('reply_to_message_id')})"
+            )
+            return
         except Exception as e:
-            log_error(f"[telegram_bot] Failed to send message to {chat_id}: {repr(e)}")
+            error_message = str(e)
+
+            if thread_id and ("thread not found" in error_message.lower()):
+                log_warning(
+                    f"[telegram_interface] Thread {thread_id} not found; retrying without thread"
+                )
+                try:
+                    fallback_kwargs = {"chat_id": target, "text": text}
+                    if (
+                        original_message
+                        and hasattr(original_message, "chat_id")
+                        and hasattr(original_message, "message_id")
+                        and target == getattr(original_message, "chat_id")
+                    ):
+                        fallback_kwargs["reply_to_message_id"] = original_message.message_id
+                    await self.bot.send_message(**fallback_kwargs)
+                    log_info(
+                        f"[telegram_interface] Message sent to {target} without thread"
+                    )
+                    return
+                except Exception as no_thread_error:
+                    log_error(
+                        f"[telegram_interface] Fallback without thread failed: {no_thread_error}"
+                    )
+            else:
+                log_error(
+                    f"[telegram_interface] Failed to send to {target} (thread {thread_id}): {repr(e)}"
+                )
+
+        if (
+            original_message
+            and hasattr(original_message, "chat_id")
+            and target != getattr(original_message, "chat_id")
+        ):
+            try:
+                fallback_thread = getattr(original_message, "message_thread_id", None)
+                fallback_kwargs = {
+                    "chat_id": original_message.chat_id,
+                    "text": text,
+                }
+                if fallback_thread:
+                    fallback_kwargs["message_thread_id"] = fallback_thread
+                if hasattr(original_message, "message_id"):
+                    fallback_kwargs["reply_to_message_id"] = original_message.message_id
+                log_debug(
+                    f"[telegram_interface] Retrying in original chat {original_message.chat_id}"
+                )
+                await self.bot.send_message(**fallback_kwargs)
+                log_info(
+                    f"[telegram_interface] Message sent to fallback chat {original_message.chat_id}"
+                )
+            except Exception as fallback_error:
+                log_error(
+                    f"[telegram_interface] Final fallback failed: {fallback_error}"
+                )
 
     @staticmethod
     def get_interface_instructions():
