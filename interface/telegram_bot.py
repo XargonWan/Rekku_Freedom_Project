@@ -268,6 +268,7 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    log_info(f"[telegram_bot] Received message update: {update}")
 
     if not await ensure_plugin_loaded(update):
         return
@@ -282,6 +283,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = user.full_name
     usertag = f"@{user.username}" if user.username else "(no tag)"
     text = message.text or ""
+    
+    log_info(f"[telegram_bot] Processing message from {username} ({user_id}): {text}")
 
     # Track context
     if message.chat_id not in context_memory:
@@ -594,10 +597,15 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text("❌ Error sending message.")
 
 async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    log_info(f"[telegram_bot] LLM command received from user {update.effective_user.id}")
+    
     if update.effective_user.id != TRAINER_ID:
+        log_warning(f"[telegram_bot] LLM command rejected: user {update.effective_user.id} != TRAINER_ID {TRAINER_ID}")
         return
 
     args = context.args
+    log_info(f"[telegram_bot] LLM command args: {args}")
+    
     current = await get_active_llm()
     available = list_available_llms()
 
@@ -766,6 +774,8 @@ async def start_bot():
             .build()
         )
         log_info("[telegram_bot] Telegram application built successfully")
+        log_info(f"[telegram_bot] TRAINER_ID configured as: {TRAINER_ID}")
+        log_info(f"[telegram_bot] BOT_TOKEN configured: {'Yes' if BOT_TOKEN else 'No'}")
 
         log_info("[telegram_bot] Adding command handlers...")
         app.add_handler(CommandHandler("help", help_command))
@@ -786,7 +796,9 @@ async def start_bot():
 
         app.add_handler(CommandHandler("say", say_command))
         app.add_handler(CommandHandler("cancel", cancel_response))
+        log_info("[telegram_bot] Adding MessageHandler for general messages...")
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        log_info("[telegram_bot] Adding MessageHandler for TRAINER_ID say steps...")
 
         app.add_handler(MessageHandler(
             filters.Chat(TRAINER_ID) & (
@@ -795,6 +807,7 @@ async def start_bot():
             ),
             handle_say_step
         ))
+        log_info("[telegram_bot] Adding MessageHandler for TRAINER_ID incoming responses...")
 
         app.add_handler(MessageHandler(
             filters.Chat(TRAINER_ID) & (
