@@ -109,23 +109,34 @@ def signal_handler(signum, frame):
 
 async def initialize_core_components():
     """Initialize and log all core components."""
-    # Load and log active interfaces
-    active_interfaces = ["telegram_bot", "telegram_userbot", "discord"]  # Example interfaces
-    log_info("[main] Active interfaces initialized.")
-    for interface in active_interfaces:
-        log_info(f"[main] Active interface: {interface}")
+    log_info("[main] initialize_core_components() started")
+    
+    try:
+        # Load and log active interfaces
+        active_interfaces = ["telegram_bot", "telegram_userbot", "discord"]  # Example interfaces
+        log_info("[main] Active interfaces initialized.")
+        for interface in active_interfaces:
+            log_info(f"[main] Active interface: {interface}")
 
-    # Load and log plugins in ./plugins
-    from core.action_parser import set_available_plugins, _load_action_plugins
-    plugins = _load_action_plugins()
-    if plugins:
-        for plugin in plugins:
-            log_info(f"[main] Loaded plugin: {plugin.__class__.__name__}")
-    else:
-        log_warning("[main] No plugins found in ./plugins.")
+        # Load and log plugins in ./plugins
+        log_info("[main] Loading action plugins...")
+        from core.action_parser import set_available_plugins, _load_action_plugins
+        plugins = _load_action_plugins()
+        if plugins:
+            for plugin in plugins:
+                log_info(f"[main] Loaded plugin: {plugin.__class__.__name__}")
+        else:
+            log_warning("[main] No plugins found in ./plugins.")
 
-    # Pass the information to the action parser
-    set_available_plugins(active_interfaces, await get_active_llm(), [plugin.__class__.__name__ for plugin in plugins])
+        # Pass the information to the action parser
+        log_info("[main] Setting available plugins in action parser...")
+        active_llm = await get_active_llm()
+        log_info(f"[main] Active LLM: {active_llm}")
+        set_available_plugins(active_interfaces, active_llm, [plugin.__class__.__name__ for plugin in plugins])
+        log_info("[main] Core components initialization completed")
+    except Exception as e:
+        log_error(f"[main] Error in initialize_core_components(): {repr(e)}")
+        raise
 
 
 if __name__ == "__main__":
@@ -141,28 +152,49 @@ if __name__ == "__main__":
         
 async def initialize_database():
     """Initialize database with proper async handling."""
+    log_info("[main] initialize_database() started")
+    
     # Verifica dei permessi dell'utente del database
     async def check_permissions():
+        log_debug("[main] Checking database permissions...")
         try:
             conn = await get_conn()
             async with conn.cursor() as cur:
                 await cur.execute("SHOW GRANTS FOR CURRENT_USER()")
                 grants = await cur.fetchall()
+                log_debug("[main] Database permissions check completed")
                 return grants
+        except Exception as e:
+            log_error(f"[main] Error checking database permissions: {repr(e)}")
+            raise
         finally:
             conn.close()
 
-    grants = await check_permissions()
-    log_info(f"[main] Database user permissions: {grants}")
+    try:
+        grants = await check_permissions()
+        log_info(f"[main] Database user permissions: {grants}")
 
-    if not await test_connection():
-        log_error("[main] Database connection failed. Exiting.")
+        log_info("[main] Testing database connection...")
+        if not await test_connection():
+            log_error("[main] Database connection test failed")
+            return False
+        log_info("[main] Database connection test passed")
+        
+        log_info("[main] Initializing database schema...")
+        await init_db()
+        log_info("[main] Database schema initialized")
+        
+        log_info("[main] Initializing blocklist table...")
+        await init_blocklist_table()
+        log_info("[main] Blocklist table initialized")
+        
+        log_info("[main] Database initialization completed successfully!")
+        return True
+    except Exception as e:
+        log_error(f"[main] Error in initialize_database(): {repr(e)}")
+        import traceback
+        traceback.print_exc()
         return False
-    
-    await init_db()
-    await init_blocklist_table()
-    log_info("[main] Database initialization completed successfully!")
-    return True
     
     # Test DB connectivity and initialize tables with retry mechanism
     import time
@@ -193,9 +225,28 @@ async def initialize_database():
     port = os.environ.get("WEBVIEW_PORT", "3000")
     log_info(f"[vnc] Webtop GUI available at: http://{host}:{port}")
 
+    log_info("[main] Starting bot initialization...")
     # ✅ Start the bot
-    from interface.telegram_bot import start_bot
-    asyncio.run(start_bot())
+    try:
+        from interface.telegram_bot import start_bot
+        log_info("[main] Starting Telegram bot...")
+        asyncio.run(start_bot())
+        log_info("[main] Telegram bot started successfully")
+    except Exception as e:
+        log_error(f"[main] Critical error starting Telegram bot: {repr(e)}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
     # Initialize and log all core components
-    asyncio.run(initialize_core_components())
+    try:
+        log_info("[main] Initializing core components...")
+        asyncio.run(initialize_core_components())
+        log_info("[main] Core components initialized successfully")
+    except Exception as e:
+        log_error(f"[main] Critical error initializing core components: {repr(e)}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+    log_info("[main] Application startup completed successfully")

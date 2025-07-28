@@ -733,78 +733,117 @@ async def plugin_startup_callback(application):
 
 
 async def start_bot():
+    log_info("[telegram_bot] start_bot() function called")
+    
     # Log system state at startup and initialize with Telegram notify function
-    from core.core_initializer import core_initializer
-    await core_initializer.initialize_all(notify_fn=telegram_notify)
+    try:
+        log_info("[telegram_bot] Importing core_initializer...")
+        from core.core_initializer import core_initializer
+        log_info("[telegram_bot] Initializing core components...")
+        await core_initializer.initialize_all(notify_fn=telegram_notify)
+        log_info("[telegram_bot] Core components initialized successfully")
+    except Exception as e:
+        log_error(f"[telegram_bot] Error in core initialization: {repr(e)}")
+        raise
 
     # 🌀 Weather fetch immediately and periodic loop
-    await update_weather()
-    start_weather_updater()
-
-    app = (
-        ApplicationBuilder()
-        .token(BOT_TOKEN)
-        .post_init(plugin_startup_callback)
-        .build()
-    )
-
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("block", block_user))
-    app.add_handler(CommandHandler("block_list", block_list))
-    app.add_handler(CommandHandler("unblock", unblock_user))
-    app.add_handler(CommandHandler("purge_map", purge_mappings))
-    app.add_handler(CommandHandler("last_chats", last_chats_command))
-    app.add_handler(CommandHandler("manage_chat_id", manage_chat_id_command))
-    app.add_handler(CommandHandler("context", context_command))
-    app.add_handler(CommandHandler("llm", llm_command))
+    try:
+        log_info("[telegram_bot] Fetching initial weather...")
+        await update_weather()
+        log_info("[telegram_bot] Starting weather updater...")
+        start_weather_updater()
+        log_info("[telegram_bot] Weather components initialized")
+    except Exception as e:
+        log_error(f"[telegram_bot] Error in weather initialization: {repr(e)}")
+        raise
 
     try:
-        if plugin_instance.get_supported_models():
-            app.add_handler(CommandHandler("model", model_command))
+        log_info("[telegram_bot] Building Telegram application...")
+        app = (
+            ApplicationBuilder()
+            .token(BOT_TOKEN)
+            .post_init(plugin_startup_callback)
+            .build()
+        )
+        log_info("[telegram_bot] Telegram application built successfully")
+
+        log_info("[telegram_bot] Adding command handlers...")
+        app.add_handler(CommandHandler("help", help_command))
+        app.add_handler(CommandHandler("block", block_user))
+        app.add_handler(CommandHandler("block_list", block_list))
+        app.add_handler(CommandHandler("unblock", unblock_user))
+        app.add_handler(CommandHandler("purge_map", purge_mappings))
+        app.add_handler(CommandHandler("last_chats", last_chats_command))
+        app.add_handler(CommandHandler("manage_chat_id", manage_chat_id_command))
+        app.add_handler(CommandHandler("context", context_command))
+        app.add_handler(CommandHandler("llm", llm_command))
+
+        try:
+            if plugin_instance.get_supported_models():
+                app.add_handler(CommandHandler("model", model_command))
+        except Exception as e:
+            log_warning(f"Active plugin does not support models: {e}")
+
+        app.add_handler(CommandHandler("say", say_command))
+        app.add_handler(CommandHandler("cancel", cancel_response))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+        app.add_handler(MessageHandler(
+            filters.Chat(TRAINER_ID) & (
+                filters.TEXT | filters.PHOTO | filters.AUDIO | filters.VOICE |
+                filters.VIDEO | filters.Document.ALL
+            ),
+            handle_say_step
+        ))
+
+        app.add_handler(MessageHandler(
+            filters.Chat(TRAINER_ID) & (
+                filters.Sticker.ALL | filters.PHOTO | filters.AUDIO |
+                filters.VOICE | filters.VIDEO | filters.Document.ALL
+            ),
+            handle_incoming_response
+        ))
+        log_info("[telegram_bot] All handlers added successfully")
+
+        log_info("🧞‍♀️ Rekku is online.")
+        
+        # Register this interface with the core
+        log_info("[telegram_bot] Registering interface with core...")
+        from core.core_initializer import core_initializer
+        core_initializer.register_interface("telegram_bot")
+        log_info("[telegram_bot] Interface registered with core")
     except Exception as e:
-        log_warning(f"Active plugin does not support models: {e}")
-
-    app.add_handler(CommandHandler("say", say_command))
-    app.add_handler(CommandHandler("cancel", cancel_response))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    app.add_handler(MessageHandler(
-        filters.Chat(TRAINER_ID) & (
-            filters.TEXT | filters.PHOTO | filters.AUDIO | filters.VOICE |
-            filters.VIDEO | filters.Document.ALL
-        ),
-        handle_say_step
-    ))
-
-    app.add_handler(MessageHandler(
-        filters.Chat(TRAINER_ID) & (
-            filters.Sticker.ALL | filters.PHOTO | filters.AUDIO |
-            filters.VOICE | filters.VIDEO | filters.Document.ALL
-        ),
-        handle_incoming_response
-    ))
-
-    log_info("🧞‍♀️ Rekku is online.")
-    
-    # Register this interface with the core
-    from core.core_initializer import core_initializer
-    core_initializer.register_interface("telegram_bot")
+        log_error(f"[telegram_bot] Error building Telegram application: {repr(e)}")
+        raise
 
     # Plugin startup is handled by plugin_startup_callback
     # No need for fallback as the callback ensures proper async startup
 
-    # Use async initialization instead of run_polling to avoid event loop conflicts
-    await app.initialize()
-    await app.start()
-    
-    # Keep running until interrupted
     try:
+        log_info("[telegram_bot] Starting Telegram application initialization...")
+        # Use async initialization instead of run_polling to avoid event loop conflicts
+        await app.initialize()
+        log_info("[telegram_bot] Telegram application initialized")
+        
+        await app.start()
+        log_info("[telegram_bot] Telegram application started")
+        
+        # Keep running until interrupted
+        log_info("[telegram_bot] Starting polling...")
         await app.updater.start_polling()
+        log_info("[telegram_bot] Polling started successfully")
+        
         # This keeps the application running
+        log_info("[telegram_bot] Bot is now running and listening for messages...")
         await asyncio.Event().wait()  # Wait forever until interrupted
+    except Exception as e:
+        log_error(f"[telegram_bot] Error in bot polling: {repr(e)}")
+        raise
     finally:
+        log_info("[telegram_bot] Shutting down Telegram application...")
         await app.stop()
         await app.shutdown()
+        log_info("[telegram_bot] Telegram application shutdown completed")
 
 class TelegramInterface:
     def __init__(self, api_id, api_hash, bot_token):
