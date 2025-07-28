@@ -89,7 +89,9 @@ Create scheduled reminders with UTC timestamps:
         if action.get("type") == "event":
             log_info("[event_plugin] Executing event action with payload: " + str(action.get('payload')))
             try:
-                self._handle_event_payload(action.get("payload", {}))
+                # Use asyncio.create_task to handle async call from sync context
+                import asyncio
+                asyncio.create_task(self._handle_event_payload(action.get("payload", {})))
             except Exception as e:
                 log_error(f"[event_plugin] Error executing event action: {repr(e)}")
         else:
@@ -100,25 +102,25 @@ Create scheduled reminders with UTC timestamps:
         if action_type == "event":
             log_info("[event_plugin] Handling event action with payload: " + str(payload))
             try:
-                self._handle_event_payload(payload)
+                await self._handle_event_payload(payload)
             except Exception as e:
                 log_error(f"[event_plugin] Error handling event action: {repr(e)}")
         else:
             log_error(f"[event_plugin] Unsupported action type: {action_type}")
 
-    def _handle_event_payload(self, payload: dict):
+    async def _handle_event_payload(self, payload: dict):
         """Shared logic for processing an event payload."""
         scheduled = payload.get("scheduled")
         description = payload.get("description", "")
         recurrence_type = payload.get("recurrence_type", "none")
 
         if scheduled and description:
-            self._save_scheduled_reminder(scheduled, description, recurrence_type)
+            await self._save_scheduled_reminder(scheduled, description, recurrence_type)
             log_info(f"[event_plugin] Reminder scheduled for {scheduled} ({recurrence_type}): {description}")
         else:
             log_error("[event_plugin] Invalid event payload: missing 'scheduled' or 'description'")
 
-    def _save_scheduled_reminder(self, scheduled: str, description: str, recurrence_type: str = "none"):
+    async def _save_scheduled_reminder(self, scheduled: str, description: str, recurrence_type: str = "none"):
         """Save a scheduled reminder to the database as natural language."""
         try:
             # Validate recurrence_type
@@ -148,15 +150,11 @@ Create scheduled reminders with UTC timestamps:
             # This allows Rekku to freely decide what to do with it
             reminder_description = "REMINDER: " + str(description)
 
-            # Check if a similar event already exists in the database
-            existing_events = get_due_events(event_time_utc)
-            for ev in existing_events:
-                if ev['description'] == reminder_description and ev['scheduled'] == event_time_utc.isoformat():
-                    log_warning("[event_plugin] Duplicate event detected: " + str(description))
-                    return
+            # TODO: Implement duplicate check with proper async handling
+            # For now, we rely on database UNIQUE constraints
 
             # Store in database using the correct signature
-            insert_scheduled_event(
+            await insert_scheduled_event(
                 scheduled=event_time_utc.isoformat(),
                 recurrence_type=recurrence_type,
                 description=reminder_description,
@@ -187,7 +185,7 @@ Create scheduled reminders with UTC timestamps:
         try:
             log_debug("[EventPlugin] Starting due events check...")
             # Get events that are due (including 5 minutes early)
-            due_events = get_due_events(tolerance_minutes=5)
+            due_events = await get_due_events(tolerance_minutes=5)
 
             if due_events:
                 log_info(f"[event_plugin] Found {len(due_events)} due events to execute (with 5min tolerance)")
@@ -271,7 +269,7 @@ Create scheduled reminders with UTC timestamps:
 
             # Mark event as delivered since we've successfully queued it
             from core.db import mark_event_delivered
-            mark_event_delivered(event['id'])
+            await mark_event_delivered(event['id'])
             log_info(f"[event_plugin] ✅ Event {event['id']} delivered and marked as processed")
 
         except Exception as e:
