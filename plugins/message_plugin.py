@@ -3,13 +3,19 @@
 
 import asyncio
 from core.logging_utils import log_debug, log_info, log_warning, log_error
-from types import SimpleNamespace
 
 
 class MessagePlugin:
-    """Plugin to handle message-type actions."""
+    """Plugin to handle message-type actions across multiple interfaces."""
 
-    def __init__(self):
+    def __init__(self, interface_handlers: dict | None = None):
+        """Initialize the plugin with optional interface handlers."""
+        default_handlers = {
+            "telegram_bot": self._send_telegram_message,
+            "telegram": self._send_telegram_message,  # legacy alias
+        }
+        self.interface_handlers = interface_handlers or default_handlers
+        self.supported_interfaces = list(self.interface_handlers.keys())
         log_debug("[message_plugin] MessagePlugin initialized")
 
     @property
@@ -22,17 +28,22 @@ class MessagePlugin:
         return ["message"]
 
     def get_supported_actions(self):
-        """Return ultra-compact instructions for supported actions."""
+        """Return instructions and metadata for supported actions."""
         return {
-            "message": "Send text messages: {\"actions\":[{\"type\":\"message\",\"interface\":\"telegram_bot\",\"payload\":{\"text\":\"...\",\"target\":input.payload.source.chat_id,\"thread_id\":input.payload.source.thread_id}}]} - When target equals source chat_id, message appears as reply to original message."
+            "message": {
+                "interfaces": self.supported_interfaces,
+                "usage": (
+                    "Send text messages: {\"actions\":[{\"type\":\"message\","
+                    "\"interface\":\"telegram_bot\",\"payload\":{\"text\":\"...\",""
+                    "\"target\":input.payload.source.chat_id,\"thread_id\":input.payload.source.thread_id}}]}"
+                    " - When target equals source chat_id, message appears as reply to original message."
+                ),
+            }
         }
 
     async def execute_action(self, action: dict, context: dict, bot, original_message):
         """Execute a message action."""
         try:
-            payload = action.get("payload", {})
-            interface = action.get("interface", "telegram_bot")
-            
             await self._handle_message_action(action, context, bot, original_message)
             
         except Exception as e:
@@ -51,7 +62,7 @@ class MessagePlugin:
         text = payload.get("text", "")
         target = payload.get("target")
         thread_id = payload.get("thread_id")
-        interface = action.get("interface", "telegram_bot")
+        interface = action.get("interface", self.supported_interfaces[0])
         
         log_debug(f"[message_plugin] Handling message action: {text[:50]}...")
         log_debug(f"[message_plugin] Target: {target}, Thread: {thread_id}, Interface: {interface}")
@@ -79,8 +90,9 @@ class MessagePlugin:
             return
 
         # Route to appropriate interface
-        if interface in ("telegram", "telegram_bot"):
-            await self._send_telegram_message(bot, target, text, thread_id, original_message)
+        handler = self.interface_handlers.get(interface)
+        if handler:
+            await handler(bot, target, text, thread_id, original_message)
         else:
             log_warning(f"[message_plugin] Unsupported interface: {interface}")
 
