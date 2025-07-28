@@ -10,6 +10,33 @@ class DiscordInterface:
         # Initialize Discord client
         pass
 
+    @staticmethod
+    def get_interface_id() -> str:
+        """Return the unique identifier for this interface."""
+        return "discord_bot"
+
+    @staticmethod
+    def get_supported_action_types() -> list[str]:
+        """Return action types supported by this interface."""
+        return ["message"]
+
+    @staticmethod
+    def get_supported_actions() -> dict:
+        """Return a compact description of supported actions."""
+        return {
+            "message": {
+                "description": "Send a text message to a Discord channel.",
+                "usage": {
+                    "type": "message",
+                    "interface": "discord_bot",
+                    "payload": {
+                        "text": "...",
+                        "target": "<channel_id>"
+                    }
+                }
+            }
+        }
+
     async def send_message(self, channel_id, text):
         """Send a message to a Discord channel."""
         try:
@@ -28,4 +55,10 @@ class DiscordInterface:
     @staticmethod
     def get_interface_instructions():
         """Return specific instructions for Discord interface."""
-        return "Use channel_id for targets and plain text for messages."
+        return (
+            "DISCORD INTERFACE INSTRUCTIONS:\n"
+            "- Use channel_id for targets.\n"
+            "- Markdown is supported, but avoid advanced features not supported by Discord.\n"
+            "- Messages sent to the same channel as the source will appear as replies when possible.\n"
+            "- Provide plain text or Markdown in the 'text' field."
+        )

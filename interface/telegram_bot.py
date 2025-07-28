@@ -862,6 +862,34 @@ class TelegramInterface:
     def __init__(self, api_id, api_hash, bot_token):
         self.client = TelegramClient('bot', api_id, api_hash).start(bot_token=bot_token)
 
+    @staticmethod
+    def get_interface_id() -> str:
+        """Return the unique identifier for this interface."""
+        return "telegram_bot"
+
+    @staticmethod
+    def get_supported_action_types() -> list[str]:
+        """Return action types supported by this interface."""
+        return ["message"]
+
+    @staticmethod
+    def get_supported_actions() -> dict:
+        """Return a compact description of supported actions."""
+        return {
+            "message": {
+                "description": "Send a text message to a Telegram chat.",
+                "usage": {
+                    "type": "message",
+                    "interface": "telegram_bot",
+                    "payload": {
+                        "text": "...",
+                        "target": "<chat_id>",
+                        "thread_id": "<optional thread_id>"
+                    }
+                }
+            }
+        }
+
     async def send_message(self, chat_id, text):
         """Send a message to a specific chat."""
         from core.transport_layer import universal_send
@@ -874,24 +902,13 @@ class TelegramInterface:
     @staticmethod
     def get_interface_instructions():
         """Return specific instructions for Telegram interface."""
-        return """TELEGRAM INTERFACE INSTRUCTIONS:
-- Use chat_id for targets (can be negative for groups/channels)
-- For groups with topics, include thread_id to reply in the correct topic, but don't use the thread_id if not specified in the input, else the message will fail to be delivered.
-- Keep messages under 4096 characters
-- Use Markdown formatting:
-    * **bold** → `**bold**`
-    * __italic__ → `__italic__`
-    * --underline-- → `--underline--`
-    * ~~strikethrough~~ → `~~strikethrough~~`
-    * `monospace` → `` `monospace` ``
-    * ```code block``` → triple backticks (```)
-    * [inline URL](https://example.com) → standard Markdown link
-- Escape special characters using a backslash if needed: `_ * [ ] ( ) ~ ` > # + - = | { } . !`
-- For groups, always reply in the same chat and thread unless specifically instructed otherwise
-- Target should be the exact chat_id from input.payload.source.chat_id
-- Thread_id should be the exact thread_id from input.payload.source.thread_id (if present)
-- Interface should always be "telegram_bot"
-- REPLYING TO MESSAGES: When responding to a user's message in the same chat, the message will automatically appear as a reply. Simply use the same target chat_id as the original message.
-- CROSS-CHAT MESSAGES: To send to a different chat than where the message came from, specify a different target chat_id. These won't appear as replies but as new messages.
-"""
+        return (
+            "TELEGRAM INTERFACE INSTRUCTIONS:\n"
+            "- Use chat_id for targets (can be negative for groups/channels).\n"
+            "- Include thread_id when replying in topics; omit it otherwise.\n"
+            "- Keep messages under 4096 characters.\n"
+            "- Markdown is supported and preferred.\n"
+            "- Replying to a message in the same chat will automatically use that message as the reply target.\n"
+            "- To send to another chat, specify a different chat_id; these will not appear as replies.\n"
+        )
 
