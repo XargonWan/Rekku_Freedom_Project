@@ -227,27 +227,34 @@ if __name__ == "__main__":
     log_info(f"[vnc] Webtop GUI available at: http://{host}:{port}")
 
     log_info("[main] Starting bot initialization...")
-    # ✅ Start the bot
-    try:
-        from interface.telegram_bot import start_bot
-        log_info("[main] Starting Telegram bot...")
-        asyncio.run(start_bot())
-        log_info("[main] Telegram bot started successfully")
-    except Exception as e:
-        log_error(f"[main] Critical error starting Telegram bot: {repr(e)}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    
+    async def start_application():
+        # Initialize core components BEFORE starting the bot
+        try:
+            log_info("[main] Initializing core components...")
+            from core.core_initializer import CoreInitializer
+            initializer = CoreInitializer()
+            await initializer.initialize_all()
+            log_info("[main] Core components initialized successfully")
+        except Exception as e:
+            log_error(f"[main] Critical error initializing core components: {repr(e)}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
 
-    # Initialize and log all core components
-    try:
-        log_info("[main] Initializing core components...")
-        asyncio.run(initialize_core_components())
-        log_info("[main] Core components initialized successfully")
-    except Exception as e:
-        log_error(f"[main] Critical error initializing core components: {repr(e)}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        # ✅ Start the bot
+        try:
+            from interface.telegram_bot import start_bot
+            log_info("[main] Starting Telegram bot...")
+            await start_bot()
+            log_info("[main] Telegram bot started successfully")
+        except Exception as e:
+            log_error(f"[main] Critical error starting Telegram bot: {repr(e)}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+
+    # Run the async application
+    asyncio.run(start_application())
 
     log_info("[main] Application startup completed successfully")
