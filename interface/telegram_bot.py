@@ -297,7 +297,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "timestamp": message.date.isoformat()
     })
     chat_meta = message.chat.title or message.chat.username or message.chat.first_name
-    recent_chats.track_chat(message.chat_id, chat_meta)
+    await recent_chats.track_chat(message.chat_id, chat_meta)
     log_debug(f"context_memory[{message.chat_id}] = {list(context_memory[message.chat_id])}")
 
     # Interactive /say step
@@ -308,7 +308,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_debug(f"Message from {user_id} ({message.chat.type}): {text}")
 
     # Blocked user
-    if blocklist.is_blocked(user_id) and user_id != TRAINER_ID:
+    if await blocklist.is_blocked(user_id) and user_id != TRAINER_ID:
         log_debug(f"User {user_id} is blocked. Ignoring message.")
         return
 

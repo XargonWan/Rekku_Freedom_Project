@@ -64,7 +64,7 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
         return
 
     meta = message.chat.title or message.chat.username or message.chat.first_name
-    recent_chats.track_chat(chat_id, meta)
+    await recent_chats.track_chat(chat_id, meta)
 
     item = {
         "bot": bot,
