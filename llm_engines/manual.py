@@ -31,15 +31,15 @@ class ManualAIPlugin(AIPluginBase):
             log_debug("[manual] No notification function provided, using fallback.")
             set_notifier(lambda chat_id, message: log_info(f"[NOTIFY fallback] {message}"))
 
-    def track_message(self, trainer_message_id, original_chat_id, original_message_id):
+    async def track_message(self, trainer_message_id, original_chat_id, original_message_id):
         """Persist the mapping for a forwarded message."""
-        message_map.add_mapping(trainer_message_id, original_chat_id, original_message_id)
+        await message_map.add_mapping(trainer_message_id, original_chat_id, original_message_id)
 
     def get_target(self, trainer_message_id):
         return message_map.get_mapping(trainer_message_id)
 
     def clear(self, trainer_message_id):
-        message_map.delete_mapping(trainer_message_id)
+        asyncio.create_task(message_map.delete_mapping(trainer_message_id))
 
     def get_rate_limit(self):
         return (80, 10800, 0.5)
@@ -84,7 +84,7 @@ class ManualAIPlugin(AIPluginBase):
             from_chat_id=message.chat_id,
             message_id=message.message_id
         )
-        self.track_message(sent.message_id, message.chat_id, message.message_id)
+        await self.track_message(sent.message_id, message.chat_id, message.message_id)
         log_debug("[manual] Message forwarded and tracked")
 
     async def generate_response(self, messages):

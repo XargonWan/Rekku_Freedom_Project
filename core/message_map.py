@@ -30,6 +30,7 @@ async def init_table():
 
 async def add_mapping(trainer_message_id: int, chat_id: int, message_id: int):
     """Store mapping from trainer message to original chat/message."""
+    await init_table()
     ts = time.time()
     conn = await get_conn()
     try:
@@ -70,6 +71,7 @@ async def get_mapping(trainer_message_id: int):
 
 async def delete_mapping(trainer_message_id: int):
     """Remove a mapping."""
+    await init_table()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
@@ -85,6 +87,7 @@ async def delete_mapping(trainer_message_id: int):
 
 async def purge_old_entries(max_age_seconds: int) -> int:
     """Delete mappings older than given age in seconds. Returns number deleted."""
+    await init_table()
     cutoff = time.time() - max_age_seconds
     conn = await get_conn()
     try:

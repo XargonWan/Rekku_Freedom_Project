@@ -1,6 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from core.db import get_conn
+from core.db import ensure_core_tables
 import aiomysql
 import time
 import os
@@ -35,6 +36,7 @@ if _CHAT_MAP_PATH.exists():
         log_warning(f"[recent_chats] Failed to load chat path map: {e}")
 
 async def track_chat(chat_id: int, metadata=None):
+    await ensure_core_tables()
     now = time.time()
     conn = await get_conn()
     try:
@@ -54,6 +56,7 @@ async def track_chat(chat_id: int, metadata=None):
         _metadata[chat_id] = metadata
 
 async def reset_chat(chat_id: int):
+    await ensure_core_tables()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:

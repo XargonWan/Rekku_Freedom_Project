@@ -51,6 +51,8 @@ async def set_active_llm(name: str):
         log_debug(f"[config] 🔄 LLM already set: {name}, no update needed.")
         return
     _active_llm = name
+    from core.db import ensure_core_tables
+    await ensure_core_tables()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
