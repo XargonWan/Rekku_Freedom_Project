@@ -1,23 +1,25 @@
 import asyncio
 import time
-from collections import deque
 from datetime import datetime
+import traceback
 
 from core.config import TRAINER_ID
 from core import plugin_instance, rate_limit, recent_chats
-from core.logging_utils import log_debug, log_error, log_warning
+from core.logging_utils import log_debug, log_error, log_warning, log_info
 
-# Use a deque for priority insertion
-_queue: deque = deque()
-_condition = asyncio.Condition()
+# Use a priority queue so events can be processed before regular messages
+HIGH_PRIORITY = 0
+NORMAL_PRIORITY = 1
+
+_queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
 _lock = asyncio.Lock()
+_consumer_task: asyncio.Task | None = None
 
 
 async def _delayed_put(item: dict, delay: float) -> None:
     await asyncio.sleep(delay)
-    async with _condition:
-        _queue.append(item)
-        _condition.notify()
+    priority = HIGH_PRIORITY if item.get("priority") else NORMAL_PRIORITY
+    await _queue.put((priority, item))
 
 
 async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
@@ -75,15 +77,12 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
         "priority": priority,
     }
 
-    async with _condition:
-        if priority:
-            # Events go to the front of the queue
-            _queue.appendleft(item)
-            log_debug(f"[QUEUE] High-priority message enqueued from chat {chat_id} by user {user_id}")
-        else:
-            _queue.append(item)
-            log_debug(f"[QUEUE] Regular message enqueued from chat {chat_id} by user {user_id}")
-        _condition.notify()
+    priority_val = HIGH_PRIORITY if priority else NORMAL_PRIORITY
+    await _queue.put((priority_val, item))
+    if priority:
+        log_debug(f"[QUEUE] High-priority message enqueued from chat {chat_id} by user {user_id}")
+    else:
+        log_debug(f"[QUEUE] Regular message enqueued from chat {chat_id} by user {user_id}")
 
 
 async def compact_similar_messages(first: dict) -> list:
@@ -93,16 +92,16 @@ async def compact_similar_messages(first: dict) -> list:
     ts = first["timestamp"]
     candidates = []
     
-    # Convert deque to list for iteration and removal
-    queue_items = list(_queue)
-    for item in queue_items:
+    # Convert internal queue list to iterate and remove
+    queue_items = list(_queue._queue)
+    for prio, item in queue_items:
         if len(batch) >= 5:
             break
         if item["chat_id"] == chat_id and item["timestamp"] - ts <= 600:
-            candidates.append(item)
+            candidates.append((prio, item))
 
-    for item in candidates:
-        _queue.remove(item)
+    for prio, item in candidates:
+        _queue._queue.remove((prio, item))
         batch.append(item)
 
     batch.sort(key=lambda x: x["timestamp"])
@@ -115,15 +114,20 @@ async def compact_similar_messages(first: dict) -> list:
 
 async def start_queue_loop() -> None:
     """Continuously process queued messages one at a time."""
+    log_info("[QUEUE] Consumer loop started")
     while True:
-        async with _condition:
-            while not _queue:
-                await _condition.wait()
-            item = _queue.popleft()
+        try:
+            priority, item = await _queue.get()
+            log_debug(
+                f"[QUEUE] Dequeued message from chat {item.get('chat_id')} (priority={priority})"
+            )
 
-        async with _lock:
-            batch = await compact_similar_messages(item)
-            final = batch[-1]
+            async with _lock:
+                batch = await compact_similar_messages(item)
+                final = batch[-1]
+                log_debug(
+                    f"[QUEUE] Processing message from chat {final.get('chat_id')}"
+                )
 
             plugin = plugin_instance.get_plugin()
             if not plugin:
@@ -189,9 +193,18 @@ async def start_queue_loop() -> None:
                     )
             except Exception as e:  # pragma: no cover - plugin may misbehave
                 log_error(
-                    f"[ERROR] Failed to process message from chat {final['chat_id']}: {e}",
-                    e,
+                    f"[ERROR] Failed to process message from chat {final['chat_id']}: {e}\n{traceback.format_exc()}",
                 )
+            finally:
+                for _ in batch:
+                    _queue.task_done()
+        except asyncio.CancelledError:
+            log_info("[QUEUE] Consumer loop cancelled")
+            break
+        except Exception as e:
+            log_error(
+                f"[QUEUE] Unexpected error in consumer loop: {repr(e)}\n{traceback.format_exc()}"
+            )
 
 
 async def enqueue_event(bot, prompt_data) -> None:
@@ -205,26 +218,35 @@ async def enqueue_event(bot, prompt_data) -> None:
         log_error("[QUEUE] Invalid event payload: missing 'description' in input.payload")
         return
 
-    async with _condition:
-        item = {
-            "bot": bot,
-            "message": None,  # Events don't have actual messages
-            "chat_id": "TARDIS/system/events",
-            "timestamp": time.time(),
-            "context": {},
-            "priority": True,
-            "event_prompt": prompt_data,  # Special event data
-        }
+    item = {
+        "bot": bot,
+        "message": None,  # Events don't have actual messages
+        "chat_id": "TARDIS/system/events",
+        "timestamp": time.time(),
+        "context": {},
+        "priority": True,
+        "event_prompt": prompt_data,  # Special event data
+    }
 
-        # Check to avoid duplicates in the queue
-        for queued_item in _queue:
-            if queued_item.get("event_prompt") == prompt_data:
-                log_warning("[QUEUE] Duplicate event detected, not added to the queue")
-                return
+    # Check to avoid duplicates in the queue
+    for prio, queued_item in list(_queue._queue):
+        if queued_item.get("event_prompt") == prompt_data:
+            log_warning("[QUEUE] Duplicate event detected, not added to the queue")
+            return
 
-        # Add the event to the queue
-        # Events always go to the front
-        _queue.appendleft(item)
-        log_debug(f"[QUEUE] Event added to the queue with priority: {prompt_data}")
-        log_debug(f"[QUEUE] Current queue state: {list(_queue)}")
-        _condition.notify()
+    await _queue.put((HIGH_PRIORITY, item))
+    log_debug(f"[QUEUE] Event added to the queue with priority: {prompt_data}")
+    log_debug(f"[QUEUE] Current queue state: {list(_queue._queue)}")
+
+
+async def run() -> None:
+    """Convenience wrapper to launch the consumer task if not running."""
+    global _consumer_task
+
+    if _consumer_task and not _consumer_task.done():
+        log_debug("[QUEUE] Consumer already running")
+        return
+
+    _consumer_task = asyncio.create_task(start_queue_loop())
+    log_info("[QUEUE] Consumer task started")
+

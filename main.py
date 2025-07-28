@@ -238,6 +238,10 @@ if __name__ == "__main__":
             initializer = CoreInitializer()
             await initializer.initialize_all()
             log_info("[main] Core components initialized successfully")
+            # Start message queue consumer
+            from core import message_queue
+            asyncio.create_task(message_queue.run())
+            log_info("[main] Message queue consumer started")
         except Exception as e:
             log_error(f"[main] Critical error initializing core components: {repr(e)}")
             import traceback

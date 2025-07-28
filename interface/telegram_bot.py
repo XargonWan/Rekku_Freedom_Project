@@ -736,8 +736,8 @@ async def plugin_startup_callback(application):
         except Exception as e:
             log_error(f"[plugin] Error during post_init start: {repr(e)}", e)
 
-    # Start the queue loop after the application is ready
-    application.create_task(message_queue.start_queue_loop())
+    # Start the queue consumer after the application is ready
+    application.create_task(message_queue.run())
 
 
 async def start_bot():
