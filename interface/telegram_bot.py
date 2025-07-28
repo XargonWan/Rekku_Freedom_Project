@@ -862,6 +862,21 @@ class TelegramInterface:
     def __init__(self, api_id, api_hash, bot_token):
         self.client = TelegramClient('bot', api_id, api_hash).start(bot_token=bot_token)
 
+    @staticmethod
+    def get_supported_action_types() -> list[str]:
+        """Return action types supported by this interface."""
+        return ["message"]
+
+    @staticmethod
+    def get_supported_actions() -> dict:
+        """Return a compact description of supported actions."""
+        return {
+            "message": (
+                "Send messages using 'chat_id' and optional 'thread_id' for replies. "
+                "Use Markdown. Interface: telegram_bot"
+            )
+        }
+
     async def send_message(self, chat_id, text):
         """Send a message to a specific chat."""
         from core.transport_layer import universal_send

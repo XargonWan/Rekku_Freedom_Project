@@ -10,6 +10,18 @@ class DiscordInterface:
         # Initialize Discord client
         pass
 
+    @staticmethod
+    def get_supported_action_types() -> list[str]:
+        """Return action types supported by this interface."""
+        return ["message"]
+
+    @staticmethod
+    def get_supported_actions() -> dict:
+        """Return a compact description of supported actions."""
+        return {
+            "message": "Send messages using 'channel_id'. Interface: discord_bot"
+        }
+
     async def send_message(self, channel_id, text):
         """Send a message to a Discord channel."""
         try:
