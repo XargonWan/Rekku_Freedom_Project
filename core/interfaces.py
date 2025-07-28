@@ -4,8 +4,11 @@ from typing import Any, Optional
 
 from core.logging_utils import log_debug, log_warning
 
-# Internal storage for interface objects
-_INTERFACES: dict[str, Any] = {}
+# Global registry for interface objects
+INTERFACE_REGISTRY: dict[str, Any] = {}
+
+# Backwards-compatibility alias
+_INTERFACES = INTERFACE_REGISTRY
 
 
 def register_interface(name: str, interface_obj: Any) -> None:
