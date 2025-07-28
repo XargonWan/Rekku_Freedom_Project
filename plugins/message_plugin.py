@@ -24,14 +24,14 @@ class MessagePlugin:
     def get_supported_actions(self):
         """Return ultra-compact instructions for supported actions."""
         return {
-            "message": "Send text messages: {\"actions\":[{\"type\":\"message\",\"interface\":\"telegram\",\"payload\":{\"text\":\"...\",\"target\":input.payload.source.chat_id,\"thread_id\":input.payload.source.thread_id}}]} - When target equals source chat_id, message appears as reply to original message."
+            "message": "Send text messages: {\"actions\":[{\"type\":\"message\",\"interface\":\"telegram_bot\",\"payload\":{\"text\":\"...\",\"target\":input.payload.source.chat_id,\"thread_id\":input.payload.source.thread_id}}]} - When target equals source chat_id, message appears as reply to original message."
         }
 
     async def execute_action(self, action: dict, context: dict, bot, original_message):
         """Execute a message action."""
         try:
             payload = action.get("payload", {})
-            interface = action.get("interface", "telegram")
+            interface = action.get("interface", "telegram_bot")
             
             await self._handle_message_action(action, context, bot, original_message)
             
@@ -51,7 +51,7 @@ class MessagePlugin:
         text = payload.get("text", "")
         target = payload.get("target")
         thread_id = payload.get("thread_id")
-        interface = action.get("interface", "telegram")
+        interface = action.get("interface", "telegram_bot")
         
         log_debug(f"[message_plugin] Handling message action: {text[:50]}...")
         log_debug(f"[message_plugin] Target: {target}, Thread: {thread_id}, Interface: {interface}")
@@ -79,7 +79,7 @@ class MessagePlugin:
             return
 
         # Route to appropriate interface
-        if interface == "telegram":
+        if interface in ("telegram", "telegram_bot"):
             await self._send_telegram_message(bot, target, text, thread_id, original_message)
         else:
             log_warning(f"[message_plugin] Unsupported interface: {interface}")
