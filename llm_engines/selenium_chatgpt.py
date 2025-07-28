@@ -34,9 +34,15 @@ import aiomysql
 
 class ChatLinkStore:
     def __init__(self):
-        asyncio.run(self._ensure_table())
+        self._table_ensured = False
+        # Don't use asyncio.run() in __init__, it breaks the event loop
+        # We'll ensure the table exists on first use instead
+        pass
 
     async def _ensure_table(self) -> None:
+        if self._table_ensured:
+            return
+            
         conn = await get_conn()
         try:
             async with conn.cursor() as cur:
@@ -52,10 +58,12 @@ class ChatLinkStore:
                     )
                     """
                 )
+                self._table_ensured = True
         finally:
             conn.close()
 
     async def get_link(self, telegram_chat_id: int, thread_id: Optional[int]) -> Optional[str]:
+        await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
         try:
             async with conn.cursor(aiomysql.DictCursor) as cur:
@@ -69,6 +77,7 @@ class ChatLinkStore:
             conn.close()
 
     async def save_link(self, telegram_chat_id: int, thread_id: Optional[int], chatgpt_chat_id: str) -> None:
+        await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
         try:
             async with conn.cursor() as cur:
@@ -88,6 +97,7 @@ class ChatLinkStore:
         )
 
     async def mark_full(self, chatgpt_chat_id: str) -> None:
+        await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
         try:
             async with conn.cursor() as cur:
@@ -101,6 +111,7 @@ class ChatLinkStore:
         log_debug(f"[chatlink] Marked chat {chatgpt_chat_id} as full")
 
     async def is_full(self, chatgpt_chat_id: str) -> bool:
+        await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
         try:
             async with conn.cursor(aiomysql.DictCursor) as cur:
@@ -117,6 +128,7 @@ class ChatLinkStore:
 
     async def remove(self, telegram_chat_id: int, thread_id: Optional[int]) -> bool:
         """Remove mapping for given Telegram chat."""
+        await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
         try:
             async with conn.cursor() as cur:
