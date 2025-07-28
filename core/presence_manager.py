@@ -19,15 +19,15 @@ presence_config = {
 
 # 🧠 Emotion → re-evaluation + crystallization
 async def evaluate_emotions():
-    emotions = get_active_emotions()
+    emotions = await get_active_emotions()
     now = datetime.now(timezone.utc)
 
     for em in emotions:
         check_time = datetime.fromisoformat(em["next_check"].replace("Z", "+00:00"))
         log_debug(f"[PresenceManager] Reassessing emotion {em['id']} ({em['emotion']})")
 
-        delta = process_triggers_for_emotion(em)  # returns +1, -1, 0, etc.
-        update_emotion_intensity(em["id"], delta)
+        delta = await process_triggers_for_emotion(em)  # returns +1, -1, 0, etc.
+        await update_emotion_intensity(em["id"], delta)
 
         log_debug(f"[PresenceManager] Valutazione emozione: {em}")
         log_debug(f"[PresenceManager] Delta calcolato: {delta}")
@@ -36,15 +36,15 @@ async def evaluate_emotions():
 
         # 💀 If intensity reaches zero → resolved
         if em["intensity"] + delta <= 0:
-            mark_emotion_resolved(em["id"])
+            await mark_emotion_resolved(em["id"])
             log_debug(f"[PresenceManager] Emotion resolved: {em['id']}")
 
         # 💎 Automatic crystallization if intensity is high
         elif em["intensity"] + delta >= 10:
-            crystallize_emotion(em["id"])
+            await crystallize_emotion(em["id"])
             log_debug(f"[PresenceManager] 💎 Emotion crystallized: {em['emotion']} ({em['id']})")
 
-        apply_emotion_decay(em)
+        await apply_emotion_decay(em)
 
 # ♻️ Main loop
 async def presence_loop():
@@ -58,11 +58,11 @@ async def reflect_on_recent_responses():
     # Assumption: function defined elsewhere in the core
     from core.llm_logic import evaluate_transformative_by_llm
 
-    responses = get_recent_responses(limit=10)
+    responses = await get_recent_responses(limit=10)
     for resp in responses:
         if await evaluate_transformative_by_llm(resp["content"]):
             meta = get_transformative_metadata(resp["content"])
-            insert_memory(
+            await insert_memory(
                 content=resp["content"],
                 author="rekku",
                 source=meta["source"],
@@ -88,7 +88,7 @@ def get_transformative_metadata(response_text: str) -> dict:
         "source": "reflection"
     }
 
-def apply_emotion_decay(emotion: dict):
+async def apply_emotion_decay(emotion: dict):
     """
     Slowly reduces the intensity if the emotion is not reinforced.
     Only works if `decay_enabled` is on.
@@ -100,9 +100,9 @@ def apply_emotion_decay(emotion: dict):
 
     intensity = emotion.get("intensity", 0)
     if intensity > 0:
-        update_emotion_intensity(emotion["id"], delta=-1)
+        await update_emotion_intensity(emotion["id"], delta=-1)
         log_debug(f"[Decay] 🕯️ Emotion {emotion['id']} decreasing: {intensity} → {intensity - 1}")
 
         if intensity - 1 <= 0:
-            mark_emotion_resolved(emotion["id"])
+            await mark_emotion_resolved(emotion["id"])
             log_debug(f"[Decay] 💤 Emotion resolved due to depletion: {emotion['id']}")

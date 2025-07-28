@@ -1,6 +1,7 @@
 # llm_engines/manual.py
 
 from core import say_proxy, message_map
+import asyncio
 from core.telegram_utils import truncate_message
 from core.config import TRAINER_ID
 from core.ai_plugin_base import AIPluginBase
@@ -14,7 +15,14 @@ class ManualAIPlugin(AIPluginBase):
         from core.notifier import set_notifier
 
         # Initialize the persistent mapping table
-        message_map.init_table()
+        try:
+            loop = asyncio.get_running_loop()
+            if loop and loop.is_running():
+                loop.create_task(message_map.init_table())
+            else:
+                asyncio.run(message_map.init_table())
+        except RuntimeError:
+            asyncio.run(message_map.init_table())
 
         if notify_fn:
             log_debug("[manual] Using custom notification function.")

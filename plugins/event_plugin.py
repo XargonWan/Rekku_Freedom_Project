@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from core.ai_plugin_base import AIPluginBase
 from core.db import insert_scheduled_event, get_due_events, mark_event_delivered
 from core.logging_utils import log_debug, log_info, log_error, log_warning
+import traceback
 import asyncio
 import json
 import time
@@ -30,25 +31,42 @@ class EventPlugin(AIPluginBase):
 
     async def start(self):
         """Start the event scheduler."""
-        log_info(f"[event_plugin] start() called, scheduler_running={EventPlugin._scheduler_running}")
-        if not EventPlugin._scheduler_running:
-            EventPlugin._scheduler_running = True
-            EventPlugin._scheduler_task = asyncio.create_task(self._event_scheduler())
-            log_info("[event_plugin] Event scheduler started (singleton)")
-        else:
-            log_warning("[event_plugin] Scheduler already running globally, ignoring start() call")
+        log_info(
+            f"[event_plugin] start() called, scheduler_running={EventPlugin._scheduler_running}"
+        )
+        task = EventPlugin._scheduler_task
+
+        if task and not task.done():
+            log_warning(
+                "[event_plugin] Scheduler already running globally, ignoring start() call"
+            )
+            return
+
+        if task and task.done():
+            log_warning("[event_plugin] Previous scheduler task was not running; restarting")
+
+        EventPlugin._scheduler_running = True
+        EventPlugin._scheduler_task = asyncio.create_task(self._event_scheduler())
+        log_info("[event_plugin] Event scheduler started (singleton)")
 
     async def stop(self):
         """Stop the event scheduler."""
         EventPlugin._scheduler_running = False
-        if EventPlugin._scheduler_task:
-            EventPlugin._scheduler_task.cancel()
+
+        task = EventPlugin._scheduler_task
+        if not task:
+            log_info("[event_plugin] Event scheduler not running")
+            return
+
+        if not task.done():
+            task.cancel()
             try:
-                await EventPlugin._scheduler_task
+                await task
             except asyncio.CancelledError:
                 pass
-            EventPlugin._scheduler_task = None
-            log_info("[event_plugin] Event scheduler stopped")
+
+        EventPlugin._scheduler_task = None
+        log_info("[event_plugin] Event scheduler stopped")
 
     def get_supported_action_types(self):
         """Return the action types this plugin supports."""
@@ -176,7 +194,9 @@ Create scheduled reminders with UTC timestamps:
                 log_info("[event_plugin] Event scheduler cancelled")
                 break
             except Exception as e:
-                log_error(f"[event_plugin] Error in event scheduler: {repr(e)}")
+                log_error(
+                    f"[event_plugin] Error in event scheduler: {repr(e)}\n{traceback.format_exc()}"
+                )
                 await asyncio.sleep(60)  # Wait longer on error
         log_info("[event_plugin] Event scheduler loop ended")
 
