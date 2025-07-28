@@ -42,8 +42,56 @@ async def test_connection() -> bool:
         print(f"[test_connection] Error: {e}")
         return False
 
+async def migrate_settings_table():
+    """Migrate settings table from 'key' to 'setting_key' column."""
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            # Check if migration is needed by checking column names
+            await cur.execute("SHOW COLUMNS FROM settings LIKE 'key'")
+            has_old_column = await cur.fetchone()
+            
+            if has_old_column:
+                print("[migrate_settings] Migrating settings table: key -> setting_key")
+                
+                # Create new table with correct column name
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS settings_new (
+                        `setting_key` VARCHAR(255) PRIMARY KEY,
+                        `value` TEXT NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Copy data from old table to new
+                await cur.execute("""
+                    INSERT INTO settings_new (`setting_key`, `value`, created_at, updated_at)
+                    SELECT `key`, `value`, created_at, updated_at FROM settings
+                    ON DUPLICATE KEY UPDATE 
+                        `value` = VALUES(`value`),
+                        updated_at = VALUES(updated_at)
+                """)
+                
+                # Drop old table and rename new one
+                await cur.execute("DROP TABLE settings")
+                await cur.execute("RENAME TABLE settings_new TO settings")
+                
+                print("[migrate_settings] Migration completed successfully")
+            else:
+                print("[migrate_settings] Migration not needed - table already up to date")
+                
+    except Exception as e:
+        print(f"[migrate_settings] Migration error: {e}")
+    finally:
+        conn.close()
+
 async def init_db() -> None:
     """Asynchronously initialize essential MariaDB tables."""
+    
+    # Run migration first to handle existing installations
+    await migrate_settings_table()
+    
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
