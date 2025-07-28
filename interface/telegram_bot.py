@@ -114,13 +114,13 @@ async def purge_mappings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != TRAINER_ID:
         return
     # Ensure table exists even if manual plugin never loaded
-    message_map.init_table()
+    await message_map.init_table()
     try:
         days = int(context.args[0]) if context.args else 7
     except ValueError:
         await update.message.reply_text("❌ Use: /purge_map [days]")
         return
-    deleted = message_map.purge_old_entries(days * 86400)
+    deleted = await message_map.purge_old_entries(days * 86400)
     await update.message.reply_text(
         f"\U0001f5d1 Removed {deleted} mappings older than {days} days."
     )
@@ -466,7 +466,7 @@ async def manage_chat_id_command(update: Update, context: ContextTypes.DEFAULT_T
             except ValueError:
                 await update.message.reply_text("Invalid ID")
                 return
-        recent_chats.reset_chat(cid)
+        await recent_chats.reset_chat(cid)
         await update.message.reply_text(f"✅ Reset mapping for `{cid}`.", parse_mode="Markdown")
     else:
         await update.message.reply_text("Usage: /manage_chat_id [reset <id>|reset this>")
@@ -736,8 +736,8 @@ async def plugin_startup_callback(application):
         except Exception as e:
             log_error(f"[plugin] Error during post_init start: {repr(e)}", e)
 
-    # Start the queue loop after the application is ready
-    application.create_task(message_queue.start_queue_loop())
+    # Start the queue consumer after the application is ready
+    application.create_task(message_queue.run())
 
 
 async def start_bot():

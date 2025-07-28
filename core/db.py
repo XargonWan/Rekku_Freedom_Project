@@ -2,6 +2,7 @@
 
 import os
 from datetime import datetime, timezone
+import asyncio
 
 import aiomysql
 
@@ -18,9 +19,15 @@ DB_NAME = os.getenv("DB_NAME", "rekku")
 log_info(f"[db] Configuration: HOST={DB_HOST}, PORT={DB_PORT}, USER={DB_USER}, DB_NAME={DB_NAME}")
 log_debug(f"[db] Password length: {len(DB_PASS)} characters")
 
+_db_initialized = False
+_db_init_lock = asyncio.Lock()
+
 async def get_conn() -> aiomysql.Connection:
     """Return an async MariaDB connection using aiomysql."""
-    return await aiomysql.connect(
+    log_debug(
+        f"[db] Opening connection to {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    )
+    conn = await aiomysql.connect(
         host=DB_HOST,
         port=DB_PORT,
         user=DB_USER,
@@ -28,6 +35,8 @@ async def get_conn() -> aiomysql.Connection:
         db=DB_NAME,
         autocommit=True,
     )
+    log_debug("[db] Connection opened")
+    return conn
 
 async def test_connection() -> bool:
     """Check if the database is reachable."""
@@ -135,6 +144,17 @@ async def init_db() -> None:
     finally:
         conn.close()
 
+
+async def ensure_core_tables() -> None:
+    """Ensure core tables exist by initializing them once."""
+    global _db_initialized
+    if _db_initialized:
+        return
+    async with _db_init_lock:
+        if not _db_initialized:
+            await init_db()
+            _db_initialized = True
+
 # 🧠 Insert a new memory into the database
 async def insert_memory(
     content: str,
@@ -149,6 +169,8 @@ async def insert_memory(
 ) -> None:
     if not timestamp:
         timestamp = datetime.now(timezone.utc).isoformat()
+
+    await ensure_core_tables()
 
     conn = await get_conn()
     try:
@@ -177,6 +199,7 @@ async def insert_emotion_event(
     decision_logic: str,
     next_check: str,
 ) -> None:
+    await ensure_core_tables()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
@@ -223,6 +246,7 @@ async def get_active_emotions() -> list[dict]:
 
 # ➕ Modify the intensity of an emotion
 async def update_emotion_intensity(eid: str, delta: int) -> None:
+    await ensure_core_tables()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
@@ -241,6 +265,7 @@ async def update_emotion_intensity(eid: str, delta: int) -> None:
 
 # 💀 Mark an emotion as resolved
 async def mark_emotion_resolved(eid: str) -> None:
+    await ensure_core_tables()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
@@ -259,6 +284,7 @@ async def mark_emotion_resolved(eid: str) -> None:
 
 # 💎 Crystallize an active emotion
 async def crystallize_emotion(eid: str) -> None:
+    await ensure_core_tables()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
@@ -305,6 +331,7 @@ async def insert_scheduled_event(
     created_by: str = "rekku",
 ) -> None:
     """Store a new scheduled event."""
+    await ensure_core_tables()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
@@ -339,18 +366,25 @@ async def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5
     if now is None:
         now = datetime.now(timezone.utc)
 
+    log_debug(f"[get_due_events] Checking events at UTC {now.isoformat()}")
+
+    query = "SELECT * FROM scheduled_events WHERE delivered = 0 ORDER BY id"
+    log_debug(f"[get_due_events] Executing query: {query}")
+
     conn = await get_conn()
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute(
-                "SELECT * FROM scheduled_events WHERE delivered = 0 ORDER BY id"
-            )
+            await cur.execute(query)
             rows = await cur.fetchall()
+            log_debug(f"[get_due_events] Retrieved {len(rows)} rows")
+            for row in rows:
+                log_debug(f"[get_due_events] Row: {dict(row)}")
     except Exception as e:
-        print(f"[get_due_events] Error: {e}")
+        log_error(f"[get_due_events] Error executing query: {repr(e)}")
         rows = []
     finally:
         conn.close()
+        log_debug("[get_due_events] Connection closed")
 
     due = []  # Initialize the list to store due events
     log_debug(f"[get_due_events] Retrieved {len(rows)} events from the database")
@@ -383,6 +417,7 @@ async def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5
 
 async def mark_event_delivered(event_id: int) -> None:
     """Mark an event as delivered."""
+    await ensure_core_tables()
     conn = await get_conn()
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:

@@ -20,6 +20,7 @@ async def init_blocklist_table():
         conn.close()
 
 async def block_user(user_id: int, reason: str = None):
+    await init_blocklist_table()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
@@ -34,6 +35,7 @@ async def block_user(user_id: int, reason: str = None):
         conn.close()
 
 async def unblock_user(user_id: int):
+    await init_blocklist_table()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
@@ -42,6 +44,7 @@ async def unblock_user(user_id: int):
         conn.close()
 
 async def is_blocked(user_id: int) -> bool:
+    await init_blocklist_table()
     conn = await get_conn()
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:
@@ -52,6 +55,7 @@ async def is_blocked(user_id: int) -> bool:
         conn.close()
 
 async def get_block_list() -> list:
+    await init_blocklist_table()
     conn = await get_conn()
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:
@@ -62,6 +66,7 @@ async def get_block_list() -> list:
         conn.close()
 
 async def get_block_details() -> list[dict]:
+    await init_blocklist_table()
     conn = await get_conn()
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:

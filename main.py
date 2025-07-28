@@ -146,6 +146,7 @@ async def initialize_database():
     # Verifica dei permessi dell'utente del database
     async def check_permissions():
         log_debug("[main] Checking database permissions...")
+        conn = None
         try:
             conn = await get_conn()
             async with conn.cursor() as cur:
@@ -157,7 +158,8 @@ async def initialize_database():
             log_error(f"[main] Error checking database permissions: {repr(e)}")
             raise
         finally:
-            conn.close()
+            if conn:
+                conn.close()
 
     try:
         grants = await check_permissions()
@@ -236,6 +238,10 @@ if __name__ == "__main__":
             initializer = CoreInitializer()
             await initializer.initialize_all()
             log_info("[main] Core components initialized successfully")
+            # Start message queue consumer
+            from core import message_queue
+            asyncio.create_task(message_queue.run())
+            log_info("[main] Message queue consumer started")
         except Exception as e:
             log_error(f"[main] Critical error initializing core components: {repr(e)}")
             import traceback

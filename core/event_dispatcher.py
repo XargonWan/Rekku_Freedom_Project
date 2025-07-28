@@ -20,7 +20,7 @@ async def dispatch_pending_events(bot):
     now_local = datetime.now(tz)
     now_utc = now_local.astimezone(timezone.utc)
 
-    events = get_due_events(now_utc)
+    events = await get_due_events(now_utc)
     if not events:
         return 0
 
@@ -52,7 +52,7 @@ async def dispatch_pending_events(bot):
         summary = scheduled_dt.strftime('%Y-%m-%d %H:%M') + " → " + str(ev['description'])
 
         # Check to avoid duplicate messages in the queue
-        if not mark_event_delivered(ev["id"]):
+        if not await mark_event_delivered(ev["id"]):
             log_warning(f"[event_dispatcher] Event already marked as delivered: {ev['id']}")
             continue
 
@@ -91,7 +91,7 @@ async def dispatch_pending_events(bot):
                     new_dt = None
 
                 if new_dt is not None:
-                    insert_scheduled_event(
+                    await insert_scheduled_event(
                         new_dt.isoformat(),
                         recurrence_type,
                         ev["description"],

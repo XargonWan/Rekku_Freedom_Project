@@ -31,10 +31,10 @@ async def build_json_prompt(message, context_memory) -> dict:
 
     # === 2. Tags and memory lookup ===
     tags = extract_tags(text)
-    expanded_tags = expand_tags(tags)
+    expanded_tags = await expand_tags(tags)
     memories = []
     if expanded_tags:
-        memories = search_memories(tags=expanded_tags, limit=5)
+        memories = await search_memories(tags=expanded_tags, limit=5)
 
     # === 3. Temporal and weather info ===
     location = os.getenv("WEATHER_LOCATION", "Kyoto")
@@ -178,7 +178,7 @@ async def search_memories(tags=None, scope=None, limit=5):
     finally:
         conn.close()
 
-def build_prompt(
+async def build_prompt(
     user_text: str,
     identity_prompt: str = "",
     extract_tags_fn=extract_tags,
@@ -187,8 +187,8 @@ def build_prompt(
     log_path: str = "logs/prompt_cycle.log"
 ) -> list:
     tags = extract_tags_fn(user_text) if extract_tags_fn else []
-    expanded_tags = expand_tags(tags) if tags else []
-    memories = search_memories_fn(tags=expanded_tags, limit=limit) if search_memories_fn else []
+    expanded_tags = await expand_tags(tags) if tags else []
+    memories = await search_memories_fn(tags=expanded_tags, limit=limit) if search_memories_fn else []
 
     memory_block = "\n".join(f"- {mem}" for mem in memories) if memories else "No relevant memory found."
 
