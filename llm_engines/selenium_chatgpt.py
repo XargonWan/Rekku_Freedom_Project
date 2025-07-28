@@ -49,7 +49,7 @@ class ChatLinkStore:
                 await cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS chatgpt_links (
-                        telegram_chat_id INTEGER NOT NULL,
+                        telegram_chat_id VARCHAR(64) NOT NULL,
                         thread_id INTEGER,
                         chatgpt_chat_id TEXT NOT NULL,
                         is_full INTEGER DEFAULT 0,
@@ -62,7 +62,7 @@ class ChatLinkStore:
         finally:
             conn.close()
 
-    async def get_link(self, telegram_chat_id: int, thread_id: Optional[int]) -> Optional[str]:
+    async def get_link(self, telegram_chat_id: str, thread_id: Optional[int]) -> Optional[str]:
         await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
         try:
@@ -76,7 +76,7 @@ class ChatLinkStore:
         finally:
             conn.close()
 
-    async def save_link(self, telegram_chat_id: int, thread_id: Optional[int], chatgpt_chat_id: str) -> None:
+    async def save_link(self, telegram_chat_id: str, thread_id: Optional[int], chatgpt_chat_id: str) -> None:
         await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
         try:
@@ -126,7 +126,7 @@ class ChatLinkStore:
         log_debug(f"[chatlink] is_full({chatgpt_chat_id}) -> {result}")
         return result
 
-    async def remove(self, telegram_chat_id: int, thread_id: Optional[int]) -> bool:
+    async def remove(self, telegram_chat_id: str, thread_id: Optional[int]) -> bool:
         """Remove mapping for given Telegram chat."""
         await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
@@ -161,7 +161,7 @@ GRACE_PERIOD_SECONDS = 3
 MAX_WAIT_TIMEOUT_SECONDS = 5 * 60  # hard ceiling
 
 # Cache the last response per Telegram chat to avoid duplicates
-previous_responses: Dict[int, str] = {}
+previous_responses: Dict[str, str] = {}
 response_cache_lock = threading.Lock()
 
 # Persistent mapping between Telegram chats and ChatGPT conversations
@@ -169,19 +169,19 @@ chat_link_store = ChatLinkStore()
 queue_paused = False
 
 
-def get_previous_response(chat_id: int) -> str:
+def get_previous_response(chat_id: str) -> str:
     """Return the cached response for the given Telegram chat."""
     with response_cache_lock:
         return previous_responses.get(chat_id, "")
 
 
-def update_previous_response(chat_id: int, new_text: str) -> None:
+def update_previous_response(chat_id: str, new_text: str) -> None:
     """Store ``new_text`` for ``chat_id`` inside the cache."""
     with response_cache_lock:
         previous_responses[chat_id] = new_text
 
 
-def has_response_changed(chat_id: int, new_text: str) -> bool:
+def has_response_changed(chat_id: str, new_text: str) -> bool:
     """Return True if ``new_text`` is different from the cached value."""
     with response_cache_lock:
         old = previous_responses.get(chat_id)
