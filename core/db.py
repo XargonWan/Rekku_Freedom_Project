@@ -103,7 +103,7 @@ async def init_db() -> None:
             await cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS settings (
-                    `key` VARCHAR(255) PRIMARY KEY,
+                    `setting_key` VARCHAR(255) PRIMARY KEY,
                     `value` TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -127,7 +127,7 @@ async def init_db() -> None:
             # Insert default settings if they don't exist
             await cur.execute(
                 """
-                INSERT IGNORE INTO settings (`key`, `value`) VALUES ('active_llm', 'manual')
+                INSERT IGNORE INTO settings (`setting_key`, `value`) VALUES ('active_llm', 'manual')
                 """
             )
     except Exception as e:

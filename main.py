@@ -3,7 +3,7 @@ import signal
 import sys
 import subprocess
 import asyncio
-from core.db import init_db, test_connection
+from core.db import init_db, test_connection, get_conn
 from core.blocklist import init_blocklist_table
 from core.config import get_active_llm
 from core.logging_utils import (
@@ -138,6 +138,32 @@ if __name__ == "__main__":
     # Clean up any leftover Chrome processes from previous runs
     cleanup_chrome_processes()
     
+        
+async def initialize_database():
+    """Initialize database with proper async handling."""
+    # Verifica dei permessi dell'utente del database
+    async def check_permissions():
+        try:
+            conn = await get_conn()
+            async with conn.cursor() as cur:
+                await cur.execute("SHOW GRANTS FOR CURRENT_USER()")
+                grants = await cur.fetchall()
+                return grants
+        finally:
+            conn.close()
+
+    grants = await check_permissions()
+    log_info(f"[main] Database user permissions: {grants}")
+
+    if not await test_connection():
+        log_error("[main] Database connection failed. Exiting.")
+        return False
+    
+    await init_db()
+    await init_blocklist_table()
+    log_info("[main] Database initialization completed successfully!")
+    return True
+    
     # Test DB connectivity and initialize tables with retry mechanism
     import time
     max_retries = 30
@@ -147,22 +173,11 @@ if __name__ == "__main__":
         try:
             log_info(f"[main] Attempting database connection (attempt {attempt + 1}/{max_retries})...")
             
-            # Verifica dei permessi dell'utente del database
-            async def check_permissions():
-                from core.db import execute_query
-                query = "SHOW GRANTS FOR CURRENT_USER;"
-                grants = await execute_query(query)
-                log_info(f"[main] Database user permissions: {grants}")
-
-            asyncio.run(check_permissions())
-
-            if not asyncio.run(test_connection()):
-                log_error("[main] Database connection failed. Exiting.")
-                sys.exit(1)
-            asyncio.run(init_db())
-            init_blocklist_table()
-            log_info("[main] Database initialization completed successfully!")
-            break
+            # Initialize database async
+            if asyncio.run(initialize_database()):
+                break
+            else:
+                raise Exception("Database initialization failed")
             
         except Exception as e:
             if attempt < max_retries - 1:
