@@ -61,7 +61,8 @@ class ChatLinkStore:
                         -- message_thread_id is stored as text; "0" means no thread
                         message_thread_id TEXT,
                         link VARCHAR(2048),
-                        PRIMARY KEY (chat_id, message_thread_id)
+                        -- specify key length for TEXT columns
+                        PRIMARY KEY (chat_id(255), message_thread_id(255))
                     )
                     """
                 )
