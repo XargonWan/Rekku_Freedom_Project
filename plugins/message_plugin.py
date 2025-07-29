@@ -109,13 +109,12 @@ class MessagePlugin:
             reply_to = original_message.message_id
             log_debug(f"[message_plugin] Adding reply_to_message_id: {reply_to}")
 
+        send_payload = {"text": text, "target": target}
+        if message_thread_id is not None:
+            send_payload["message_thread_id"] = message_thread_id
+
         try:
-            await handler.send_message(
-                target,
-                text,
-                message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
-                reply_to=reply_to,
-            )
+            await handler.send_message(send_payload, original_message)
             log_info(
                 f"[message_plugin] Message successfully sent to {target} (thread: {message_thread_id}, reply_to: {reply_to})"
             )
