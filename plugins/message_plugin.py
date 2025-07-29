@@ -85,7 +85,7 @@ class MessagePlugin:
         if not message_thread_id and hasattr(original_message, "message_thread_id"):
             orig_thread = getattr(original_message, "message_thread_id", None)
             if orig_thread:
-                message_thread_id = orig_thread
+                message_thread_id = orig_thread  # fixed: use message_thread_id from original message
                 log_debug(
                     f"[message_plugin] No message_thread_id specified, using original message_thread_id: {message_thread_id}"
                 )
