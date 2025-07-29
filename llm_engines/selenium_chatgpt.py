@@ -58,6 +58,31 @@ class ChatLinkStore:
                     )
                     """
                 )
+                # ------------------------------------------------------------------
+                # Migration logic for legacy installations using `thread_id`
+                await cur.execute("SHOW COLUMNS FROM chatgpt_links LIKE 'message_thread_id'")
+                has_new = await cur.fetchone()
+                if not has_new:
+                    await cur.execute("SHOW COLUMNS FROM chatgpt_links LIKE 'thread_id'")
+                    old_col = await cur.fetchone()
+                    if old_col:
+                        await cur.execute(
+                            "ALTER TABLE chatgpt_links CHANGE thread_id message_thread_id INTEGER"
+                        )
+                        log_info(
+                            "[chatlink] Migrated column thread_id -> message_thread_id"
+                        )
+                    else:
+                        await cur.execute(
+                            "ALTER TABLE chatgpt_links ADD COLUMN message_thread_id INTEGER"
+                        )
+                        await cur.execute("ALTER TABLE chatgpt_links DROP PRIMARY KEY")
+                        await cur.execute(
+                            "ALTER TABLE chatgpt_links ADD PRIMARY KEY (chat_id, message_thread_id)"
+                        )
+                        log_info(
+                            "[chatlink] Added message_thread_id column and updated primary key"
+                        )
                 self._table_ensured = True
         finally:
             conn.close()
