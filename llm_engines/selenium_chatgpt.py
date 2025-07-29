@@ -40,7 +40,7 @@ class ChatLinkStore:
         pass
 
     def _normalize_thread_id(self, message_thread_id: Optional[int | str]) -> str:
-        """Return a thread identifier suitable for storage.
+        """Return ``message_thread_id`` as a string suitable for storage.
 
         The value ``"0"`` is used to represent chats without a thread."""
 
@@ -56,6 +56,7 @@ class ChatLinkStore:
                 await cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS chatgpt_links (
+                        -- chat_id is stored as text to allow non-numeric identifiers
                         chat_id TEXT NOT NULL,
                         -- message_thread_id is stored as text; "0" means no thread
                         message_thread_id TEXT,
