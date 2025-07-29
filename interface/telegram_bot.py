@@ -913,6 +913,9 @@ class TelegramInterface:
             ``message_thread_id``.
         original_message: object | None
             The triggering message; used for reply fallback handling.
+
+        ``message_thread_id`` is the correct Telegram parameter for replies in
+        topics and replaces the legacy ``thread_id`` name.
         """
 
         text = payload.get("text", "")

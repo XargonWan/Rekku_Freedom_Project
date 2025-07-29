@@ -89,7 +89,8 @@ async def send_with_thread_fallback(
 ) -> None:
     """Send a Telegram message with automatic thread fallback.
 
-    This helper mirrors the old ``_send_telegram_message`` logic so that any
+    ``message_thread_id`` is the correct Telegram Bot API parameter.  This
+    helper mirrors the old ``_send_telegram_message`` logic so that any
     interface can reuse the same behaviour.  It first tries to send with the
     provided ``message_thread_id`` and falls back to sending without it if the
     thread does not exist.  If ``fallback_chat_id`` is provided it will then try
