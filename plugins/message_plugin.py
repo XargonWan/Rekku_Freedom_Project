@@ -113,48 +113,16 @@ class MessagePlugin:
             await handler.send_message(
                 target,
                 text,
-                message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
+                message_thread_id=message_thread_id,
                 reply_to=reply_to,
             )
             log_info(
                 f"[message_plugin] Message successfully sent to {target} (thread: {message_thread_id}, reply_to: {reply_to})"
             )
         except Exception as e:
-            error_message = str(e)
-
-            if message_thread_id and ("thread not found" in error_message.lower()):
-                log_warning(
-                    f"[message_plugin] Thread {message_thread_id} not found in chat {target}, retrying without message_thread_id"
-                )
-                try:
-                    await handler.send_message(target, text, reply_to=reply_to)
-                    log_info(
-                        f"[message_plugin] Message successfully sent to {target} (fallback: no thread)"
-                    )
-                    return
-                except Exception as no_thread_error:
-                    log_error(
-                        f"[message_plugin] Fallback without thread also failed for {target}: {no_thread_error}"
-                    )
-            else:
-                log_error(
-                    f"[message_plugin] Failed to send message to {target} (thread: {message_thread_id}): {repr(e)}"
-                )
-
-            if hasattr(original_message, "chat_id") and target != original_message.chat_id:
-                try:
-                    fallback_message_thread_id = getattr(original_message, "message_thread_id", None)
-                    await handler.send_message(
-                        original_message.chat_id,
-                        text,
-                        message_thread_id=fallback_message_thread_id,  # fixed: correct param is message_thread_id
-                        reply_to=getattr(original_message, "message_id", None),
-                    )
-                    log_info(
-                        f"[message_plugin] Message successfully sent to fallback chat: {original_message.chat_id}"
-                    )
-                except Exception as fallback_error:
-                    log_error(f"[message_plugin] Fallback also failed: {fallback_error}")
+            log_error(
+                f"[message_plugin] Failed to send message to {target} (thread: {message_thread_id}): {repr(e)}"
+            )
 
 
 

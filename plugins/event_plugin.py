@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from core.ai_plugin_base import AIPluginBase
 from core.db import insert_scheduled_event, get_due_events, mark_event_delivered
 from core.logging_utils import log_debug, log_info, log_error, log_warning
+from core.telegram_utils import send_with_thread_fallback
 import traceback
 import asyncio
 import json
@@ -459,23 +460,21 @@ For recurring events, you can use:
     async def _send_via_telegram_transport(self, chat_id: int, text: str, message_thread_id: int = None, event_id: int = None):
         """Send message directly via Telegram transport layer."""
         try:
-            # Import the transport layer
-            from core.transport_layer import send_telegram_message
+            from interface.telegram_bot import application
+            if not application or not application.bot:
+                raise ImportError
 
-            # Create message context for the transport layer
-            send_kwargs = {
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "Markdown"  # Default parse mode
-            }
+            await send_with_thread_fallback(
+                application.bot,
+                chat_id,
+                text,
+                message_thread_id=message_thread_id,
+                parse_mode="Markdown",
+            )
 
-            if message_thread_id:
-                send_kwargs["message_thread_id"] = message_thread_id  # fixed: correct param is message_thread_id
-
-            # Send directly through transport layer
-            await send_telegram_message(**send_kwargs)
-
-            log_info(f"[event_plugin] ✅ Scheduled message sent to {chat_id} (event {event_id})")
+            log_info(
+                f"[event_plugin] ✅ Scheduled message sent to {chat_id} (event {event_id})"
+            )
 
         except ImportError:
             log_error(f"[event_plugin] Telegram transport layer not available for event {event_id}")
@@ -487,23 +486,23 @@ For recurring events, you can use:
     async def _fallback_send_telegram(self, chat_id: int, text: str, message_thread_id: int = None, event_id: int = None):
         """Fallback method to send via Telegram bot directly."""
         try:
-            # Try to get the Telegram bot instance from the interface
             from interface.telegram_bot import application
 
             if application and application.bot:
-                send_kwargs = {
-                    "chat_id": chat_id,
-                    "text": text,
-                    "parse_mode": "Markdown"
-                }
-
-                if message_thread_id:
-                    send_kwargs["message_thread_id"] = message_thread_id  # fixed: correct param is message_thread_id
-
-                await application.bot.send_message(**send_kwargs)
-                log_info(f"[event_plugin] ✅ Fallback Telegram send successful for event {event_id}")
+                await send_with_thread_fallback(
+                    application.bot,
+                    chat_id,
+                    text,
+                    message_thread_id=message_thread_id,
+                    parse_mode="Markdown",
+                )
+                log_info(
+                    f"[event_plugin] ✅ Fallback Telegram send successful for event {event_id}"
+                )
             else:
-                log_error(f"[event_plugin] No Telegram bot available for fallback send (event {event_id})")
+                log_error(
+                    f"[event_plugin] No Telegram bot available for fallback send (event {event_id})"
+                )
 
         except Exception as e:
             log_error(f"[event_plugin] Fallback Telegram send failed for event {event_id}: {repr(e)}")
