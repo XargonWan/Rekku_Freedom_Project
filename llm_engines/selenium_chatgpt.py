@@ -40,12 +40,12 @@ class ChatLinkStore:
         pass
 
     def _normalize_thread_id(self, message_thread_id: Optional[int]) -> int:
-        """Return ``message_thread_id`` or ``0`` when no thread is provided.
+        """Return ``message_thread_id`` or ``-1`` when no thread is provided.
 
-        ``0`` is used in the database to represent that the message is not
+        ``-1`` is used in the database to represent that the message is not
         associated with any Telegram forum thread.
         """
-        return message_thread_id or 0
+        return message_thread_id if message_thread_id is not None else -1
 
     async def _ensure_table(self) -> None:
         if self._table_ensured:

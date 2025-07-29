@@ -924,7 +924,7 @@ class TelegramInterface:
             return
 
         send_kwargs = {"chat_id": target, "text": text}
-        if thread_id:
+        if thread_id is not None:
             send_kwargs["message_thread_id"] = thread_id
 
         if (
@@ -948,7 +948,7 @@ class TelegramInterface:
         except Exception as e:
             error_message = str(e)
 
-            if thread_id and ("thread not found" in error_message.lower()):
+            if thread_id is not None and ("thread not found" in error_message.lower()):
                 log_warning(
                     f"[telegram_interface] Thread {thread_id} not found; retrying without thread"
                 )
@@ -986,7 +986,7 @@ class TelegramInterface:
                     "chat_id": original_message.chat_id,
                     "text": text,
                 }
-                if fallback_thread:
+                if fallback_thread is not None:
                     fallback_kwargs["message_thread_id"] = fallback_thread
                 if hasattr(original_message, "message_id"):
                     fallback_kwargs["reply_to_message_id"] = original_message.message_id
