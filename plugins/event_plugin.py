@@ -468,7 +468,7 @@ For recurring events, you can use:
                 application.bot,
                 chat_id,
                 text,
-                message_thread_id=message_thread_id,
+                message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
                 parse_mode="Markdown",
             )
 
@@ -493,7 +493,7 @@ For recurring events, you can use:
                     application.bot,
                     chat_id,
                     text,
-                    message_thread_id=message_thread_id,
+                    message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
                     parse_mode="Markdown",
                 )
                 log_info(

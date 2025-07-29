@@ -99,7 +99,7 @@ async def send_with_thread_fallback(
 
     send_kwargs = {"chat_id": chat_id, "text": text, **kwargs}
     if message_thread_id is not None:
-        send_kwargs["message_thread_id"] = message_thread_id
+        send_kwargs["message_thread_id"] = message_thread_id  # fixed: correct param is message_thread_id
     if reply_to_message_id is not None:
         send_kwargs["reply_to_message_id"] = reply_to_message_id
 

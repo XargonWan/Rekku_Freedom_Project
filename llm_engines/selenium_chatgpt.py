@@ -49,11 +49,9 @@ class ChatLinkStore:
                 await cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS chatgpt_links (
-                        chat_id VARCHAR(64) NOT NULL,
-                        message_thread_id INTEGER,
-                        chatgpt_chat_id TEXT NOT NULL,
-                        is_full INTEGER DEFAULT 0,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        chat_id BIGINT NOT NULL,
+                        message_thread_id BIGINT,
+                        link VARCHAR(2048),
                         PRIMARY KEY (chat_id, message_thread_id)
                     )
                     """
@@ -62,71 +60,37 @@ class ChatLinkStore:
         finally:
             conn.close()
 
-    async def get_link(self, chat_id: str, message_thread_id: Optional[int]) -> Optional[str]:
+    async def get_link(self, chat_id: int, message_thread_id: Optional[int]) -> Optional[str]:
         await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
         try:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(
-                    "SELECT chatgpt_chat_id FROM chatgpt_links WHERE chat_id = %s AND message_thread_id = %s",
-                    (str(chat_id), message_thread_id),
+                    "SELECT link FROM chatgpt_links WHERE chat_id = %s AND message_thread_id = %s",
+                    (chat_id, message_thread_id),
                 )
                 row = await cur.fetchone()
-                chat = row["chatgpt_chat_id"] if row else None
+                chat = row["link"] if row else None
                 log_debug(f"[chatlink] get_link {chat_id}/{message_thread_id} -> {chat}")
                 return chat
         finally:
             conn.close()
 
-    async def save_link(self, chat_id: str, message_thread_id: Optional[int], chatgpt_chat_id: str) -> None:
+    async def save_link(self, chat_id: int, message_thread_id: Optional[int], link: str) -> None:
         await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
         try:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    """
-                    REPLACE INTO chatgpt_links
-                        (chat_id, message_thread_id, chatgpt_chat_id, is_full, updated_at)
-                    VALUES (%s, %s, %s, 0, CURRENT_TIMESTAMP)
-                    """,
-                    (str(chat_id), message_thread_id, chatgpt_chat_id),
+                    "REPLACE INTO chatgpt_links (chat_id, message_thread_id, link) VALUES (%s, %s, %s)",
+                    (chat_id, message_thread_id, link),
                 )
                 await conn.commit()
         finally:
             conn.close()
         log_debug(
-            f"[chatlink] Saved mapping {chat_id}/{message_thread_id} -> {chatgpt_chat_id}"
+            f"[chatlink] Saved mapping {chat_id}/{message_thread_id} -> {link}"
         )
-
-    async def mark_full(self, chatgpt_chat_id: str) -> None:
-        await self._ensure_table()  # Ensure table exists before use
-        conn = await get_conn()
-        try:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "UPDATE chatgpt_links SET is_full=1, updated_at=CURRENT_TIMESTAMP WHERE chatgpt_chat_id=%s",
-                    (chatgpt_chat_id,),
-                )
-                await conn.commit()
-        finally:
-            conn.close()
-        log_debug(f"[chatlink] Marked chat {chatgpt_chat_id} as full")
-
-    async def is_full(self, chatgpt_chat_id: str) -> bool:
-        await self._ensure_table()  # Ensure table exists before use
-        conn = await get_conn()
-        try:
-            async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute(
-                    "SELECT is_full FROM chatgpt_links WHERE chatgpt_chat_id=%s",
-                    (chatgpt_chat_id,),
-                )
-                row = await cur.fetchone()
-                result = bool(row and row["is_full"])
-        finally:
-            conn.close()
-        log_debug(f"[chatlink] is_full({chatgpt_chat_id}) -> {result}")
-        return result
 
     async def remove(self, chat_id: str, message_thread_id: Optional[int]) -> bool:
         """Remove mapping for given Telegram chat."""
@@ -139,7 +103,7 @@ class ChatLinkStore:
                     DELETE FROM chatgpt_links
                     WHERE chat_id = %s AND message_thread_id <=> %s
                     """,
-                    (str(chat_id), message_thread_id),
+                    (chat_id, message_thread_id),
                 )
                 await conn.commit()
                 rows_deleted = result > 0
@@ -1078,8 +1042,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
                 if _check_conversation_full(driver):
                     current_id = chat_id or _extract_chat_id(driver.current_url)
-                    if current_id:
-                        await chat_link_store.mark_full(current_id)
                     global queue_paused
                     queue_paused = True
                     _open_new_chat(driver)

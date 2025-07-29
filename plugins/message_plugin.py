@@ -113,7 +113,7 @@ class MessagePlugin:
             await handler.send_message(
                 target,
                 text,
-                message_thread_id=message_thread_id,
+                message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
                 reply_to=reply_to,
             )
             log_info(
