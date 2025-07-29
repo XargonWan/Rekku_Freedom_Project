@@ -39,6 +39,13 @@ class ChatLinkStore:
         # We'll ensure the table exists on first use instead
         pass
 
+    def _normalize_thread_id(self, message_thread_id: Optional[int | str]) -> str:
+        """Return a thread identifier suitable for storage.
+
+        The value ``"0"`` is used to represent chats without a thread."""
+
+        return str(message_thread_id) if message_thread_id is not None else "0"
+
     async def _ensure_table(self) -> None:
         if self._table_ensured:
             return
@@ -49,8 +56,9 @@ class ChatLinkStore:
                 await cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS chatgpt_links (
-                        chat_id BIGINT NOT NULL,
-                        message_thread_id BIGINT,
+                        chat_id TEXT NOT NULL,
+                        -- message_thread_id is stored as text; "0" means no thread
+                        message_thread_id TEXT,
                         link VARCHAR(2048),
                         PRIMARY KEY (chat_id, message_thread_id)
                     )
@@ -60,14 +68,17 @@ class ChatLinkStore:
         finally:
             conn.close()
 
-    async def get_link(self, chat_id: int, message_thread_id: Optional[int]) -> Optional[str]:
+    async def get_link(
+        self, chat_id: int | str, message_thread_id: Optional[int | str]
+    ) -> Optional[str]:
         await self._ensure_table()  # Ensure table exists before use
+        normalized_thread = self._normalize_thread_id(message_thread_id)
         conn = await get_conn()
         try:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(
                     "SELECT link FROM chatgpt_links WHERE chat_id = %s AND message_thread_id = %s",
-                    (chat_id, message_thread_id),
+                    (str(chat_id), normalized_thread),
                 )
                 row = await cur.fetchone()
                 chat = row["link"] if row else None
@@ -76,14 +87,17 @@ class ChatLinkStore:
         finally:
             conn.close()
 
-    async def save_link(self, chat_id: int, message_thread_id: Optional[int], link: str) -> None:
+    async def save_link(
+        self, chat_id: int | str, message_thread_id: Optional[int | str], link: str
+    ) -> None:
         await self._ensure_table()  # Ensure table exists before use
+        normalized_thread = self._normalize_thread_id(message_thread_id)
         conn = await get_conn()
         try:
             async with conn.cursor() as cur:
                 await cur.execute(
                     "REPLACE INTO chatgpt_links (chat_id, message_thread_id, link) VALUES (%s, %s, %s)",
-                    (chat_id, message_thread_id, link),
+                    (str(chat_id), normalized_thread, link),
                 )
                 await conn.commit()
         finally:
@@ -92,18 +106,21 @@ class ChatLinkStore:
             f"[chatlink] Saved mapping {chat_id}/{message_thread_id} -> {link}"
         )
 
-    async def remove(self, chat_id: str, message_thread_id: Optional[int]) -> bool:
+    async def remove(
+        self, chat_id: str | int, message_thread_id: Optional[int | str]
+    ) -> bool:
         """Remove mapping for given Telegram chat."""
         await self._ensure_table()  # Ensure table exists before use
+        normalized_thread = self._normalize_thread_id(message_thread_id)
         conn = await get_conn()
         try:
             async with conn.cursor() as cur:
                 result = await cur.execute(
                     """
                     DELETE FROM chatgpt_links
-                    WHERE chat_id = %s AND message_thread_id <=> %s
+                    WHERE chat_id = %s AND message_thread_id = %s
                     """,
-                    (chat_id, message_thread_id),
+                    (str(chat_id), normalized_thread),
                 )
                 await conn.commit()
                 rows_deleted = result > 0
