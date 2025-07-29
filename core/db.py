@@ -394,6 +394,8 @@ async def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5
         log_debug(f"[get_due_events] Raw event data: {dict(r)}")
         try:
             event_dt = datetime.fromisoformat(r['scheduled'])
+            if event_dt.tzinfo is None:
+                event_dt = event_dt.replace(tzinfo=timezone.utc)
         except ValueError as e:
             log_warning(f"[get_due_events] Invalid datetime format in 'scheduled': {r['scheduled']} - {e}")
             continue
