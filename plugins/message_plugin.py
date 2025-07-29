@@ -40,7 +40,7 @@ class MessagePlugin:
                     "payload": {
                         "text": "Hello!",
                         "target": "123456789",
-                        "thread_id": 42,
+                        "message_thread_id": 42,
                     },
                 },
             }
@@ -67,7 +67,7 @@ class MessagePlugin:
         payload = action.get("payload", {})
         text = payload.get("text", "")
         target = payload.get("target")
-        thread_id = payload.get("thread_id")
+        message_thread_id = payload.get("message_thread_id")
         interface_name = action.get("interface", self.supported_interfaces[0])
 
         log_debug(
@@ -82,11 +82,13 @@ class MessagePlugin:
             target = getattr(original_message, "chat_id", None)
             log_debug(f"[message_plugin] No target specified, using original chat_id: {target}")
 
-        if not thread_id and hasattr(original_message, "message_thread_id"):
+        if not message_thread_id and hasattr(original_message, "message_thread_id"):
             orig_thread = getattr(original_message, "message_thread_id", None)
             if orig_thread:
-                thread_id = orig_thread
-                log_debug(f"[message_plugin] No thread_id specified, using original thread_id: {thread_id}")
+                message_thread_id = orig_thread
+                log_debug(
+                    f"[message_plugin] No message_thread_id specified, using original message_thread_id: {message_thread_id}"
+                )
 
         if not target:
             log_warning("[message_plugin] No valid target found, cannot send message")
@@ -108,16 +110,21 @@ class MessagePlugin:
             log_debug(f"[message_plugin] Adding reply_to_message_id: {reply_to}")
 
         try:
-            await handler.send_message(target, text, thread_id=thread_id, reply_to=reply_to)
+            await handler.send_message(
+                target,
+                text,
+                message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
+                reply_to=reply_to,
+            )
             log_info(
-                f"[message_plugin] Message successfully sent to {target} (thread: {thread_id}, reply_to: {reply_to})"
+                f"[message_plugin] Message successfully sent to {target} (thread: {message_thread_id}, reply_to: {reply_to})"
             )
         except Exception as e:
             error_message = str(e)
 
-            if thread_id and ("thread not found" in error_message.lower()):
+            if message_thread_id and ("thread not found" in error_message.lower()):
                 log_warning(
-                    f"[message_plugin] Thread {thread_id} not found in chat {target}, retrying without thread_id"
+                    f"[message_plugin] Thread {message_thread_id} not found in chat {target}, retrying without message_thread_id"
                 )
                 try:
                     await handler.send_message(target, text, reply_to=reply_to)
@@ -131,7 +138,7 @@ class MessagePlugin:
                     )
             else:
                 log_error(
-                    f"[message_plugin] Failed to send message to {target} (thread: {thread_id}): {repr(e)}"
+                    f"[message_plugin] Failed to send message to {target} (thread: {message_thread_id}): {repr(e)}"
                 )
 
             if hasattr(original_message, "chat_id") and target != original_message.chat_id:
@@ -140,7 +147,7 @@ class MessagePlugin:
                     await handler.send_message(
                         original_message.chat_id,
                         text,
-                        thread_id=fallback_thread_id,
+                        message_thread_id=fallback_thread_id,  # fixed: correct param is message_thread_id
                         reply_to=getattr(original_message, "message_id", None),
                     )
                     log_info(

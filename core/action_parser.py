@@ -68,6 +68,10 @@ def _validate_message_payload(payload: dict, errors: List[str]) -> None:
     if privacy is not None and privacy not in {"default", "private", "public"}:
         errors.append("payload.privacy must be one of ['default', 'private', 'public']")
 
+    message_thread_id = payload.get("message_thread_id")
+    if message_thread_id is not None and not isinstance(message_thread_id, int):
+        errors.append("payload.message_thread_id must be an int")
+
 
 def _validate_event_payload(payload: dict, errors: List[str]) -> None:
     """Validate payload for event actions."""

@@ -893,7 +893,7 @@ class TelegramInterface:
                     "payload": {
                         "text": "...",
                         "target": "<chat_id>",
-                        "thread_id": "<optional thread_id>"
+                        "message_thread_id": "<optional message_thread_id>"
                     }
                 }
             }
@@ -906,17 +906,17 @@ class TelegramInterface:
         ----------
         payload: dict
             Must contain at least ``text`` and ``target``. Optionally may include
-            ``thread_id``.
+            ``message_thread_id``.
         original_message: object | None
             The triggering message; used for reply fallback handling.
         """
 
         text = payload.get("text", "")
         target = payload.get("target")
-        thread_id = payload.get("thread_id")
+        message_thread_id = payload.get("message_thread_id")
 
         log_debug(
-            f"[telegram_interface] Sending to {target} (thread_id: {thread_id})"
+            f"[telegram_interface] Sending to {target} (message_thread_id: {message_thread_id})"
         )
 
         if not text or not target:
@@ -924,8 +924,8 @@ class TelegramInterface:
             return
 
         send_kwargs = {"chat_id": target, "text": text}
-        if thread_id:
-            send_kwargs["message_thread_id"] = thread_id
+        if message_thread_id:
+            send_kwargs["message_thread_id"] = message_thread_id  # fixed: correct param is message_thread_id
 
         if (
             original_message
@@ -942,15 +942,15 @@ class TelegramInterface:
             await self.bot.send_message(**send_kwargs)
             log_info(
                 f"[telegram_interface] Message sent to {target} "
-                f"(thread: {thread_id}, reply_to: {send_kwargs.get('reply_to_message_id')})"
+                f"(thread: {message_thread_id}, reply_to: {send_kwargs.get('reply_to_message_id')})"
             )
             return
         except Exception as e:
             error_message = str(e)
 
-            if thread_id and ("thread not found" in error_message.lower()):
+            if message_thread_id and ("thread not found" in error_message.lower()):
                 log_warning(
-                    f"[telegram_interface] Thread {thread_id} not found; retrying without thread"
+                    f"[telegram_interface] Thread {message_thread_id} not found; retrying without thread"
                 )
                 try:
                     fallback_kwargs = {"chat_id": target, "text": text}
@@ -972,7 +972,7 @@ class TelegramInterface:
                     )
             else:
                 log_error(
-                    f"[telegram_interface] Failed to send to {target} (thread {thread_id}): {repr(e)}"
+                    f"[telegram_interface] Failed to send to {target} (thread {message_thread_id}): {repr(e)}"
                 )
 
         if (
@@ -987,7 +987,7 @@ class TelegramInterface:
                     "text": text,
                 }
                 if fallback_thread:
-                    fallback_kwargs["message_thread_id"] = fallback_thread
+                    fallback_kwargs["message_thread_id"] = fallback_thread  # fixed: correct param is message_thread_id
                 if hasattr(original_message, "message_id"):
                     fallback_kwargs["reply_to_message_id"] = original_message.message_id
                 log_debug(
@@ -1008,7 +1008,7 @@ class TelegramInterface:
         return (
             "TELEGRAM INTERFACE INSTRUCTIONS:\n"
             "- Use chat_id for targets (can be negative for groups/channels).\n"
-            "- Include thread_id when replying in topics; omit it otherwise.\n"
+            "- Include message_thread_id when replying in topics; omit it otherwise.\n"
             "- Keep messages under 4096 characters.\n"
             "- Markdown is supported and preferred.\n"
             "- Replying to a message in the same chat will automatically use that message as the reply target.\n"

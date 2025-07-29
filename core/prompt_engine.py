@@ -57,7 +57,7 @@ async def build_json_prompt(message, context_memory) -> dict:
     }
 
     # === 4. Input payload ===
-    thread_id = getattr(message, "message_thread_id", None)
+    message_thread_id = getattr(message, "message_thread_id", None)
     input_payload = {
         "text": text,
         "source": {
@@ -65,7 +65,7 @@ async def build_json_prompt(message, context_memory) -> dict:
             "message_id": message.message_id,
             "username": message.from_user.full_name,
             "usertag": f"@{message.from_user.username}" if message.from_user.username else "(no tag)",
-            "thread_id": thread_id,
+            "message_thread_id": message_thread_id,
         },
         "timestamp": message.date.isoformat(),
         "privacy": "default",
