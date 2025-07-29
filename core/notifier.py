@@ -36,6 +36,14 @@ def notify(chat_id: int, message: str):
         except Exception as e:  # pragma: no cover - best effort
             log_error(f"[notifier] Failed to send notification chunk: {repr(e)}")
 
-def notify_trainer(message: str):
-    log_debug(f"[notifier] Notification for TRAINER_ID={TRAINER_ID}: {message}")
-    notify(TRAINER_ID, message)
+def notify_trainer(*args) -> None:
+    """Notify the trainer. Accepts ``message`` or ``chat_id, message``."""
+    if len(args) == 1:
+        chat_id = TRAINER_ID
+        message = args[0]
+    elif len(args) == 2:
+        chat_id, message = args
+    else:
+        raise TypeError("notify_trainer expects a message or (chat_id, message)")
+    log_debug(f"[notifier] Notification for TRAINER_ID={chat_id}: {message}")
+    notify(chat_id, message)
