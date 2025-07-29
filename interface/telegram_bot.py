@@ -981,13 +981,13 @@ class TelegramInterface:
             and target != getattr(original_message, "chat_id")
         ):
             try:
-                fallback_thread = getattr(original_message, "message_thread_id", None)
+                fallback_message_thread_id = getattr(original_message, "message_thread_id", None)
                 fallback_kwargs = {
                     "chat_id": original_message.chat_id,
                     "text": text,
                 }
-                if fallback_thread:
-                    fallback_kwargs["message_thread_id"] = fallback_thread  # fixed: correct param is message_thread_id
+                if fallback_message_thread_id:
+                    fallback_kwargs["message_thread_id"] = fallback_message_thread_id  # fixed: correct param is message_thread_id
                 if hasattr(original_message, "message_id"):
                     fallback_kwargs["reply_to_message_id"] = original_message.message_id
                 log_debug(

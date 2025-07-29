@@ -143,11 +143,11 @@ class MessagePlugin:
 
             if hasattr(original_message, "chat_id") and target != original_message.chat_id:
                 try:
-                    fallback_thread_id = getattr(original_message, "message_thread_id", None)
+                    fallback_message_thread_id = getattr(original_message, "message_thread_id", None)
                     await handler.send_message(
                         original_message.chat_id,
                         text,
-                        message_thread_id=fallback_thread_id,  # fixed: correct param is message_thread_id
+                        message_thread_id=fallback_message_thread_id,  # fixed: correct param is message_thread_id
                         reply_to=getattr(original_message, "message_id", None),
                     )
                     log_info(
