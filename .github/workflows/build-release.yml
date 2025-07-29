@@ -64,3 +64,11 @@ jobs:
         docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest-develop
         docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest-develop
 
+    - name: Tag image for non-main and non-develop branches
+      if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop'
+      run: |
+        branch_name=${GITHUB_REF#refs/heads/}
+        sanitized_branch_name=$(echo "$branch_name" | sed 's|/|-|g')
+        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-$sanitized_branch_name
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-$sanitized_branch_name
+
