@@ -14,6 +14,7 @@ import traceback
 import asyncio
 import json
 import time
+import aiomysql
 
 
 class EventPlugin(AIPluginBase):
@@ -30,11 +31,53 @@ class EventPlugin(AIPluginBase):
         self._pending_events: dict[str, dict] = {}  # message_id -> event_info
         log_info("[event_plugin] EventPlugin instance created")
 
+    async def ensure_table_exists(self) -> None:
+        """Ensure the scheduled_events table is present."""
+        host = os.getenv("DB_HOST", "localhost")
+        port = int(os.getenv("DB_PORT", "3306"))
+        user = os.getenv("DB_USER", "root")
+        # Reuse the same variable name used in core.db for consistency
+        password = os.getenv("DB_PASS", "")
+        db_name = os.getenv("DB_NAME", "rekku")
+
+        log_debug(
+            f"[event_plugin] Ensuring table scheduled_events in {user}@{host}:{port}/{db_name}"
+        )
+
+        conn = await aiomysql.connect(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            db=db_name,
+            autocommit=True,
+        )
+        try:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS scheduled_events (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        scheduled DATETIME NOT NULL,
+                        description TEXT,
+                        recurrence VARCHAR(50),
+                        delivered BOOLEAN DEFAULT 0
+                    )
+                    """
+                )
+            log_info("[event_plugin] ensured scheduled_events table exists")
+        except Exception as e:
+            log_error(f"[event_plugin] Failed to ensure table exists: {repr(e)}")
+        finally:
+            conn.close()
+
     async def start(self):
         """Start the event scheduler."""
         log_info(
             f"[event_plugin] start() called, scheduler_running={EventPlugin._scheduler_running}"
         )
+
+        await self.ensure_table_exists()
         task = EventPlugin._scheduler_task
 
         if task and not task.done():

@@ -335,12 +335,14 @@ async def insert_scheduled_event(
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
-            await cur.execute(
+            await safe_db_execute(
+                cur,
                 """
                 INSERT INTO scheduled_events (scheduled, recurrence_type, description, created_by)
                 VALUES (%s, %s, %s, %s)
                 """,
                 (scheduled, recurrence_type or "none", description, created_by),
+                ensure_fn=ensure_core_tables,
             )
     except Exception as e:
         print(f"[insert_scheduled_event] Error: {e}")
@@ -374,7 +376,7 @@ async def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5
     conn = await get_conn()
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute(query)
+            await safe_db_execute(cur, query, ensure_fn=ensure_core_tables)
             rows = await cur.fetchall()
             log_debug(f"[get_due_events] Retrieved {len(rows)} rows")
             for row in rows:
@@ -422,9 +424,11 @@ async def mark_event_delivered(event_id: int) -> None:
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:
             # Get event info to check recurrence type
-            await cur.execute(
+            await safe_db_execute(
+                cur,
                 "SELECT recurrence_type FROM scheduled_events WHERE id = %s",
                 (event_id,),
+                ensure_fn=ensure_core_tables,
             )
             event_row = await cur.fetchone()
 
@@ -433,9 +437,11 @@ async def mark_event_delivered(event_id: int) -> None:
 
                 if repeat_type == "none":
                     # One-time event - mark as delivered
-                    await cur.execute(
+                    await safe_db_execute(
+                        cur,
                         "UPDATE scheduled_events SET delivered = 1 WHERE id = %s",
                         (event_id,),
+                        ensure_fn=ensure_core_tables,
                     )
                     log_info(f"[db] Event {event_id} marked as delivered (one-time)")
                 elif repeat_type == "always":
@@ -444,9 +450,11 @@ async def mark_event_delivered(event_id: int) -> None:
                 else:
                     # Repeating events (daily, weekly, monthly)
                     # TODO: Implement proper recurrence logic with next occurrence calculation
-                    await cur.execute(
+                    await safe_db_execute(
+                        cur,
                         "UPDATE scheduled_events SET delivered = 1 WHERE id = %s",
                         (event_id,),
+                        ensure_fn=ensure_core_tables,
                     )
                     log_info(
                         f"[db] Event {event_id} marked as delivered (recurrence: {repeat_type} - TODO: implement proper recurrence logic)"
@@ -468,6 +476,51 @@ def is_valid_datetime_format(date_str: str, time_str: str | None) -> bool:
     except ValueError as e:
         log_warning(f"[is_valid_datetime_format] Invalid datetime format: {dt_str} - {e}")
         return False
+
+
+async def safe_db_execute(
+    cursor: aiomysql.Cursor,
+    query: str,
+    params: tuple | list = (),
+    ensure_fn=None,
+) -> any:
+    """Execute a SQL statement and retry once if table missing (error 1146).
+
+    Args:
+        cursor: Active aiomysql cursor.
+        query: SQL query to execute.
+        params: Parameters for the query.
+        ensure_fn: Coroutine that creates the missing table if called.
+
+    Returns:
+        Result of ``cursor.execute``.
+    """
+    try:
+        log_debug(f"[safe_db_execute] Executing: {query} {params}")
+        return await cursor.execute(query, params)
+    except aiomysql.Error as e:
+        err_code = e.args[0] if e.args else None
+        if err_code == 1146 and ensure_fn:
+            log_debug(
+                f"[safe_db_execute] Table missing for query. Calling ensure_fn()"
+            )
+            try:
+                await ensure_fn()
+            except Exception as ensure_exc:  # pragma: no cover - best effort
+                log_error(
+                    f"[safe_db_execute] ensure_fn failed: {repr(ensure_exc)}"
+                )
+                raise
+            try:
+                log_debug("[safe_db_execute] Retrying query after ensure_fn")
+                return await cursor.execute(query, params)
+            except Exception as retry_exc:
+                log_error(
+                    f"[safe_db_execute] Retry failed: {repr(retry_exc)}"
+                )
+                raise
+        log_error(f"[safe_db_execute] Query failed: {repr(e)}")
+        raise
 
 async def execute_query(query: str, params: tuple = ()) -> list:
     """Execute a SQL query and return the results."""
