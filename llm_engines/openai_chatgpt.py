@@ -48,8 +48,9 @@ class OpenAIPlugin(AIPluginBase):
 
     async def handle_incoming_message(self, bot, message, prompt):
         from core.notifier import notify_trainer
+        from core.config import TRAINER_ID
 
-        notify_trainer("🚨 Generating the reply...")
+        notify_trainer(TRAINER_ID, "🚨 Generating the reply...")
 
         try:
             response = await self.generate_response(prompt)
@@ -66,7 +67,7 @@ class OpenAIPlugin(AIPluginBase):
 
         except Exception as e:
             log_error(f"[OpenAI] Error while responding: {repr(e)}", e)
-            notify_trainer(f"❌ OpenAI error:\n```\n{e}\n```")
+            notify_trainer(TRAINER_ID, f"❌ OpenAI error:\n```\n{e}\n```")
 
             if bot and message:
                 await bot.send_message(

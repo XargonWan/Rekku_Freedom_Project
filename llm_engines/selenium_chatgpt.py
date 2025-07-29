@@ -49,12 +49,10 @@ class ChatLinkStore:
                 await cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS chatgpt_links (
-                        chat_id VARCHAR(64) NOT NULL,
-                        thread_id INTEGER,
-                        chatgpt_chat_id TEXT NOT NULL,
-                        is_full INTEGER DEFAULT 0,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        PRIMARY KEY (chat_id, thread_id)
+                        chat_id BIGINT NOT NULL,
+                        message_thread_id BIGINT,
+                        link VARCHAR(2048),
+                        PRIMARY KEY (chat_id, message_thread_id)
                     )
                     """
                 )
@@ -62,73 +60,39 @@ class ChatLinkStore:
         finally:
             conn.close()
 
-    async def get_link(self, chat_id: str, thread_id: Optional[int]) -> Optional[str]:
+    async def get_link(self, chat_id: int, message_thread_id: Optional[int]) -> Optional[str]:
         await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
         try:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(
-                    "SELECT chatgpt_chat_id FROM chatgpt_links WHERE chat_id = %s AND thread_id = %s",
-                    (str(chat_id), thread_id),
+                    "SELECT link FROM chatgpt_links WHERE chat_id = %s AND message_thread_id = %s",
+                    (chat_id, message_thread_id),
                 )
                 row = await cur.fetchone()
-                chat = row["chatgpt_chat_id"] if row else None
-                log_debug(f"[chatlink] get_link {chat_id}/{thread_id} -> {chat}")
+                chat = row["link"] if row else None
+                log_debug(f"[chatlink] get_link {chat_id}/{message_thread_id} -> {chat}")
                 return chat
         finally:
             conn.close()
 
-    async def save_link(self, chat_id: str, thread_id: Optional[int], chatgpt_chat_id: str) -> None:
+    async def save_link(self, chat_id: int, message_thread_id: Optional[int], link: str) -> None:
         await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
         try:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    """
-                    REPLACE INTO chatgpt_links
-                        (chat_id, thread_id, chatgpt_chat_id, is_full, updated_at)
-                    VALUES (%s, %s, %s, 0, CURRENT_TIMESTAMP)
-                    """,
-                    (str(chat_id), thread_id, chatgpt_chat_id),
+                    "REPLACE INTO chatgpt_links (chat_id, message_thread_id, link) VALUES (%s, %s, %s)",
+                    (chat_id, message_thread_id, link),
                 )
                 await conn.commit()
         finally:
             conn.close()
         log_debug(
-            f"[chatlink] Saved mapping {chat_id}/{thread_id} -> {chatgpt_chat_id}"
+            f"[chatlink] Saved mapping {chat_id}/{message_thread_id} -> {link}"
         )
 
-    async def mark_full(self, chatgpt_chat_id: str) -> None:
-        await self._ensure_table()  # Ensure table exists before use
-        conn = await get_conn()
-        try:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "UPDATE chatgpt_links SET is_full=1, updated_at=CURRENT_TIMESTAMP WHERE chatgpt_chat_id=%s",
-                    (chatgpt_chat_id,),
-                )
-                await conn.commit()
-        finally:
-            conn.close()
-        log_debug(f"[chatlink] Marked chat {chatgpt_chat_id} as full")
-
-    async def is_full(self, chatgpt_chat_id: str) -> bool:
-        await self._ensure_table()  # Ensure table exists before use
-        conn = await get_conn()
-        try:
-            async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute(
-                    "SELECT is_full FROM chatgpt_links WHERE chatgpt_chat_id=%s",
-                    (chatgpt_chat_id,),
-                )
-                row = await cur.fetchone()
-                result = bool(row and row["is_full"])
-        finally:
-            conn.close()
-        log_debug(f"[chatlink] is_full({chatgpt_chat_id}) -> {result}")
-        return result
-
-    async def remove(self, chat_id: str, thread_id: Optional[int]) -> bool:
+    async def remove(self, chat_id: str, message_thread_id: Optional[int]) -> bool:
         """Remove mapping for given Telegram chat."""
         await self._ensure_table()  # Ensure table exists before use
         conn = await get_conn()
@@ -137,9 +101,9 @@ class ChatLinkStore:
                 result = await cur.execute(
                     """
                     DELETE FROM chatgpt_links
-                    WHERE chat_id = %s AND thread_id <=> %s
+                    WHERE chat_id = %s AND message_thread_id <=> %s
                     """,
-                    (str(chat_id), thread_id),
+                    (chat_id, message_thread_id),
                 )
                 await conn.commit()
                 rows_deleted = result > 0
@@ -148,11 +112,11 @@ class ChatLinkStore:
 
         if rows_deleted:
             log_debug(
-                f"[chatlink] Removed link for chat_id={chat_id}, thread_id={thread_id}"
+                f"[chatlink] Removed link for chat_id={chat_id}, message_thread_id={message_thread_id}"
             )
         else:
             log_debug(
-                f"[chatlink] No link found for chat_id={chat_id}, thread_id={thread_id}"
+                f"[chatlink] No link found for chat_id={chat_id}, message_thread_id={message_thread_id}"
             )
         return rows_deleted
 
@@ -411,7 +375,9 @@ def _safe_notify(text: str) -> None:
         chunk = text[i : i + 4000]
         log_debug(f"[selenium] Notifying chunk length {len(chunk)}")
         try:
-            notify_trainer(chunk)
+            from core.config import TRAINER_ID
+
+            notify_trainer(TRAINER_ID, chunk)
         except Exception as e:  # pragma: no cover - best effort
             log_error(f"[selenium] notify_trainer failed: {repr(e)}", e)
 
@@ -571,7 +537,10 @@ def process_prompt_in_chat(
         log_warning(f"[selenium] Saved screenshot to {fname}")
     except Exception as e:
         log_warning(f"[selenium] Failed to save screenshot: {e}")
+    from core.config import TRAINER_ID
+
     notify_trainer(
+        TRAINER_ID,
         f"\u26A0\uFE0F No response received for chat_id={chat_id}. Screenshot: {fname}"
     )
     return None
@@ -1018,17 +987,17 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
             log_debug("[selenium][STEP] ensuring ChatGPT is accessible")
 
-            thread_id = getattr(message, "message_thread_id", None)
-            chat_id = await chat_link_store.get_link(message.chat_id, thread_id)
+            message_thread_id = getattr(message, "message_thread_id", None)
+            chat_id = await chat_link_store.get_link(message.chat_id, message_thread_id)
             prompt_text = json.dumps(prompt, ensure_ascii=False)
             if not chat_id:
                 path = recent_chats.get_chat_path(message.chat_id)
                 if path and go_to_chat_by_path_with_retries(driver, path):
                     chat_id = _extract_chat_id(driver.current_url)
                     if chat_id:  # [FIX] save and notify about recovered chat
-                        await chat_link_store.save_link(message.chat_id, thread_id, chat_id)
+                        await chat_link_store.save_link(message.chat_id, message_thread_id, chat_id)
                         _safe_notify(
-                            f"⚠️ Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
+                            f"⚠️ Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, message_thread_id={message_thread_id}.\n"
                             f"A new ChatGPT chat has been created: {chat_id}"
                         )
                 else:
@@ -1036,7 +1005,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     # Chat ID will be extracted after sending the prompt
 
             log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
-            log_debug(f"[selenium][DEBUG] Telegram chat_id: {message.chat_id}, thread_id: {thread_id}")
+            log_debug(f"[selenium][DEBUG] Telegram chat_id: {message.chat_id}, message_thread_id: {message_thread_id}")
 
             # Only if we don't have a specific chat_id, go to home
             if not chat_id:
@@ -1067,10 +1036,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         log_debug(f"[selenium][DEBUG] New chat created, extracted ID: {new_chat_id}")
                         log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
                         if new_chat_id:
-                            await chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
-                            log_debug(f"[selenium][DEBUG] Saved link: {message.chat_id}/{thread_id} -> {new_chat_id}")
+                            await chat_link_store.save_link(message.chat_id, message_thread_id, new_chat_id)
+                            log_debug(f"[selenium][DEBUG] Saved link: {message.chat_id}/{message_thread_id} -> {new_chat_id}")
                             _safe_notify(
-                                f"⚠️ Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
+                                f"⚠️ Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, message_thread_id={message_thread_id}.\n"
                                 f"A new ChatGPT chat has been created: {new_chat_id}"
                             )
                         else:
@@ -1078,8 +1047,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
                 if _check_conversation_full(driver):
                     current_id = chat_id or _extract_chat_id(driver.current_url)
-                    if current_id:
-                        await chat_link_store.mark_full(current_id)
                     global queue_paused
                     queue_paused = True
                     _open_new_chat(driver)
@@ -1090,7 +1057,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     
                     new_chat_id = _extract_chat_id(driver.current_url)
                     if new_chat_id:
-                        await chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
+                        await chat_link_store.save_link(message.chat_id, message_thread_id, new_chat_id)
                         log_debug(
                             f"[selenium][SUCCESS] New chat created for full conversation. "
                             f"Chat ID: {new_chat_id}"

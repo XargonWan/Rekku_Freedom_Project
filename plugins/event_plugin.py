@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from core.ai_plugin_base import AIPluginBase
 from core.db import insert_scheduled_event, get_due_events, mark_event_delivered
 from core.logging_utils import log_debug, log_info, log_error, log_warning
+from core.telegram_utils import send_with_thread_fallback
 import traceback
 import asyncio
 import json
@@ -428,7 +429,7 @@ For recurring events, you can use:
         try:
             text = payload.get("text", "")
             target_chat_id = payload.get("target")
-            thread_id = payload.get("thread_id")
+            message_thread_id = payload.get("message_thread_id")
 
             if not text or not target_chat_id:
                 log_error(f"[event_plugin] Invalid message payload for event {event_id}")
@@ -437,73 +438,71 @@ For recurring events, you can use:
             log_info(f"[event_plugin] Sending scheduled message to {target_chat_id}: {text}")
 
             # Get the appropriate transport layer directly
-            await self._send_via_transport_layer(target_chat_id, text, thread_id, event_id)
+            await self._send_via_transport_layer(target_chat_id, text, message_thread_id, event_id)
 
         except Exception as e:
             log_error(f"[event_plugin] Error sending scheduled message for event {event_id}: {repr(e)}")
 
-    async def _send_via_transport_layer(self, chat_id: int, text: str, thread_id: int = None, event_id: int = None):
+    async def _send_via_transport_layer(self, chat_id: int, text: str, message_thread_id: int = None, event_id: int = None):
         """Send message directly via transport layer, bypassing interfaces."""
         try:
             # Determine the appropriate transport based on chat_id patterns
             if chat_id < 0:
                 # Negative IDs are typically Telegram groups/channels
-                await self._send_via_telegram_transport(chat_id, text, thread_id, event_id)
+                await self._send_via_telegram_transport(chat_id, text, message_thread_id, event_id)
             else:
                 # Positive IDs could be Telegram private chats or other platforms
-                await self._send_via_telegram_transport(chat_id, text, thread_id, event_id)
+                await self._send_via_telegram_transport(chat_id, text, message_thread_id, event_id)
 
         except Exception as e:
             log_error(f"[event_plugin] Error in transport layer for event {event_id}: {repr(e)}")
 
-    async def _send_via_telegram_transport(self, chat_id: int, text: str, thread_id: int = None, event_id: int = None):
+    async def _send_via_telegram_transport(self, chat_id: int, text: str, message_thread_id: int = None, event_id: int = None):
         """Send message directly via Telegram transport layer."""
         try:
-            # Import the transport layer
-            from core.transport_layer import send_telegram_message
+            from interface.telegram_bot import application
+            if not application or not application.bot:
+                raise ImportError
 
-            # Create message context for the transport layer
-            send_kwargs = {
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "Markdown"  # Default parse mode
-            }
+            await send_with_thread_fallback(
+                application.bot,
+                chat_id,
+                text,
+                message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
+                parse_mode="Markdown",
+            )
 
-            if thread_id:
-                send_kwargs["message_thread_id"] = thread_id
-
-            # Send directly through transport layer
-            await send_telegram_message(**send_kwargs)
-
-            log_info(f"[event_plugin] ✅ Scheduled message sent to {chat_id} (event {event_id})")
+            log_info(
+                f"[event_plugin] ✅ Scheduled message sent to {chat_id} (event {event_id})"
+            )
 
         except ImportError:
             log_error(f"[event_plugin] Telegram transport layer not available for event {event_id}")
             # Fallback: use the bot instance directly if available
-            await self._fallback_send_telegram(chat_id, text, thread_id, event_id)
+            await self._fallback_send_telegram(chat_id, text, message_thread_id, event_id)
         except Exception as e:
             log_error(f"[event_plugin] Error in Telegram transport for event {event_id}: {repr(e)}")
 
-    async def _fallback_send_telegram(self, chat_id: int, text: str, thread_id: int = None, event_id: int = None):
+    async def _fallback_send_telegram(self, chat_id: int, text: str, message_thread_id: int = None, event_id: int = None):
         """Fallback method to send via Telegram bot directly."""
         try:
-            # Try to get the Telegram bot instance from the interface
             from interface.telegram_bot import application
 
             if application and application.bot:
-                send_kwargs = {
-                    "chat_id": chat_id,
-                    "text": text,
-                    "parse_mode": "Markdown"
-                }
-
-                if thread_id:
-                    send_kwargs["message_thread_id"] = thread_id
-
-                await application.bot.send_message(**send_kwargs)
-                log_info(f"[event_plugin] ✅ Fallback Telegram send successful for event {event_id}")
+                await send_with_thread_fallback(
+                    application.bot,
+                    chat_id,
+                    text,
+                    message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
+                    parse_mode="Markdown",
+                )
+                log_info(
+                    f"[event_plugin] ✅ Fallback Telegram send successful for event {event_id}"
+                )
             else:
-                log_error(f"[event_plugin] No Telegram bot available for fallback send (event {event_id})")
+                log_error(
+                    f"[event_plugin] No Telegram bot available for fallback send (event {event_id})"
+                )
 
         except Exception as e:
             log_error(f"[event_plugin] Fallback Telegram send failed for event {event_id}: {repr(e)}")
@@ -593,7 +592,7 @@ For recurring events, you can use:
 
         # Extract target info from the action for later routing
         target_chat_id = action.get('payload', {}).get('target', SCHEDULED_EVENTS_CHAT_ID)
-        thread_id = action.get('payload', {}).get('thread_id')
+        message_thread_id = action.get('payload', {}).get('message_thread_id')
 
         # Extract lateness info
         is_late = event_info.get('is_late', False) if event_info else False
@@ -626,11 +625,11 @@ For recurring events, you can use:
             ),
             # Store the real target info for final message routing
             _scheduled_target_chat_id=target_chat_id,
-            _scheduled_thread_id=thread_id,
+            _scheduled_message_thread_id=message_thread_id,
             # Store lateness info
             _is_late=is_late,
             _minutes_late=minutes_late,
-            # Add thread_id if present (for topic support)
+            # Add message_thread_id if present (for topic support)
             message_thread_id=None  # Scheduled events don't use threads in their own chat
         )
 
@@ -754,7 +753,7 @@ Weekly recurring reminder:
                 """Handle LLM responses and delegate to action parser."""
                 text = kwargs.get('text', '')
                 chat_id = kwargs.get('chat_id')
-                thread_id = kwargs.get('message_thread_id')
+                message_thread_id = kwargs.get('message_thread_id')
 
                 log_debug(f"[event_plugin] LLM responded with: {text[:100]}...")
 
@@ -772,7 +771,7 @@ Weekly recurring reminder:
                         # This ensures the action goes to the right interface
                         action_message = type('ActionMessage', (), {
                             'chat_id': response_action.get('payload', {}).get('target', chat_id),
-                            'message_thread_id': response_action.get('payload', {}).get('thread_id', thread_id)
+                            'message_thread_id': response_action.get('payload', {}).get('message_thread_id', message_thread_id)
                         })()
 
                         # Get the real bot instance from the active interface
