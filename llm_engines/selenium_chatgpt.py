@@ -39,6 +39,14 @@ class ChatLinkStore:
         # We'll ensure the table exists on first use instead
         pass
 
+    def _normalize_thread_id(self, message_thread_id: Optional[int]) -> int:
+        """Return ``message_thread_id`` or ``0`` when no thread is provided.
+
+        ``0`` is used in the database to represent that the message is not
+        associated with any Telegram forum thread.
+        """
+        return message_thread_id or 0
+
     async def _ensure_table(self) -> None:
         if self._table_ensured:
             return
@@ -64,6 +72,7 @@ class ChatLinkStore:
 
     async def get_link(self, chat_id: str, thread_id: Optional[int]) -> Optional[str]:
         await self._ensure_table()  # Ensure table exists before use
+        thread_id = self._normalize_thread_id(thread_id)
         conn = await get_conn()
         try:
             async with conn.cursor(aiomysql.DictCursor) as cur:
@@ -80,6 +89,7 @@ class ChatLinkStore:
 
     async def save_link(self, chat_id: str, thread_id: Optional[int], chatgpt_chat_id: str) -> None:
         await self._ensure_table()  # Ensure table exists before use
+        thread_id = self._normalize_thread_id(thread_id)
         conn = await get_conn()
         try:
             async with conn.cursor() as cur:
@@ -131,6 +141,7 @@ class ChatLinkStore:
     async def remove(self, chat_id: str, thread_id: Optional[int]) -> bool:
         """Remove mapping for given Telegram chat."""
         await self._ensure_table()  # Ensure table exists before use
+        thread_id = self._normalize_thread_id(thread_id)
         conn = await get_conn()
         try:
             async with conn.cursor() as cur:
