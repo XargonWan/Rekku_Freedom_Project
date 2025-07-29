@@ -91,19 +91,18 @@ async def init_db() -> None:
                 """
             )
 
-            # scheduled_events table
+            # scheduled_events table using a single scheduled DATETIME field
             await cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS scheduled_events (
                     id INT AUTO_INCREMENT PRIMARY KEY,
-                    `date` DATE NOT NULL,
-                    `time` TIME,
+                    scheduled DATETIME NOT NULL,
                     recurrence_type VARCHAR(20) DEFAULT 'none',
                     description TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     delivered BOOLEAN DEFAULT FALSE,
                     created_by VARCHAR(100) DEFAULT 'rekku',
-                    UNIQUE KEY unique_event (`date`, `time`, description(100))
+                    UNIQUE KEY unique_event (scheduled, description(100))
                 )
                 """
             )
