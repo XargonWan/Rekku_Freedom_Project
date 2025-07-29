@@ -50,11 +50,11 @@ class ChatLinkStore:
                     """
                     CREATE TABLE IF NOT EXISTS chatgpt_links (
                         chat_id VARCHAR(64) NOT NULL,
-                        thread_id INTEGER,
+                        message_thread_id INTEGER,
                         chatgpt_chat_id TEXT NOT NULL,
                         is_full INTEGER DEFAULT 0,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        PRIMARY KEY (chat_id, thread_id)
+                        PRIMARY KEY (chat_id, message_thread_id)
                     )
                     """
                 )
@@ -68,7 +68,7 @@ class ChatLinkStore:
         try:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(
-                    "SELECT chatgpt_chat_id FROM chatgpt_links WHERE chat_id = %s AND thread_id = %s",
+                    "SELECT chatgpt_chat_id FROM chatgpt_links WHERE chat_id = %s AND message_thread_id = %s",
                     (str(chat_id), message_thread_id),
                 )
                 row = await cur.fetchone()
@@ -86,7 +86,7 @@ class ChatLinkStore:
                 await cur.execute(
                     """
                     REPLACE INTO chatgpt_links
-                        (chat_id, thread_id, chatgpt_chat_id, is_full, updated_at)
+                        (chat_id, message_thread_id, chatgpt_chat_id, is_full, updated_at)
                     VALUES (%s, %s, %s, 0, CURRENT_TIMESTAMP)
                     """,
                     (str(chat_id), message_thread_id, chatgpt_chat_id),
@@ -137,7 +137,7 @@ class ChatLinkStore:
                 result = await cur.execute(
                     """
                     DELETE FROM chatgpt_links
-                    WHERE chat_id = %s AND thread_id <=> %s
+                    WHERE chat_id = %s AND message_thread_id <=> %s
                     """,
                     (str(chat_id), message_thread_id),
                 )
