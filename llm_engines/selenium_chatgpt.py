@@ -375,7 +375,9 @@ def _safe_notify(text: str) -> None:
         chunk = text[i : i + 4000]
         log_debug(f"[selenium] Notifying chunk length {len(chunk)}")
         try:
-            notify_trainer(chunk)
+            from core.config import TRAINER_ID
+
+            notify_trainer(TRAINER_ID, chunk)
         except Exception as e:  # pragma: no cover - best effort
             log_error(f"[selenium] notify_trainer failed: {repr(e)}", e)
 
@@ -535,7 +537,10 @@ def process_prompt_in_chat(
         log_warning(f"[selenium] Saved screenshot to {fname}")
     except Exception as e:
         log_warning(f"[selenium] Failed to save screenshot: {e}")
+    from core.config import TRAINER_ID
+
     notify_trainer(
+        TRAINER_ID,
         f"\u26A0\uFE0F No response received for chat_id={chat_id}. Screenshot: {fname}"
     )
     return None

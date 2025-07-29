@@ -36,15 +36,8 @@ def notify(chat_id: int, message: str):
         except Exception as e:  # pragma: no cover - best effort
             log_error(f"[notifier] Failed to send notification chunk: {repr(e)}")
 
-def notify_trainer(message: str, chat_id: int = TRAINER_ID) -> None:
-    """Notify the trainer with ``message``.
+def notify_trainer(chat_id: int, message: str) -> None:
+    """Notify the trainer with ``message`` sent to ``chat_id``."""
 
-    Parameters
-    ----------
-    message : str
-        The notification text to send.
-    chat_id : int, optional
-        Override the trainer chat to notify. Defaults to ``TRAINER_ID``.
-    """
     log_debug(f"[notifier] Notification for TRAINER_ID={chat_id}: {message}")
     notify(chat_id, message)
