@@ -339,11 +339,13 @@ async def insert_scheduled_event(
     try:
         async with conn.cursor() as cur:
             # Normalize the timestamp for storage
-            try:
-                dt = datetime.fromisoformat(scheduled.replace("T", " ").replace("Z", "+00:00"))
-            except ValueError:
-                # Fallback for completely invalid formats - let the DB raise an error
-                dt = datetime.fromisoformat(scheduled)
+            if isinstance(scheduled, datetime):
+                dt = scheduled
+            else:
+                try:
+                    dt = datetime.fromisoformat(scheduled.replace("T", " ").replace("Z", "+00:00"))
+                except ValueError:
+                    dt = datetime.fromisoformat(scheduled)
 
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
@@ -408,12 +410,18 @@ async def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5
 
     for r in rows:
         log_debug(f"[get_due_events] Raw event data: {dict(r)}")
+        scheduled_val = r['scheduled']
         try:
-            event_dt = datetime.fromisoformat(r['scheduled'])
+            if isinstance(scheduled_val, datetime):
+                event_dt = scheduled_val
+            else:
+                event_dt = datetime.fromisoformat(str(scheduled_val).replace('T', ' ').replace('Z', '+00:00'))
             if event_dt.tzinfo is None:
                 event_dt = event_dt.replace(tzinfo=timezone.utc)
-        except ValueError as e:
-            log_warning(f"[get_due_events] Invalid datetime format in 'scheduled': {r['scheduled']} - {e}")
+        except (ValueError, TypeError) as e:
+            log_warning(
+                f"[get_due_events] Invalid datetime format in 'scheduled': {scheduled_val} - {e}"
+            )
             continue
 
         if event_dt - timedelta(minutes=tolerance_minutes) <= now:

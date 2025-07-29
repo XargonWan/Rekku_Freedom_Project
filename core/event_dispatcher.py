@@ -48,7 +48,11 @@ async def dispatch_pending_events(bot):
         }
 
         # Create a summary using the scheduled timestamp
-        scheduled_dt = datetime.fromisoformat(ev['scheduled'])
+        scheduled_val = ev['scheduled']
+        if isinstance(scheduled_val, datetime):
+            scheduled_dt = scheduled_val
+        else:
+            scheduled_dt = datetime.fromisoformat(str(scheduled_val))
         if scheduled_dt.tzinfo is None:
             scheduled_dt = scheduled_dt.replace(tzinfo=timezone.utc)
         summary = scheduled_dt.strftime('%Y-%m-%d %H:%M') + " → " + str(ev['description'])
@@ -78,7 +82,11 @@ async def dispatch_pending_events(bot):
 
         if recurrence_type != "none":
             try:
-                dt = datetime.fromisoformat(ev['scheduled'])
+                scheduled_val = ev['scheduled']
+                if isinstance(scheduled_val, datetime):
+                    dt = scheduled_val
+                else:
+                    dt = datetime.fromisoformat(str(scheduled_val))
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
 
