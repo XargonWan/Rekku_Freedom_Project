@@ -329,18 +329,34 @@ async def insert_scheduled_event(
     description: str,
     created_by: str = "rekku",
 ) -> None:
-    """Store a new scheduled event."""
+    """Store a new scheduled event.
+
+    ``scheduled`` can be an ISO 8601 string or ``YYYY-MM-DD HH:MM:SS``.
+    It will be stored as UTC in MySQL-friendly ``YYYY-MM-DD HH:MM:SS`` format.
+    """
     await ensure_core_tables()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
+            # Normalize the timestamp for storage
+            try:
+                dt = datetime.fromisoformat(scheduled.replace("T", " ").replace("Z", "+00:00"))
+            except ValueError:
+                # Fallback for completely invalid formats - let the DB raise an error
+                dt = datetime.fromisoformat(scheduled)
+
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+
+            scheduled_str = dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
             await safe_db_execute(
                 cur,
                 """
                 INSERT INTO scheduled_events (scheduled, recurrence_type, description, created_by)
                 VALUES (%s, %s, %s, %s)
                 """,
-                (scheduled, recurrence_type or "none", description, created_by),
+                (scheduled_str, recurrence_type or "none", description, created_by),
                 ensure_fn=ensure_core_tables,
             )
     except Exception as e:

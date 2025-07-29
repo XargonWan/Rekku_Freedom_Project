@@ -49,6 +49,8 @@ async def dispatch_pending_events(bot):
 
         # Create a summary using the scheduled timestamp
         scheduled_dt = datetime.fromisoformat(ev['scheduled'])
+        if scheduled_dt.tzinfo is None:
+            scheduled_dt = scheduled_dt.replace(tzinfo=timezone.utc)
         summary = scheduled_dt.strftime('%Y-%m-%d %H:%M') + " → " + str(ev['description'])
 
         # Check to avoid duplicate messages in the queue
@@ -77,6 +79,8 @@ async def dispatch_pending_events(bot):
         if recurrence_type != "none":
             try:
                 dt = datetime.fromisoformat(ev['scheduled'])
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
 
                 if recurrence_type == "daily":
                     new_dt = dt + timedelta(days=1)
@@ -92,7 +96,7 @@ async def dispatch_pending_events(bot):
 
                 if new_dt is not None:
                     await insert_scheduled_event(
-                        new_dt.isoformat(),
+                        new_dt.strftime("%Y-%m-%d %H:%M:%S"),
                         recurrence_type,
                         ev["description"],
                         ev.get("created_by", "rekku"),
