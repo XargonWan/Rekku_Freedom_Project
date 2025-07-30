@@ -59,7 +59,7 @@ class EventPlugin(AIPluginBase):
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         `date` DATE NOT NULL,
                         `time` TIME DEFAULT '00:00',
-                        `repeat` ENUM('none','daily','weekly','monthly','always') DEFAULT 'none',
+                        recurrence_type VARCHAR(20) DEFAULT 'none',
                         next_run DATETIME NOT NULL,
                         description TEXT NOT NULL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
