@@ -105,6 +105,12 @@ async def build_json_prompt(message, context_memory) -> dict:
         "interface_instructions": interface_instructions,
     }
 
+    if input_section.get("type") == "event":
+        prompt_with_instructions["instructions"] += (
+            "\nThis is a scheduled event. Based on the description, decide whether to send a message, run a command, trigger another event, or do nothing."
+            " Respond using valid JSON actions: message, terminal, event, or none."
+        )
+
     # === 5. Available actions from the active plugin ===
     try:
         from core import plugin_instance

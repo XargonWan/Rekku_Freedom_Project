@@ -319,9 +319,7 @@ class EventPlugin(AIPluginBase):
             # Pass the pre-built prompt directly to the plugin and wait for completion
             await plugin_instance.handle_incoming_message(self.bot, None, event_prompt)
 
-            from core.db import mark_event_delivered
-            await mark_event_delivered(event["id"])
-            log_info(f"[event_plugin] ✅ Event {event['id']} delivered and marked as processed")
+            log_info(f"[event_plugin] Event {event['id']} delivered to LLM; delivery status will be updated after parsing")
 
         except Exception as e:
             log_error(f"[event_plugin] Error delivering event {event['id']} to LLM: {repr(e)}")

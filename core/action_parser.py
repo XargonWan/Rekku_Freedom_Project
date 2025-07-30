@@ -9,6 +9,7 @@ from collections import deque
 from types import SimpleNamespace
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
+from core.db import mark_event_delivered
 
 import core.plugin_instance as plugin_instance
 from core.logging_utils import log_debug, log_info, log_warning, log_error
@@ -360,6 +361,15 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             await run_action(action, context, bot, original_message)
         except Exception as e:
             log_error(f"[action_parser] Error executing action {idx}: {repr(e)}")
+
+    # After all actions processed, mark scheduled event as delivered if applicable
+    event_id = context.get("event_id") or getattr(original_message, "event_id", None)
+    if event_id:
+        try:
+            if await mark_event_delivered(event_id):
+                log_info(f"[action_parser] Event {event_id} marked delivered")
+        except Exception as e:
+            log_error(f"[action_parser] Failed to mark event {event_id} delivered: {repr(e)}")
 
 
 async def parse_action(action: dict, bot, message):

@@ -54,7 +54,6 @@ async def dispatch_pending_events(bot):
         try:
             await message_queue.enqueue_event(bot, prompt)
             log_debug(f"[DISPATCH] Event queued with priority: {summary}")
-            await mark_event_delivered(ev)
             dispatched += 1
         except Exception as exc:
             log_warning(f"[event_dispatcher] Error while processing event {ev['id']}: {exc}")

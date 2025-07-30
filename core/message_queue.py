@@ -169,8 +169,9 @@ async def _consumer_loop() -> None:
                     if plugin and hasattr(plugin, 'handle_incoming_message'):
                         # Create a mock message for event processing
                         from types import SimpleNamespace
+                        event_id = final['event_prompt'].get('input', {}).get('source', {}).get('event_id')
                         event_message = SimpleNamespace(
-                            message_id=f"event_{final['event_prompt']['input']['event_id']}",
+                            message_id=f"event_{event_id}",
                             chat_id="SYSTEM_SCHEDULER",
                             text="Scheduled event: " + str(final['event_prompt']['input']['payload']['description']),
                             from_user=SimpleNamespace(
@@ -185,7 +186,8 @@ async def _consumer_loop() -> None:
                                 type="private",
                                 title="System Scheduler"
                             ),
-                            message_thread_id=None
+                            message_thread_id=None,
+                            event_id=event_id
                         )
                         await plugin.handle_incoming_message(
                             final["bot"], event_message, final["event_prompt"]

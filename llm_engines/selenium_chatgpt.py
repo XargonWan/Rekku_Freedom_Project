@@ -1091,6 +1091,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     chat_id=message.chat_id,
                     text=response_text,
                     reply_to_message_id=message.message_id,
+                    event_id=getattr(message, "event_id", None),
                 )  # [FIX][telegram retry]
                 log_debug(f"[selenium][STEP] response forwarded to {message.chat_id}")
                 return
