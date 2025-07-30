@@ -140,7 +140,12 @@ async def _consumer_loop() -> None:
                 log_error(f"[QUEUE] Error obtaining rate limit: {repr(e)}", e)
                 max_messages, window_seconds, trainer_fraction = float("inf"), 1, 1.0
 
-            user_id = final["message"].from_user.id if final["message"].from_user else 0
+            user_msg = final.get("message")
+            user_id = (
+                user_msg.from_user.id
+                if user_msg is not None and getattr(user_msg, "from_user", None)
+                else 0
+            )
             llm_name = plugin.__class__.__module__.split(".")[-1]
 
             if (
