@@ -316,8 +316,17 @@ class EventPlugin(AIPluginBase):
                 f"[event_plugin] Delivering event {event['id']} to LLM via handle_incoming_message"
             )
 
-            # Pass the pre-built prompt directly to the plugin and wait for completion
-            await plugin_instance.handle_incoming_message(self.bot, None, event_prompt)
+            bot = self.bot
+            if not bot:
+                try:
+                    from interface.telegram_bot import application
+                    if application and application.bot:
+                        bot = application.bot
+                        self.bot = bot
+                except Exception:
+                    bot = None
+
+            await plugin_instance.handle_incoming_message(bot, None, event_prompt)
 
             log_info(f"[event_plugin] Event {event['id']} delivered to LLM; delivery status will be updated after parsing")
 

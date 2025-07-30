@@ -434,37 +434,23 @@ async def get_due_events(now: datetime | None = None) -> list[dict]:
     return due
 
 
-async def mark_event_delivered(event: dict | int) -> bool:
+async def mark_event_delivered(event_id: int) -> bool:
     """Update an event after it has been dispatched.
 
     Returns ``True`` when the update succeeds and ``False`` otherwise.
-    The ``event`` parameter can be the full event ``dict`` or just its ``id``.
     """
-
     await ensure_core_tables()
     conn = await get_conn()
 
-    # Resolve the event id and fetch recurrence info if only id is provided
-    if isinstance(event, dict):
-        event_id = event.get("id")
-        repeat_type = (event.get("recurrence_type") or "none").lower()
-        next_run_val = event.get("next_run")
-    else:
-        event_id = int(event)
-        async with conn.cursor(aiomysql.DictCursor) as cur:
-            await safe_db_execute(
-                cur,
-                "SELECT recurrence_type, next_run FROM scheduled_events WHERE id = %s",
-                (event_id,),
-                ensure_fn=ensure_core_tables,
-            )
-            row = await cur.fetchone()
-        if not row:
-            log_warning(f"[db] Event {event_id} not found to be marked as delivered")
-            conn.close()
-            return False
-        repeat_type = (row.get("recurrence_type") or "none").lower()
-        next_run_val = row.get("next_run")
+    async with conn.cursor(aiomysql.DictCursor) as cur:
+        await safe_db_execute(cur, "SELECT recurrence_type, next_run FROM scheduled_events WHERE id = %s", (event_id,), ensure_fn=ensure_core_tables)
+        row = await cur.fetchone()
+    if not row:
+        log_warning(f"[db] Event {event_id} not found to be marked as delivered")
+        conn.close()
+        return False
+    repeat_type = (row.get("recurrence_type") or "none").lower()
+    next_run_val = row.get("next_run")
 
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:
