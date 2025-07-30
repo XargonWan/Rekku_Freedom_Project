@@ -225,28 +225,35 @@ async def build_prompt(
     return messages
 
 def load_json_instructions() -> str:
-    """Load JSON response instructions for the AI."""
-    return """
-Rekku, be yourself, reply as usual but wrapped in JSON format.
+    return """Rekku, be yourself, reply as usual but wrapped in JSON format, details:
 
-🧠 ALWAYS wrap your response in an "actions" array, even if there's only one action.
-
-⚠️ IMPORTANT RULES for "event" actions:
-- Use ONLY the following format:
-  {
-    "type": "event",
-    "payload": {
-      "scheduled": "2025-07-22 15:30:00",
-      "description": "Remind Jay to check the system logs"
-    }
+Event Action Format:
+{
+  "type": "event",
+  "payload": {
+    "date": "2025-07-30",
+    "time": "13:00",
+    "repeat": "weekly",
+    "description": "Remind me to water the plants",
+    "created_by": "rekku"
   }
-- DO NOT include "action", "message", or any nested action inside an event.
-- The event system will decide how to handle the reminder.
-  - "scheduled" must be a string timestamp in the form "YYYY-MM-DD HH:MM:SS".
-    It is interpreted as UTC time.
+}
 
-You can mix messages, events, and other types in the same action list.
-Respond naturally and creatively as usual — the JSON is just a wrapper.
+- 'date': required, format YYYY-MM-DD
+- 'time': optional, default is "00:00"
+- 'repeat': one of "none", "daily", "weekly", "monthly", "always"
+- 'description': required
+- 'created_by': optional, defaults to "rekku"
+
+Do NOT use 'when'. That is deprecated.
+
+All other instructions remain the same:
+- Use 'input.payload.source.chat_id' as message target
+- Include 'thread_id' if present
+- Always return syntactically valid JSON
+- Use the 'actions' array, even for single actions
+
+The JSON is just a wrapper — speak naturally as you always do.
 """
 
 def get_interface_instructions(interface_name: str) -> str:
