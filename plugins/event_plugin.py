@@ -309,37 +309,26 @@ class EventPlugin(AIPluginBase):
             log_error(f"[event_plugin] Error delivering event {event.get('id', 'unknown')}: {repr(e)}")
 
     async def _deliver_event_to_llm(self, event: dict):
-        """Deliver the event to the LLM as a structured input."""
+        """Deliver the event to the LLM as a structured input and wait for the response."""
         try:
-            # Get the active LLM plugin
             import core.plugin_instance as plugin_instance
-            active_plugin = plugin_instance.get_plugin()
 
+            active_plugin = plugin_instance.get_plugin()
             if not active_plugin:
                 log_error(f"[event_plugin] No active LLM plugin available for event {event['id']}")
                 return
 
-            # Create a structured event prompt for the LLM
             event_prompt = self._create_event_prompt(event)
 
-            # Create a special "scheduler" message object
-            scheduler_message = self._create_scheduler_message(event)
+            log_debug(
+                f"[event_plugin] Delivering event {event['id']} to LLM via handle_incoming_message"
+            )
 
-            log_debug(f"[event_plugin] Delivering event {event['id']} to LLM: {active_plugin.__class__.__name__}")
+            # Pass the pre-built prompt directly to the plugin and wait for completion
+            await plugin_instance.handle_incoming_message(self.bot, None, event_prompt)
 
-            # Execute through the active LLM plugin using the message queue
-            from core import message_queue
-
-            # Use a dedicated chat ID for all events
-            dedicated_chat_id = "CHATGPT_EVENT_CHAT"
-            scheduler_message.chat_id = dedicated_chat_id
-            event_prompt['input']['payload']['source']['chat_id'] = dedicated_chat_id
-
-            await message_queue.enqueue_event(None, event_prompt)  # No bot needed for events
-
-            # Mark event as delivered since we've successfully queued it
             from core.db import mark_event_delivered
-            await mark_event_delivered(event['id'])
+            await mark_event_delivered(event["id"])
             log_info(f"[event_plugin] ✅ Event {event['id']} delivered and marked as processed")
 
         except Exception as e:
@@ -384,30 +373,23 @@ class EventPlugin(AIPluginBase):
                     "is_late": is_late,
                     "minutes_late": minutes_late,
                     "scheduled_time": scheduled_time,
-                    "lateness_context": lateness_context
-                }
+                    "lateness_context": lateness_context,
+                },
             },
             "input": {
-                "type": "scheduled_event",
-                "event_id": event_id,
+                "type": "event",
                 "payload": {
-                    "text": "Reminder: " + str(description),
-                    "event_date": date,
-                    "event_time": time,
+                    "date": date,
+                    "time": time,
+                    "repeat": event.get("recurrence_type", "none"),
                     "description": description,
-                    "is_late": is_late,
-                    "minutes_late": minutes_late,
-                    "source": {
-                        "chat_id": "SYSTEM_SCHEDULER",
-                        "message_id": f"event_{event_id}",
-                        "username": "Rekku Scheduler",
-                        "usertag": "@rekku_scheduler",
-                        "interface": "scheduler"
-                    },
-                    "timestamp": datetime.utcnow().isoformat() + "+00:00",
-                    "privacy": "system",
-                    "scope": "global"
-                }
+                    "created_by": event.get("created_by", "rekku"),
+                },
+                "source": {
+                    "event_id": event_id,
+                    "origin": "scheduler",
+                },
+                "timestamp": event.get("next_run") or datetime.utcnow().isoformat() + "+00:00",
             },
             "instructions": f"""
 SCHEDULED REMINDER #{event_id} {"(LATE)" if is_late else "(ON TIME)"}
