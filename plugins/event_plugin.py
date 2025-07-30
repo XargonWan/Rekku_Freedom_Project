@@ -191,17 +191,9 @@ class EventPlugin(AIPluginBase):
             f"[event_plugin] Reminder scheduled for {date_str} {time_str} ({repeat}): {description}"
         )
 
-        # Send confirmation if a bot is available
-        target_chat = payload.get("target")
-        if self.bot and target_chat:
-            try:
-                from core.telegram_utils import safe_send
-                await safe_send(self.bot, target_chat,
-                                f"Reminder scheduled for {date_str} {time_str} ({repeat})")
-            except Exception as e:
-                log_error(f"[event_plugin] Failed to send confirmation: {repr(e)}")
-        elif not self.bot and target_chat:
-            log_warning("[event_plugin] Cannot send confirmation, bot not set")
+        # Confirmation messages are no longer sent directly from the plugin.
+        # The LLM will decide if and how to notify the user about scheduled
+        # reminders. This keeps event creation interface-agnostic.
 
     async def _save_scheduled_reminder(
         self,
