@@ -21,6 +21,9 @@ def truncate_message(text: Optional[str], limit: int = 4000) -> str:
 
 async def _send_with_retry(bot, chat_id: int, text: str, retries: int, delay: int, **kwargs):
     """Send a single message with retry support."""  # [FIX]
+    if bot is None:
+        log_error("[telegram_utils] _send_with_retry called with None bot")
+        return None
     last_error = None
     for attempt in range(1, retries + 1):
         try:
@@ -47,6 +50,9 @@ async def _send_with_retry(bot, chat_id: int, text: str, retries: int, delay: in
 
 async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retries: int = 3, delay: int = 2, **kwargs):
     """Send ``text`` in chunks using the universal transport layer."""  # [FIX]
+    if bot is None:
+        log_error("[telegram_utils] safe_send called with None bot")
+        return None
     from core.transport_layer import telegram_safe_send
     return await telegram_safe_send(bot, chat_id, text, chunk_size, retries, delay, **kwargs)
 
@@ -96,6 +102,10 @@ async def send_with_thread_fallback(
     thread does not exist.  If ``fallback_chat_id`` is provided it will then try
     sending to that chat using the accompanying fallback parameters.
     """
+
+    if bot is None:
+        log_error("[telegram_utils] send_with_thread_fallback called with None bot")
+        return
 
     send_kwargs = {"chat_id": chat_id, "text": text, **kwargs}
     if message_thread_id is not None:

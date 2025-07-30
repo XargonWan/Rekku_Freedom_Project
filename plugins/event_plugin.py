@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from core.ai_plugin_base import AIPluginBase
 from core.db import insert_scheduled_event, get_due_events, mark_event_delivered
 from core.logging_utils import log_debug, log_info, log_error, log_warning
-from core.telegram_utils import send_with_thread_fallback
+from core.telegram_utils import send_with_thread_fallback, safe_send
 import traceback
 import asyncio
 import json
@@ -23,12 +23,18 @@ class EventPlugin(AIPluginBase):
     _scheduler_running = False
     _scheduler_task = None
 
-    def __init__(self, notify_fn=None):
+    def __init__(self, notify_fn=None, bot=None):
         self.reply_map: dict[int, tuple[int, int]] = {}
         self.notify_fn = notify_fn
+        self.bot = bot
         # Track events currently being processed to mark them as delivered after successful send
         self._pending_events: dict[str, dict] = {}  # message_id -> event_info
         log_info("[event_plugin] EventPlugin instance created")
+
+    def set_bot(self, bot):
+        """Update the bot reference used for sending messages."""
+        self.bot = bot
+        log_debug("[event_plugin] Telegram bot reference updated")
 
     async def ensure_table_exists(self) -> None:
         """Ensure the scheduled_events table is present."""
@@ -184,6 +190,18 @@ class EventPlugin(AIPluginBase):
         log_info(
             f"[event_plugin] Reminder scheduled for {date_str} {time_str} ({repeat}): {description}"
         )
+
+        # Send confirmation if a bot is available
+        target_chat = payload.get("target")
+        if self.bot and target_chat:
+            try:
+                from core.telegram_utils import safe_send
+                await safe_send(self.bot, target_chat,
+                                f"Reminder scheduled for {date_str} {time_str} ({repeat})")
+            except Exception as e:
+                log_error(f"[event_plugin] Failed to send confirmation: {repr(e)}")
+        elif not self.bot and target_chat:
+            log_warning("[event_plugin] Cannot send confirmation, bot not set")
 
     async def _save_scheduled_reminder(
         self,
@@ -506,11 +524,16 @@ For recurring events, you can use:
         """Send message directly via Telegram transport layer."""
         try:
             from interface.telegram_bot import application
-            if not application or not application.bot:
+            bot = None
+            if application and application.bot:
+                bot = application.bot
+            elif self.bot:
+                bot = self.bot
+            if not bot:
                 raise ImportError
 
             await send_with_thread_fallback(
-                application.bot,
+                bot,
                 chat_id,
                 text,
                 message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
@@ -533,9 +556,15 @@ For recurring events, you can use:
         try:
             from interface.telegram_bot import application
 
+            bot = None
             if application and application.bot:
+                bot = application.bot
+            elif self.bot:
+                bot = self.bot
+
+            if bot:
                 await send_with_thread_fallback(
-                    application.bot,
+                    bot,
                     chat_id,
                     text,
                     message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
