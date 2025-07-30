@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from core.ai_plugin_base import AIPluginBase
 from core.db import insert_scheduled_event, get_due_events, mark_event_delivered
 from core.logging_utils import log_debug, log_info, log_error, log_warning
-from core.telegram_utils import send_with_thread_fallback, safe_send
+from core.telegram_utils import send_with_thread_fallback
 import traceback
 import asyncio
 import json
@@ -319,9 +319,10 @@ class EventPlugin(AIPluginBase):
             bot = self.bot
             if not bot:
                 try:
-                    from interface.telegram_bot import application
-                    if application and application.bot:
-                        bot = application.bot
+                    from core.interfaces import get_interface_by_name
+                    telegram_iface = get_interface_by_name("telegram_bot")
+                    if telegram_iface and getattr(telegram_iface, "bot", None):
+                        bot = telegram_iface.bot
                         self.bot = bot
                 except Exception:
                     bot = None
@@ -504,10 +505,12 @@ For recurring events, you can use:
     async def _send_via_telegram_transport(self, chat_id: int, text: str, message_thread_id: int = None, event_id: int = None):
         """Send message directly via Telegram transport layer."""
         try:
-            from interface.telegram_bot import application
+            from core.interfaces import get_interface_by_name
             bot = None
-            if application and application.bot:
-                bot = application.bot
+            telegram_iface = get_interface_by_name("telegram_bot")
+            if telegram_iface and getattr(telegram_iface, "bot", None):
+                bot = telegram_iface.bot
+                self.bot = bot
             elif self.bot:
                 bot = self.bot
             if not bot:
@@ -535,11 +538,13 @@ For recurring events, you can use:
     async def _fallback_send_telegram(self, chat_id: int, text: str, message_thread_id: int = None, event_id: int = None):
         """Fallback method to send via Telegram bot directly."""
         try:
-            from interface.telegram_bot import application
+            from core.interfaces import get_interface_by_name
 
             bot = None
-            if application and application.bot:
-                bot = application.bot
+            telegram_iface = get_interface_by_name("telegram_bot")
+            if telegram_iface and getattr(telegram_iface, "bot", None):
+                bot = telegram_iface.bot
+                self.bot = bot
             elif self.bot:
                 bot = self.bot
 
