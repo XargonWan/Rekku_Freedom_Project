@@ -7,6 +7,18 @@ from zoneinfo import ZoneInfo
 from core.db import get_due_events, mark_event_delivered
 from core import message_queue
 from core.logging_utils import log_debug, log_warning
+import time
+
+# Track events currently dispatched to prevent duplicate processing
+_processing_events: dict[int, float] = {}
+_PROCESSING_TTL = 300  # seconds
+
+
+def event_completed(event_id: int) -> None:
+    """Remove an event from the processing cache."""
+    if event_id in _processing_events:
+        _processing_events.pop(event_id, None)
+        log_debug(f"[event_dispatcher] Event {event_id} removed from processing cache")
 
 
 async def dispatch_pending_events(bot):
@@ -15,6 +27,12 @@ async def dispatch_pending_events(bot):
     now_local = datetime.now(tz)
     now_utc = now_local.astimezone(timezone.utc)
 
+    # Purge stale processing markers
+    now_ts = time.time()
+    for e_id, ts in list(_processing_events.items()):
+        if now_ts - ts > _PROCESSING_TTL:
+            _processing_events.pop(e_id, None)
+
     events = await get_due_events(now_utc)
     if not events:
         return 0
@@ -22,6 +40,13 @@ async def dispatch_pending_events(bot):
     log_debug(f"[event_dispatcher] Retrieved {len(events)} events from the database")
     dispatched = 0
     for ev in events:
+        ev_id = ev.get("id")
+        # Skip events already being processed recently
+        ts = _processing_events.get(ev_id)
+        if ts and time.time() - ts < _PROCESSING_TTL:
+            log_debug(f"[event_dispatcher] Event {ev_id} already processing, skipping")
+            continue
+
         log_debug(f"[event_dispatcher] Processing event: {ev}")
 
         try:
@@ -53,6 +78,7 @@ async def dispatch_pending_events(bot):
 
         try:
             await message_queue.enqueue_event(bot, prompt)
+            _processing_events[ev_id] = time.time()
             log_debug(f"[DISPATCH] Event queued with priority: {summary}")
             dispatched += 1
         except Exception as exc:
