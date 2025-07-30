@@ -435,14 +435,16 @@ async def get_due_events(now: datetime | None = None) -> list[dict]:
 
 
 async def mark_event_delivered(event: dict | int) -> bool:
-    """Update an event after successful delivery.
+    """Update an event after it has been dispatched.
 
-    The function accepts either the full event ``dict`` or an event ``id`` for
-    backward compatibility.
+    Returns ``True`` when the update succeeds and ``False`` otherwise.
+    The ``event`` parameter can be the full event ``dict`` or just its ``id``.
     """
+
     await ensure_core_tables()
     conn = await get_conn()
 
+    # Resolve the event id and fetch recurrence info if only id is provided
     if isinstance(event, dict):
         event_id = event.get("id")
         repeat_type = (event.get("recurrence_type") or "none").lower()
@@ -458,14 +460,14 @@ async def mark_event_delivered(event: dict | int) -> bool:
             )
             row = await cur.fetchone()
         if not row:
-            log_warning(f"[db] Event {event_id} not found")
+            log_warning(f"[db] Event {event_id} not found to be marked as delivered")
             conn.close()
             return False
         repeat_type = (row.get("recurrence_type") or "none").lower()
         next_run_val = row.get("next_run")
+
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:
-
             try:
                 if next_run_val:
                     next_run_dt = datetime.fromisoformat(str(next_run_val).replace('Z', '+00:00'))
@@ -486,9 +488,12 @@ async def mark_event_delivered(event: dict | int) -> bool:
                 )
                 log_info(f"[db] Event {event_id} marked as delivered (one-time)")
                 return True
+
             elif repeat_type == "always":
+                # Always recurring events stay active indefinitely
                 log_debug(f"[db] Event {event_id} remains active (always recurrence)")
                 return True
+
             else:
                 if not next_run_dt:
                     log_warning(f"[db] Missing next_run for repeating event {event_id}")
