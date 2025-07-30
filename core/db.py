@@ -442,8 +442,12 @@ async def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5
     return due
 
 
-async def mark_event_delivered(event_id: int) -> None:
-    """Mark an event as delivered."""
+async def mark_event_delivered(event_id: int) -> bool:
+    """Mark an event as delivered.
+
+    Returns:
+        ``True`` if the event exists and the update succeeds, ``False`` otherwise.
+    """
     await ensure_core_tables()
     conn = await get_conn()
     try:
@@ -469,9 +473,11 @@ async def mark_event_delivered(event_id: int) -> None:
                         ensure_fn=ensure_core_tables,
                     )
                     log_info(f"[db] Event {event_id} marked as delivered (one-time)")
+                    return True
                 elif repeat_type == "always":
                     # Never mark as delivered - stays active
                     log_debug(f"[db] Event {event_id} remains active (always recurrence)")
+                    return True
                 else:
                     # Repeating events (daily, weekly, monthly)
                     # TODO: Implement proper recurrence logic with next occurrence calculation
@@ -484,10 +490,13 @@ async def mark_event_delivered(event_id: int) -> None:
                     log_info(
                         f"[db] Event {event_id} marked as delivered (recurrence: {repeat_type} - TODO: implement proper recurrence logic)"
                     )
+                    return True
             else:
                 log_warning(f"[db] Event {event_id} not found scheduled to be marked as delivered")
+                return False
     except Exception as e:
-        print(f"[mark_event_delivered] Error: {e}")
+        log_error(f"[mark_event_delivered] Error: {e}")
+        return False
     finally:
         conn.close()
 
