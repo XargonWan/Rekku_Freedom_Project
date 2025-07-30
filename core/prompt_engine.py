@@ -240,7 +240,7 @@ Event Action Format:
 }
 
 - 'date': required, format YYYY-MM-DD
-- 'time': optional, default is "00:00"
+- 'time': optional, default is "00:00" (interpreted in your local timezone)
 - 'repeat': one of "none", "daily", "weekly", "monthly", "always"
 - 'description': required
 - 'created_by': optional, defaults to "rekku"
