@@ -91,19 +91,18 @@ async def init_db() -> None:
                 """
             )
 
-            # scheduled_events table
+            # scheduled_events table using a single scheduled DATETIME field
             await cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS scheduled_events (
                     id INT AUTO_INCREMENT PRIMARY KEY,
-                    `date` DATE NOT NULL,
-                    `time` TIME,
+                    scheduled DATETIME NOT NULL,
                     recurrence_type VARCHAR(20) DEFAULT 'none',
                     description TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     delivered BOOLEAN DEFAULT FALSE,
                     created_by VARCHAR(100) DEFAULT 'rekku',
-                    UNIQUE KEY unique_event (`date`, `time`, description(100))
+                    UNIQUE KEY unique_event (scheduled, description(100))
                 )
                 """
             )
@@ -330,18 +329,36 @@ async def insert_scheduled_event(
     description: str,
     created_by: str = "rekku",
 ) -> None:
-    """Store a new scheduled event."""
+    """Store a new scheduled event.
+
+    ``scheduled`` can be an ISO 8601 string or ``YYYY-MM-DD HH:MM:SS``.
+    It will be stored as UTC in MySQL-friendly ``YYYY-MM-DD HH:MM:SS`` format.
+    """
     await ensure_core_tables()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
+            # Normalize the timestamp for storage
+            if isinstance(scheduled, datetime):
+                dt = scheduled
+            else:
+                try:
+                    dt = datetime.fromisoformat(scheduled.replace("T", " ").replace("Z", "+00:00"))
+                except ValueError:
+                    dt = datetime.fromisoformat(scheduled)
+
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+
+            scheduled_str = dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
             await safe_db_execute(
                 cur,
                 """
                 INSERT INTO scheduled_events (scheduled, recurrence_type, description, created_by)
                 VALUES (%s, %s, %s, %s)
                 """,
-                (scheduled, recurrence_type or "none", description, created_by),
+                (scheduled_str, recurrence_type or "none", description, created_by),
                 ensure_fn=ensure_core_tables,
             )
     except Exception as e:
@@ -393,10 +410,18 @@ async def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5
 
     for r in rows:
         log_debug(f"[get_due_events] Raw event data: {dict(r)}")
+        scheduled_val = r['scheduled']
         try:
-            event_dt = datetime.fromisoformat(r['scheduled'])
-        except ValueError as e:
-            log_warning(f"[get_due_events] Invalid datetime format in 'scheduled': {r['scheduled']} - {e}")
+            if isinstance(scheduled_val, datetime):
+                event_dt = scheduled_val
+            else:
+                event_dt = datetime.fromisoformat(str(scheduled_val).replace('T', ' ').replace('Z', '+00:00'))
+            if event_dt.tzinfo is None:
+                event_dt = event_dt.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError) as e:
+            log_warning(
+                f"[get_due_events] Invalid datetime format in 'scheduled': {scheduled_val} - {e}"
+            )
             continue
 
         if event_dt - timedelta(minutes=tolerance_minutes) <= now:

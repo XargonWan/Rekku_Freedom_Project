@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 
 from core.ai_plugin_base import AIPluginBase
 from core.db import insert_scheduled_event, get_due_events, mark_event_delivered
@@ -125,7 +124,7 @@ class EventPlugin(AIPluginBase):
                 "example": {
                     "type": "event",
                     "payload": {
-                        "scheduled": "2025-07-22T15:30:00+00:00",
+                        "scheduled": "2025-07-22 15:30:00",
                         "description": "Remind Jay to check the system logs",
                         "recurrence_type": "none"
                     }
@@ -178,22 +177,16 @@ class EventPlugin(AIPluginBase):
                 log_warning(f"[event_plugin] Invalid recurrence_type '{recurrence_type}', defaulting to 'none'")
                 recurrence_type = "none"
 
-            # Parse the scheduled timestamp
-            event_time = datetime.fromisoformat(scheduled.replace('Z', '+00:00'))
+            # Parse the scheduled timestamp. Accept both ISO strings and the
+            # "YYYY-MM-DD HH:MM:SS" format used by MySQL.
+            event_time = datetime.fromisoformat(scheduled.replace('T', ' ').replace('Z', '+00:00'))
 
-            # Convert to UTC for consistent storage
+            # Treat naive datetimes as UTC
             if event_time.tzinfo is None:
-                # If no timezone info, assume it's in the system timezone
-                from zoneinfo import ZoneInfo
-                system_tz = ZoneInfo(os.getenv("TZ", "UTC"))
-                event_time = event_time.replace(tzinfo=system_tz)
+                event_time = event_time.replace(tzinfo=timezone.utc)
 
             # Convert to UTC for storage
             event_time_utc = event_time.astimezone(timezone.utc)
-
-            # Extract date and time parts in UTC
-            date_str = event_time_utc.strftime("%Y-%m-%d")
-            time_str = event_time_utc.strftime("%H:%M:%S")
 
             # Store the reminder as natural language description
             # This allows Rekku to freely decide what to do with it
@@ -204,7 +197,7 @@ class EventPlugin(AIPluginBase):
 
             # Store in database using the correct signature
             await insert_scheduled_event(
-                scheduled=event_time_utc.isoformat(),
+                scheduled=event_time_utc.strftime("%Y-%m-%d %H:%M:%S"),
                 recurrence_type=recurrence_type,
                 description=reminder_description,
                 created_by="rekku"
@@ -411,7 +404,7 @@ Example of a valid JSON structure for an event:
 {{
   "type": "event",
   "payload": {{
-    "scheduled": "2025-07-22T15:30:00+00:00",
+    "scheduled": "2025-07-22 15:30:00",
     "description": "Remember to check if Jay replied to the message",
     "recurrence_type": "none"
   }}
@@ -740,7 +733,7 @@ You can use {{"type": "event"}} to schedule a reminder in the future.
 
 IMPORTANT RULES for event actions:
 - The payload MUST contain:
-    • "scheduled": ISO 8601 UTC timestamp (e.g. "2025-07-22T15:30:00+00:00")
+    • "scheduled": string timestamp in the form "YYYY-MM-DD HH:MM:SS" (e.g. "2025-07-22 15:30:00" UTC)
     • "description": natural language reminder (not a command or action)
 - The payload CAN optionally contain:
     • "recurrence_type": how often to repeat the event
@@ -758,7 +751,7 @@ Single reminder (default):
 {{
   "type": "event",
   "payload": {{
-    "scheduled": "2025-07-22T15:30:00+00:00",
+    "scheduled": "2025-07-22 15:30:00",
     "description": "Remind Jay to check the system logs for errors"
   }}
 }}
@@ -767,7 +760,7 @@ Daily recurring reminder:
 {{
   "type": "event",
   "payload": {{
-    "scheduled": "2025-07-22T09:00:00+00:00",
+    "scheduled": "2025-07-22 09:00:00",
     "description": "Daily standup meeting reminder",
     "recurrence_type": "daily"
   }}
@@ -777,7 +770,7 @@ Weekly recurring reminder:
 {{
   "type": "event",
   "payload": {{
-    "scheduled": "2025-07-22T14:00:00+00:00", 
+    "scheduled": "2025-07-22 14:00:00",
     "description": "Weekly team sync",
     "recurrence_type": "weekly"
   }}
