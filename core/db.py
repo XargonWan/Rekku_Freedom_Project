@@ -1,7 +1,8 @@
 # core/db.py
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import calendar
 import asyncio
 
 import aiomysql
@@ -91,12 +92,13 @@ async def init_db() -> None:
                 """
             )
 
-            # scheduled_events table using a single scheduled DATETIME field
+            # scheduled_events table using next_run for repeat handling
             await cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS scheduled_events (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     scheduled DATETIME NOT NULL,
+                    next_run TEXT,
                     recurrence_type VARCHAR(20) DEFAULT 'none',
                     description TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -350,15 +352,23 @@ async def insert_scheduled_event(
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
 
-            scheduled_str = dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            dt_utc = dt.astimezone(timezone.utc)
+            scheduled_str = dt_utc.strftime("%Y-%m-%d %H:%M:%S")
+            next_run_iso = dt_utc.isoformat()
 
             await safe_db_execute(
                 cur,
                 """
-                INSERT INTO scheduled_events (scheduled, recurrence_type, description, created_by)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO scheduled_events (scheduled, next_run, recurrence_type, description, created_by)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
-                (scheduled_str, recurrence_type or "none", description, created_by),
+                (
+                    scheduled_str,
+                    next_run_iso,
+                    recurrence_type or "none",
+                    description,
+                    created_by,
+                ),
                 ensure_fn=ensure_core_tables,
             )
     except Exception as e:
@@ -380,20 +390,18 @@ async def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5
         fields added.
     """
 
-    from datetime import timedelta
-
     if now is None:
         now = datetime.now(timezone.utc)
 
     log_debug(f"[get_due_events] Checking events at UTC {now.isoformat()}")
 
-    query = "SELECT * FROM scheduled_events WHERE delivered = 0 ORDER BY id"
+    query = "SELECT * FROM scheduled_events WHERE delivered = 0 AND next_run <= %s ORDER BY id"
     log_debug(f"[get_due_events] Executing query: {query}")
 
     conn = await get_conn()
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:
-            await safe_db_execute(cur, query, ensure_fn=ensure_core_tables)
+            await safe_db_execute(cur, query, (now.isoformat(),), ensure_fn=ensure_core_tables)
             rows = await cur.fetchall()
             log_debug(f"[get_due_events] Retrieved {len(rows)} rows")
             for row in rows:
@@ -410,7 +418,7 @@ async def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5
 
     for r in rows:
         log_debug(f"[get_due_events] Raw event data: {dict(r)}")
-        scheduled_val = r['scheduled']
+        scheduled_val = r.get('next_run') or r['scheduled']
         try:
             if isinstance(scheduled_val, datetime):
                 event_dt = scheduled_val
@@ -424,20 +432,19 @@ async def get_due_events(now: datetime | None = None, tolerance_minutes: int = 5
             )
             continue
 
-        if event_dt - timedelta(minutes=tolerance_minutes) <= now:
-            is_late = now > event_dt
-            minutes_late = int((now - event_dt).total_seconds() / 60) if is_late else 0
+        is_late = now > event_dt
+        minutes_late = int((now - event_dt).total_seconds() / 60) if is_late else 0
 
-            ev = dict(r)
-            ev.update(
-                {
-                    "is_late": is_late,
-                    "minutes_late": minutes_late,
-                    "scheduled_time": event_dt.strftime("%H:%M"),
-                }
-            )
-            due.append(ev)
-            log_debug(f"[get_due_events] Due event: {ev}")
+        ev = dict(r)
+        ev.update(
+            {
+                "is_late": is_late,
+                "minutes_late": minutes_late,
+                "scheduled_time": event_dt.strftime("%H:%M"),
+            }
+        )
+        due.append(ev)
+        log_debug(f"[get_due_events] Due event: {ev}")
     log_debug(f"[get_due_events] Total due events: {len(due)}")
     return due
 
@@ -452,17 +459,29 @@ async def mark_event_delivered(event_id: int) -> bool:
     conn = await get_conn()
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:
-            # Get event info to check recurrence type
+            # Get event info to check recurrence type and current next_run
             await safe_db_execute(
                 cur,
-                "SELECT recurrence_type FROM scheduled_events WHERE id = %s",
+                "SELECT recurrence_type, next_run FROM scheduled_events WHERE id = %s",
                 (event_id,),
                 ensure_fn=ensure_core_tables,
             )
             event_row = await cur.fetchone()
 
             if event_row:
-                repeat_type = event_row['recurrence_type']
+                repeat_type = (event_row.get('recurrence_type') or 'none').lower()
+                next_run_val = event_row.get('next_run')
+
+                try:
+                    if next_run_val:
+                        next_run_dt = datetime.fromisoformat(str(next_run_val).replace('Z', '+00:00'))
+                    else:
+                        next_run_dt = None
+                    if next_run_dt and next_run_dt.tzinfo is None:
+                        next_run_dt = next_run_dt.replace(tzinfo=timezone.utc)
+                except Exception as e:
+                    log_warning(f"[db] Invalid next_run for event {event_id}: {next_run_val} - {e}")
+                    next_run_dt = None
 
                 if repeat_type == "none":
                     # One-time event - mark as delivered
@@ -475,21 +494,36 @@ async def mark_event_delivered(event_id: int) -> bool:
                     log_info(f"[db] Event {event_id} marked as delivered (one-time)")
                     return True
                 elif repeat_type == "always":
-                    # Never mark as delivered - stays active
+                    # Never mark as delivered - considered handled
                     log_debug(f"[db] Event {event_id} remains active (always recurrence)")
                     return True
                 else:
-                    # Repeating events (daily, weekly, monthly)
-                    # TODO: Implement proper recurrence logic with next occurrence calculation
+                    # Repeating event - update next_run to next occurrence
+                    if not next_run_dt:
+                        log_warning(f"[db] Missing next_run for repeating event {event_id}")
+                        return False
+
+                    if repeat_type == "daily":
+                        new_dt = next_run_dt + timedelta(days=1)
+                    elif repeat_type == "weekly":
+                        new_dt = next_run_dt + timedelta(days=7)
+                    elif repeat_type == "monthly":
+                        year = next_run_dt.year + (next_run_dt.month // 12)
+                        month = next_run_dt.month % 12 + 1
+                        day = min(next_run_dt.day, calendar.monthrange(year, month)[1])
+                        new_dt = next_run_dt.replace(year=year, month=month, day=day)
+                    else:
+                        log_warning(f"[db] Unknown recurrence type '{repeat_type}' for event {event_id}")
+                        return False
+
+                    new_iso = new_dt.astimezone(timezone.utc).isoformat()
                     await safe_db_execute(
                         cur,
-                        "UPDATE scheduled_events SET delivered = 1 WHERE id = %s",
-                        (event_id,),
+                        "UPDATE scheduled_events SET next_run = %s WHERE id = %s",
+                        (new_iso, event_id),
                         ensure_fn=ensure_core_tables,
                     )
-                    log_info(
-                        f"[db] Event {event_id} marked as delivered (recurrence: {repeat_type} - TODO: implement proper recurrence logic)"
-                    )
+                    log_info(f"[db] Event {event_id} rescheduled to {new_iso}")
                     return True
             else:
                 log_warning(f"[db] Event {event_id} not found scheduled to be marked as delivered")
