@@ -57,10 +57,14 @@ class EventPlugin(AIPluginBase):
                     """
                     CREATE TABLE IF NOT EXISTS scheduled_events (
                         id INT AUTO_INCREMENT PRIMARY KEY,
-                        scheduled DATETIME NOT NULL,
-                        description TEXT,
-                        recurrence VARCHAR(50),
-                        delivered BOOLEAN DEFAULT 0
+                        `date` DATE NOT NULL,
+                        `time` TIME DEFAULT '00:00',
+                        `repeat` ENUM('none','daily','weekly','monthly','always') DEFAULT 'none',
+                        next_run DATETIME NOT NULL,
+                        description TEXT NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        delivered BOOLEAN DEFAULT 0,
+                        created_by VARCHAR(100) DEFAULT 'rekku'
                     )
                     """
                 )
@@ -124,9 +128,11 @@ class EventPlugin(AIPluginBase):
                 "example": {
                     "type": "event",
                     "payload": {
-                        "scheduled": "2025-07-22 15:30:00",
-                        "description": "Remind Jay to check the system logs",
-                        "recurrence_type": "none"
+                        "date": "2025-07-30",
+                        "time": "13:00",
+                        "repeat": "weekly",
+                        "description": "Remind me to water the plants",
+                        "created_by": "rekku"
                     }
                 }
             }
@@ -158,51 +164,54 @@ class EventPlugin(AIPluginBase):
 
     async def _handle_event_payload(self, payload: dict):
         """Shared logic for processing an event payload."""
-        scheduled = payload.get("scheduled")
-        description = payload.get("description", "")
-        recurrence_type = payload.get("recurrence_type", "none")
+        date_str = payload.get("date")
+        description = payload.get("description")
+        time_str = payload.get("time") or "00:00"
+        repeat = payload.get("repeat", "none")
+        created_by = payload.get("created_by", "rekku")
 
-        if scheduled and description:
-            await self._save_scheduled_reminder(scheduled, description, recurrence_type)
-            log_info(f"[event_plugin] Reminder scheduled for {scheduled} ({recurrence_type}): {description}")
-        else:
-            log_error("[event_plugin] Invalid event payload: missing 'scheduled' or 'description'")
+        if not date_str or not description:
+            log_error("[event_plugin] Invalid event payload: missing 'date' or 'description'")
+            return
 
-    async def _save_scheduled_reminder(self, scheduled: str, description: str, recurrence_type: str = "none"):
-        """Save a scheduled reminder to the database as natural language."""
+        await self._save_scheduled_reminder(
+            date_str,
+            time_str,
+            repeat,
+            description,
+            created_by,
+        )
+        log_info(
+            f"[event_plugin] Reminder scheduled for {date_str} {time_str} ({repeat}): {description}"
+        )
+
+    async def _save_scheduled_reminder(
+        self,
+        date_str: str,
+        time_str: str,
+        repeat: str,
+        description: str,
+        created_by: str = "rekku",
+    ) -> None:
+        """Save a scheduled reminder to the database."""
         try:
-            # Validate recurrence_type
             valid_recurrence_types = {"none", "daily", "weekly", "monthly", "always"}
-            if recurrence_type not in valid_recurrence_types:
-                log_warning(f"[event_plugin] Invalid recurrence_type '{recurrence_type}', defaulting to 'none'")
-                recurrence_type = "none"
+            if repeat not in valid_recurrence_types:
+                log_warning(f"[event_plugin] Invalid repeat '{repeat}', defaulting to 'none'")
+                repeat = "none"
 
-            # Parse the scheduled timestamp. Accept both ISO strings and the
-            # "YYYY-MM-DD HH:MM:SS" format used by MySQL.
-            event_time = datetime.fromisoformat(scheduled.replace('T', ' ').replace('Z', '+00:00'))
-
-            # Treat naive datetimes as UTC
-            if event_time.tzinfo is None:
-                event_time = event_time.replace(tzinfo=timezone.utc)
-
-            # Convert to UTC for storage
-            event_time_utc = event_time.astimezone(timezone.utc)
-
-            # Store the reminder as natural language description
-            # This allows Rekku to freely decide what to do with it
             reminder_description = "REMINDER: " + str(description)
 
-            # TODO: Implement duplicate check with proper async handling
-            # For now, we rely on database UNIQUE constraints
-
-            # Store in database using the correct signature
             await insert_scheduled_event(
-                scheduled=event_time_utc.strftime("%Y-%m-%d %H:%M:%S"),
-                recurrence_type=recurrence_type,
-                description=reminder_description,
-                created_by="rekku"
+                date_str,
+                time_str,
+                repeat,
+                reminder_description,
+                created_by,
             )
-            log_debug(f"[event_plugin] Saved scheduled reminder for {event_time} (stored as UTC: {event_time_utc}, recurrence: {recurrence_type}): {description}")
+            log_debug(
+                f"[event_plugin] Saved scheduled reminder for {date_str} {time_str} (repeat: {repeat}): {description}"
+            )
         except Exception as e:
             log_error(f"[event_plugin] Failed to save scheduled reminder: {repr(e)}")
 
@@ -225,14 +234,13 @@ class EventPlugin(AIPluginBase):
         log_info("[event_plugin] Event scheduler loop ended")
 
     async def _check_and_execute_events(self):
-        """Check for due events and execute them with 5-minute tolerance window."""
+        """Check for due events and execute them."""
         try:
             log_debug("[EventPlugin] Starting due events check...")
-            # Get events that are due (including 5 minutes early)
-            due_events = await get_due_events(tolerance_minutes=5)
+            due_events = await get_due_events()
 
             if due_events:
-                log_info(f"[event_plugin] Found {len(due_events)} due events to execute (with 5min tolerance)")
+                log_info(f"[event_plugin] Found {len(due_events)} due events to execute")
                 log_debug(f"[EventPlugin] Found events: {len(due_events)}")
                 # Separate on-time and late events for logging
                 on_time_events = [e for e in due_events if not e.get('is_late', False)]
@@ -251,7 +259,7 @@ class EventPlugin(AIPluginBase):
                     log_debug(f"[EventPlugin] Checking event: {event}")
                     await self._execute_scheduled_event(event)
             else:
-                log_debug("[event_plugin] No due events to execute (checked with 5min tolerance)")
+                log_debug("[event_plugin] No due events to execute")
         except Exception as e:
             log_error(f"[event_plugin] Error checking due events: {repr(e)}")
 
@@ -404,9 +412,10 @@ Example of a valid JSON structure for an event:
 {{
   "type": "event",
   "payload": {{
-    "scheduled": "2025-07-22 15:30:00",
+    "date": "2025-07-22",
+    "time": "15:30",
     "description": "Remember to check if Jay replied to the message",
-    "recurrence_type": "none"
+    "repeat": "none"
   }}
 }}
 
@@ -733,17 +742,18 @@ You can use {{"type": "event"}} to schedule a reminder in the future.
 
 IMPORTANT RULES for event actions:
 - The payload MUST contain:
-    • "scheduled": string timestamp in the form "YYYY-MM-DD HH:MM:SS" (e.g. "2025-07-22 15:30:00" UTC)
+    • "date": YYYY-MM-DD
     • "description": natural language reminder (not a command or action)
 - The payload CAN optionally contain:
-    • "recurrence_type": how often to repeat the event
-      - "none" (default): single execution only
-      - "daily": repeat every day
-      - "weekly": repeat every week  
-      - "monthly": repeat every month
-      - "always": keep active indefinitely
+    • "time": HH:MM (default "00:00")
+    • "repeat": how often to repeat the event
+      - "none" (default)
+      - "daily"
+      - "weekly"
+      - "monthly"
+      - "always"
 - DO NOT include nested "action", "message", or any other structure inside the event.
-- The plugin will decide later how to handle the reminder.
+  The plugin will decide later how to handle the reminder.
 
 Valid examples:
 
@@ -751,7 +761,8 @@ Single reminder (default):
 {{
   "type": "event",
   "payload": {{
-    "scheduled": "2025-07-22 15:30:00",
+    "date": "2025-07-22",
+    "time": "15:30",
     "description": "Remind Jay to check the system logs for errors"
   }}
 }}
@@ -760,9 +771,10 @@ Daily recurring reminder:
 {{
   "type": "event",
   "payload": {{
-    "scheduled": "2025-07-22 09:00:00",
+    "date": "2025-07-22",
+    "time": "09:00",
     "description": "Daily standup meeting reminder",
-    "recurrence_type": "daily"
+    "repeat": "daily"
   }}
 }}
 
@@ -770,9 +782,10 @@ Weekly recurring reminder:
 {{
   "type": "event",
   "payload": {{
-    "scheduled": "2025-07-22 14:00:00",
+    "date": "2025-07-22",
+    "time": "14:00",
     "description": "Weekly team sync",
-    "recurrence_type": "weekly"
+    "repeat": "weekly"
   }}
 }}
         """.strip(),
