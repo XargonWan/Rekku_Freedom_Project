@@ -73,16 +73,6 @@ def _validate_message_payload(payload: dict, errors: List[str]) -> None:
         errors.append("payload.message_thread_id must be an int")
 
 
-def _validate_event_payload(payload: dict, errors: List[str]) -> None:
-    """Validate payload for event actions."""
-    scheduled = payload.get("scheduled")
-    if not isinstance(scheduled, str) or not scheduled:
-        errors.append("payload.scheduled must be a non-empty string for event action")
-
-    action = payload.get("action")
-    if action is not None and not isinstance(action, dict):
-        errors.append("payload.action must be a dict if provided")
-
 
 def _validate_command_payload(payload: dict, errors: List[str]) -> None:
     """Validate payload for command actions."""
@@ -164,7 +154,34 @@ def validate_action(action: dict) -> Tuple[bool, List[str]]:
         if action_type == "message":
             _validate_message_payload(payload, errors)
         elif action_type == "event":
-            _validate_event_payload(payload, errors)
+            # New structured event validation
+            date_str = payload.get("date")
+            if not date_str:
+                errors.append("payload.date is required for event action")
+            else:
+                try:
+                    datetime.strptime(date_str, "%Y-%m-%d")
+                except Exception:
+                    errors.append("payload.date must be in format YYYY-MM-DD")
+
+            time_str = payload.get("time")
+            if time_str:
+                try:
+                    datetime.strptime(time_str, "%H:%M")
+                except Exception:
+                    errors.append("payload.time must be in format HH:MM")
+
+            if not payload.get("description"):
+                errors.append("payload.description is required for event action")
+
+            if (
+                "repeat" in payload
+                and payload["repeat"]
+                not in ["none", "daily", "weekly", "monthly", "always"]
+            ):
+                errors.append(
+                    "payload.repeat must be one of: none, daily, weekly, monthly, always"
+                )
         elif action_type == "command":
             _validate_command_payload(payload, errors)
         elif action_type == "memory":
