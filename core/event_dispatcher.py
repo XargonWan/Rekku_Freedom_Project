@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from core.db import get_due_events, mark_event_delivered
+from core.db import get_due_events
 from core import message_queue
 from core.logging_utils import log_debug, log_warning
 import time
@@ -84,8 +84,6 @@ async def dispatch_pending_events(bot):
             await message_queue.enqueue_event(bot, prompt)
             _processing_events[ev_id] = time.time()
             log_debug(f"[DISPATCH] Event queued with priority: {summary}")
-            if await mark_event_delivered(ev_id):
-                log_info(f"[event_dispatcher] Marked event {ev_id} as delivered")
             dispatched += 1
         except Exception as exc:
             log_warning(

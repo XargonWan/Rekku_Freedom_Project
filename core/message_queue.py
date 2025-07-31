@@ -192,6 +192,12 @@ async def _consumer_loop() -> None:
                         await plugin.handle_incoming_message(
                             final["bot"], event_message, final["event_prompt"]
                         )
+                        if event_id is not None:
+                            from core.db import mark_event_delivered
+                            if await mark_event_delivered(event_id):
+                                log_info(f"[QUEUE] Marked event {event_id} as delivered")
+                            else:
+                                log_warning(f"[QUEUE] Failed to mark event {event_id} delivered")
                     else:
                         log_error("[QUEUE] No LLM plugin available or doesn't support handle_incoming_message")
                 else:
