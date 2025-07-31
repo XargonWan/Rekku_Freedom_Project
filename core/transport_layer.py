@@ -244,10 +244,14 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
             message.chat_id = chat_id
             message.text = ""
             message.message_thread_id = kwargs.get('message_thread_id')
+            if 'event_id' in kwargs:
+                message.event_id = kwargs['event_id']
 
             # Use centralized action system for all action types
             from core.action_parser import run_actions
             context = {"interface": "telegram"}
+            if 'event_id' in kwargs:
+                context['event_id'] = kwargs['event_id']
             
             # Rimuovi azioni duplicate
             unique_actions = []

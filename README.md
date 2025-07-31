@@ -189,6 +189,19 @@ storage and a `rekku-db-backup` companion container. Backups are written to
 `./backups/` hourly and kept for one day. Database credentials can be customized
 via environment variables such as `DB_USER` and `DB_PASS`.
 
+#### X Interface Variables
+
+Configure the X (Twitter) interface by specifying the account name used for
+timeline reads. Add this to your `.env` file:
+
+```
+X_USERNAME=<your_x_username>
+```
+
+When `X_USERNAME` is set, the `x_timeline_read` action will fetch the latest
+posts from that account using `snscrape`. Without it, timeline access is
+disabled. Posting actions currently log messages locally for testing.
+
 To set up the schema, run the statements in `mariadb_schema.sql` against your
 MariaDB instance.
 
@@ -263,6 +276,14 @@ graph TD
 
 This might be the most solid method, I wrote it but I never tried so I don't expect itś working out of the box as I naver had an API key to test it.
 Feel free to test it and enhance it if you got an API ke, all contributions are welcomed.
+
+---
+
+## 📚 Documentation
+
+Full documentation for the Rekku Freedom Project is hosted on
+[Read the Docs](https://rekku-freedom-project.readthedocs.io). You can also
+build the docs locally from the `docs/` directory using Sphinx.
 
 ---
 

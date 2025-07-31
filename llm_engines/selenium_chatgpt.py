@@ -914,19 +914,27 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     def _get_driver(self):
         """Return a valid WebDriver, recreating it if the session is dead."""
         if self.driver is None:
-            self._init_driver()
+            try:
+                self._init_driver()
+            except Exception as e:
+                log_error(f"[selenium] Failed to initialize driver: {e}")
+                return None
         else:
             try:
                 # simple command to verify the session is still alive
                 self.driver.execute_script("return 1")
-            except WebDriverException:
-                log_warning("[selenium] WebDriver session expired, recreating")
+            except Exception as e:
+                log_warning(f"[selenium] WebDriver session error: {e}. Restarting")
                 try:
                     self.driver.quit()
                 except Exception:
                     pass
                 self.driver = None
-                self._init_driver()
+                try:
+                    self._init_driver()
+                except Exception as e2:
+                    log_error(f"[selenium] Failed to reinitialize driver: {e2}")
+                    return None
         return self.driver
 
     def _ensure_logged_in(self):
@@ -993,6 +1001,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
         for attempt in range(2):
             driver = self._get_driver()
+            if not driver:
+                log_error("[selenium] WebDriver unavailable, aborting")
+                _notify_gui("❌ Selenium driver not available. Open UI")
+                return
             # [FIX] verify underlying Chrome process is alive
             if (
                 not driver.service
@@ -1001,6 +1013,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             ):
                 log_warning("[selenium] Driver process not running, restarting")
                 driver = self._get_driver()
+                if not driver:
+                    log_error("[selenium] Failed to restart WebDriver")
+                    _notify_gui("❌ Selenium driver not available. Open UI")
+                    return
             if not self._ensure_logged_in():
                 return
 
@@ -1091,6 +1107,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     chat_id=message.chat_id,
                     text=response_text,
                     reply_to_message_id=message.message_id,
+                    event_id=getattr(message, "event_id", None),
                 )  # [FIX][telegram retry]
                 log_debug(f"[selenium][STEP] response forwarded to {message.chat_id}")
                 return

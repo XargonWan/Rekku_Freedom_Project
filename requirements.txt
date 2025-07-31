@@ -12,3 +12,5 @@ uvicorn[standard]
 aiomysql
 asyncpraw
 praw
+requests
+snscrape

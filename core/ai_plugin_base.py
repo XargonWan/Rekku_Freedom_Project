@@ -42,3 +42,11 @@ class AIPluginBase:
     async def handle_custom_action(self, action_type: str, payload: dict):
         """Handle a plugin-defined custom action."""
         raise NotImplementedError("handle_custom_action not implemented")
+
+    def get_supported_actions(self) -> list[str]:
+        """Return the list of action types this plugin supports."""
+        return []
+
+    def get_prompt_instructions(self) -> dict[str, str]:
+        """Return per-action prompt instructions for all supported actions."""
+        return {}
