@@ -244,6 +244,14 @@ Feel free to test it and enhance it if you got an API ke, all contributions are 
 
 ---
 
+## 📚 Documentation
+
+Full documentation for the Rekku Freedom Project is hosted on
+[Read the Docs](https://rekku-freedom-project.readthedocs.io). You can also
+build the docs locally from the `docs/` directory using Sphinx.
+
+---
+
 ## 🛠️ Dev Notes
 
 ### Commit Semantics
