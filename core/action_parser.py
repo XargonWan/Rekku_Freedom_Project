@@ -13,19 +13,9 @@ from typing import Any, Dict, List, Tuple
 import core.plugin_instance as plugin_instance
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
-
-# Supporto per tipi di azione - ora dinamico, basato sui plugin caricati
-SUPPORTED_TYPES = {
-    "message",
-    "event",
-    "command",
-    "memory",
-}  # Base types, expandable by plugins
-
-
-def get_supported_action_types():
-    """Get all supported action types from loaded plugins."""
-    supported_types = set(SUPPORTED_TYPES)  # Start with base types
+def get_supported_action_types() -> set[str]:
+    """Return all supported action types discovered from plugins."""
+    supported_types: set[str] = set()
 
     try:
         for plugin in _load_action_plugins():
@@ -161,8 +151,8 @@ def validate_action(action: dict) -> Tuple[bool, List[str]]:
     elif not isinstance(payload, dict):
         errors.append("'payload' must be a dict")
 
-    # Legacy validation for base types (can be removed once all plugins handle their own validation)
-    if isinstance(payload, dict) and action_type in SUPPORTED_TYPES:
+    # Basic validation for known action types discovered from plugins
+    if isinstance(payload, dict) and action_type in get_supported_action_types():
         if action_type == "message":
             _validate_message_payload(payload, errors)
         elif action_type == "event":
