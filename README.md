@@ -60,6 +60,28 @@ Plugins currently supported:
 * `selenium_chatgpt`
 * `terminal` (persistent shell access)
 * `event` (persistent scheduled reminders)
+* `reddit_interface` (feed reading, DM handling, follow/unfollow)
+* `reddit` (post submissions and comments)
+
+### 📮 Reddit Interface
+
+The `reddit_interface` allows Rekku to read posts, search, send or reply to direct
+messages, and manage subreddit/user subscriptions. Add these variables to your
+`.env` file to enable the interface:
+
+```bash
+REDDIT_CLIENT_ID=
+REDDIT_CLIENT_SECRET=
+REDDIT_USERNAME=
+REDDIT_PASSWORD=
+REDDIT_USER_AGENT=rekku-agent
+# Optional refresh token if using OAuth
+TOKEN=
+```
+
+After starting Rekku, the interface listens for incoming messages and replies,
+dispatching them to the central plugin handler. Use the `reddit` action plugin to
+create posts or comments.
 
 ### ⏰ Event Plugin
 
