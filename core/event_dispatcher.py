@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+
+from core.rekku_utils import get_local_timezone, format_dual_time
 
 from core.db import get_due_events
 from core import message_queue
@@ -23,7 +24,7 @@ def event_completed(event_id: int) -> None:
 
 async def dispatch_pending_events(bot):
     """Dispatch events that are due and handle repeats."""
-    tz = ZoneInfo(os.getenv("TZ", "UTC"))
+    tz = get_local_timezone()
     now_local = datetime.now(tz)
     now_utc = now_local.astimezone(timezone.utc)
 
@@ -72,13 +73,11 @@ async def dispatch_pending_events(bot):
             },
             "meta": {
                 "now_date": now_local.strftime("%Y-%m-%d"),
-                "now_time": now_local.strftime("%H:%M:%S"),
+                "now_time": format_dual_time(now_utc),
             },
         }
 
-        summary = (
-            scheduled_dt.strftime("%Y-%m-%d %H:%M") + " → " + str(ev["description"])
-        )
+        summary = format_dual_time(scheduled_dt) + " → " + str(ev["description"])
 
         try:
             await message_queue.enqueue_event(bot, prompt)

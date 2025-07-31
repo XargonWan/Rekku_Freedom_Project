@@ -235,8 +235,14 @@ class EventPlugin(AIPluginBase):
                 reminder_description,
                 created_by,
             )
+            from core.rekku_utils import parse_local_to_utc, format_dual_time
+            try:
+                utc_dt = parse_local_to_utc(date_str, time_str or "00:00")
+                dual = format_dual_time(utc_dt)
+            except Exception:
+                dual = f"{date_str} {time_str}"
             log_debug(
-                f"[event_plugin] Saved scheduled reminder for {date_str} {time_str} (repeat: {repeat}): {description}"
+                f"[event_plugin] Saved scheduled reminder for {dual} (repeat: {repeat}): {description}"
             )
         except Exception as e:
             log_error(f"[event_plugin] Failed to save scheduled reminder: {repr(e)}")
@@ -373,12 +379,24 @@ class EventPlugin(AIPluginBase):
 
         # Extract event details
         event_id = event.get("id", "unknown")
+        from core.rekku_utils import format_dual_time
         date = event.get("date", "")
         time = event.get("time", "")
         description = event.get("description", "")
         is_late = event.get("is_late", False)
         minutes_late = event.get("minutes_late", 0)
-        scheduled_time = event.get("scheduled_time", "unknown")
+
+        next_run_val = event.get("next_run")
+        try:
+            if isinstance(next_run_val, datetime):
+                dt_utc = next_run_val
+            else:
+                dt_utc = datetime.fromisoformat(str(next_run_val).replace("Z", "+00:00"))
+            if dt_utc.tzinfo is None:
+                dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+            scheduled_time = format_dual_time(dt_utc)
+        except Exception:
+            scheduled_time = "unknown"
 
         # Create lateness context
         lateness_context = ""
@@ -402,7 +420,7 @@ class EventPlugin(AIPluginBase):
                 "location": "",
                 "weather": "",
                 "date": datetime.utcnow().strftime("%Y-%m-%d"),
-                "time": datetime.utcnow().strftime("%H:%M"),
+                "time": format_dual_time(datetime.utcnow().replace(tzinfo=timezone.utc)),
                 "event_status": {
                     "is_late": is_late,
                     "minutes_late": minutes_late,
@@ -432,7 +450,7 @@ SCHEDULED REMINDER #{event_id} {"(LATE)" if is_late else "(ON TIME)"}
 Reminder: """
             + str(description)
             + f"""
-Scheduled date: {date} {time}
+Scheduled for: {scheduled_time}
 Status: {lateness_context}
 
 This is a reminder you set for yourself. Freely decide whether and how to act:
@@ -809,9 +827,20 @@ For recurring events, you can use:
         # Extract lateness info if available
         is_late = event_info.get("is_late", False) if event_info else False
         minutes_late = event_info.get("minutes_late", 0) if event_info else 0
-        scheduled_time = (
-            event_info.get("scheduled_time", "unknown") if event_info else "unknown"
-        )
+        from core.rekku_utils import format_dual_time
+        scheduled_time = "unknown"
+        if event_info:
+            next_run_val = event_info.get("next_run")
+            try:
+                if isinstance(next_run_val, datetime):
+                    dt_utc = next_run_val
+                else:
+                    dt_utc = datetime.fromisoformat(str(next_run_val).replace("Z", "+00:00"))
+                if dt_utc.tzinfo is None:
+                    dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+                scheduled_time = format_dual_time(dt_utc)
+            except Exception:
+                scheduled_time = event_info.get("scheduled_time", "unknown")
 
         # Create lateness context for the LLM
         lateness_context = ""
@@ -835,7 +864,7 @@ For recurring events, you can use:
                 "location": "",
                 "weather": "",
                 "date": datetime.utcnow().strftime("%Y-%m-%d"),
-                "time": datetime.utcnow().strftime("%H:%M"),
+                "time": format_dual_time(datetime.utcnow().replace(tzinfo=timezone.utc)),
                 "event_status": {
                     "is_late": is_late,
                     "minutes_late": minutes_late,
