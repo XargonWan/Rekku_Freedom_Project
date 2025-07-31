@@ -54,7 +54,9 @@ async def dispatch_pending_events(bot):
             if isinstance(next_run_val, datetime):
                 scheduled_dt = next_run_val
             else:
-                scheduled_dt = datetime.fromisoformat(str(next_run_val).replace("Z", "+00:00"))
+                scheduled_dt = datetime.fromisoformat(
+                    str(next_run_val).replace("Z", "+00:00")
+                )
             if scheduled_dt.tzinfo is None:
                 scheduled_dt = scheduled_dt.replace(tzinfo=timezone.utc)
         except Exception:
@@ -74,15 +76,21 @@ async def dispatch_pending_events(bot):
             },
         }
 
-        summary = scheduled_dt.strftime('%Y-%m-%d %H:%M') + " → " + str(ev['description'])
+        summary = (
+            scheduled_dt.strftime("%Y-%m-%d %H:%M") + " → " + str(ev["description"])
+        )
 
         try:
             await message_queue.enqueue_event(bot, prompt)
             _processing_events[ev_id] = time.time()
             log_debug(f"[DISPATCH] Event queued with priority: {summary}")
+            if await mark_event_delivered(ev_id):
+                log_info(f"[event_dispatcher] Marked event {ev_id} as delivered")
             dispatched += 1
         except Exception as exc:
-            log_warning(f"[event_dispatcher] Error while processing event {ev['id']}: {exc}")
+            log_warning(
+                f"[event_dispatcher] Error while processing event {ev['id']}: {exc}"
+            )
             continue
 
     log_debug(f"[event_dispatcher] Dispatched {dispatched} event(s)")
