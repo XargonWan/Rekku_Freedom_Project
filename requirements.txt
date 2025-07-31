@@ -10,3 +10,5 @@ pytz
 fastapi
 uvicorn[standard]
 aiomysql
+requests
+snscrape
