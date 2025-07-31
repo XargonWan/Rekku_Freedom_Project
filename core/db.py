@@ -4,7 +4,6 @@ import os
 from datetime import datetime, timezone, timedelta
 import calendar
 import asyncio
-from zoneinfo import ZoneInfo
 
 import aiomysql
 
@@ -358,13 +357,12 @@ async def insert_scheduled_event(
     try:
         async with conn.cursor() as cur:
             try:
-                tz = ZoneInfo(os.getenv("TZ", "UTC"))
-                local_dt = datetime.fromisoformat(f"{date} {time}")
-                if local_dt.tzinfo is None:
-                    local_dt = local_dt.replace(tzinfo=tz)
-                next_run_utc = local_dt.astimezone(timezone.utc)
+                from core.rekku_utils import parse_local_to_utc
+                next_run_utc = parse_local_to_utc(date, time)
             except Exception as e:
-                log_warning(f"[insert_scheduled_event] Invalid date/time: {date} {time} - {e}")
+                log_warning(
+                    f"[insert_scheduled_event] Invalid date/time: {date} {time} - {e}"
+                )
                 return
 
             await safe_db_execute(
@@ -436,11 +434,12 @@ async def get_due_events(now: datetime | None = None) -> list[dict]:
         minutes_late = int((now - event_dt).total_seconds() / 60) if is_late else 0
 
         ev = dict(r)
+        from core.rekku_utils import format_dual_time
         ev.update(
             {
                 "is_late": is_late,
                 "minutes_late": minutes_late,
-                "scheduled_time": event_dt.strftime("%H:%M"),
+                "scheduled_time": format_dual_time(event_dt),
             }
         )
         due.append(ev)

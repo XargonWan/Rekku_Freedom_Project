@@ -2,11 +2,17 @@
 
 from core.rekku_tagging import extract_tags, expand_tags
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from core.db import get_conn
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 import aiomysql
+import core.weather
+from core.rekku_utils import (
+    get_local_timezone,
+    utc_to_local,
+    format_dual_time,
+)
 
 
 async def build_json_prompt(message, context_memory) -> dict:
@@ -19,9 +25,6 @@ async def build_json_prompt(message, context_memory) -> dict:
     context_memory : dict[int, deque]
         Dictionary storing last messages per chat.
     """
-
-    import core.weather
-    import pytz
 
     chat_id = message.chat_id
     text = message.text or ""
@@ -38,13 +41,11 @@ async def build_json_prompt(message, context_memory) -> dict:
 
     # === 3. Temporal and weather info ===
     location = os.getenv("WEATHER_LOCATION", "Kyoto")
-    try:
-        tz = pytz.timezone("Asia/Tokyo")
-    except Exception:
-        tz = pytz.utc
+    tz = get_local_timezone()
     now_local = datetime.now(tz)
+    now_utc = now_local.astimezone(timezone.utc)
     date = now_local.strftime("%Y-%m-%d")
-    time = now_local.strftime("%H:%M")
+    time = format_dual_time(now_utc)
     weather = core.weather.current_weather
 
     context_section = {

@@ -4,6 +4,8 @@ from core.config import TRAINER_ID
 from typing import Callable, List, Tuple
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
+_in_notify = False
+
 _pending: List[Tuple[int, str]] = []
 
 def _default_notify(chat_id: int, message: str):
@@ -28,13 +30,23 @@ CHUNK_SIZE = 4000
 
 def notify(chat_id: int, message: str):
     """Send ``message`` to ``chat_id`` in chunks to avoid Telegram limits."""
-    log_debug(f"[notifier] Sending message to {chat_id}: {message}")
-    for i in range(0, len(message or ""), CHUNK_SIZE):
-        chunk = message[i : i + CHUNK_SIZE]
-        try:
-            _notify_impl(chat_id, chunk)
-        except Exception as e:  # pragma: no cover - best effort
-            log_error(f"[notifier] Failed to send notification chunk: {repr(e)}")
+    global _in_notify
+    if _in_notify:
+        log_warning("[notifier] Recursive notify call detected; skipping")
+        return
+    _in_notify = True
+    try:
+        log_debug(f"[notifier] Sending message to {chat_id}: {message}")
+        for i in range(0, len(message or ""), CHUNK_SIZE):
+            chunk = message[i : i + CHUNK_SIZE]
+            try:
+                _notify_impl(chat_id, chunk)
+            except Exception as e:  # pragma: no cover - best effort
+                log_error(
+                    f"[notifier] Failed to send notification chunk: {repr(e)}"
+                )
+    finally:
+        _in_notify = False
 
 def notify_trainer(chat_id: int, message: str) -> None:
     """Notify the trainer with ``message`` sent to ``chat_id``."""
