@@ -111,6 +111,10 @@ def validate_action(action: dict) -> Tuple[bool, List[str]]:
 
     errors: List[str] = []
 
+    # Ignore optional description fields from the LLM
+    if isinstance(action, dict) and "description" in action:
+        action = {k: v for k, v in action.items() if k != "description"}
+
     if not isinstance(action, dict):
         return False, ["action must be a dict"]
 
@@ -504,18 +508,19 @@ async def initialize_core(notify_fn=None):
     return await core_initializer.initialize_all(notify_fn=notify_fn)
 
 
-def get_action_plugin_instructions() -> dict[str, str]:
+def get_action_plugin_instructions() -> dict[str, dict]:
     """Gather prompt instructions from all action plugins."""
     instructions: dict[str, str] = {}
     try:
         for plugin in _load_action_plugins():
             if hasattr(plugin, "get_supported_actions") and hasattr(plugin, "get_prompt_instructions"):
                 supported = plugin.get_supported_actions()
-                prompt_map = plugin.get_prompt_instructions()
                 for action in supported:
-                    if action in prompt_map:
-                        instructions[action] = prompt_map[action]
-                    else:
+                    try:
+                        instr = plugin.get_prompt_instructions(action)
+                        if instr:
+                            instructions[action] = instr
+                    except Exception:
                         log_warning(
                             f"[action_parser] Plugin {plugin.__class__.__name__} missing prompt instructions for '{action}'"
                         )

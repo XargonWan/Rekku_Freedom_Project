@@ -28,21 +28,21 @@ class MessagePlugin:
         """Return the action types this plugin supports."""
         return ["message"]
 
-    def get_supported_actions(self) -> set[str]:
+    def get_supported_actions(self) -> list[str]:
         """Return the action types this plugin supports."""
-        return {"message"}
+        return ["message"]
 
-    def get_prompt_instructions(self) -> dict[str, str]:
+    def get_prompt_instructions(self, action_name: str) -> dict:
         """Prompt instructions for supported actions."""
-        example = (
-            '{"type": "message", "interface": "telegram", "payload": {"text": "Hello!", '
-            '"target": "123456789"}}'
-        )
+        if action_name != "message":
+            return {}
         return {
-            "message": (
-                "Send a text message via a supported interface. Provide the target chat_id and text. "
-                "Example: " + example
-            )
+            "description": "Send a text message via a supported interface",
+            "payload": {
+                "text": "Hello!",
+                "target": "123456789",
+                "interface": "telegram",
+            },
         }
 
     async def execute_action(self, action: dict, context: dict, bot, original_message):

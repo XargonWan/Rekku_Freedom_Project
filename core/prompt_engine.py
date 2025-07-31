@@ -99,13 +99,7 @@ async def build_json_prompt(message, context_memory) -> dict:
     # Get interface-specific instructions
     interface_instructions = get_interface_instructions("telegram")  # Default to telegram for now
     
-    try:
-        from core.action_parser import get_action_plugin_instructions
-        plugin_instr = get_action_plugin_instructions()
-        if plugin_instr:
-            json_instructions += "\n" + "\n".join(plugin_instr.values())
-    except Exception as e:
-        log_warning(f"[prompt_engine] Failed to gather plugin instructions: {e}")
+    # Plugin-specific instructions are now provided via the actions block
 
     prompt_with_instructions = {
         "context": context_section,
@@ -114,26 +108,12 @@ async def build_json_prompt(message, context_memory) -> dict:
         "interface_instructions": interface_instructions,
     }
 
-    # === 5. Available actions from the active plugin ===
+    # Include unified actions block from the initializer
     try:
-        from core import plugin_instance
-
-        plugin = plugin_instance.get_plugin()
-        if plugin and hasattr(plugin, "get_supported_actions"):
-            actions = plugin.get_supported_actions()
-            if actions is not None:
-                prompt_with_instructions["available_actions"] = actions
+        from core.core_initializer import core_initializer
+        prompt_with_instructions["actions"] = core_initializer.actions_block.get("actions", [])
     except Exception as e:
-        log_warning(f"[prompt_engine] Failed to gather supported actions: {e}")
-
-    # === 6. Available action types from action plugins ===
-    try:
-        from core.action_parser import get_action_plugin_instructions
-        action_instructions = get_action_plugin_instructions()
-        if action_instructions:
-            prompt_with_instructions["action_instructions"] = action_instructions
-    except Exception as e:
-        log_warning(f"[prompt_engine] Failed to gather action plugin instructions: {e}")
+        log_warning(f"[prompt_engine] Failed to inject actions block: {e}")
 
     return prompt_with_instructions
 

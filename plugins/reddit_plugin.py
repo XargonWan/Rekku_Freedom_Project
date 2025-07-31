@@ -24,11 +24,21 @@ class RedditPlugin:
     def get_supported_action_types(self) -> list[str]:
         return ["message"]
 
-    def get_supported_actions(self) -> dict:
+    def get_supported_actions(self) -> list[str]:
+        return ["message"]
+
+    def get_prompt_instructions(self, action_name: str) -> dict:
+        if action_name != "message":
+            return {}
         return {
-            "message": (
-                'Post a message to Reddit: {"actions":[{"type":"message","interface":"reddit","payload":{"text":"...","target":"r/my_subreddit","title":"...","flair_id":"..."}}]}'
-            )
+            "description": "Post a submission or comment to Reddit",
+            "payload": {
+                "text": "Post text",
+                "target": "r/my_subreddit",
+                "title": "Optional title",
+                "flair_id": "flair id",
+                "thread_id": "comment or post id",
+            },
         }
 
     def execute_action(self, action: dict, context: dict, bot, original_message):

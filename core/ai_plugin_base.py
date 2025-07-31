@@ -47,6 +47,6 @@ class AIPluginBase:
         """Return the list of action types this plugin supports."""
         return []
 
-    def get_prompt_instructions(self) -> dict[str, str]:
-        """Return per-action prompt instructions for all supported actions."""
+    def get_prompt_instructions(self, action_name: str) -> dict:
+        """Return prompt instructions for the given action."""
         return {}
