@@ -35,6 +35,9 @@ async def _send_with_retry(
     if bot is None:
         log_error("[telegram_utils] _send_with_retry called with None bot")
         return None
+    if chat_id is None or not isinstance(chat_id, int):
+        log_error("[telegram_utils] Cannot send message: chat_id is invalid")
+        return None
     last_error = None
     logger = setup_logging()
     for attempt in range(1, retries + 1):
@@ -70,6 +73,9 @@ async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retrie
     """Send ``text`` in chunks using the universal transport layer."""  # [FIX]
     if bot is None:
         log_error("[telegram_utils] safe_send called with None bot")
+        return None
+    if chat_id is None or not isinstance(chat_id, int):
+        log_error("[telegram_utils] Cannot send message: chat_id is invalid")
         return None
     from core.transport_layer import telegram_safe_send
     return await telegram_safe_send(bot, chat_id, text, chunk_size, retries, delay, **kwargs)

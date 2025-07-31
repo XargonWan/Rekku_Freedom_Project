@@ -392,6 +392,15 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
     event_id = context.get("event_id") or getattr(original_message, "event_id", None)
     if event_id:
         try:
+            from core import db
+
+            if await db.mark_event_delivered(event_id):
+                log_info(f"[action_parser] Event {event_id} marked delivered")
+            else:
+                log_warning(f"[action_parser] Failed to mark event {event_id} delivered")
+        except Exception as e:
+            log_warning(f"[action_parser] Error marking event {event_id} delivered: {e}")
+        try:
             from core import event_dispatcher
 
             event_dispatcher.event_completed(event_id)

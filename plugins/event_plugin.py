@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timezone
 
 from core.ai_plugin_base import AIPluginBase
-from core.db import insert_scheduled_event, get_due_events, mark_event_delivered
+from core.db import insert_scheduled_event, get_due_events
 from core.logging_utils import log_debug, log_info, log_error, log_warning
 from core.telegram_utils import send_with_thread_fallback
 import traceback
@@ -361,15 +361,6 @@ class EventPlugin(AIPluginBase):
                     bot = None
 
             await plugin_instance.handle_incoming_message(bot, None, event_prompt)
-
-            # Mark the event as delivered after successful enqueue to the LLM
-            if await mark_event_delivered(event["id"]):
-                log_info(f"[event_plugin] Marked event {event['id']} as delivered")
-            else:
-                log_warning(
-                    f"[event_plugin] Failed to mark event {event['id']} delivered"
-                )
-
             log_info(f"[event_plugin] Event {event['id']} delivered to LLM")
 
         except Exception as e:
