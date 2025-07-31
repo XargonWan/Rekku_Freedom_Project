@@ -82,19 +82,13 @@ class TerminalPlugin(AIPluginBase):
         command = "\n".join(messages)
         return await self._send_command(command)
 
-    def get_supported_actions(self):
-        """Return structured instructions for supported actions."""
+    def get_supported_actions(self) -> set[str]:
+        return {"terminal"}
+
+    def get_prompt_instructions(self) -> dict[str, str]:
+        example = '{"type": "terminal", "payload": {"command": "echo hello"}}'
         return {
-            "terminal": {
-                "description": "Open a persistent shell session and run commands",
-                "interfaces": ["telegram_bot"],
-                "example": {
-                    "type": "terminal",
-                    "payload": {
-                        "command": "echo hello"
-                    }
-                }
-            }
+            "terminal": "Open a persistent shell session and run commands interactively. Example: " + example
         }
 
     def get_target(self, trainer_message_id):

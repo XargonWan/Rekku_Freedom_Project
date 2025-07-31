@@ -98,18 +98,20 @@ async def build_json_prompt(message, context_memory) -> dict:
     # Get interface-specific instructions
     interface_instructions = get_interface_instructions("telegram")  # Default to telegram for now
     
+    try:
+        from core.action_parser import get_action_plugin_instructions
+        plugin_instr = get_action_plugin_instructions()
+        if plugin_instr:
+            json_instructions += "\n" + "\n".join(plugin_instr.values())
+    except Exception as e:
+        log_warning(f"[prompt_engine] Failed to gather plugin instructions: {e}")
+
     prompt_with_instructions = {
         "context": context_section,
         "input": input_section,
         "instructions": json_instructions,
         "interface_instructions": interface_instructions,
     }
-
-    if input_section.get("type") == "event":
-        prompt_with_instructions["instructions"] += (
-            "\nThis is a scheduled event. Based on the description, decide whether to send a message, run a command, trigger another event, or do nothing."
-            " Respond using valid JSON actions: message, terminal, event, or none."
-        )
 
     # === 5. Available actions from the active plugin ===
     try:

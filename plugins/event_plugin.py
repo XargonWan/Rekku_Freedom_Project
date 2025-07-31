@@ -127,23 +127,22 @@ class EventPlugin(AIPluginBase):
         """Return the action types this plugin supports."""
         return ["event"]
 
-    def get_supported_actions(self):
-        """Return structured instructions for supported actions."""
+    def get_supported_actions(self) -> set[str]:
+        """Return the action types supported by this plugin."""
+        return {"event"}
+
+    def get_prompt_instructions(self) -> dict[str, str]:
+        """Prompt instructions for the supported actions."""
+        example = (
+            '{"type": "event", "payload": {"date": "2025-07-30", "time": "13:00", '
+            '"repeat": "weekly", "description": "Remind me to water the plants", '
+            '"created_by": "rekku"}}'
+        )
         return {
-            "event": {
-                "description": "Schedule a reminder or recurring event",
-                "interfaces": ["scheduler"],
-                "example": {
-                    "type": "event",
-                    "payload": {
-                        "date": "2025-07-30",
-                        "time": "13:00",
-                        "repeat": "weekly",
-                        "description": "Remind me to water the plants",
-                        "created_by": "rekku",
-                    },
-                },
-            }
+            "event": (
+                "Schedule or manage reminders. Provide date, optional time, repeat"
+                " rule and description. Example: " + example
+            )
         }
 
     def execute_action(self, action: dict, context: dict, bot, original_message):

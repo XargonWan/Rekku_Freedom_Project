@@ -105,19 +105,14 @@ class BashPlugin(AIPluginBase):
         command = "\n".join(messages)
         return await self._run_command(command)
 
-    def get_supported_actions(self):
-        """Return structured instructions for supported actions."""
+    def get_supported_actions(self) -> set[str]:
+        """Return the action types supported by this plugin."""
+        return {"bash"}
+
+    def get_prompt_instructions(self) -> dict[str, str]:
+        example = '{"type": "bash", "payload": {"command": "ls -la"}}'
         return {
-            "bash": {
-                "description": "Execute a shell command and return the output",
-                "interfaces": ["telegram_bot"],
-                "example": {
-                    "type": "bash",
-                    "payload": {
-                        "command": "ls -la"
-                    }
-                }
-            }
+            "bash": "Execute a shell command on the host and return its output. Example: " + example
         }
 
     def get_rate_limit(self):

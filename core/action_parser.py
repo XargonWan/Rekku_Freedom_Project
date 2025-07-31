@@ -37,6 +37,8 @@ def get_supported_action_types():
                 plugin_actions = plugin.get_supported_actions()
                 if isinstance(plugin_actions, dict):
                     supported_types.update(plugin_actions.keys())
+                elif isinstance(plugin_actions, (list, set, tuple)):
+                    supported_types.update(plugin_actions)
     except Exception as e:
         log_warning(f"[action_parser] Error discovering plugin action types: {e}")
 
@@ -137,6 +139,9 @@ def validate_action(action: dict) -> Tuple[bool, List[str]]:
                 elif hasattr(plugin, "get_supported_actions"):
                     actions = plugin.get_supported_actions()
                     if isinstance(actions, dict) and action_type in actions:
+                        supported_by_plugin = True
+                        break
+                    elif isinstance(actions, (list, set, tuple)) and action_type in actions:
                         supported_by_plugin = True
                         break
             except Exception as e:
@@ -460,21 +465,23 @@ async def initialize_core(notify_fn=None):
     return await core_initializer.initialize_all(notify_fn=notify_fn)
 
 
-def get_action_plugin_instructions():
-    """Collect ultra-compact instructions from all action plugins."""
-    instructions = {}
-
+def get_action_plugin_instructions() -> dict[str, str]:
+    """Gather prompt instructions from all action plugins."""
+    instructions: dict[str, str] = {}
     try:
         for plugin in _load_action_plugins():
-            if hasattr(plugin, "get_supported_actions"):
-                plugin_instructions = plugin.get_supported_actions()
-                if plugin_instructions and isinstance(plugin_instructions, dict):
-                    instructions.update(plugin_instructions)
-                    log_debug(
-                        f"[action_parser] Collected instructions from {plugin.__class__.__name__}"
-                    )
+            if hasattr(plugin, "get_supported_actions") and hasattr(plugin, "get_prompt_instructions"):
+                supported = plugin.get_supported_actions()
+                prompt_map = plugin.get_prompt_instructions()
+                for action in supported:
+                    if action in prompt_map:
+                        instructions[action] = prompt_map[action]
+                    else:
+                        log_warning(
+                            f"[action_parser] Plugin {plugin.__class__.__name__} missing prompt instructions for '{action}'"
+                        )
     except Exception as e:
-        log_error(f"[action_parser] Error collecting plugin instructions: {repr(e)}")
+        log_error(f"[action_parser] Error collecting plugin prompt instructions: {repr(e)}")
 
     return instructions
 
