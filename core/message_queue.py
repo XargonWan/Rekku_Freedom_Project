@@ -140,7 +140,12 @@ async def _consumer_loop() -> None:
                 log_error(f"[QUEUE] Error obtaining rate limit: {repr(e)}", e)
                 max_messages, window_seconds, trainer_fraction = float("inf"), 1, 1.0
 
-            user_id = final["message"].from_user.id if final["message"].from_user else 0
+            user_msg = final.get("message")
+            user_id = (
+                user_msg.from_user.id
+                if user_msg is not None and getattr(user_msg, "from_user", None)
+                else 0
+            )
             llm_name = plugin.__class__.__module__.split(".")[-1]
 
             if (
@@ -164,8 +169,9 @@ async def _consumer_loop() -> None:
                     if plugin and hasattr(plugin, 'handle_incoming_message'):
                         # Create a mock message for event processing
                         from types import SimpleNamespace
+                        event_id = final['event_prompt'].get('input', {}).get('source', {}).get('event_id')
                         event_message = SimpleNamespace(
-                            message_id=f"event_{final['event_prompt']['input']['event_id']}",
+                            message_id=f"event_{event_id}",
                             chat_id="SYSTEM_SCHEDULER",
                             text="Scheduled event: " + str(final['event_prompt']['input']['payload']['description']),
                             from_user=SimpleNamespace(
@@ -180,7 +186,8 @@ async def _consumer_loop() -> None:
                                 type="private",
                                 title="System Scheduler"
                             ),
-                            message_thread_id=None
+                            message_thread_id=None,
+                            event_id=event_id
                         )
                         await plugin.handle_incoming_message(
                             final["bot"], event_message, final["event_prompt"]

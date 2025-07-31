@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 import os
-import calendar
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from core.db import (
-    get_due_events,
-    mark_event_delivered,
-    insert_scheduled_event,
-)
-from core import plugin_instance, message_queue
+from core.db import get_due_events
+from core import message_queue
 from core.logging_utils import log_debug, log_warning
+import time
+
+# Track events currently dispatched to prevent duplicate processing
+_processing_events: dict[int, float] = {}
+_PROCESSING_TTL = 300  # seconds
+
+
+def event_completed(event_id: int) -> None:
+    """Remove an event from the processing cache."""
+    if event_id in _processing_events:
+        _processing_events.pop(event_id, None)
+        log_debug(f"[event_dispatcher] Event {event_id} removed from processing cache")
 
 
 async def dispatch_pending_events(bot):
@@ -20,6 +27,12 @@ async def dispatch_pending_events(bot):
     now_local = datetime.now(tz)
     now_utc = now_local.astimezone(timezone.utc)
 
+    # Purge stale processing markers
+    now_ts = time.time()
+    for e_id, ts in list(_processing_events.items()):
+        if now_ts - ts > _PROCESSING_TTL:
+            _processing_events.pop(e_id, None)
+
     events = await get_due_events(now_utc)
     if not events:
         return 0
@@ -27,95 +40,56 @@ async def dispatch_pending_events(bot):
     log_debug(f"[event_dispatcher] Retrieved {len(events)} events from the database")
     dispatched = 0
     for ev in events:
-        log_debug(f"[event_dispatcher] Processing event: {ev}")
-
-        prompt = {
-            "context": [],
-            "memories": [],
-            "input": {
-                "type": "event",
-                "payload": {
-                    "scheduled": ev["scheduled"],
-                    "recurrence_type": ev["recurrence_type"],
-                    "description": ev["description"],
-                },
-                "meta": {
-                    "now_date": now_local.strftime("%Y-%m-%d"),
-                    "now_time": now_local.strftime("%H:%M:%S"),
-                },
-            },
-            "actions": [],
-        }
-
-        # Create a summary using the scheduled timestamp
-        scheduled_val = ev['scheduled']
-        if isinstance(scheduled_val, datetime):
-            scheduled_dt = scheduled_val
-        else:
-            scheduled_dt = datetime.fromisoformat(str(scheduled_val))
-        if scheduled_dt.tzinfo is None:
-            scheduled_dt = scheduled_dt.replace(tzinfo=timezone.utc)
-        summary = scheduled_dt.strftime('%Y-%m-%d %H:%M') + " → " + str(ev['description'])
-
-        # Check to avoid duplicate messages in the queue
-        if not await mark_event_delivered(ev["id"]):
-            log_warning(f"[event_dispatcher] Event already marked as delivered: {ev['id']}")
+        ev_id = ev.get("id")
+        # Skip events already being processed recently
+        ts = _processing_events.get(ev_id)
+        if ts and time.time() - ts < _PROCESSING_TTL:
+            log_debug(f"[event_dispatcher] Event {ev_id} already processing, skipping")
             continue
 
-        log_debug(f"[event_dispatcher] Event marked as delivered: {ev['id']}")
+        log_debug(f"[event_dispatcher] Processing event: {ev}")
+
+        try:
+            next_run_val = ev.get("next_run")
+            if isinstance(next_run_val, datetime):
+                scheduled_dt = next_run_val
+            else:
+                scheduled_dt = datetime.fromisoformat(
+                    str(next_run_val).replace("Z", "+00:00")
+                )
+            if scheduled_dt.tzinfo is None:
+                scheduled_dt = scheduled_dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            scheduled_dt = datetime.now(timezone.utc)
+
+        prompt = {
+            "type": "event",
+            "payload": {
+                "date": ev["date"],
+                "time": ev.get("time"),
+                "repeat": ev["recurrence_type"],
+                "description": ev["description"],
+            },
+            "meta": {
+                "now_date": now_local.strftime("%Y-%m-%d"),
+                "now_time": now_local.strftime("%H:%M:%S"),
+            },
+        }
+
+        summary = (
+            scheduled_dt.strftime("%Y-%m-%d %H:%M") + " → " + str(ev["description"])
+        )
 
         try:
             await message_queue.enqueue_event(bot, prompt)
+            _processing_events[ev_id] = time.time()
             log_debug(f"[DISPATCH] Event queued with priority: {summary}")
             dispatched += 1
         except Exception as exc:
-            log_warning(f"[event_dispatcher] Error while queuing event {ev['id']}: {exc}")
-            continue
-
-        log_debug(f"[event_dispatcher] Processing repetition for event: {ev['id']}")
-        recurrence_type = (ev.get("recurrence_type") or "none").lower()
-        if recurrence_type not in {"none", "daily", "weekly", "monthly"}:
             log_warning(
-                f"[REPEAT] Unknown recurrence type: '{recurrence_type}' for event ID {ev['id']} — skipped."
+                f"[event_dispatcher] Error while processing event {ev['id']}: {exc}"
             )
-            recurrence_type = "none"
-
-        if recurrence_type != "none":
-            try:
-                scheduled_val = ev['scheduled']
-                if isinstance(scheduled_val, datetime):
-                    dt = scheduled_val
-                else:
-                    dt = datetime.fromisoformat(str(scheduled_val))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-
-                if recurrence_type == "daily":
-                    new_dt = dt + timedelta(days=1)
-                elif recurrence_type == "weekly":
-                    new_dt = dt + timedelta(days=7)
-                elif recurrence_type == "monthly":
-                    year = dt.year + (dt.month // 12)
-                    month = dt.month % 12 + 1
-                    day = min(dt.day, calendar.monthrange(year, month)[1])
-                    new_dt = dt.replace(year=year, month=month, day=day)
-                else:
-                    new_dt = None
-
-                if new_dt is not None:
-                    await insert_scheduled_event(
-                        new_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                        recurrence_type,
-                        ev["description"],
-                        ev.get("created_by", "rekku"),
-                    )
-                    repeat_summary = new_dt.strftime('%Y-%m-%d %H:%M') + " → " + str(ev['description'])
-                    log_debug(f"[REPEAT] Rescheduled event: {repeat_summary}")
-            except Exception as exc:
-                log_warning(
-                    f"[event_dispatcher] Failed to reschedule event {ev['id']}: {exc}"
-                )
-        log_debug(f"[event_dispatcher] Repetition completed for event: {ev['id']}")
+            continue
 
     log_debug(f"[event_dispatcher] Dispatched {dispatched} event(s)")
     return dispatched
