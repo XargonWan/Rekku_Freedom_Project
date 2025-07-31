@@ -167,6 +167,19 @@ storage and a `rekku-db-backup` companion container. Backups are written to
 `./backups/` hourly and kept for one day. Database credentials can be customized
 via environment variables such as `DB_USER` and `DB_PASS`.
 
+#### X Interface Variables
+
+Configure the X (Twitter) interface by specifying the account name used for
+timeline reads. Add this to your `.env` file:
+
+```
+X_USERNAME=<your_x_username>
+```
+
+When `X_USERNAME` is set, the `x_timeline_read` action will fetch the latest
+posts from that account using `snscrape`. Without it, timeline access is
+disabled. Posting actions currently log messages locally for testing.
+
 To set up the schema, run the statements in `mariadb_schema.sql` against your
 MariaDB instance.
 
