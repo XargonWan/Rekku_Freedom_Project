@@ -15,6 +15,7 @@ class CoreInitializer:
         self.active_interfaces = []
         self.active_llm = None
         self.startup_errors = []
+        self.actions_block = {"actions": []}
     
     async def initialize_all(self, notify_fn=None):
         """Initialize all Rekku components in the correct order."""
@@ -25,6 +26,7 @@ class CoreInitializer:
         
         # 2. Load generic plugins
         self._load_plugins()
+        self._build_actions_block()
         
         # 3. Auto-discover active interfaces
         self._discover_interfaces()
@@ -163,6 +165,31 @@ class CoreInitializer:
             # Clear the pending list
             self._pending_async_plugins.clear()
             log_info("[core_initializer] All pending async plugins processed")
+
+    def _build_actions_block(self):
+        """Collect supported actions from plugins for prompt injection."""
+        from core.action_parser import _load_action_plugins
+
+        actions = []
+        try:
+            for plugin in _load_action_plugins():
+                if hasattr(plugin, "get_supported_actions") and hasattr(plugin, "get_prompt_instructions"):
+                    supported = plugin.get_supported_actions()
+                    for act in supported:
+                        try:
+                            info = plugin.get_prompt_instructions(act)
+                            if info:
+                                actions.append({
+                                    "type": act,
+                                    "description": info.get("description", ""),
+                                    "payload": info.get("payload", {}),
+                                })
+                        except Exception as e:
+                            log_warning(f"[core_initializer] Missing prompt info for {act} in {plugin}: {e}")
+        except Exception as e:
+            log_error(f"[core_initializer] Failed to build actions block: {repr(e)}")
+
+        self.actions_block = {"actions": actions}
     
     def _display_startup_summary(self):
         """Display a comprehensive startup summary."""

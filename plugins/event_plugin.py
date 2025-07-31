@@ -127,25 +127,23 @@ class EventPlugin(AIPluginBase):
         """Return the action types this plugin supports."""
         return ["event"]
 
-    def get_supported_actions(self) -> set[str]:
+    def get_supported_actions(self) -> list[str]:
         """Return the action types supported by this plugin."""
-        return {"event"}
+        return ["event"]
 
-    def get_prompt_instructions(self) -> dict[str, str]:
+    def get_prompt_instructions(self, action_name: str) -> dict:
         """Prompt instructions for the supported actions."""
+        if action_name != "event":
+            return {}
         return {
-            "event": (
-                "You are receiving an `event` previously scheduled by Rekku.\n"
-                "This is not a new event creation. Do not create a new event as part of your"
-                " response unless you intentionally reschedule or chain it.\n"
-                "Your goal is to react to the event:\n"
-                "- Notify the user via a message if needed\n"
-                "- Execute the action if it's an internal trigger\n"
-                "- Communicate if the event is too late to be meaningful\n"
-                "- You may return no actions if it's already handled\n"
-                "❌ Do NOT create a duplicate event. ✅ Respond with a message, command, or"
-                " memory if appropriate."
-            )
+            "description": "Schedule a future reminder or event",
+            "payload": {
+                "date": "2025-07-30",
+                "time": "13:00",
+                "repeat": "weekly",
+                "description": "Remind me to water the plants",
+                "created_by": "rekku",
+            },
         }
 
     def execute_action(self, action: dict, context: dict, bot, original_message):
