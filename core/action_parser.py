@@ -238,10 +238,6 @@ def _load_action_plugins() -> List[Any]:
                         instance = obj()
                         log_debug(f"[action_parser] Loaded plugin: {obj.__name__}")
 
-                        if obj.__name__ == "RedditPlugin" and getattr(instance, "reddit", None) is None:
-                            log_warning("[action_parser] Skipping RedditPlugin: not configured")
-                            continue
-
                         # Start the plugin if it has a start method
                         if hasattr(instance, "start"):
                             try:
