@@ -162,7 +162,7 @@ async def ensure_core_tables() -> None:
                 await cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS bio (
-                        id TEXT PRIMARY KEY,
+                        id VARCHAR(255) PRIMARY KEY,
                         known_as TEXT,
                         likes TEXT,
                         not_likes TEXT,
