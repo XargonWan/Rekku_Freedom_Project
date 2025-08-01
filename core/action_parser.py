@@ -238,6 +238,10 @@ def _load_action_plugins() -> List[Any]:
                         instance = obj()
                         log_debug(f"[action_parser] Loaded plugin: {obj.__name__}")
 
+                        if obj.__name__ == "RedditPlugin" and getattr(instance, "reddit", None) is None:
+                            log_warning("[action_parser] Skipping RedditPlugin: not configured")
+                            continue
+
                         # Start the plugin if it has a start method
                         if hasattr(instance, "start"):
                             try:
@@ -355,11 +359,26 @@ async def _handle_plugin_action(
                 log_error(f"[action_parser] Error delegating message to plugin_instance: {e}")
             return
 
+    iface_target = action.get("interface")
     plugins = _plugins_for(action_type)
     for plugin in plugins:
+        plugin_iface = (
+            plugin.get_interface_id()
+            if hasattr(plugin, "get_interface_id")
+            else plugin.__class__.__name__.lower()
+        )
+        if iface_target and plugin_iface != iface_target:
+            continue
         if hasattr(plugin, "execute_action"):
             try:
-                result = plugin.execute_action(action, context, bot, original_message)
+                payload = action.get("payload", {})
+                if not isinstance(payload, dict):
+                    payload = vars(payload)
+                new_action = {**action, "payload": payload}
+                log_debug(
+                    f"[action_parser] Delegating action: type={action_type} interface={action.get('interface')} payload={payload}"
+                )
+                result = plugin.execute_action(new_action, context, bot, original_message)
                 if inspect.iscoroutine(result):
                     await result
             except Exception as e:
