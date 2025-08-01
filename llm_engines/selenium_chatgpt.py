@@ -39,12 +39,12 @@ class ChatLinkStore:
         # We'll ensure the table exists on first use instead
         pass
 
-    def _normalize_thread_id(self, message_thread_id: Optional[int | str]) -> int:
-        """Return ``message_thread_id`` normalized as an ``int``.
+    def _normalize_thread_id(self, message_thread_id: Optional[int | str]) -> str:
+        """Return ``message_thread_id`` as a string suitable for storage.
 
-        ``0`` is used to represent chats without a thread."""
+        The value ``"0"`` is used to represent chats without a thread."""
 
-        return int(message_thread_id) if message_thread_id is not None else 0
+        return str(message_thread_id) if message_thread_id is not None else "0"
 
     async def _ensure_table(self) -> None:
         if self._table_ensured:
