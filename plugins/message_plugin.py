@@ -31,7 +31,7 @@ class MessagePlugin:
     @staticmethod
     def get_interface_id() -> str:
         """Return the unique identifier for this plugin interface."""
-        return "message"
+        return "telegram_bot"  # Changed to match LLM expectation
 
     def get_supported_actions(self) -> dict:
         """Return schema information for supported actions."""
