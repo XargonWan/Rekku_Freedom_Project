@@ -9,6 +9,7 @@ from core.db import get_due_events
 from core import message_queue
 from core.logging_utils import log_debug, log_warning
 import time
+from plugins.event_plugin import EventPlugin
 
 # Track events currently dispatched to prevent duplicate processing
 _processing_events: dict[int, float] = {}
@@ -40,6 +41,7 @@ async def dispatch_pending_events(bot):
 
     log_debug(f"[event_dispatcher] Retrieved {len(events)} events from the database")
     dispatched = 0
+    event_plugin = EventPlugin()
     for ev in events:
         ev_id = ev.get("id")
         # Skip events already being processed recently
@@ -63,19 +65,11 @@ async def dispatch_pending_events(bot):
         except Exception:
             scheduled_dt = datetime.now(timezone.utc)
 
-        prompt = {
-            "type": "event",
-            "payload": {
-                "date": ev["date"],
-                "time": ev.get("time"),
-                "repeat": ev["recurrence_type"],
-                "description": ev["description"],
-            },
-            "meta": {
-                "now_date": now_local.strftime("%Y-%m-%d"),
-                "now_time": format_dual_time(now_utc),
-            },
-        }
+        prompt = event_plugin._create_event_prompt(ev)
+        old_instructions = prompt.get("instructions", "")
+        prompt["instructions"] = (
+            "🕒 You are the Event Dispatcher\n\n" + old_instructions
+        )
 
         summary = format_dual_time(scheduled_dt) + " → " + str(ev["description"])
 
