@@ -118,6 +118,10 @@ def validate_action(action: dict) -> Tuple[bool, List[str]]:
     if not isinstance(action, dict):
         return False, ["action must be a dict"]
 
+    iface = action.get("interface")
+    if not iface:
+        errors.append("Missing 'interface'")
+
     action_type = action.get("type")
     if not action_type:
         errors.append("Missing 'type'")
