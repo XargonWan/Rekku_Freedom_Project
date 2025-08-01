@@ -67,9 +67,7 @@ async def dispatch_pending_events(bot):
 
         prompt = event_plugin._create_event_prompt(ev)
         old_instructions = prompt.get("instructions", "")
-        prompt["instructions"] = (
-            "🕒 You are the Event Dispatcher\n\n" + old_instructions
-        )
+        prompt["instructions"] = "🕒 Event Dispatcher\n\n" + old_instructions
 
         summary = format_dual_time(scheduled_dt) + " → " + str(ev["description"])
 
