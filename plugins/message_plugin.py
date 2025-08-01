@@ -31,7 +31,7 @@ class MessagePlugin:
     @staticmethod
     def get_interface_id() -> str:
         """Return the unique identifier for this plugin interface."""
-        return "telegram"
+        return "message"
 
     def get_supported_actions(self) -> dict:
         """Return schema information for supported actions."""
@@ -48,11 +48,11 @@ class MessagePlugin:
         if action_name != "message":
             return {}
         return {
-            "description": "Send a message via Telegram",
+            "description": "Send a message using generic message interface",
             "payload": {
                 "text": "Hello!",
-                "target": "123456789",
-                "interface": "telegram",
+                "target": "<recipient or destination>",
+                "interface": "message",  # interface auto-corrected
             },
         }
 
