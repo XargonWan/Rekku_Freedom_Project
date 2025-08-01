@@ -339,6 +339,10 @@ async def _handle_plugin_action(
             msg_data = vars(original_message).copy() if original_message else {}
             msg_data["text"] = action.get("payload", {}).get("text", "")
             from types import SimpleNamespace
+            if "from_user" not in msg_data:
+                msg_data["from_user"] = SimpleNamespace(
+                    id=0, full_name="system", username="system"
+                )
             message_obj = SimpleNamespace(**msg_data)
             try:
                 result = handler(bot, message_obj, context)
