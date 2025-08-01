@@ -1,6 +1,10 @@
 Rekku Freedom Project Documentation
 ===================================
 
+.. image:: res/RFP_logo.png
+   :width: 200px
+   :alt: RFP Logo
+
 Welcome to the **Rekku Freedom Project** documentation. These pages are built
 with Sphinx and hosted on **Read the Docs**. Every push to the repository
 triggers a new build of this wiki.
@@ -17,6 +21,7 @@ getting started.
    quickstart
    features
    architecture
+   llm_engines
    plugins
    contributing
    faq

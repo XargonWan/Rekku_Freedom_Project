@@ -1,6 +1,10 @@
 Features
 ========
 
+.. image:: res/wiki/features.png
+    :alt: Rekku Features Overview
+    :align: center
+
 The project exposes several core capabilities that are configured via chat
 commands.
 

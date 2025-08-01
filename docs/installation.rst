@@ -1,6 +1,10 @@
 Installation
 ============
 
+.. image:: res/wiki/installation.png
+   :alt: Installation steps
+   :align: center
+
 The project can be deployed using Docker. Ensure you have `docker` and
 `docker compose` installed on your machine. Copy `.env.example` to `.env`
 and adjust the values for your environment.

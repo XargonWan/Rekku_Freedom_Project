@@ -1,6 +1,16 @@
 Contributing
 ============
 
-We welcome pull requests for bug fixes and new features. Please follow the commit semantics outlined in the README and ensure your code passes ``python -m py_compile``. For larger changes, open an issue first to discuss your ideas.
+We welcome pull requests for bug fixes and new features. Ensure your code passes ``python -m py_compile`` and use the following commit message format:
 
-Documentation contributions are also appreciated. Update the ``docs/`` sources and verify that ``sphinx-build`` completes without errors.
+- ``fix(element): description`` – bug fixes
+- ``feat(element): description`` – new features
+- ``minor(element): description`` – small improvements
+- ``doc(element): description`` – documentation changes
+- ``patch(element): description`` – incremental updates
+
+Example::
+
+   fix(api): resolved an authentication issue
+
+For larger changes, open an issue first to discuss your ideas. Documentation contributions are also appreciated. Update the ``docs/`` sources and verify that ``sphinx-build`` completes without errors.

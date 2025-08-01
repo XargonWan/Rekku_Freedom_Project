@@ -1,6 +1,10 @@
 Usage Overview
 ==============
 
+.. image:: res/wiki/usage_overview.png
+   :alt: Usage Overview
+   :align: center
+
 Rekku operates as a modular AI persona with multiple LLM backends. You can
 switch engines on the fly using the ``/llm`` command in your preferred chat
 platform. Supported modes include ``manual``, ``openai_chatgpt`` and
