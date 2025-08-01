@@ -13,6 +13,62 @@ from typing import Any, Dict, List, Tuple
 import core.plugin_instance as plugin_instance
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
+
+def _infer_interface_from_context(context: Dict[str, Any] = None, original_message=None) -> str:
+    """
+    Infer the interface from context and message information.
+    
+    Returns the most likely interface ID or None if cannot infer.
+    """
+    
+    # Method 1: Check context for interface hints
+    if context:
+        # Look for context keys that hint at the interface
+        for key in context.keys():
+            if 'telegram' in key.lower():
+                log_debug("[action_parser] Interface inferred from context: telegram")
+                return "telegram"
+            elif 'reddit' in key.lower():
+                log_debug("[action_parser] Interface inferred from context: reddit")
+                return "reddit"
+            elif 'discord' in key.lower():
+                log_debug("[action_parser] Interface inferred from context: discord")
+                return "discord"
+        
+        # Check for specific context values
+        interface_hint = context.get('interface') or context.get('source_interface')
+        if interface_hint:
+            log_debug(f"[action_parser] Interface inferred from context hint: {interface_hint}")
+            return interface_hint
+    
+    # Method 2: Check original message attributes
+    if original_message:
+        if hasattr(original_message, 'chat_id') or hasattr(original_message, 'message_id'):
+            log_debug("[action_parser] Interface inferred from message attributes: telegram")
+            return "telegram"
+        elif hasattr(original_message, 'subreddit'):
+            log_debug("[action_parser] Interface inferred from message attributes: reddit")
+            return "reddit"
+        elif hasattr(original_message, 'guild'):
+            log_debug("[action_parser] Interface inferred from message attributes: discord")
+            return "discord"
+    
+    # Method 3: Check global active interfaces
+    if ACTIVE_INTERFACES:
+        # Prefer telegram if available
+        if "telegram" in ACTIVE_INTERFACES:
+            log_debug("[action_parser] Using default active interface: telegram")
+            return "telegram"
+        # Otherwise use the first available
+        default_interface = list(ACTIVE_INTERFACES)[0]
+        log_debug(f"[action_parser] Using first active interface: {default_interface}")
+        return default_interface
+    
+    # Method 4: Hard-coded fallback to telegram
+    log_debug("[action_parser] Using hard-coded fallback: telegram")
+    return "telegram"
+
+
 def get_supported_action_types() -> set[str]:
     """Return all supported action types discovered from plugins."""
     supported_types: set[str] = set()
@@ -95,13 +151,17 @@ def _validate_memory_payload(payload: dict, errors: List[str]) -> None:
             errors.append("payload.tags must be a list of strings if provided")
 
 
-def validate_action(action: dict) -> Tuple[bool, List[str]]:
+def validate_action(action: dict, context: dict = None, original_message=None) -> Tuple[bool, List[str]]:
     """Validate an action dictionary.
 
     Parameters
     ----------
     action : dict
         Dictionary describing an action.
+    context : dict, optional
+        Context information for interface inference.
+    original_message : optional
+        Original message for interface inference.
 
     Returns
     -------
@@ -118,9 +178,39 @@ def validate_action(action: dict) -> Tuple[bool, List[str]]:
     if not isinstance(action, dict):
         return False, ["action must be a dict"]
 
+    # STEP 1: Try schema validation first (strictest)
+    try:
+        from core.action_schemas import enforce_schema_validation
+        schema_valid, schema_errors, enhanced_action = enforce_schema_validation(action)
+        if schema_valid:
+            # Schema validation passed - update the action reference
+            action.clear()
+            action.update(enhanced_action)
+            log_debug("[action_parser] Action passed strict schema validation")
+        else:
+            # Schema validation failed - try auto-injection
+            log_debug(f"[action_parser] Schema validation failed: {schema_errors}")
+    except Exception as e:
+        log_warning(f"[action_parser] Schema validation error: {e}")
+
+    # STEP 2: AUTO-INJECTION: Try to inject missing interface field
     iface = action.get("interface")
     if not iface:
-        errors.append("Missing 'interface'")
+        # Try to infer interface from context
+        inferred_interface = _infer_interface_from_context(context, original_message)
+        if inferred_interface:
+            action["interface"] = inferred_interface
+            log_info(f"[action_parser] 🔧 Auto-injected missing interface: {inferred_interface}")
+            iface = inferred_interface
+        else:
+            errors.append("❌ CRITICAL: Missing 'interface' field and could not infer from context. "
+                         "Every action MUST include 'interface': 'interface_name'")
+
+    # STEP 3: Validate interface value
+    if iface and not isinstance(iface, str):
+        errors.append("'interface' must be a string")
+    elif iface and not iface.strip():
+        errors.append("'interface' cannot be empty")
 
     action_type = action.get("type")
     if not action_type:
@@ -401,7 +491,7 @@ async def run_action(action: Any, context: Dict[str, Any], bot, original_message
             await run_action(act, context, bot, original_message)
         return
 
-    valid, errors = validate_action(action)
+    valid, errors = validate_action(action, context, original_message)
     if not valid:
         log_warning(f"[action_parser] Invalid action: {errors}")
         return
@@ -433,7 +523,7 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
 
     for idx, action in enumerate(actions):
         try:
-            valid, errors = validate_action(action)
+            valid, errors = validate_action(action, context, original_message)
             if not valid:
                 log_warning(f"[action_parser] Skipping invalid action {idx}: {errors}")
                 continue
