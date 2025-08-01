@@ -234,9 +234,8 @@ if __name__ == "__main__":
         # Initialize core components BEFORE starting the bot
         try:
             log_info("[main] Initializing core components...")
-            from core.core_initializer import CoreInitializer
-            initializer = CoreInitializer()
-            await initializer.initialize_all()
+            from core.core_initializer import core_initializer
+            await core_initializer.initialize_all()
             log_info("[main] Core components initialized successfully")
             # Start message queue consumer
             from core import message_queue
