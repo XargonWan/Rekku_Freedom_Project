@@ -241,6 +241,8 @@ Event Action Format:
 
 Do NOT use 'when'. That is deprecated.
 
+Multiple interfaces may support the same action type. In those cases, you must include the "interface" key inside the action payload to specify which implementation you are targeting (e.g., "telegram", "reddit", etc.). Each interface may have different required or optional fields. Refer to the "available_actions" and "action_instructions" sections for correct formatting and examples.
+
 All other instructions remain the same:
 - Use 'input.payload.source.chat_id' as message target
 - Include 'thread_id' if present
