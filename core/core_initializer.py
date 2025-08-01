@@ -2,6 +2,7 @@
 
 import os
 import importlib
+import inspect
 from pathlib import Path
 from core.logging_utils import log_info, log_error, log_warning, log_debug
 from core.config import get_active_llm
@@ -15,7 +16,7 @@ class CoreInitializer:
         self.active_interfaces = []
         self.active_llm = None
         self.startup_errors = []
-        self.actions_block = {"actions": []}
+        self.actions_block = {"available_actions": {}, "action_instructions": {}}
     
     async def initialize_all(self, notify_fn=None):
         """Initialize all Rekku components in the correct order."""
@@ -167,29 +168,98 @@ class CoreInitializer:
             log_info("[core_initializer] All pending async plugins processed")
 
     def _build_actions_block(self):
-        """Collect supported actions from plugins for prompt injection."""
+        """Collect and validate action schemas from all plugins and interfaces."""
         from core.action_parser import _load_action_plugins
 
-        actions = []
+        available_actions = {}
+        action_instructions = {}
+
+        def _register(action_type: str, iface: str, schema: dict, instr_fn):
+            required = schema.get("required_fields", [])
+            optional = schema.get("optional_fields", [])
+            if not isinstance(required, list) or not isinstance(optional, list):
+                raise ValueError(f"Invalid schema for {action_type} in {iface}")
+
+            if action_type not in available_actions:
+                available_actions[action_type] = {
+                    "description": schema.get("description", ""),
+                    "interfaces": {},
+                }
+
+            if iface in available_actions[action_type]["interfaces"]:
+                raise ValueError(f"Duplicate declaration for {action_type} in {iface}")
+
+            available_actions[action_type]["interfaces"][iface] = {
+                "required_fields": required,
+                "optional_fields": optional,
+            }
+
+            instr = instr_fn(action_type) if instr_fn else None
+            if not instr:
+                raise ValueError(f"Missing prompt instructions for {action_type} in {iface}")
+            if not isinstance(instr, dict):
+                raise ValueError(
+                    f"Prompt instructions for {action_type} in {iface} must be a dict"
+                )
+            if action_type not in action_instructions:
+                action_instructions[action_type] = {}
+            if iface in action_instructions[action_type]:
+                log_warning(
+                    f"[core_initializer] Duplicate prompt instructions for {action_type} in {iface}"
+                )
+                raise ValueError(
+                    f"Duplicate prompt instructions for {action_type} in {iface}"
+                )
+            action_instructions[action_type][iface] = instr
+
+        # --- Load action plugins ---
         try:
             for plugin in _load_action_plugins():
-                if hasattr(plugin, "get_supported_actions") and hasattr(plugin, "get_prompt_instructions"):
-                    supported = plugin.get_supported_actions()
-                    for act in supported:
-                        try:
-                            info = plugin.get_prompt_instructions(act)
-                            if info:
-                                actions.append({
-                                    "type": act,
-                                    "description": info.get("description", ""),
-                                    "payload": info.get("payload", {}),
-                                })
-                        except Exception as e:
-                            log_warning(f"[core_initializer] Missing prompt info for {act} in {plugin}: {e}")
+                if not hasattr(plugin, "get_supported_actions"):
+                    continue
+                iface = (
+                    plugin.get_interface_id()
+                    if hasattr(plugin, "get_interface_id")
+                    else plugin.__class__.__name__.lower()
+                )
+                supported = plugin.get_supported_actions()
+                if not isinstance(supported, dict):
+                    raise ValueError(f"Plugin {iface} must return dict from get_supported_actions")
+                for act, schema in supported.items():
+                    _register(act, iface, schema, getattr(plugin, "get_prompt_instructions", None))
         except Exception as e:
-            log_error(f"[core_initializer] Failed to build actions block: {repr(e)}")
+            log_error(f"[core_initializer] Failed loading plugin actions: {e}")
+            self.startup_errors.append(str(e))
 
-        self.actions_block = {"actions": actions}
+        # --- Load interface classes ---
+        interface_dir = Path(__file__).parent.parent / "interface"
+        for file in interface_dir.glob("*.py"):
+            if file.name.startswith("_") or file.name.endswith(".disabled"):
+                continue
+            mod_name = f"interface.{file.stem}"
+            try:
+                module = importlib.import_module(mod_name)
+            except Exception as e:
+                log_warning(f"[core_initializer] Could not import {mod_name}: {e}")
+                continue
+            for _name, obj in inspect.getmembers(module, inspect.isclass):
+                if not hasattr(obj, "get_supported_actions"):
+                    continue
+                iface = obj.get_interface_id() if hasattr(obj, "get_interface_id") else obj.__name__.lower()
+                try:
+                    supported = obj.get_supported_actions()
+                    if not isinstance(supported, dict):
+                        raise ValueError(f"Interface {iface} must return dict from get_supported_actions")
+                    instr_fn = getattr(obj, "get_prompt_instructions", None)
+                    for act, schema in supported.items():
+                        _register(act, iface, schema, instr_fn)
+                except Exception as e:
+                    log_error(f"[core_initializer] Error processing interface {iface}: {e}")
+
+        self.actions_block = {
+            "available_actions": available_actions,
+            "action_instructions": action_instructions,
+        }
     
     def _display_startup_summary(self):
         """Display a comprehensive startup summary."""

@@ -127,9 +127,20 @@ class EventPlugin(AIPluginBase):
         """Return the action types this plugin supports."""
         return ["event"]
 
-    def get_supported_actions(self) -> list[str]:
-        """Return the action types supported by this plugin."""
-        return ["event"]
+    @staticmethod
+    def get_interface_id() -> str:
+        """Return the unique identifier for this internal interface."""
+        return "event"
+
+    def get_supported_actions(self) -> dict:
+        """Return schema information for supported actions."""
+        return {
+            "event": {
+                "required_fields": ["date", "description"],
+                "optional_fields": ["time", "repeat", "created_by"],
+                "description": "Create or schedule a future event",
+            }
+        }
 
     def get_prompt_instructions(self, action_name: str) -> dict:
         """Prompt instructions for the supported actions."""

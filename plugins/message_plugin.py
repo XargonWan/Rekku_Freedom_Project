@@ -28,16 +28,27 @@ class MessagePlugin:
         """Return the action types this plugin supports."""
         return ["message"]
 
-    def get_supported_actions(self) -> list[str]:
-        """Return the action types this plugin supports."""
-        return ["message"]
+    @staticmethod
+    def get_interface_id() -> str:
+        """Return the unique identifier for this plugin interface."""
+        return "telegram"
+
+    def get_supported_actions(self) -> dict:
+        """Return schema information for supported actions."""
+        return {
+            "message": {
+                "required_fields": ["text", "target"],
+                "optional_fields": ["message_thread_id"],
+                "description": "Send a text message via Telegram",
+            }
+        }
 
     def get_prompt_instructions(self, action_name: str) -> dict:
         """Prompt instructions for supported actions."""
         if action_name != "message":
             return {}
         return {
-            "description": "Send a text message via a supported interface",
+            "description": "Send a message via Telegram",
             "payload": {
                 "text": "Hello!",
                 "target": "123456789",
