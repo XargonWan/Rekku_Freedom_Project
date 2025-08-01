@@ -887,61 +887,44 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                 raise SystemExit(1)
 
     def _cleanup_chrome_remnants(self):
-        """Clean up Chrome processes and lock files from previous runs while preserving login sessions."""
+        """Clean up Chrome processes and leftover lock files."""
         try:
-            # Kill any existing Chrome processes
             subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
-            subprocess.run(["pkill", "-f", "chromedriver"], capture_output=True, text=True)
-            time.sleep(1)  # Wait for processes to terminate
-            log_debug("[selenium] Killed existing Chrome processes")
+            subprocess.run(["pkill", "chromedriver"], capture_output=True, text=True)
+            time.sleep(1)
+            log_debug("[selenium] Issued pkill for chrome and chromedriver")
         except Exception as e:
-            log_debug(f"[selenium] Failed to kill Chrome processes: {e}")
+            log_debug(f"[selenium] Failed to kill chrome processes: {e}")
 
         try:
-            # Remove lock files from Chrome profile directories (preserves session data)
             import glob
-            profile_patterns = [
+            patterns = [
                 os.path.expanduser("~/.config/google-chrome*"),
                 "/tmp/.com.google.Chrome*",
-                "/tmp/chrome_*"
+                "/tmp/.org.chromium.*",
+                "/tmp/chrome_*",
             ]
-            
-            for pattern in profile_patterns:
-                for profile_dir in glob.glob(pattern):
-                    # Only remove lock files, NOT the entire profile directory
-                    lock_files = [
-                        os.path.join(profile_dir, "SingletonLock"),
-                        os.path.join(profile_dir, "Default", "SingletonLock"),
-                        os.path.join(profile_dir, "lockfile"),
-                    ]
-                    
-                    for lock_file in lock_files:
-                        if os.path.exists(lock_file):
+
+            for pattern in patterns:
+                log_debug(f"[selenium] Scanning {pattern}")
+                for prof_dir in glob.glob(pattern):
+                    for name in [
+                        "SingletonLock",
+                        "lockfile",
+                        "SingletonSocket",
+                        "SingletonCookie",
+                    ]:
+                        path = os.path.join(prof_dir, name)
+                        if os.path.exists(path):
                             try:
-                                os.remove(lock_file)
-                                log_debug(f"[selenium] Removed lock file: {lock_file}")
+                                os.remove(path)
+                                log_debug(f"[selenium] Removed lock file: {path}")
                             except Exception as e:
-                                log_debug(f"[selenium] Could not remove {lock_file}: {e}")
-            
-            # Remove only temporary profile directories (those with timestamp suffix)
-            # This preserves the persistent profile but removes error-created temp ones
-            temp_patterns = [
-                os.path.expanduser("~/.config/google-chrome-[0-9]*"),
-                "/tmp/.com.google.Chrome*",
-                "/tmp/chrome_*"
-            ]
-            
-            import shutil
-            for pattern in temp_patterns:
-                for temp_dir in glob.glob(pattern):
-                    try:
-                        shutil.rmtree(temp_dir, ignore_errors=True)
-                        log_debug(f"[selenium] Removed temporary directory: {temp_dir}")
-                    except Exception as e:
-                        log_debug(f"[selenium] Could not remove {temp_dir}: {e}")
-                                
+                                log_debug(f"[selenium] Failed to remove {path}: {e}")
         except Exception as e:
             log_debug(f"[selenium] Lock file cleanup failed: {e}")
+
+        log_debug("[selenium] Chrome lock cleanup complete")
 
     # [FIX] ensure the WebDriver session is alive before use
     def _get_driver(self):
