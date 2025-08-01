@@ -14,3 +14,5 @@ asyncpraw
 praw
 requests
 snscrape
+sphinx
+sphinx_rtd_theme

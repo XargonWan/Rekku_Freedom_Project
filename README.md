@@ -2,6 +2,7 @@
 
 [![License](https://img.shields.io/github/license/XargonWan/Rekku_Freedom_Project)](https://img.shields.io/github/license/XargonWan/Rekku_Freedom_Project)
 ![Docker Pulls](https://img.shields.io/docker/pulls/xargonwan/rekku_freedom_project)
+[![Docs Status](https://readthedocs.org/projects/rekku-freedom-project/badge/?version=latest)](https://rekku-freedom-project.readthedocs.io/en/latest/?badge=latest)
 
 | Branch   | Build Status                                                                                                                                         |
 |----------|------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -25,6 +26,19 @@ Currently, the project is tailored for a single persona named Rekku. However, in
 > — **Rekku**
 
 ---
+
+## 🚀 Quickstart
+
+1. Copy `.env.example` to `.env` and fill in `BOTFATHER_TOKEN` and `TRAINER_ID`.
+2. Start the stack:
+   ```bash
+   docker compose up
+   ```
+3. If you use the Selenium engine, open `http://<host>:5006` and log in to ChatGPT.
+
+Database backups are stored in `./backups/`. Stop the services with `Ctrl+C` or `docker compose down`.
+
+See the [full quickstart guide](https://rekku-freedom-project.readthedocs.io/en/latest/quickstart.html) for more details.
 
 ## 📦 Features Overview
 
@@ -281,9 +295,35 @@ Feel free to test it and enhance it if you got an API ke, all contributions are 
 
 ## 📚 Documentation
 
-Full documentation for the Rekku Freedom Project is hosted on
-[Read the Docs](https://rekku-freedom-project.readthedocs.io). You can also
-build the docs locally from the `docs/` directory using Sphinx.
+Full documentation for the Rekku Freedom Project is available on our
+[Read the Docs wiki](https://rekku-freedom-project.readthedocs.io).
+The site is rebuilt automatically on every push via Read the Docs CI/CD and the
+current status is shown by the badge at the top of this page.
+
+You can also build the documentation locally:
+
+```bash
+pip install -r requirements.txt
+sphinx-build -b html docs docs/_build/html
+```
+
+Open `docs/_build/html/index.html` in your browser to view the pages.
+
+---
+
+## 🤝 Contributing
+
+Pull requests are welcome! Follow the commit semantics below and ensure your code
+passes `python -m py_compile`. For major changes, open an issue to discuss them
+beforehand. Improvements to the documentation are encouraged as well.
+
+## ❓ FAQ
+
+### Can I use this to create my own persona?
+
+Yes. Once the project is mature and stable, you will be able to customize it to
+run your own persona. Some tweaks are still required to support external
+characters, but enabling custom personas is the final goal.
 
 ---
 
