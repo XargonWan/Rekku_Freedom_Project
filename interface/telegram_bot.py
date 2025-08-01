@@ -907,7 +907,7 @@ class TelegramInterface:
                 "text": "Hello!",
                 "target": "<chat_id>",
                 "message_thread_id": "<optional message_thread_id>",
-                "interface": "telegram_bot",
+                "interface": TelegramInterface.get_interface_id(),  # interface auto-corrected
             },
         }
 

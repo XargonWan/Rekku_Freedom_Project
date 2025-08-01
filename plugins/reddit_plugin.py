@@ -52,7 +52,7 @@ class RedditPlugin:
                 "target": "r/example_subreddit",
                 "title": "Optional post title",
                 "thread_id": "Optional comment thread ID",
-                "interface": "reddit",  # interface auto-corrected
+                "interface": self.get_interface_id(),  # interface auto-corrected
             },
         }
 

@@ -52,7 +52,7 @@ class MessagePlugin:
             "payload": {
                 "text": "Hello!",
                 "target": "<recipient or destination>",
-                "interface": "message",  # interface auto-corrected
+                "interface": self.get_interface_id(),  # interface auto-corrected
             },
         }
 

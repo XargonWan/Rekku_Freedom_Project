@@ -154,7 +154,7 @@ class EventPlugin(AIPluginBase):
                 "repeat": "weekly",
                 "description": "Remind me to water the plants",
                 "created_by": "rekku",
-                "interface": "event",  # interface auto-corrected
+                "interface": self.get_interface_id(),  # interface auto-corrected
             },
         }
 
