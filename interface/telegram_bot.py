@@ -887,20 +887,28 @@ class TelegramInterface:
 
     @staticmethod
     def get_supported_actions() -> dict:
-        """Return a compact description of supported actions."""
+        """Return schema information for supported actions."""
         return {
             "message": {
+                "required_fields": ["text", "target"],
+                "optional_fields": ["message_thread_id"],
                 "description": "Send a text message to a Telegram chat.",
-                "usage": {
-                    "type": "message",
-                    "interface": "telegram_bot",
-                    "payload": {
-                        "text": "...",
-                        "target": "<chat_id>",
-                        "message_thread_id": "<optional message_thread_id>"
-                    }
-                }
             }
+        }
+
+    @staticmethod
+    def get_prompt_instructions(action_name: str) -> dict:
+        """Prompt instructions for supported actions."""
+        if action_name != "message":
+            return {}
+        return {
+            "description": "Send a message via Telegram",
+            "payload": {
+                "text": "Hello!",
+                "target": "<chat_id>",
+                "message_thread_id": "<optional message_thread_id>",
+                "interface": self.get_interface_id(),  # interface auto-corrected
+            },
         }
 
     async def send_message(self, payload: dict, original_message: object | None = None) -> None:

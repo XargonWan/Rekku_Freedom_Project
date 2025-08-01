@@ -82,15 +82,30 @@ class TerminalPlugin(AIPluginBase):
         command = "\n".join(messages)
         return await self._send_command(command)
 
-    def get_supported_actions(self) -> list[str]:
-        return ["terminal"]
+    @staticmethod
+    def get_interface_id() -> str:
+        """Return the unique identifier for this plugin interface."""
+        return "terminal"
+
+    def get_supported_actions(self) -> dict:
+        """Return schema information for supported actions."""
+        return {
+            "terminal": {
+                "required_fields": ["command"],
+                "optional_fields": [],
+                "description": "Run commands in a persistent shell session",
+            }
+        }
 
     def get_prompt_instructions(self, action_name: str) -> dict:
         if action_name != "terminal":
             return {}
         return {
             "description": "Run commands in a persistent shell session",
-            "payload": {"command": "echo hello"},
+            "payload": {
+                "command": "echo hello",
+                "interface": self.get_interface_id(),  # interface auto-corrected
+            },
         }
 
     def get_target(self, trainer_message_id):

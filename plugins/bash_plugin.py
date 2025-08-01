@@ -126,7 +126,7 @@ class BashPlugin(AIPluginBase):
             return {}
         return {
             "description": "Run a bash command",
-            "payload": {"command": "echo hello"},
+            "payload": {"command": "echo hello", "interface": self.get_interface_id()},  # interface auto-corrected
         }
 
     def get_rate_limit(self):

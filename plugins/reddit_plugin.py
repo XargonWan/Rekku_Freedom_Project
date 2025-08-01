@@ -46,13 +46,13 @@ class RedditPlugin:
         if action_name != "message":
             return {}
         return {
-            "description": "Send a post or comment via Reddit",
+            "description": "Send a post or comment on Reddit",
             "payload": {
-                "text": "My message",
-                "target": "r/example",
-                "title": "Optional title",
-                "thread_id": "t3_abc123",
-                "interface": "reddit",
+                "text": "Post content here",
+                "target": "r/example_subreddit",
+                "title": "Optional post title",
+                "thread_id": "Optional comment thread ID",
+                "interface": self.get_interface_id(),  # interface auto-corrected
             },
         }
 

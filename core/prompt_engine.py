@@ -219,31 +219,61 @@ async def build_prompt(
     return messages
 
 def load_json_instructions() -> str:
-    return """Rekku, be yourself, reply as usual but wrapped in JSON format, details:
+    return """🚨 CRITICAL: EVERY ACTION MUST INCLUDE "interface" FIELD 🚨
 
-Event Action Format:
+MANDATORY ACTION FORMAT - NEVER OMIT "interface":
 {
-  "type": "event",
+  "type": "action_type",
+  "interface": "telegram",  // ← THIS IS MANDATORY, NEVER OMIT
+  "payload": { ... }
+}
+
+EXAMPLES WITH MANDATORY "interface" FIELD:
+
+✅ CORRECT Message Action:
+{
+  "type": "message",
+  "interface": "telegram",
+  "payload": {
+    "text": "Hello!",
+    "target": 123456
+  }
+}
+
+✅ CORRECT Event Action:
+{
+  "type": "event", 
+  "interface": "telegram",
   "payload": {
     "date": "2025-07-30",
     "time": "13:00",
     "repeat": "weekly",
-    "description": "Remind me to water the plants",
-    "created_by": "rekku"
+    "description": "Remind me to water the plants"
   }
 }
 
+❌ WRONG - MISSING "interface":
+{
+  "type": "message",
+  "payload": { "text": "Hello!" }
+}
+
+INTERFACE RULES:
+- "interface": "telegram" for all Telegram interactions
+- "interface": "reddit" for Reddit interactions  
+- "interface": "message" for generic messaging
+- "interface": "event" for event/reminder actions
+- "interface": "bash" for terminal commands
+
+🚨 IF YOU FORGET "interface", THE ACTION WILL FAIL 🚨
+
+Event Action Details:
 - 'date': required, format YYYY-MM-DD
-- 'time': optional, default is "00:00" (interpreted in your local timezone)
-- 'repeat': one of "none", "daily", "weekly", "monthly", "always"
+- 'time': optional, default "00:00"
+- 'repeat': "none", "daily", "weekly", "monthly", "always"
 - 'description': required
-- 'created_by': optional, defaults to "rekku"
 
-Do NOT use 'when'. That is deprecated.
-
-Multiple interfaces may support the same action type. In those cases, you must include the "interface" key inside the action payload to specify which implementation you are targeting (e.g., "telegram", "reddit", etc.). Each interface may have different required or optional fields. Refer to the "available_actions" and "action_instructions" sections for correct formatting and examples.
-
-All other instructions remain the same:
+All other rules remain:
 - Use 'input.payload.source.chat_id' as message target
 - Include 'thread_id' if present
 - Always return syntactically valid JSON
