@@ -1,4 +1,4 @@
-<img src="res/RFP_logo.png" alt="RFP Logo" width="300"/>
+<img src="docs/res/RFP_logo.png" alt="RFP Logo" width="300"/>
 
 ![Docker Pulls](https://img.shields.io/docker/pulls/xargonwan/rekku_freedom_project)
 [![Docs Status](https://readthedocs.org/projects/rekku-freedom-project/badge/?version=latest)](https://rekku-freedom-project.readthedocs.io/en/latest/?badge=latest)

@@ -1,7 +1,7 @@
 Installation
 ============
 
-.. image:: res/wiki/installation.png
+.. image:: res/installation.png
    :alt: Installation steps
    :align: center
 

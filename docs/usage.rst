@@ -1,7 +1,7 @@
 Usage Overview
 ==============
 
-.. image:: res/wiki/usage_overview.png
+.. image:: res/usage_overview.png
    :alt: Usage Overview
    :align: center
 

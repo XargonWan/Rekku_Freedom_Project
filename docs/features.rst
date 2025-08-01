@@ -1,7 +1,7 @@
 Features
 ========
 
-.. image:: res/wiki/features.png
+.. image:: res/features.png
     :alt: Rekku Features Overview
     :align: center
 

@@ -1,7 +1,7 @@
 Quickstart
 ==========
 
-.. image:: res/wiki/quickstart.png
+.. image:: res/quickstart.png
    :alt: Quickstart screenshot
    :align: center
 
