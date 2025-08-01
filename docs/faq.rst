@@ -1,7 +1,7 @@
 FAQ
 ===
 
-.. image:: docs/res/faq.png
+.. image:: res/faq.png
     :width: 600px
     :alt: FAQ illustration
 

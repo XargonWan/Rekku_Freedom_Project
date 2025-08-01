@@ -1,7 +1,7 @@
 Contributing
 ============
 
-.. image:: docs/res/contributing.png
+.. image:: res/contributing.png
    :width: 600px
    :alt: Contributing Guide
 
