@@ -858,9 +858,33 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                 raise Exception("Chrome binary not found")
                                 
                         except Exception as e2:
-                            log_error(f"[selenium] ❌ All initialization attempts failed: {e2}")
-                            _notify_gui(f"❌ Selenium error: {e2}. Check graphics environment.")
-                            raise SystemExit(1)
+                            log_warning("[selenium] Chrome lock suspected - attempting forced lock cleanup...")
+                            self._cleanup_chrome_remnants()
+                            try:
+                                if os.path.exists(chrome_binary):
+                                    fallback_options = uc.ChromeOptions()
+                                    for arg in essential_args:
+                                        fallback_options.add_argument(arg)
+                                    fallback_options.add_argument(f"--user-data-dir={profile_dir}")
+
+                                    self.driver = uc.Chrome(
+                                        options=fallback_options,
+                                        headless=False,
+                                        use_subprocess=False,
+                                        version_main=None,
+                                        suppress_welcome=True,
+                                        log_level=3,
+                                        browser_executable_path=chrome_binary,
+                                        user_data_dir=profile_dir
+                                    )
+                                    log_debug("[selenium] ✅ Chrome initialized after forced lock cleanup")
+                                    return
+                                else:
+                                    raise Exception("Chrome binary not found")
+                            except Exception as e3:
+                                log_error(f"[selenium] ❌ All initialization attempts failed: {e3}")
+                                _notify_gui(f"❌ Selenium error: {e3}. Check graphics environment.")
+                                raise SystemExit(1)
 
     def _cleanup_chrome_remnants(self):
         """Clean up Chrome processes and lock files from previous runs while preserving login sessions."""
