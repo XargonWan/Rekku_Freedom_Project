@@ -197,7 +197,20 @@ class CoreInitializer:
             instr = instr_fn(action_type) if instr_fn else None
             if not instr:
                 raise ValueError(f"Missing prompt instructions for {action_type} in {iface}")
-            action_instructions[action_type] = instr
+            if not isinstance(instr, dict):
+                raise ValueError(
+                    f"Prompt instructions for {action_type} in {iface} must be a dict"
+                )
+            if action_type not in action_instructions:
+                action_instructions[action_type] = {}
+            if iface in action_instructions[action_type]:
+                log_warning(
+                    f"[core_initializer] Duplicate prompt instructions for {action_type} in {iface}"
+                )
+                raise ValueError(
+                    f"Duplicate prompt instructions for {action_type} in {iface}"
+                )
+            action_instructions[action_type][iface] = instr
 
         # --- Load action plugins ---
         try:
