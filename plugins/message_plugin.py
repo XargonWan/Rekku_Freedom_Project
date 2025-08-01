@@ -28,7 +28,8 @@ class MessagePlugin:
         """Return the action types this plugin supports."""
         return ["message"]
 
-    def get_interface_id(self) -> str:
+    @staticmethod
+    def get_interface_id() -> str:
         """Return the unique identifier for this plugin interface."""
         return "message"
 

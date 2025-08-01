@@ -82,7 +82,8 @@ class TerminalPlugin(AIPluginBase):
         command = "\n".join(messages)
         return await self._send_command(command)
 
-    def get_interface_id(self) -> str:
+    @staticmethod
+    def get_interface_id() -> str:
         """Return the unique identifier for this plugin interface."""
         return "terminal"
 

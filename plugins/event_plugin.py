@@ -127,7 +127,8 @@ class EventPlugin(AIPluginBase):
         """Return the action types this plugin supports."""
         return ["event"]
 
-    def get_interface_id(self) -> str:
+    @staticmethod
+    def get_interface_id() -> str:
         """Return the unique identifier for this internal interface."""
         return "event"
 

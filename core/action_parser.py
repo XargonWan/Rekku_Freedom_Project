@@ -361,11 +361,9 @@ async def _handle_plugin_action(
     iface_target = action.get("interface")
     plugins = _plugins_for(action_type)
     for plugin in plugins:
-        plugin_iface = (
-            plugin.get_interface_id()
-            if hasattr(plugin, "get_interface_id")
-            else plugin.__class__.__name__.lower()
-        )
+        plugin_iface = getattr(
+            plugin.__class__, "get_interface_id", lambda: plugin.__class__.__name__.lower()
+        )()
         if iface_target and plugin_iface != iface_target:
             continue
         if hasattr(plugin, "execute_action"):

@@ -217,11 +217,9 @@ class CoreInitializer:
             for plugin in _load_action_plugins():
                 if not hasattr(plugin, "get_supported_actions"):
                     continue
-                iface = (
-                    plugin.get_interface_id()
-                    if hasattr(plugin, "get_interface_id")
-                    else plugin.__class__.__name__.lower()
-                )
+                iface = getattr(
+                    plugin.__class__, "get_interface_id", lambda: plugin.__class__.__name__.lower()
+                )()
                 supported = plugin.get_supported_actions()
                 if not isinstance(supported, dict):
                     raise ValueError(f"Plugin {iface} must return dict from get_supported_actions")
@@ -245,7 +243,7 @@ class CoreInitializer:
             for _name, obj in inspect.getmembers(module, inspect.isclass):
                 if not hasattr(obj, "get_supported_actions"):
                     continue
-                iface = obj.get_interface_id() if hasattr(obj, "get_interface_id") else obj.__name__.lower()
+                iface = getattr(obj, "get_interface_id", lambda: obj.__name__.lower())()
                 try:
                     supported = obj.get_supported_actions()
                     if not isinstance(supported, dict):
