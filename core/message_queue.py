@@ -164,36 +164,10 @@ async def _consumer_loop() -> None:
             try:
                 # Check if this is an event prompt
                 if "event_prompt" in final:
-                    # For events, we need to use the LLM plugin directly with the structured prompt
-                    plugin = plugin_instance.get_plugin()
-                    if plugin and hasattr(plugin, 'handle_incoming_message'):
-                        # Create a mock message for event processing
-                        from types import SimpleNamespace
-                        event_id = final['event_prompt'].get('input', {}).get('source', {}).get('event_id')
-                        event_message = SimpleNamespace(
-                            message_id=f"event_{event_id}",
-                            chat_id="SYSTEM_SCHEDULER",
-                            text="Scheduled event: " + str(final['event_prompt']['input']['payload']['description']),
-                            from_user=SimpleNamespace(
-                                id=-1,
-                                full_name="Rekku Scheduler",
-                                username="rekku_scheduler"
-                            ),
-                            date=datetime.utcnow(),
-                            reply_to_message=None,
-                            chat=SimpleNamespace(
-                                id="SYSTEM_SCHEDULER",
-                                type="private",
-                                title="System Scheduler"
-                            ),
-                            message_thread_id=None,
-                            event_id=event_id
-                        )
-                        await plugin.handle_incoming_message(
-                            final["bot"], event_message, final["event_prompt"]
-                        )
-                    else:
-                        log_error("[QUEUE] No LLM plugin available or doesn't support handle_incoming_message")
+                    # Deliver the structured event prompt using the standard pipeline
+                    await plugin_instance.handle_incoming_message(
+                        final["bot"], None, final["event_prompt"]
+                    )
                 else:
                     await plugin_instance.handle_incoming_message(
                         final["bot"], final["message"], final["context"]
