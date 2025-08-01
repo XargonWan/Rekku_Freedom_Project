@@ -108,10 +108,15 @@ async def build_json_prompt(message, context_memory) -> dict:
         "interface_instructions": interface_instructions,
     }
 
-    # Include unified actions block from the initializer
+    # Include unified actions metadata from the initializer
     try:
         from core.core_initializer import core_initializer
-        prompt_with_instructions["actions"] = core_initializer.actions_block.get("actions", [])
+        prompt_with_instructions["available_actions"] = core_initializer.actions_block.get(
+            "available_actions", {}
+        )
+        prompt_with_instructions["action_instructions"] = core_initializer.actions_block.get(
+            "action_instructions", {}
+        )
     except Exception as e:
         log_warning(f"[prompt_engine] Failed to inject actions block: {e}")
 
