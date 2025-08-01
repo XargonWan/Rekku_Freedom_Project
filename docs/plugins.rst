@@ -3,7 +3,9 @@ Plugins
 
 .. image:: res/plugins.png
     :alt: Rekku plugin architecture diagram
+    :width: 600px
     :align: center
+
 
 The project includes several optional plugins that implement additional actions
 or storage.

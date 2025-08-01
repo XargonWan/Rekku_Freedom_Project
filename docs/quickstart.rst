@@ -3,7 +3,9 @@ Quickstart
 
 .. image:: res/quickstart.png
    :alt: Quickstart screenshot
+   :width: 600px
    :align: center
+
 
 This guide outlines the typical steps to run **Rekku Freedom Project** using Docker.
 

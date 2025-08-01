@@ -3,7 +3,9 @@ Usage Overview
 
 .. image:: res/usage_overview.png
    :alt: Usage Overview
+   :width: 600px
    :align: center
+
 
 Rekku operates as a modular AI persona with multiple LLM backends. You can
 switch engines on the fly using the ``/llm`` command in your preferred chat

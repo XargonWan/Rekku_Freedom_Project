@@ -3,7 +3,9 @@ Architecture Overview
 
 .. image:: res/architecture.png
     :alt: Rekku Architecture Diagram
+    :width: 600px
     :align: center
+
 
 The Rekku Freedom Project is composed of a small set of reusable services.
 Each part of the stack can be swapped or extended without touching the rest.

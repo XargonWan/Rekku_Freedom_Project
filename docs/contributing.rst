@@ -1,6 +1,11 @@
 Contributing
 ============
 
+.. image:: docs/res/contributing.png
+   :width: 600px
+   :alt: Contributing Guide
+
+
 We welcome pull requests for bug fixes and new features. Ensure your code passes ``python -m py_compile`` and use the following commit message format:
 
 - ``fix(element): description`` – bug fixes

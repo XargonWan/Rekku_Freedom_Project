@@ -2,8 +2,9 @@ Rekku Freedom Project Documentation
 ===================================
 
 .. image:: res/RFP_logo.png
-   :width: 200px
+   :width: 600px
    :alt: RFP Logo
+
 
 Welcome to the **Rekku Freedom Project** documentation. These pages are built
 with Sphinx and hosted on **Read the Docs**. Every push to the repository

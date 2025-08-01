@@ -1,6 +1,11 @@
 FAQ
 ===
 
+.. image:: docs/res/faq.png
+    :width: 600px
+    :alt: FAQ illustration
+
+
 Can I create my own persona?
 ---------------------------
 
