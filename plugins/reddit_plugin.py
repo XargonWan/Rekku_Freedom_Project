@@ -28,20 +28,31 @@ class RedditPlugin:
     def get_supported_action_types(self) -> list[str]:
         return ["message"]
 
-    def get_supported_actions(self) -> list[str]:
-        return ["message"]
+    @staticmethod
+    def get_interface_id() -> str:
+        """Return the unique identifier for this plugin interface."""
+        return "reddit"
+
+    def get_supported_actions(self) -> dict:
+        return {
+            "message": {
+                "required_fields": ["text", "target", "title"],
+                "optional_fields": ["thread_id"],
+                "description": "Post a submission or comment to Reddit",
+            }
+        }
 
     def get_prompt_instructions(self, action_name: str) -> dict:
         if action_name != "message":
             return {}
         return {
-            "description": "Post a submission or comment to Reddit",
+            "description": "Send a post or comment via Reddit",
             "payload": {
-                "text": "Post text",
-                "target": "r/my_subreddit",
+                "text": "My message",
+                "target": "r/example",
                 "title": "Optional title",
-                "flair_id": "flair id",
-                "thread_id": "comment or post id",
+                "thread_id": "t3_abc123",
+                "interface": "reddit",
             },
         }
 

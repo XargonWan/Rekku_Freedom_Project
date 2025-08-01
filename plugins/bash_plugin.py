@@ -105,16 +105,27 @@ class BashPlugin(AIPluginBase):
         command = "\n".join(messages)
         return await self._run_command(command)
 
-    def get_supported_actions(self) -> list[str]:
-        """Return the action types supported by this plugin."""
-        return ["bash"]
+    @staticmethod
+    def get_interface_id() -> str:
+        """Return the unique identifier for this plugin interface."""
+        return "bash"
+
+    def get_supported_actions(self) -> dict:
+        """Return schema information for supported actions."""
+        return {
+            "bash": {
+                "required_fields": ["command"],
+                "optional_fields": [],
+                "description": "Run a bash command and return its output",
+            }
+        }
 
     def get_prompt_instructions(self, action_name: str) -> dict:
         """Return prompt instructions for the given action."""
         if action_name != "bash":
             return {}
         return {
-            "description": "Run a bash command and return its output",
+            "description": "Run a bash command",
             "payload": {"command": "echo hello"},
         }
 
