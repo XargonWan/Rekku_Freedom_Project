@@ -350,6 +350,9 @@ async def _handle_plugin_action(
             if "message_id" not in msg_data:
                 from datetime import datetime
                 msg_data["message_id"] = int(datetime.utcnow().timestamp() * 1000) % 1_000_000
+            if "date" not in msg_data:
+                from datetime import datetime
+                msg_data["date"] = datetime.utcnow()
             message_obj = SimpleNamespace(**msg_data)
             try:
                 result = handler(bot, message_obj, context)

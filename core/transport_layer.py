@@ -165,6 +165,8 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
             message.chat_id = kwargs.get('chat_id') or (args[0] if args else None)
             message.text = ""
             message.message_thread_id = kwargs.get('message_thread_id')
+            from datetime import datetime
+            message.date = datetime.utcnow()
 
             # Use centralized action system for all action types
             from core.action_parser import run_actions
