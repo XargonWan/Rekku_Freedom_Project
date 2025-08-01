@@ -31,30 +31,16 @@ class MessagePlugin:
     @staticmethod
     def get_interface_id() -> str:
         """Return the unique identifier for this plugin interface."""
-        return "telegram_bot"  # Changed to match LLM expectation
+        return "message"  # Generic message plugin - works with any interface
 
     def get_supported_actions(self) -> dict:
-        """Return schema information for supported actions."""
-        return {
-            "message": {
-                "required_fields": ["text", "target"],
-                "optional_fields": ["message_thread_id"],
-                "description": "Send a text message via Telegram",
-            }
-        }
+        """Return empty dict - let interfaces handle action registration."""
+        return {}
 
     def get_prompt_instructions(self, action_name: str) -> dict:
         """Prompt instructions for supported actions."""
-        if action_name != "message":
-            return {}
-        return {
-            "description": "Send a message using generic message interface",
-            "payload": {
-                "text": "Hello!",
-                "target": "<recipient or destination>",
-                "interface": self.get_interface_id(),  # interface auto-corrected
-            },
-        }
+        # No longer provides instructions - interfaces handle this
+        return {}
 
     async def execute_action(self, action: dict, context: dict, bot, original_message):
         """Execute a message action."""

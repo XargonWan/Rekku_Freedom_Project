@@ -429,12 +429,20 @@ async def _handle_plugin_action(
             plugin.__class__, "get_interface_id", lambda: plugin.__class__.__name__.lower()
         )()
         
-        log_info(f"[action_parser] 🔌 Checking plugin: {plugin.__class__.__name__} (interface: {plugin_iface})")
+        log_info(f"[action_parser] 🔌 Checking plugin: {plugin.__class__.__name__} (plugin_interface: {plugin_iface})")
         
-        # Check if this plugin matches the target interface
-        if iface_target and plugin_iface != iface_target:
-            log_info(f"[action_parser] ⏭️ Skipping plugin {plugin_iface} (target: {iface_target})")
-            continue
+        # NEW LOGIC: If this is a generic plugin (like MessagePlugin), 
+        # it should work with any target interface
+        is_generic_plugin = plugin_iface in ["message", "event", "command", "bash"]
+        
+        if is_generic_plugin:
+            # Generic plugins accept any interface - they delegate to the actual interface
+            log_info(f"[action_parser] 🌐 Generic plugin {plugin.__class__.__name__} accepts interface: {iface_target}")
+        else:
+            # Check if this plugin matches the target interface exactly
+            if iface_target and plugin_iface != iface_target:
+                log_info(f"[action_parser] ⏭️ Skipping plugin {plugin_iface} (target: {iface_target})")
+                continue
             
         if hasattr(plugin, "execute_action"):
             try:
