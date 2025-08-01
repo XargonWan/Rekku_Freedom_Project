@@ -28,8 +28,7 @@ class RedditPlugin:
     def get_supported_action_types(self) -> list[str]:
         return ["message"]
 
-    @staticmethod
-    def get_interface_id() -> str:
+    def get_interface_id(self) -> str:
         """Return the unique identifier for this plugin interface."""
         return "reddit"
 

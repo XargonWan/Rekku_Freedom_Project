@@ -875,8 +875,7 @@ class TelegramInterface:
         """Store the python-telegram-bot ``Bot`` instance."""
         self.bot = bot
 
-    @staticmethod
-    def get_interface_id() -> str:
+    def get_interface_id(self) -> str:
         """Return the unique identifier for this interface."""
         return "telegram_bot"
 
@@ -907,7 +906,7 @@ class TelegramInterface:
                 "text": "Hello!",
                 "target": "<chat_id>",
                 "message_thread_id": "<optional message_thread_id>",
-                "interface": TelegramInterface.get_interface_id(),  # interface auto-corrected
+                "interface": self.get_interface_id(),  # interface auto-corrected
             },
         }
 

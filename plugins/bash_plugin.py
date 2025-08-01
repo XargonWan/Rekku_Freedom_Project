@@ -105,8 +105,7 @@ class BashPlugin(AIPluginBase):
         command = "\n".join(messages)
         return await self._run_command(command)
 
-    @staticmethod
-    def get_interface_id() -> str:
+    def get_interface_id(self) -> str:
         """Return the unique identifier for this plugin interface."""
         return "bash"
 
