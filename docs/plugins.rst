@@ -42,3 +42,55 @@ Reddit Actions
 
 The ``reddit`` plugin exposes actions for creating posts and comments via
 ``asyncpraw``.
+
+Developing Plugins
+------------------
+
+The plugin system is intentionally lightweight.  New functionality can be
+introduced by implementing small classes that inherit from one of the base
+types located in ``core``.
+
+Action Plugin
+~~~~~~~~~~~~~
+
+Action plugins process the actions returned by an LLM.  Create a new file under
+``plugins/`` and subclass ``PluginBase`` or ``AIPluginBase`` if the plugin needs
+to interact with language model prompts.  At minimum expose a ``PLUGIN_CLASS``
+variable so the loader can locate your class.
+
+.. code-block:: python
+
+   from core.ai_plugin_base import AIPluginBase
+
+   class MyActionPlugin(AIPluginBase):
+       def handle_incoming_message(self, bot, message, prompt):
+           ...  # perform work
+
+   PLUGIN_CLASS = MyActionPlugin
+
+LLM Engine
+~~~~~~~~~~
+
+LLM engines live in ``llm_engines/`` and also subclass ``AIPluginBase``.  They
+must implement ``generate_response`` to call the external model and return text
+or JSON actions.  After placing the module, select it at runtime using the
+``/llm`` command.
+
+Interface
+~~~~~~~~~
+
+Interfaces provide ingress/egress channels for messages.  A minimal interface
+exposes ``start()`` to begin listening and registers itself using
+``register_interface`` from ``core.interfaces``.
+
+.. code-block:: python
+
+   from core.interfaces import register_interface
+
+   class MyInterface:
+       async def start(self):
+           ...
+           register_interface("myiface", self)
+
+Interfaces typically forward incoming messages to ``plugin_instance.handle_incoming_message``
+so that the active LLM engine can process them.
