@@ -891,6 +891,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         try:
             subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
             subprocess.run(["pkill", "chromedriver"], capture_output=True, text=True)
+            time.sleep(1)
             log_debug("[selenium] Issued pkill for chrome and chromedriver")
         except Exception as e:
             log_debug(f"[selenium] Failed to kill chrome processes: {e}")
@@ -900,13 +901,19 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             patterns = [
                 os.path.expanduser("~/.config/google-chrome*"),
                 "/tmp/.com.google.Chrome*",
+                "/tmp/.org.chromium.*",
                 "/tmp/chrome_*",
             ]
 
             for pattern in patterns:
                 log_debug(f"[selenium] Scanning {pattern}")
                 for prof_dir in glob.glob(pattern):
-                    for name in ["SingletonLock", "lockfile", "SingletonSocket"]:
+                    for name in [
+                        "SingletonLock",
+                        "lockfile",
+                        "SingletonSocket",
+                        "SingletonCookie",
+                    ]:
                         path = os.path.join(prof_dir, name)
                         if os.path.exists(path):
                             try:
