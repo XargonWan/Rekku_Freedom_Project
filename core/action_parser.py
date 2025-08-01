@@ -178,22 +178,7 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
     if not isinstance(action, dict):
         return False, ["action must be a dict"]
 
-    # STEP 1: Try schema validation first (strictest)
-    try:
-        from core.action_schemas import enforce_schema_validation
-        schema_valid, schema_errors, enhanced_action = enforce_schema_validation(action)
-        if schema_valid:
-            # Schema validation passed - update the action reference
-            action.clear()
-            action.update(enhanced_action)
-            log_debug("[action_parser] Action passed strict schema validation")
-        else:
-            # Schema validation failed - try auto-injection
-            log_debug(f"[action_parser] Schema validation failed: {schema_errors}")
-    except Exception as e:
-        log_warning(f"[action_parser] Schema validation error: {e}")
-
-    # STEP 2: AUTO-INJECTION: Try to inject missing interface field
+    # STEP 1: AUTO-INJECTION: Try to inject missing interface field
     iface = action.get("interface")
     if not iface:
         # Try to infer interface from context
@@ -206,7 +191,7 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
             errors.append("❌ CRITICAL: Missing 'interface' field and could not infer from context. "
                          "Every action MUST include 'interface': 'interface_name'")
 
-    # STEP 3: Validate interface value
+    # STEP 2: Validate interface value
     if iface and not isinstance(iface, str):
         errors.append("'interface' must be a string")
     elif iface and not iface.strip():

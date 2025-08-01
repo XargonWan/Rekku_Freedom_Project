@@ -259,10 +259,6 @@ class CoreInitializer:
             "action_instructions": action_instructions,
         }
         
-        # Enhance with detailed examples emphasizing interface field
-        from core.enhanced_prompt_generator import enhance_actions_block_with_examples
-        self.actions_block = enhance_actions_block_with_examples(self.actions_block)
-        
         log_debug(f"[core_initializer] Actions block built with {len(available_actions)} action types")
     
     def _display_startup_summary(self):
