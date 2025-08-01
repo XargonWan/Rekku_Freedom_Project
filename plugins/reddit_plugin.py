@@ -8,14 +8,18 @@ class RedditPlugin:
     """Action plugin to post submissions and comments to Reddit."""
 
     def __init__(self):
-        self.reddit = praw.Reddit(
-            client_id=os.getenv("REDDIT_CLIENT_ID"),
-            client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
-            username=os.getenv("REDDIT_USERNAME"),
-            password=os.getenv("REDDIT_PASSWORD"),
-            user_agent=os.getenv("REDDIT_USER_AGENT", "rekku-bot/0.1"),
-        )
-        log_debug("[reddit_plugin] Initialized")
+        try:
+            self.reddit = praw.Reddit(
+                client_id=os.getenv("REDDIT_CLIENT_ID"),
+                client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
+                username=os.getenv("REDDIT_USERNAME"),
+                password=os.getenv("REDDIT_PASSWORD"),
+                user_agent=os.getenv("REDDIT_USER_AGENT", "rekku-bot/0.1"),
+            )
+            log_debug("[reddit_plugin] Initialized")
+        except Exception as e:
+            self.reddit = None
+            log_error(f"[reddit_plugin] Failed to init Reddit: {repr(e)}")
 
     @property
     def description(self) -> str:
@@ -48,8 +52,13 @@ class RedditPlugin:
         If provided, `text` will be posted as a reply to that thread. If not,
         a new submission is created in the target subreddit using `title`.
         """
+        if not self.reddit:
+            log_error("[reddit_plugin] Reddit plugin not configured; skipping action")
+            return
         if action.get("interface") != "reddit":
-            log_debug("[reddit_plugin] Skipping action for interface %s" % action.get("interface"))
+            log_debug(
+                "[reddit_plugin] Skipping action for interface %s" % action.get("interface")
+            )
             return
 
         payload = action.get("payload", {})
@@ -92,6 +101,9 @@ class RedditPlugin:
     async def handle_custom_action(self, action_type: str, payload: dict):
         if action_type != "message":
             log_warning(f"[reddit_plugin] Unsupported action type: {action_type}")
+            return
+        if not self.reddit:
+            log_error("[reddit_plugin] Reddit plugin not configured; skipping action")
             return
         action = {"type": "message", "interface": "reddit", "payload": payload}
         await asyncio.to_thread(self.execute_action, action, {}, None, None)
