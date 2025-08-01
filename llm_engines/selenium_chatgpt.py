@@ -39,12 +39,12 @@ class ChatLinkStore:
         # We'll ensure the table exists on first use instead
         pass
 
-    def _normalize_thread_id(self, message_thread_id: Optional[int | str]) -> str:
-        """Return ``message_thread_id`` as a string suitable for storage.
+    def _normalize_thread_id(self, message_thread_id: Optional[int | str]) -> int:
+        """Return ``message_thread_id`` normalized as an ``int``.
 
-        The value ``"0"`` is used to represent chats without a thread."""
+        ``0`` is used to represent chats without a thread."""
 
-        return str(message_thread_id) if message_thread_id is not None else "0"
+        return int(message_thread_id) if message_thread_id is not None else 0
 
     async def _ensure_table(self) -> None:
         if self._table_ensured:
@@ -75,6 +75,9 @@ class ChatLinkStore:
     ) -> Optional[str]:
         await self._ensure_table()  # Ensure table exists before use
         normalized_thread = self._normalize_thread_id(message_thread_id)
+        log_debug(
+            f"[chatlink] get_link normalized thread_id={normalized_thread}"
+        )
         conn = await get_conn()
         try:
             async with conn.cursor(aiomysql.DictCursor) as cur:
@@ -84,7 +87,9 @@ class ChatLinkStore:
                 )
                 row = await cur.fetchone()
                 chat = row["link"] if row else None
-                log_debug(f"[chatlink] get_link {chat_id}/{message_thread_id} -> {chat}")
+                log_debug(
+                    f"[chatlink] get_link {chat_id}/{normalized_thread} -> {chat}"
+                )
                 return chat
         finally:
             conn.close()
@@ -94,6 +99,9 @@ class ChatLinkStore:
     ) -> None:
         await self._ensure_table()  # Ensure table exists before use
         normalized_thread = self._normalize_thread_id(message_thread_id)
+        log_debug(
+            f"[chatlink] save_link normalized thread_id={normalized_thread}"
+        )
         conn = await get_conn()
         try:
             async with conn.cursor() as cur:
@@ -104,9 +112,7 @@ class ChatLinkStore:
                 await conn.commit()
         finally:
             conn.close()
-        log_debug(
-            f"[chatlink] Saved mapping {chat_id}/{message_thread_id} -> {link}"
-        )
+        log_debug(f"[chatlink] Saved mapping {chat_id}/{normalized_thread} -> {link}")
 
     async def remove(
         self, chat_id: str | int, message_thread_id: Optional[int | str]
@@ -114,6 +120,9 @@ class ChatLinkStore:
         """Remove mapping for given Telegram chat."""
         await self._ensure_table()  # Ensure table exists before use
         normalized_thread = self._normalize_thread_id(message_thread_id)
+        log_debug(
+            f"[chatlink] remove normalized thread_id={normalized_thread}"
+        )
         conn = await get_conn()
         try:
             async with conn.cursor() as cur:
@@ -131,11 +140,11 @@ class ChatLinkStore:
 
         if rows_deleted:
             log_debug(
-                f"[chatlink] Removed link for chat_id={chat_id}, message_thread_id={message_thread_id}"
+                f"[chatlink] Removed link for chat_id={chat_id}, message_thread_id={normalized_thread}"
             )
         else:
             log_debug(
-                f"[chatlink] No link found for chat_id={chat_id}, message_thread_id={message_thread_id}"
+                f"[chatlink] No link found for chat_id={chat_id}, message_thread_id={normalized_thread}"
             )
         return rows_deleted
 
