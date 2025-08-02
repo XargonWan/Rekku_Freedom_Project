@@ -142,6 +142,42 @@ class EventPlugin(AIPluginBase):
             }
         }
 
+    def validate_payload(self, action_type: str, payload: dict) -> list:
+        """Validate payload for event actions."""
+        if action_type != "event":
+            return []
+        
+        errors = []
+        
+        # Required fields validation
+        date_str = payload.get("date")
+        if not date_str:
+            errors.append("payload.date is required for event action")
+        else:
+            try:
+                from datetime import datetime
+                datetime.strptime(date_str, "%Y-%m-%d")
+            except Exception:
+                errors.append("payload.date must be in format YYYY-MM-DD")
+
+        if not payload.get("description"):
+            errors.append("payload.description is required for event action")
+
+        # Optional fields validation
+        time_str = payload.get("time")
+        if time_str:
+            try:
+                from datetime import datetime
+                datetime.strptime(time_str, "%H:%M")
+            except Exception:
+                errors.append("payload.time must be in format HH:MM")
+
+        repeat = payload.get("repeat")
+        if repeat and repeat not in ["none", "daily", "weekly", "monthly", "always"]:
+            errors.append("payload.repeat must be one of: none, daily, weekly, monthly, always")
+        
+        return errors
+
     def get_prompt_instructions(self, action_name: str) -> dict:
         """Prompt instructions for the supported actions."""
         if action_name != "event":

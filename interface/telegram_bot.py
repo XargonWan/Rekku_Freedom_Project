@@ -891,6 +891,43 @@ class TelegramInterface:
             }
         }
 
+    @staticmethod
+    def validate_payload(action_type: str, payload: dict) -> list:
+        """Validate payload for telegram actions."""
+        if action_type != "message_telegram_bot":
+            return []
+        
+        errors = []
+        
+        # Required field: text
+        text = payload.get("text")
+        if not isinstance(text, str) or not text:
+            errors.append("payload.text must be a non-empty string")
+
+        # Required field: target
+        target = payload.get("target")
+        if target is not None:
+            if isinstance(target, dict):
+                # Complex format with chat_id and message_id
+                chat_id = target.get("chat_id")
+                message_id = target.get("message_id")
+                if not isinstance(chat_id, int):
+                    errors.append("payload.target.chat_id must be an int")
+                if message_id is not None and not isinstance(message_id, int):
+                    errors.append("payload.target.message_id must be an int")
+            elif not isinstance(target, int):
+                # Simple format: just chat_id as int
+                errors.append("payload.target must be an int (chat_id) or dict with chat_id and message_id")
+        else:
+            errors.append("payload.target is required for message_telegram_bot action")
+
+        # Optional field: message_thread_id
+        message_thread_id = payload.get("message_thread_id")
+        if message_thread_id is not None and not isinstance(message_thread_id, int):
+            errors.append("payload.message_thread_id must be an int")
+        
+        return errors
+
     @staticmethod  
     def get_prompt_instructions(action_name: str) -> dict:
         """Prompt instructions for supported actions."""

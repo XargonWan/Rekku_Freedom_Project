@@ -6,7 +6,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 _logger: Optional[logging.Logger] = None
-_LOG_DIR = "/config/logs"
+_LOG_DIR = os.getenv("LOG_DIR", "/config/logs")
 _LOG_FILE = os.path.join(_LOG_DIR, "rekku.log")
 _LEVELS = {
     "DEBUG": logging.DEBUG,

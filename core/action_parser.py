@@ -10,7 +10,6 @@ from types import SimpleNamespace
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
-import core.plugin_instance as plugin_instance
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 
@@ -90,64 +89,51 @@ def get_supported_action_types() -> set[str]:
     return supported_types
 
 
-def _validate_message_payload(payload: dict, errors: List[str]) -> None:
-    """Validate payload for message actions."""
-    text = payload.get("text")
-    if not isinstance(text, str) or not text:
-        errors.append("payload.text must be a non-empty string")
-
-    # target può essere un int (chat_id diretto) o un dict - rendiamo flessibile
-    target = payload.get("target")
-    if target is not None:
-        if isinstance(target, dict):
-            # Formato complesso con chat_id e message_id
-            chat_id = target.get("chat_id")
-            message_id = target.get("message_id")
-            if not isinstance(chat_id, int):
-                errors.append("payload.target.chat_id must be an int")
-            if message_id is not None and not isinstance(message_id, int):
-                errors.append("payload.target.message_id must be an int")
-        elif not isinstance(target, int):
-            # Formato semplice: solo chat_id come int
-            errors.append(
-                "payload.target must be an int (chat_id) or dict with chat_id and message_id"
-            )
-
-    # scope e privacy sono completamente opzionali - non li validare se non presenti
-    scope = payload.get("scope")
-    if scope is not None and scope not in {"local", "global"}:
-        errors.append("payload.scope must be 'local' or 'global'")
-
-    privacy = payload.get("privacy")
-    if privacy is not None and privacy not in {"default", "private", "public"}:
-        errors.append("payload.privacy must be one of ['default', 'private', 'public']")
-
-    message_thread_id = payload.get("message_thread_id")
-    if message_thread_id is not None and not isinstance(message_thread_id, int):
-        errors.append("payload.message_thread_id must be an int")
-
-
-def _validate_command_payload(payload: dict, errors: List[str]) -> None:
-    """Validate payload for command actions."""
-    name = payload.get("name")
-    if not isinstance(name, str) or not name:
-        errors.append("payload.name must be a non-empty string for command action")
-
-    args = payload.get("args")
-    if args is not None and not isinstance(args, list):
-        errors.append("payload.args must be a list if provided")
-
-
-def _validate_memory_payload(payload: dict, errors: List[str]) -> None:
-    """Validate payload for memory actions."""
-    content = payload.get("content")
-    if not isinstance(content, str) or not content:
-        errors.append("payload.content must be a non-empty string")
-
-    tags = payload.get("tags")
-    if tags is not None:
-        if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
-            errors.append("payload.tags must be a list of strings if provided")
+def _validate_payload_with_plugins(action_type: str, payload: dict, errors: List[str]) -> None:
+    """Validate payload using plugins that support the action type."""
+    try:
+        for plugin in _load_action_plugins():
+            # Check if this plugin supports the action type
+            supports_action = False
+            try:
+                if hasattr(plugin, "get_supported_action_types"):
+                    if action_type in plugin.get_supported_action_types():
+                        supports_action = True
+                elif hasattr(plugin, "get_supported_actions"):
+                    actions = plugin.get_supported_actions()
+                    if isinstance(actions, dict) and action_type in actions:
+                        supports_action = True
+                    elif isinstance(actions, (list, set, tuple)) and action_type in actions:
+                        supports_action = True
+            except Exception as e:
+                log_debug(f"[action_parser] Error checking plugin support for {action_type}: {e}")
+                continue
+            
+            if supports_action:
+                # Check if plugin has a validation method
+                if hasattr(plugin, "validate_payload"):
+                    try:
+                        plugin_errors = plugin.validate_payload(action_type, payload)
+                        if plugin_errors and isinstance(plugin_errors, list):
+                            errors.extend(plugin_errors)
+                            log_debug(f"[action_parser] Plugin {plugin.__class__.__name__} added {len(plugin_errors)} validation errors")
+                    except Exception as e:
+                        log_warning(f"[action_parser] Error validating payload with plugin {plugin.__class__.__name__}: {e}")
+                elif hasattr(plugin, "validate_action"):
+                    try:
+                        # If plugin has validate_action, use that
+                        action_dict = {"type": action_type, "payload": payload}
+                        plugin_errors = plugin.validate_action(action_dict)
+                        if plugin_errors and isinstance(plugin_errors, list):
+                            errors.extend(plugin_errors)
+                            log_debug(f"[action_parser] Plugin {plugin.__class__.__name__} added {len(plugin_errors)} validation errors")
+                    except Exception as e:
+                        log_warning(f"[action_parser] Error validating action with plugin {plugin.__class__.__name__}: {e}")
+                else:
+                    # Plugin doesn't have validation - that's OK, skip
+                    log_debug(f"[action_parser] Plugin {plugin.__class__.__name__} supports {action_type} but has no validation method")
+    except Exception as e:
+        log_error(f"[action_parser] Error during plugin validation: {e}")
 
 
 def validate_action(action: dict, context: dict = None, original_message=None) -> Tuple[bool, List[str]]:
@@ -233,45 +219,9 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
     elif not isinstance(payload, dict):
         errors.append("'payload' must be a dict")
 
-    # Basic validation for known action types discovered from plugins
+    # Dynamic validation - delegate to plugins that support this action type
     if isinstance(payload, dict) and action_type in get_supported_action_types():
-        if action_type == "message":
-            _validate_message_payload(payload, errors)
-        elif action_type == "event":
-            # New structured event validation
-            date_str = payload.get("date")
-            if not date_str:
-                errors.append("payload.date is required for event action")
-            else:
-                try:
-                    datetime.strptime(date_str, "%Y-%m-%d")
-                except Exception:
-                    errors.append("payload.date must be in format YYYY-MM-DD")
-
-            time_str = payload.get("time")
-            if time_str:
-                try:
-                    datetime.strptime(time_str, "%H:%M")
-                except Exception:
-                    errors.append("payload.time must be in format HH:MM")
-
-            if not payload.get("description"):
-                errors.append("payload.description is required for event action")
-
-            if "repeat" in payload and payload["repeat"] not in [
-                "none",
-                "daily",
-                "weekly",
-                "monthly",
-                "always",
-            ]:
-                errors.append(
-                    "payload.repeat must be one of: none, daily, weekly, monthly, always"
-                )
-        elif action_type == "command":
-            _validate_command_payload(payload, errors)
-        elif action_type == "memory":
-            _validate_memory_payload(payload, errors)
+        _validate_payload_with_plugins(action_type, payload, errors)
 
     return len(errors) == 0, errors
 
@@ -432,7 +382,7 @@ async def _handle_plugin_action(
         
         # NEW LOGIC: If this is a generic plugin (like MessagePlugin), 
         # it should work with any target interface
-        is_generic_plugin = plugin_iface in ["message", "event", "command", "bash"]
+        is_generic_plugin = plugin_iface in ["message", "event", "command", "terminal"]
         
         if is_generic_plugin:
             # Generic plugins accept any interface - they delegate to the actual interface
@@ -593,6 +543,7 @@ async def parse_action(action: dict, bot, message):
     )
 
     # First allow the active LLM plugin to handle custom actions
+    import core.plugin_instance as plugin_instance
     llm_plugin = getattr(plugin_instance, "plugin", None)
     if llm_plugin:
         try:

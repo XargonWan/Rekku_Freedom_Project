@@ -16,7 +16,7 @@ class CoreInitializer:
         self.active_interfaces = []
         self.active_llm = None
         self.startup_errors = []
-        self.actions_block = {"available_actions": {}, "action_instructions": {}}
+        self.actions_block = {"available_actions": {}}
     
     async def initialize_all(self, notify_fn=None):
         """Initialize all Rekku components in the correct order."""
@@ -172,7 +172,6 @@ class CoreInitializer:
         from core.action_parser import _load_action_plugins
 
         available_actions = {}
-        action_instructions = {}
 
         def _register(action_type: str, iface: str, schema: dict, instr_fn):
             required = schema.get("required_fields", [])
@@ -213,21 +212,27 @@ class CoreInitializer:
 
             instr = instr_fn(action_type) if instr_fn else None
             if instr is None:
-                raise ValueError(f"Missing prompt instructions for {action_type} in {iface}")
+                log_warning(f"Missing prompt instructions for {action_type} in {iface}")
+                instr = {}
             if not isinstance(instr, dict):
-                raise ValueError(
-                    f"Prompt instructions for {action_type} in {iface} must be a dict"
-                )
-            if action_type not in action_instructions:
-                action_instructions[action_type] = {}
-            if iface in action_instructions[action_type]:
-                log_debug(
-                    f"[core_initializer] Updating prompt instructions for {action_type} in {iface}"
-                )
-                # For instructions, we can merge or keep the most recent one
-                # Let's keep the most recent and log it
-                log_info(f"[core_initializer] Updated prompt instructions for {action_type} in {iface}")
-            action_instructions[action_type][iface] = instr
+                log_warning(f"Prompt instructions for {action_type} in {iface} must be a dict, got {type(instr)}")
+                instr = {}
+            
+            # Store instructions within the interface structure
+            if action_type not in available_actions:
+                available_actions[action_type] = {
+                    "description": schema.get("description", ""),
+                    "interfaces": {},
+                }
+            
+            if iface not in available_actions[action_type]["interfaces"]:
+                available_actions[action_type]["interfaces"][iface] = {
+                    "required_fields": required,
+                    "optional_fields": optional,
+                }
+            
+            # Add instructions to the interface
+            available_actions[action_type]["interfaces"][iface]["instructions"] = instr
 
         # --- Load action plugins ---
         try:
@@ -273,7 +278,6 @@ class CoreInitializer:
 
         self.actions_block = {
             "available_actions": available_actions,
-            "action_instructions": action_instructions,
         }
         
         log_debug(f"[core_initializer] Actions block built with {len(available_actions)} action types")
