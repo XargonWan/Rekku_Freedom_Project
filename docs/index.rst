@@ -20,10 +20,12 @@ getting started.
    installation
    usage
    quickstart
+   project_structure
    features
    architecture
    llm_engines
    plugins
+   plugin_setup
    contributing
    faq
 

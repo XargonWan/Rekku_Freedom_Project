@@ -10,6 +10,8 @@ Plugins
 The project includes several optional plugins that implement additional actions
 or storage.
 
+For step-by-step setup instructions see :doc:`plugin_setup`.
+
 Terminal
 --------
 
