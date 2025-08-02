@@ -74,6 +74,35 @@ variable so the loader can locate your class.
 
    PLUGIN_CLASS = MyActionPlugin
 
+Plugin Flow
+-----------
+
+The following diagram and steps illustrate how plugins interact with the system:
+
+.. graphviz::
+
+    digraph plugin_flow {
+         rankdir=LR;
+         node [shape=box, style=rounded];
+         A [label="1. Plugin registers\n→ ACTIVE_INTERFACES"];
+         B [label="2. Plugin defines actions\n→ available_actions"];
+         C [label="3. Plugin defines instructions\n→ action_instructions"];
+         D [label="4. LLM uses available_actions\nto generate JSON"];
+         E [label="5. Action parser finds\ncorresponding plugin"];
+         F [label="6. Plugin executes logic"];
+
+         A -> B -> C -> D -> E -> F;
+    }
+
+**Step-by-step flow:**
+
+1. The plugin registers itself, adding an entry to ``ACTIVE_INTERFACES``.
+2. The plugin defines its available actions, which are collected in ``available_actions``.
+3. The plugin provides action instructions, stored in ``action_instructions``.
+4. The LLM uses ``available_actions`` to generate a JSON action request.
+5. The action parser dynamically locates the appropriate plugin for the requested action.
+6. The plugin executes its logic to handle the action.
+
 LLM Engine
 ~~~~~~~~~~
 
