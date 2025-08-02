@@ -11,10 +11,14 @@ import os
 import asyncio
 from typing import Any, Dict, List
 
-import snscrape.modules.twitter as sntwitter
+# snscrape has compatibility issues with Python 3.12, disable for now
+SNSCRAPE_AVAILABLE = False
+sntwitter = None
 
-from core.logging_utils import log_info, log_debug
+from core.logging_utils import log_info, log_debug, log_warning
 from core.interfaces import register_interface
+
+log_warning("[x_interface] snscrape disabled due to Python 3.12 compatibility issues")
 
 
 class XInterface:
@@ -33,17 +37,24 @@ class XInterface:
         return "x"
 
     @staticmethod
-    def get_supported_action_types() -> List[str]:
-        """Return action types supported by this interface."""
-        return ["message", "x_timeline_read", "x_search"]
-
-    @staticmethod
-    def get_supported_actions() -> dict[str, str]:
-        """Return a compact description of supported actions."""
+    def get_supported_actions() -> dict:
+        """Return schema information for supported actions."""
         return {
-            "message": "Post a message on X. Optionally set 'target_user' to mention someone. Use: interface: x",
-            "x_timeline_read": "Read the latest posts from the authenticated user's timeline. Use: interface: x",
-            "x_search": "Search public posts on X using a query string. Use: interface: x",
+            "message_x": {
+                "required_fields": ["text"],
+                "optional_fields": ["target_user"],
+                "description": "Post a message on X. Optionally set 'target_user' to mention someone.",
+            },
+            "x_timeline_read": {
+                "required_fields": [],
+                "optional_fields": [],
+                "description": "Read the latest posts from the authenticated user's timeline.",
+            },
+            "x_search": {
+                "required_fields": ["query"],
+                "optional_fields": [],
+                "description": "Search public posts on X using a query string.",
+            },
         }
 
     async def send_message(self, payload: Dict[str, Any], original_message: Any | None = None) -> None:
@@ -63,16 +74,23 @@ class XInterface:
     async def _read_timeline(self) -> List[str]:
         """Fetch the latest five posts from ``X_USERNAME`` via snscrape."""
 
+        if not SNSCRAPE_AVAILABLE:
+            log_warning("[x_interface] snscrape not available; cannot read timeline")
+            return []
+
         if not self.username:
             log_info("[x_interface] X_USERNAME not configured; cannot read timeline")
             return []
 
         def fetch() -> List[str]:
             tweets = []
-            for idx, tweet in enumerate(sntwitter.TwitterUserScraper(self.username).get_items()):
-                if idx >= 5:
-                    break
-                tweets.append(tweet.content)
+            try:
+                for idx, tweet in enumerate(sntwitter.TwitterUserScraper(self.username).get_items()):
+                    if idx >= 5:
+                        break
+                    tweets.append(tweet.content)
+            except Exception as e:
+                log_warning(f"[x_interface] Error fetching timeline: {e}")
             return tweets
 
         tweets = await asyncio.to_thread(fetch)
@@ -83,15 +101,22 @@ class XInterface:
     async def _search(self, query: str) -> List[str]:
         """Search public posts using snscrape."""
 
+        if not SNSCRAPE_AVAILABLE:
+            log_warning("[x_interface] snscrape not available; cannot search")
+            return []
+
         if not query:
             return []
 
         def fetch() -> List[str]:
             results = []
-            for idx, tweet in enumerate(sntwitter.TwitterSearchScraper(query).get_items()):
-                if idx >= 5:
-                    break
-                results.append(tweet.content)
+            try:
+                for idx, tweet in enumerate(sntwitter.TwitterSearchScraper(query).get_items()):
+                    if idx >= 5:
+                        break
+                    results.append(tweet.content)
+            except Exception as e:
+                log_warning(f"[x_interface] Error searching: {e}")
             return results
 
         results = await asyncio.to_thread(fetch)
@@ -105,7 +130,7 @@ class XInterface:
         action_type = action.get("type")
         payload = action.get("payload", {})
 
-        if action_type == "message":
+        if action_type == "message_x":
             await self.send_message(payload, original_message)
         elif action_type == "x_timeline_read":
             return await self._read_timeline()
@@ -121,6 +146,50 @@ class XInterface:
         return (
             "Use interface: x to post or retrieve data from X. For direct messages or mentions, set 'target_user'."
         )
+
+    @staticmethod
+    def validate_payload(action_type: str, payload: dict) -> list:
+        """Validate payload for X actions."""
+        errors = []
+        
+        if action_type == "message_x":
+            if not payload.get("text"):
+                errors.append("text is required for message_x")
+        elif action_type == "x_search":
+            if not payload.get("query"):
+                errors.append("query is required for x_search")
+        # x_timeline_read requires no specific fields
+        
+        return errors
+
+    @staticmethod
+    def get_prompt_instructions(action_name: str) -> dict:
+        """Return detailed instructions for each action type."""
+        if action_name == "message_x":
+            return {
+                "description": "Post a message on X (Twitter)",
+                "payload": {
+                    "text": "Hello X world!",
+                    "target_user": "username",  # optional
+                    "interface": "x"
+                }
+            }
+        elif action_name == "x_timeline_read":
+            return {
+                "description": "Read latest posts from authenticated user's timeline",
+                "payload": {
+                    "interface": "x"
+                }
+            }
+        elif action_name == "x_search":
+            return {
+                "description": "Search public posts on X",
+                "payload": {
+                    "query": "search terms",
+                    "interface": "x"
+                }
+            }
+        return {}
 
 
 # Expose class for dynamic loading and register interface
