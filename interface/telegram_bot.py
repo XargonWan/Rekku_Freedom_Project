@@ -880,8 +880,32 @@ class TelegramInterface:
         """Return the unique identifier for this interface."""
         return "telegram_bot"
 
-    # REMOVED: get_supported_actions() to avoid conflicts with MessagePlugin
-    # This interface only provides transport methods, not action registration
+    @staticmethod
+    def get_supported_actions() -> dict:
+        """Return schema information for supported actions."""
+        return {
+            "message": {
+                "required_fields": ["text", "target"],
+                "optional_fields": ["message_thread_id"],
+                "description": "Send a text message via Telegram",
+            }
+        }
+
+    @staticmethod  
+    def get_prompt_instructions(action_name: str) -> dict:
+        """Prompt instructions for supported actions."""
+        if action_name != "message":
+            return {}
+        return {
+            "description": "Send a message via Telegram",
+            "payload": {
+                "text": "Hello!",
+                "target": "<chat_id or recipient>",
+                "message_thread_id": "<optional_thread_id>", 
+            },
+        }
+
+    # RESTORED: get_supported_actions() and get_prompt_instructions() to handle message actions
 
     @staticmethod
     def get_interface_instructions() -> str:

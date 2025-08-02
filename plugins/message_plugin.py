@@ -15,8 +15,8 @@ class MessagePlugin:
         if INTERFACE_REGISTRY:
             self.supported_interfaces = list(INTERFACE_REGISTRY.keys())
         else:
-            # Default to telegram if no interfaces registered yet
-            self.supported_interfaces = ["telegram"]
+            # Default to telegram_bot if no interfaces registered yet
+            self.supported_interfaces = ["telegram_bot"]
         log_debug("[message_plugin] MessagePlugin initialized")
 
     @property

@@ -96,16 +96,13 @@ async def build_json_prompt(message, context_memory) -> dict:
     # Add JSON instructions to the prompt
     json_instructions = load_json_instructions()
     
-    # Get interface-specific instructions
-    interface_instructions = get_interface_instructions("telegram")  # Default to telegram for now
-    
-    # Plugin-specific instructions are now provided via the actions block
+    # Interface-specific instructions are provided via the available actions block
+    # No hardcoded interface references - plugins define their own instructions
 
     prompt_with_instructions = {
         "context": context_section,
         "input": input_section,
         "instructions": json_instructions,
-        "interface_instructions": interface_instructions,
     }
 
     # Include unified actions metadata from the initializer
@@ -224,32 +221,8 @@ def load_json_instructions() -> str:
 MANDATORY ACTION FORMAT - NEVER OMIT "interface":
 {
   "type": "action_type",
-  "interface": "telegram",  // ← THIS IS MANDATORY, NEVER OMIT
+  "interface": "interface_name",  // ← THIS IS MANDATORY, NEVER OMIT
   "payload": { ... }
-}
-
-EXAMPLES WITH MANDATORY "interface" FIELD:
-
-✅ CORRECT Message Action:
-{
-  "type": "message",
-  "interface": "telegram",
-  "payload": {
-    "text": "Hello!",
-    "target": 123456
-  }
-}
-
-✅ CORRECT Event Action:
-{
-  "type": "event", 
-  "interface": "telegram",
-  "payload": {
-    "date": "2025-07-30",
-    "time": "13:00",
-    "repeat": "weekly",
-    "description": "Remind me to water the plants"
-  }
 }
 
 ❌ WRONG - MISSING "interface":
@@ -259,40 +232,20 @@ EXAMPLES WITH MANDATORY "interface" FIELD:
 }
 
 INTERFACE RULES:
-- "interface": "telegram" for all Telegram interactions
-- "interface": "reddit" for Reddit interactions  
-- "interface": "message" for generic messaging
-- "interface": "event" for event/reminder actions
-- "interface": "bash" for terminal commands
+- Use the interface name that matches your current platform
+- Check the available_actions section below for supported interfaces and their capabilities
+- The interface field is mandatory for all actions
 
 🚨 IF YOU FORGET "interface", THE ACTION WILL FAIL 🚨
 
-Event Action Details:
-- 'date': required, format YYYY-MM-DD
-- 'time': optional, default "00:00"
-- 'repeat': "none", "daily", "weekly", "monthly", "always"
-- 'description': required
-
-All other rules remain:
-- Use 'input.payload.source.chat_id' as message target
-- Include 'thread_id' if present
+All rules:
+- Use 'input.payload.source.chat_id' as message target when applicable
+- Include 'thread_id' if present in the context
 - Always return syntactically valid JSON
 - Use the 'actions' array, even for single actions
 
 The JSON is just a wrapper — speak naturally as you always do.
 """
 
-def get_interface_instructions(interface_name: str) -> str:
-    """Get specific instructions for an interface."""
-    try:
-        # Try to import the interface and get its instructions
-        if interface_name == "telegram":
-            from interface.telegram_bot import TelegramInterface
-            return TelegramInterface.get_interface_instructions()
-        # Add other interfaces here as needed
-        else:
-            return f"Use {interface_name} format for responses."
-    except (ImportError, AttributeError) as e:
-        log_warning(f"Could not load interface instructions for {interface_name}: {e}")
-        return f"Respond in {interface_name} compatible format."
+
 

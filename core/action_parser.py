@@ -21,52 +21,51 @@ def _infer_interface_from_context(context: Dict[str, Any] = None, original_messa
     Returns the most likely interface ID or None if cannot infer.
     """
     
-    # Method 1: Check context for interface hints
+    # Method 1: Check context for explicit interface specification
     if context:
-        # Look for context keys that hint at the interface
-        for key in context.keys():
-            if 'telegram' in key.lower():
-                log_debug("[action_parser] Interface inferred from context: telegram")
-                return "telegram"
-            elif 'reddit' in key.lower():
-                log_debug("[action_parser] Interface inferred from context: reddit")
-                return "reddit"
-            elif 'discord' in key.lower():
-                log_debug("[action_parser] Interface inferred from context: discord")
-                return "discord"
-        
-        # Check for specific context values
+        # Look for explicit interface specification
         interface_hint = context.get('interface') or context.get('source_interface')
         if interface_hint:
             log_debug(f"[action_parser] Interface inferred from context hint: {interface_hint}")
             return interface_hint
+        
+        # Look for context keys that hint at the interface
+        for key in context.keys():
+            key_lower = key.lower()
+            # Check each active interface to see if it matches context
+            for interface_id in ACTIVE_INTERFACES:
+                if interface_id.lower() in key_lower or any(part in key_lower for part in interface_id.lower().split('_')):
+                    log_debug(f"[action_parser] Interface inferred from context key '{key}': {interface_id}")
+                    return interface_id
     
-    # Method 2: Check original message attributes
-    if original_message:
-        if hasattr(original_message, 'chat_id') or hasattr(original_message, 'message_id'):
-            log_debug("[action_parser] Interface inferred from message attributes: telegram")
-            return "telegram"
-        elif hasattr(original_message, 'subreddit'):
-            log_debug("[action_parser] Interface inferred from message attributes: reddit")
-            return "reddit"
-        elif hasattr(original_message, 'guild'):
-            log_debug("[action_parser] Interface inferred from message attributes: discord")
-            return "discord"
+    # Method 2: Check original message attributes against known interfaces
+    if original_message and ACTIVE_INTERFACES:
+        for interface_id in ACTIVE_INTERFACES:
+            # Check for telegram-like attributes
+            if 'telegram' in interface_id.lower():
+                if hasattr(original_message, 'chat_id') or hasattr(original_message, 'message_id'):
+                    log_debug(f"[action_parser] Interface inferred from message attributes: {interface_id}")
+                    return interface_id
+            # Check for reddit-like attributes  
+            elif 'reddit' in interface_id.lower():
+                if hasattr(original_message, 'subreddit'):
+                    log_debug(f"[action_parser] Interface inferred from message attributes: {interface_id}")
+                    return interface_id
+            # Check for discord-like attributes
+            elif 'discord' in interface_id.lower():
+                if hasattr(original_message, 'guild'):
+                    log_debug(f"[action_parser] Interface inferred from message attributes: {interface_id}")
+                    return interface_id
     
-    # Method 3: Check global active interfaces
+    # Method 3: Use first available active interface
     if ACTIVE_INTERFACES:
-        # Prefer telegram if available
-        if "telegram" in ACTIVE_INTERFACES:
-            log_debug("[action_parser] Using default active interface: telegram")
-            return "telegram"
-        # Otherwise use the first available
         default_interface = list(ACTIVE_INTERFACES)[0]
         log_debug(f"[action_parser] Using first active interface: {default_interface}")
         return default_interface
     
-    # Method 4: Hard-coded fallback to telegram
-    log_debug("[action_parser] Using hard-coded fallback: telegram")
-    return "telegram"
+    # Method 4: No interfaces available - return None to force explicit specification
+    log_warning("[action_parser] No active interfaces found - cannot infer interface")
+    return None
 
 
 def get_supported_action_types() -> set[str]:
