@@ -13,60 +13,6 @@ from typing import Any, Dict, List, Tuple
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 
-def _infer_interface_from_context(context: Dict[str, Any] = None, original_message=None) -> str:
-    """
-    Infer the interface from context and message information.
-    
-    Returns the most likely interface ID or None if cannot infer.
-    """
-    
-    # Method 1: Check context for explicit interface specification
-    if context:
-        # Look for explicit interface specification
-        interface_hint = context.get('interface') or context.get('source_interface')
-        if interface_hint:
-            log_debug(f"[action_parser] Interface inferred from context hint: {interface_hint}")
-            return interface_hint
-        
-        # Look for context keys that hint at the interface
-        for key in context.keys():
-            key_lower = key.lower()
-            # Check each active interface to see if it matches context
-            for interface_id in ACTIVE_INTERFACES:
-                if interface_id.lower() in key_lower or any(part in key_lower for part in interface_id.lower().split('_')):
-                    log_debug(f"[action_parser] Interface inferred from context key '{key}': {interface_id}")
-                    return interface_id
-    
-    # Method 2: Check original message attributes against known interfaces
-    if original_message and ACTIVE_INTERFACES:
-        for interface_id in ACTIVE_INTERFACES:
-            # Check for telegram-like attributes
-            if 'telegram' in interface_id.lower():
-                if hasattr(original_message, 'chat_id') or hasattr(original_message, 'message_id'):
-                    log_debug(f"[action_parser] Interface inferred from message attributes: {interface_id}")
-                    return interface_id
-            # Check for reddit-like attributes  
-            elif 'reddit' in interface_id.lower():
-                if hasattr(original_message, 'subreddit'):
-                    log_debug(f"[action_parser] Interface inferred from message attributes: {interface_id}")
-                    return interface_id
-            # Check for discord-like attributes
-            elif 'discord' in interface_id.lower():
-                if hasattr(original_message, 'guild'):
-                    log_debug(f"[action_parser] Interface inferred from message attributes: {interface_id}")
-                    return interface_id
-    
-    # Method 3: Use first available active interface
-    if ACTIVE_INTERFACES:
-        default_interface = list(ACTIVE_INTERFACES)[0]
-        log_debug(f"[action_parser] Using first active interface: {default_interface}")
-        return default_interface
-    
-    # Method 4: No interfaces available - return None to force explicit specification
-    log_warning("[action_parser] No active interfaces found - cannot infer interface")
-    return None
-
-
 def get_supported_action_types() -> set[str]:
     """Return all supported action types discovered from plugins."""
     supported_types: set[str] = set()
@@ -163,25 +109,7 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
     if not isinstance(action, dict):
         return False, ["action must be a dict"]
 
-    # STEP 1: AUTO-INJECTION: Try to inject missing interface field
-    iface = action.get("interface")
-    if not iface:
-        # Try to infer interface from context
-        inferred_interface = _infer_interface_from_context(context, original_message)
-        if inferred_interface:
-            action["interface"] = inferred_interface
-            log_info(f"[action_parser] 🔧 Auto-injected missing interface: {inferred_interface}")
-            iface = inferred_interface
-        else:
-            errors.append("❌ CRITICAL: Missing 'interface' field and could not infer from context. "
-                         "Every action MUST include 'interface': 'interface_name'")
-
-    # STEP 2: Validate interface value
-    if iface and not isinstance(iface, str):
-        errors.append("'interface' must be a string")
-    elif iface and not iface.strip():
-        errors.append("'interface' cannot be empty")
-
+    # Validate action type - with specific action names, interface is implicit
     action_type = action.get("type")
     if not action_type:
         errors.append("Missing 'type'")
