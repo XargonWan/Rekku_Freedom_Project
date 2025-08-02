@@ -253,29 +253,26 @@ def _plugins_for(action_type: str) -> List[Any]:
         try:
             supported = None
             
-            # Prefer get_supported_action_types if it returns a non-empty result
+            # Try get_supported_action_types first
             if hasattr(plugin, "get_supported_action_types"):
-                supported = plugin.get_supported_action_types()
-                log_debug(f"[action_parser] Plugin {plugin.__class__.__name__}.get_supported_action_types(): {supported}")
-                if supported:  # Non-empty list/set/tuple
-                    pass  # Use this result
-                else:
-                    supported = None  # Try the other method
+                action_types = plugin.get_supported_action_types()
+                log_debug(f"[action_parser] Plugin {plugin.__class__.__name__}.get_supported_action_types(): {action_types}")
+                if action_types and action_type in action_types:
+                    plugins.append(plugin)
+                    log_debug(f"[action_parser] ✅ Plugin {plugin.__class__.__name__} supports {action_type} (via action_types)")
+                    continue
             
-            # Fallback to get_supported_actions if action_types is empty or doesn't exist
-            if supported is None and hasattr(plugin, "get_supported_actions"):
-                supported = plugin.get_supported_actions()
-                log_debug(f"[action_parser] Plugin {plugin.__class__.__name__}.get_supported_actions(): {supported}")
+            # Fallback to get_supported_actions (check if action is a key in the dict)
+            if hasattr(plugin, "get_supported_actions"):
+                actions_dict = plugin.get_supported_actions()
+                log_debug(f"[action_parser] Plugin {plugin.__class__.__name__}.get_supported_actions(): {actions_dict}")
+                if isinstance(actions_dict, dict) and action_type in actions_dict:
+                    plugins.append(plugin)
+                    log_debug(f"[action_parser] ✅ Plugin {plugin.__class__.__name__} supports {action_type} (via actions_dict)")
+                    continue
             
-            if supported is None:
-                log_debug(f"[action_parser] Plugin {plugin.__class__.__name__} has no supported actions method")
-                continue
-
-            if action_type in supported:
-                plugins.append(plugin)
-                log_debug(f"[action_parser] ✅ Plugin {plugin.__class__.__name__} supports {action_type}")
-            else:
-                log_debug(f"[action_parser] ❌ Plugin {plugin.__class__.__name__} does not support {action_type}")
+            log_debug(f"[action_parser] ❌ Plugin {plugin.__class__.__name__} does not support {action_type}")
+            
         except Exception as e:
             log_error(f"[action_parser] Error querying plugin {plugin}: {repr(e)}")
     

@@ -1,61 +1,43 @@
 #!/usr/bin/env python3
-"""
-Test per verificare che il MessagePlugin venga trovato correttamente.
-"""
+"""Test script to check if plugin discovery works."""
 
-print("Testing MessagePlugin discovery...")
+import sys
+import os
+sys.path.insert(0, os.path.abspath('.'))
 
-# Simulazione del MessagePlugin
-class MockMessagePlugin:
-    def get_supported_action_types(self):
-        return ["message_telegram_bot", "message_reddit", "message_discord", "message_x"]
-    
-    def get_supported_actions(self):
-        return {}  # Questo è il problema - dict vuoto
+# Mock environment to avoid config errors
+os.environ['BOTFATHER_TOKEN'] = 'test'
+os.environ['OPENAI_API_KEY'] = 'test'
 
-def test_plugin_discovery():
-    """Test della logica di ricerca plugin."""
-    plugin = MockMessagePlugin()
-    action_type = "message_telegram_bot"
+from core.action_parser import _plugins_for, _load_action_plugins
+
+def main():
+    print("🔍 Testing plugin discovery...")
+    print("=" * 50)
     
-    print(f"Testing action type: {action_type}")
-    
-    # Logica VECCHIA (problematica)
-    print("\n--- OLD Logic (problematic) ---")
-    if hasattr(plugin, "get_supported_actions"):
-        supported = plugin.get_supported_actions()
-        print(f"get_supported_actions(): {supported}")
-        print(f"'{action_type}' in supported: {action_type in supported}")
-    elif hasattr(plugin, "get_supported_action_types"):
-        supported = plugin.get_supported_action_types()
-        print(f"get_supported_action_types(): {supported}")
-        print(f"'{action_type}' in supported: {action_type in supported}")
-    
-    # Logica NUOVA (corretta)
-    print("\n--- NEW Logic (fixed) ---")
-    supported = None
-    
-    # Prefer get_supported_action_types if it returns a non-empty result
-    if hasattr(plugin, "get_supported_action_types"):
-        supported = plugin.get_supported_action_types()
-        print(f"get_supported_action_types(): {supported}")
-        if supported:  # Non-empty list/set/tuple
-            print("Using action_types result")
+    try:
+        # Load all plugins first
+        plugins = _load_action_plugins()
+        print(f"📦 Loaded {len(plugins)} plugins:")
+        for plugin in plugins:
+            print(f"   - {plugin.__class__.__name__}")
+        print()
+        
+        # Test specific action
+        action_type = "message_telegram_bot"
+        supporting_plugins = _plugins_for(action_type)
+        
+        print(f"🎯 Plugins supporting '{action_type}':")
+        if supporting_plugins:
+            for plugin in supporting_plugins:
+                print(f"   ✅ {plugin.__class__.__name__}")
         else:
-            supported = None  # Try the other method
-            print("action_types empty, trying actions")
-    
-    # Fallback to get_supported_actions if action_types is empty or doesn't exist
-    if supported is None and hasattr(plugin, "get_supported_actions"):
-        supported = plugin.get_supported_actions()
-        print(f"get_supported_actions(): {supported}")
-        print("Using actions result")
-    
-    if supported is not None:
-        result = action_type in supported
-        print(f"Final result: '{action_type}' in {supported} = {result}")
-    else:
-        print("No supported actions found")
+            print("   ❌ No plugins found!")
+        
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
-    test_plugin_discovery()
+    main()
