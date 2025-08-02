@@ -899,9 +899,9 @@ class TelegramInterface:
         return {
             "description": "Send a message via Telegram",
             "payload": {
-                "text": "Hello!",
-                "target": "<chat_id or recipient>",
-                "message_thread_id": "<optional_thread_id>", 
+                "text": {"type": "string", "example": "Hello!", "description": "The message text to send"},
+                "target": {"type": "integer", "example": 123456789, "description": "The chat_id of the recipient"},
+                "message_thread_id": {"type": "integer", "example": 456, "description": "Optional thread ID for group chats", "optional": True}, 
             },
         }
 

@@ -1055,8 +1055,31 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                             f"A new ChatGPT chat has been created: {chat_id}"
                         )
                 else:
+                    # REGRESSION FIX: If we had a path but couldn't navigate to it (chat archived/deleted)
+                    # Clear the old path and create a new chat
+                    if path:
+                        log_warning(f"[selenium] Chat path {path} no longer accessible (archived/deleted), creating new chat")
+                        recent_chats.clear_chat_path(message.chat_id)  # Clear old path
                     _open_new_chat(driver)
                     # Chat ID will be extracted after sending the prompt
+            else:
+                # [REGRESSION FIX] We have a chat_id but need to verify it's still accessible
+                # Try to navigate to the chat, if it fails, create a new one
+                chat_url = f"https://chat.openai.com/c/{chat_id}"
+                try:
+                    driver.get(chat_url)
+                    WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.ID, "prompt-textarea"))
+                    )
+                    log_debug(f"[selenium] Successfully accessed existing chat: {chat_id}")
+                except (TimeoutException, Exception) as e:
+                    log_warning(f"[selenium] Existing chat {chat_id} no longer accessible: {e}")
+                    log_info(f"[selenium] Creating new chat to replace inaccessible chat {chat_id}")
+                    # Clear the old link and create new chat
+                    await chat_link_store.remove_link(message.chat_id, message_thread_id)
+                    recent_chats.clear_chat_path(message.chat_id)
+                    _open_new_chat(driver)
+                    chat_id = None  # Will be set after creating new chat
 
             log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
             log_debug(f"[selenium][DEBUG] Telegram chat_id: {message.chat_id}, message_thread_id: {message_thread_id}")

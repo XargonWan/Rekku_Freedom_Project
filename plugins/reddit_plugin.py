@@ -48,11 +48,11 @@ class RedditPlugin:
         return {
             "description": "Send a post or comment on Reddit",
             "payload": {
-                "text": "Post content here",
-                "target": "r/example_subreddit",
-                "title": "Optional post title",
-                "thread_id": "Optional comment thread ID",
-                "interface": self.get_interface_id(),  # interface auto-corrected
+                "text": {"type": "string", "example": "Post content here", "description": "The content of the post or comment"},
+                "target": {"type": "string", "example": "r/example_subreddit", "description": "The subreddit to post to"},
+                "title": {"type": "string", "example": "Optional post title", "description": "Title for new posts", "optional": True},
+                "thread_id": {"type": "string", "example": "abc123", "description": "Optional comment thread ID for replies", "optional": True},
+                "interface": {"type": "string", "example": self.get_interface_id(), "description": "Interface identifier", "auto_filled": True},
             },
         }
 

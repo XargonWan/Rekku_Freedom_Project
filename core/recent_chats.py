@@ -75,6 +75,15 @@ def set_chat_path(chat_id: int, chat_path: str) -> None:
 def get_chat_path(chat_id: int) -> str | None:
     return chat_path_map.get(chat_id)
 
+def clear_chat_path(chat_id: int) -> None:
+    """Remove chat path mapping for the given chat_id."""
+    if chat_id in chat_path_map:
+        del chat_path_map[chat_id]
+        _save_chat_paths()
+        log_info(f"[recent_chats] Cleared chat path for chat_id: {chat_id}")
+    else:
+        log_debug(f"[recent_chats] No chat path found for chat_id: {chat_id}")
+
 async def get_last_active_chats(n=10):
     conn = await get_conn()
     try:

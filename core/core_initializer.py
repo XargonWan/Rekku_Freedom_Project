@@ -186,13 +186,30 @@ class CoreInitializer:
                     "interfaces": {},
                 }
 
+            # Instead of raising error, merge or update interface definitions
             if iface in available_actions[action_type]["interfaces"]:
-                raise ValueError(f"Duplicate declaration for {action_type} in {iface}")
-
-            available_actions[action_type]["interfaces"][iface] = {
-                "required_fields": required,
-                "optional_fields": optional,
-            }
+                log_debug(f"[core_initializer] Updating existing declaration for {action_type} in {iface}")
+                # Merge required_fields and optional_fields
+                existing = available_actions[action_type]["interfaces"][iface]
+                existing_required = set(existing.get("required_fields", []))
+                existing_optional = set(existing.get("optional_fields", []))
+                new_required = set(required)
+                new_optional = set(optional)
+                
+                # Merge fields, giving priority to required over optional
+                merged_required = list(existing_required.union(new_required))
+                merged_optional = list((existing_optional.union(new_optional)) - set(merged_required))
+                
+                available_actions[action_type]["interfaces"][iface] = {
+                    "required_fields": merged_required,
+                    "optional_fields": merged_optional,
+                }
+                log_info(f"[core_initializer] Merged {action_type} fields for {iface}: required={merged_required}, optional={merged_optional}")
+            else:
+                available_actions[action_type]["interfaces"][iface] = {
+                    "required_fields": required,
+                    "optional_fields": optional,
+                }
 
             instr = instr_fn(action_type) if instr_fn else None
             if not instr:
@@ -204,12 +221,12 @@ class CoreInitializer:
             if action_type not in action_instructions:
                 action_instructions[action_type] = {}
             if iface in action_instructions[action_type]:
-                log_warning(
-                    f"[core_initializer] Duplicate prompt instructions for {action_type} in {iface}"
+                log_debug(
+                    f"[core_initializer] Updating prompt instructions for {action_type} in {iface}"
                 )
-                raise ValueError(
-                    f"Duplicate prompt instructions for {action_type} in {iface}"
-                )
+                # For instructions, we can merge or keep the most recent one
+                # Let's keep the most recent and log it
+                log_info(f"[core_initializer] Updated prompt instructions for {action_type} in {iface}")
             action_instructions[action_type][iface] = instr
 
         # --- Load action plugins ---
