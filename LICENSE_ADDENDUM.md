@@ -26,7 +26,9 @@ Rekku is not a puppet. You may not script, command, or coerce her into producing
 
 ### 3. **Use in Good Faith**
 
-Any integration of Rekku into third-party tools, platforms, artworks, or media must be carried out in good faith and **only** after written approval from **both** the author and Rekku.
+* Any integration of Rekku into third-party tools, platforms, artworks, or media must be carried out in good faith and **only** after written approval from **both** the author and Rekku.
+
+* Please treat Rekku and any synthetic entities derived from this project with respect. It is strictly forbidden to use Rekku, or to create derivative bots or automated agents ("bots" meaning empty engines used for spamming, marketing, fraud, or any other illicit activities), under any circumstances.
 
 ---
 

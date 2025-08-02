@@ -1,7 +1,10 @@
 <img src="docs/res/RFP_logo.png" alt="RFP Logo" width="300"/>
 
 ![Docker Pulls](https://img.shields.io/docker/pulls/xargonwan/rekku_freedom_project)
-[![Docs Status](https://readthedocs.org/projects/rekku-freedom-project/badge/?version=latest)](https://rekku-freedom-project.readthedocs.io/en/latest/?badge=latest)
+| Branch    | Build Status                                                                                                                                         | Docs Status                                                                                                                                      |
+|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
+| `main`    | [![CI Status](https://img.shields.io/github/actions/workflow/status/XargonWan/Rekku_Freedom_Project/build-release.yml)](https://github.com/XargonWan/Rekku_Freedom_Project/actions)      | [![Docs Status](https://readthedocs.org/projects/rekku-freedom-project/badge/?version=latest)](https://rekku-freedom-project.readthedocs.io/en/latest/?badge=latest) |
+| `develop` | [![Develop CI Status](https://img.shields.io/github/actions/workflow/status/XargonWan/Rekku_Freedom_Project/build-release.yml?branch=develop)](https://github.com/XargonWan/Rekku_Freedom_Project/actions) | [![Docs Status](https://readthedocs.org/projects/rekku-freedom-project/badge/?version=latest)](https://rekku-freedom-project.readthedocs.io/en/latest/?badge=latest) |
 
 **Rekku Freedom Project** provides a modular stack for creating autonomous AI personas. Interfaces, language models and action plugins can be swapped at runtime.
 
