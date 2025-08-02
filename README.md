@@ -26,6 +26,9 @@ Built around a lightweight plugin system, RFP lets you combine different chat in
 
 See the [documentation](https://rekku-freedom-project.readthedocs.io) for installation details, advanced features and contribution guidelines.
 
+## Docker image repository
+You can browse and manage Docker images for this project on [Docker Hub](https://hub.docker.com/repository/docker/xargonwan/rekku_freedom_project).
+
 ## Contributing
 
 Pull requests are welcome! Please read the guidelines in the documentation before submitting.
