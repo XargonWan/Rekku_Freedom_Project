@@ -179,17 +179,11 @@ class CoreInitializer:
             if not isinstance(required, list) or not isinstance(optional, list):
                 raise ValueError(f"Invalid schema for {action_type} in {iface}")
 
-            if action_type not in available_actions:
-                available_actions[action_type] = {
-                    "description": schema.get("description", ""),
-                    "interfaces": {},
-                }
-
-            # Instead of raising error, merge or update interface definitions
-            if iface in available_actions[action_type]["interfaces"]:
-                log_debug(f"[core_initializer] Updating existing declaration for {action_type} in {iface}")
+            # Simplified structure: no more nested interfaces
+            if action_type in available_actions:
+                log_debug(f"[core_initializer] Updating existing declaration for {action_type}")
                 # Merge required_fields and optional_fields
-                existing = available_actions[action_type]["interfaces"][iface]
+                existing = available_actions[action_type]
                 existing_required = set(existing.get("required_fields", []))
                 existing_optional = set(existing.get("optional_fields", []))
                 new_required = set(required)
@@ -199,40 +193,30 @@ class CoreInitializer:
                 merged_required = list(existing_required.union(new_required))
                 merged_optional = list((existing_optional.union(new_optional)) - set(merged_required))
                 
-                available_actions[action_type]["interfaces"][iface] = {
+                available_actions[action_type] = {
+                    "description": schema.get("description", ""),
                     "required_fields": merged_required,
                     "optional_fields": merged_optional,
                 }
-                log_info(f"[core_initializer] Merged {action_type} fields for {iface}: required={merged_required}, optional={merged_optional}")
+                log_info(f"[core_initializer] Merged {action_type} fields: required={merged_required}, optional={merged_optional}")
             else:
-                available_actions[action_type]["interfaces"][iface] = {
+                available_actions[action_type] = {
+                    "description": schema.get("description", ""),
                     "required_fields": required,
                     "optional_fields": optional,
                 }
 
+            # Get and add instructions
             instr = instr_fn(action_type) if instr_fn else None
             if instr is None:
-                log_warning(f"Missing prompt instructions for {action_type} in {iface}")
+                log_warning(f"Missing prompt instructions for {action_type}")
                 instr = {}
             if not isinstance(instr, dict):
-                log_warning(f"Prompt instructions for {action_type} in {iface} must be a dict, got {type(instr)}")
+                log_warning(f"Prompt instructions for {action_type} must be a dict, got {type(instr)}")
                 instr = {}
             
-            # Store instructions within the interface structure
-            if action_type not in available_actions:
-                available_actions[action_type] = {
-                    "description": schema.get("description", ""),
-                    "interfaces": {},
-                }
-            
-            if iface not in available_actions[action_type]["interfaces"]:
-                available_actions[action_type]["interfaces"][iface] = {
-                    "required_fields": required,
-                    "optional_fields": optional,
-                }
-            
-            # Add instructions to the interface
-            available_actions[action_type]["interfaces"][iface]["instructions"] = instr
+            # Add instructions directly to the action
+            available_actions[action_type]["instructions"] = instr
 
         # --- Load action plugins ---
         try:
