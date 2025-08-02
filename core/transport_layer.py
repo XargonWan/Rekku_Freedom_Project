@@ -3,11 +3,48 @@
 
 import json
 import re
+import time
 from typing import Any, Dict, Optional
 from types import SimpleNamespace
 from core.logging_utils import log_debug, log_warning, log_error, log_info
 from core.action_parser import parse_action
 from core.telegram_utils import _send_with_retry
+
+# Global dictionary to track retry attempts per chat/message thread
+_retry_tracker = {}
+
+
+def _get_retry_key(message):
+    """Generate a unique key for tracking retries based on chat/thread."""
+    chat_id = getattr(message, 'chat_id', None)
+    thread_id = getattr(message, 'message_thread_id', None)
+    return f"{chat_id}_{thread_id}"
+
+
+def _should_retry(message, max_retries: int = 2) -> bool:
+    """Check if we should attempt retry for this message context."""
+    retry_key = _get_retry_key(message)
+    current_time = time.time()
+    
+    # Clean up old retry entries (older than 5 minutes)
+    cutoff_time = current_time - 300  # 5 minutes
+    keys_to_remove = [k for k, (count, timestamp) in _retry_tracker.items() 
+                      if timestamp < cutoff_time]
+    for key in keys_to_remove:
+        del _retry_tracker[key]
+    
+    # Check current retry count
+    retry_count, _ = _retry_tracker.get(retry_key, (0, current_time))
+    return retry_count < max_retries
+
+
+def _increment_retry(message):
+    """Increment retry count for this message context."""
+    retry_key = _get_retry_key(message)
+    current_time = time.time()
+    retry_count, _ = _retry_tracker.get(retry_key, (0, current_time))
+    _retry_tracker[retry_key] = (retry_count + 1, current_time)
+    return retry_count + 1
 
 
 def extract_json_from_text(text: str, processed_messages: set = None):
@@ -41,9 +78,9 @@ def extract_json_from_text(text: str, processed_messages: set = None):
             log_debug("[extract_json_from_text] Skipping system message - not JSON")
             return None
             
-        # Don't parse JSON from error reports
-        if '"error_report"' in text or '"correction_needed"' in text:
-            log_debug("[extract_json_from_text] Skipping error report - not actionable JSON")
+        # Don't parse JSON from error reports or correction requests
+        if any(keyword in text for keyword in ['"error_report"', '"correction_needed"', '🚨 ACTION PARSING ERRORS DETECTED 🚨', 'Please fix these actions']):
+            log_debug("[extract_json_from_text] Skipping error report/correction request - not actionable JSON")
             return None
         
         # Handle the common ChatGPT pattern: "json\nCopy\nEdit\n{...}"
@@ -133,16 +170,23 @@ def extract_json_from_text(text: str, processed_messages: set = None):
         return None
 
 
-async def _handle_action_errors(errors: list, failed_actions: list, bot, message, max_retries: int = 2):
+async def _handle_action_errors(errors: list, failed_actions: list, bot, message):
     """Handle action parsing errors by requesting LLM to fix them."""
-    if max_retries <= 0:
-        log_warning(f"[transport] Max retries reached for action correction. Giving up.")
+    
+    # Check if we should retry based on the new tracking system
+    if not _should_retry(message, max_retries=2):
+        retry_key = _get_retry_key(message)
+        retry_count, _ = _retry_tracker.get(retry_key, (0, 0))
+        log_warning(f"[transport] Max retries ({retry_count}) reached for action correction. Giving up.")
         return
     
     # Validate message has valid chat_id before proceeding
-    if not hasattr(message, 'chat_id') or message.chat_id is None or not isinstance(message.chat_id, int):
+    if not hasattr(message, 'chat_id') or message.chat_id is None:
         log_warning(f"[transport] Cannot request correction: invalid chat_id in message: {getattr(message, 'chat_id', 'None')}")
         return
+    
+    # Increment retry counter
+    retry_count = _increment_retry(message)
     
     # Create error summary for LLM
     error_summary = "\n".join([f"- {error}" for error in errors[:5]])  # Limit to 5 errors
@@ -164,9 +208,11 @@ Important:
 - Do not change the intent or payload content
 - Return ONLY valid JSON, no explanations
 - Use the available interfaces shown in the error messages
+
+Attempt: {retry_count}/2
 """
     
-    log_info(f"[transport] Requesting action correction from LLM (retries left: {max_retries})")
+    log_info(f"[transport] Requesting action correction from LLM (attempt {retry_count}/2)")
     
     try:
         # Send correction request back to LLM via the same message flow
@@ -280,11 +326,10 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
                 errors.append(f"Processing error: {e}")
             
             # If there are errors, try auto-correction (max 2 attempts)
-            # TEMPORARILY DISABLED: Auto-correction causing chat_id issues
-            # if errors and hasattr(message, 'chat_id'):
-            #     await _handle_action_errors(errors, unique_actions, bot, message, max_retries=2)
-            if errors:
-                log_warning(f"[transport] Action errors detected but auto-correction disabled: {errors[:3]}")
+            if errors and hasattr(message, 'chat_id'):
+                await _handle_action_errors(errors, unique_actions, bot, message)
+            elif errors:
+                log_warning(f"[transport] Action errors detected but no valid chat_id for correction: {errors[:3]}")
             
             log_info(f"[transport] Processed {len(processed_actions)} unique JSON actions via plugin system")
             return

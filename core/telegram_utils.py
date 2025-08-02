@@ -107,7 +107,7 @@ async def safe_edit(bot, chat_id: int, message_id: int, text: str, retries: int 
 
 async def send_with_thread_fallback(
     bot,
-    chat_id: int,
+    chat_id: int | str,
     text: str,
     *,
     message_thread_id: int | None = None,
@@ -130,6 +130,14 @@ async def send_with_thread_fallback(
     if bot is None:
         log_error("[telegram_utils] send_with_thread_fallback called with None bot")
         return
+
+    # Convert string chat_id to integer if needed
+    if isinstance(chat_id, str):
+        try:
+            chat_id = int(chat_id)
+        except ValueError:
+            log_error(f"[telegram_utils] Invalid chat_id format: {chat_id}")
+            return
 
     send_kwargs = {"chat_id": chat_id, "text": text, **kwargs}
     if message_thread_id is not None:

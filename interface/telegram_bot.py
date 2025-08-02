@@ -911,13 +911,13 @@ class TelegramInterface:
                 # Complex format with chat_id and message_id
                 chat_id = target.get("chat_id")
                 message_id = target.get("message_id")
-                if not isinstance(chat_id, int):
-                    errors.append("payload.target.chat_id must be an int")
+                if not isinstance(chat_id, (int, str)):
+                    errors.append("payload.target.chat_id must be an int or string")
                 if message_id is not None and not isinstance(message_id, int):
                     errors.append("payload.target.message_id must be an int")
-            elif not isinstance(target, int):
-                # Simple format: just chat_id as int
-                errors.append("payload.target must be an int (chat_id) or dict with chat_id and message_id")
+            elif not isinstance(target, (int, str)):
+                # Simple format: chat_id as int or string
+                errors.append("payload.target must be an int, string (chat_id) or dict with chat_id and message_id")
         else:
             errors.append("payload.target is required for message_telegram_bot action")
 
@@ -936,8 +936,8 @@ class TelegramInterface:
                 "description": "Send a message via Telegram bot",
                 "payload": {
                     "text": {"type": "string", "example": "Hello!", "description": "The message text to send"},
-                    "target": {"type": "string", "example": "-123456789", "description": "The chat_id of the recipient"},
-                    "message_thread_id": {"type": "string", "example": "456", "description": "Optional thread ID for group chats", "optional": True},
+                    "target": {"type": "string", "example": "-123456789", "description": "The chat_id of the recipient (can be string or integer)"},
+                    "message_thread_id": {"type": "integer", "example": 456, "description": "Optional thread ID for group chats", "optional": True},
                 },
             }
         return None
@@ -976,12 +976,21 @@ class TelegramInterface:
             log_warning("[telegram_interface] Missing text or target, aborting")
             return
 
+        # Convert target to int for comparison if it's a string
+        target_for_comparison = target
+        if isinstance(target, str):
+            try:
+                target_for_comparison = int(target)
+            except ValueError:
+                log_warning(f"[telegram_interface] Invalid target format: {target}")
+                return
+
         reply_to = None
         if (
             original_message
             and hasattr(original_message, "chat_id")
             and hasattr(original_message, "message_id")
-            and target == getattr(original_message, "chat_id")
+            and target_for_comparison == getattr(original_message, "chat_id")
         ):
             reply_to = original_message.message_id
             log_debug(f"[telegram_interface] reply_to_message_id: {reply_to}")
@@ -992,7 +1001,7 @@ class TelegramInterface:
         if (
             original_message
             and hasattr(original_message, "chat_id")
-            and target != getattr(original_message, "chat_id")
+            and target_for_comparison != getattr(original_message, "chat_id")
         ):
             fallback_chat_id = original_message.chat_id
             fallback_message_thread_id = getattr(original_message, "message_thread_id", None)
