@@ -342,7 +342,16 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
 
 
 async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retries: int = 3, delay: int = 2, **kwargs):
-    """Telegram-specific wrapper for universal_send with chunking support."""
+    """Telegram-specific wrapper with chunking and retry support.
+    
+    This function is separate from universal_send because it provides:
+    1. Automatic chunking for long messages (4000 chars)
+    2. Built-in retry logic with delays
+    3. Telegram-specific error handling
+    4. Direct bot instance access
+    
+    For other interfaces, use universal_send which is more generic.
+    """
     log_debug(f"[telegram_transport] Called with text: {text[:100]}...")
 
     if text is None:

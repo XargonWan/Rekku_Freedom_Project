@@ -246,20 +246,40 @@ def _load_action_plugins() -> List[Any]:
 
 def _plugins_for(action_type: str) -> List[Any]:
     plugins = []
-    for plugin in _load_action_plugins():
+    loaded_plugins = _load_action_plugins()
+    log_debug(f"[action_parser] _plugins_for({action_type}): Checking {len(loaded_plugins)} loaded plugins")
+    
+    for plugin in loaded_plugins:
         try:
-            # Support both method names for backward compatibility
-            if hasattr(plugin, "get_supported_actions"):
-                supported = plugin.get_supported_actions()
-            elif hasattr(plugin, "get_supported_action_types"):
+            supported = None
+            
+            # Prefer get_supported_action_types if it returns a non-empty result
+            if hasattr(plugin, "get_supported_action_types"):
                 supported = plugin.get_supported_action_types()
-            else:
+                log_debug(f"[action_parser] Plugin {plugin.__class__.__name__}.get_supported_action_types(): {supported}")
+                if supported:  # Non-empty list/set/tuple
+                    pass  # Use this result
+                else:
+                    supported = None  # Try the other method
+            
+            # Fallback to get_supported_actions if action_types is empty or doesn't exist
+            if supported is None and hasattr(plugin, "get_supported_actions"):
+                supported = plugin.get_supported_actions()
+                log_debug(f"[action_parser] Plugin {plugin.__class__.__name__}.get_supported_actions(): {supported}")
+            
+            if supported is None:
+                log_debug(f"[action_parser] Plugin {plugin.__class__.__name__} has no supported actions method")
                 continue
 
             if action_type in supported:
                 plugins.append(plugin)
+                log_debug(f"[action_parser] ✅ Plugin {plugin.__class__.__name__} supports {action_type}")
+            else:
+                log_debug(f"[action_parser] ❌ Plugin {plugin.__class__.__name__} does not support {action_type}")
         except Exception as e:
             log_error(f"[action_parser] Error querying plugin {plugin}: {repr(e)}")
+    
+    log_debug(f"[action_parser] _plugins_for({action_type}): Found {len(plugins)} supporting plugins")
     return plugins
 
 
