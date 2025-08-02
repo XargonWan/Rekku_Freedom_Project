@@ -2,6 +2,7 @@ import asyncio
 import time
 from datetime import datetime
 import traceback
+from types import SimpleNamespace
 
 from core.config import TRAINER_ID
 from core import plugin_instance, rate_limit, recent_chats
@@ -164,9 +165,15 @@ async def _consumer_loop() -> None:
             try:
                 # Check if this is an event prompt
                 if "event_prompt" in final:
+                    # Create a mock message object with event_id for events
+                    mock_message = SimpleNamespace()
+                    mock_message.event_id = final["context"].get("event_id")
+                    mock_message.chat_id = "TARDIS/system/events"  
+                    mock_message.message_id = f"event_{mock_message.event_id}"
+                    
                     # Deliver the structured event prompt using the standard pipeline
                     await plugin_instance.handle_incoming_message(
-                        final["bot"], None, final["event_prompt"]
+                        final["bot"], mock_message, final["event_prompt"]
                     )
                 else:
                     await plugin_instance.handle_incoming_message(
@@ -188,7 +195,7 @@ async def _consumer_loop() -> None:
             )
 
 
-async def enqueue_event(bot, prompt_data) -> None:
+async def enqueue_event(bot, prompt_data, event_id: int = None) -> None:
     """Enqueue an event prompt with highest priority."""
     # Debug log to verify the payload content
     log_debug(f"[QUEUE] Verifying event payload: {prompt_data}")
@@ -204,7 +211,7 @@ async def enqueue_event(bot, prompt_data) -> None:
         "message": None,  # Events don't have actual messages
         "chat_id": "TARDIS/system/events",
         "timestamp": time.time(),
-        "context": {},
+        "context": {"event_id": event_id} if event_id else {},
         "priority": True,
         "event_prompt": prompt_data,  # Special event data
     }

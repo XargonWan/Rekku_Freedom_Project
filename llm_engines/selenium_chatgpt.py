@@ -238,11 +238,9 @@ def paste_and_send(textarea, prompt_text: str) -> None:
                 time.sleep(0.05)
 
             final_value = textarea.get_attribute("value") or ""
-            log_debug(f"[selenium] Final textarea length {len(final_value)}")
-            if final_value != clean:
-                log_warning(
-                    f"[selenium] textarea length mismatch: expected {len(clean)} got {len(final_value)}"
-                )
+            # Only log mismatch if significant (not just empty vs non-empty due to timing)
+            if final_value != clean and len(final_value) > 0 and abs(len(final_value) - len(clean)) > 10:
+                log_debug(f"[selenium] Textarea content mismatch: expected {len(clean)} chars, got {len(final_value)} chars")
             return
         except Exception as e:
             log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
@@ -815,6 +813,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     
                 except Exception as e:
                     log_warning(f"[selenium] Attempt {attempt + 1} failed: {e}")
+                    
+                    # Handle specific Python shutdown error
+                    if "sys.meta_path is None" in str(e) or "Python is likely shutting down" in str(e):
+                        log_warning("[selenium] Python shutdown detected, skipping Chrome initialization")
+                        return None
                     
                     # Clean up before next attempt
                     if self.driver:

@@ -4,10 +4,10 @@
 import json
 import re
 from typing import Any, Dict, Optional
+from types import SimpleNamespace
 from core.logging_utils import log_debug, log_warning, log_error, log_info
 from core.action_parser import parse_action
 from core.telegram_utils import _send_with_retry
-from types import SimpleNamespace
 
 
 def extract_json_from_text(text: str, processed_messages: set = None):
@@ -120,6 +120,59 @@ def extract_json_from_text(text: str, processed_messages: set = None):
         return None
 
 
+async def _handle_action_errors(errors: list, failed_actions: list, bot, message, max_retries: int = 2):
+    """Handle action parsing errors by requesting LLM to fix them."""
+    if max_retries <= 0:
+        log_warning(f"[transport] Max retries reached for action correction. Giving up.")
+        return
+    
+    # Create error summary for LLM
+    error_summary = "\n".join([f"- {error}" for error in errors[:5]])  # Limit to 5 errors
+    failed_actions_json = json.dumps(failed_actions, indent=2)
+    
+    correction_prompt = f"""
+🚨 ACTION PARSING ERRORS DETECTED 🚨
+
+The following actions failed to parse:
+{failed_actions_json}
+
+Errors encountered:
+{error_summary}
+
+Please fix these actions and provide ONLY the corrected JSON. Use the exact interface names and action formats that are available.
+
+Important:
+- Fix ONLY the interface field and other structural issues  
+- Do not change the intent or payload content
+- Return ONLY valid JSON, no explanations
+- Use the available interfaces shown in the error messages
+"""
+    
+    log_info(f"[transport] Requesting action correction from LLM (retries left: {max_retries})")
+    
+    try:
+        # Send correction request back to LLM via the same message flow
+        from core import plugin_instance
+        
+        # Create a mock message for the correction request
+        correction_message = SimpleNamespace()
+        correction_message.chat_id = message.chat_id  
+        correction_message.text = correction_prompt
+        correction_message.message_thread_id = getattr(message, 'message_thread_id', None)
+        correction_message.date = message.date
+        correction_message.from_user = getattr(message, 'from_user', None)
+        
+        # Send to LLM for correction
+        llm_plugin = getattr(plugin_instance, "plugin", None)
+        if llm_plugin and hasattr(llm_plugin, 'handle_incoming_message'):
+            await llm_plugin.handle_incoming_message(bot, correction_message, correction_prompt)
+        else:
+            log_warning("[transport] No LLM plugin available for action correction")
+            
+    except Exception as e:
+        log_error(f"[transport] Failed to request action correction: {e}")
+
+
 async def universal_send(interface_send_func, *args, text: str = None, **kwargs):
     """
     Universal send function that intercepts JSON actions and parses them.
@@ -132,6 +185,11 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
     """
     if text is None:
         text = ""
+
+    # Log LLM response for debugging
+    if text:
+        preview = text[:200] + "..." if len(text) > 200 else text
+        log_info(f"[transport] 🤖 LLM Response: {preview}")
 
     # Extract JSON from text
     json_data = extract_json_from_text(text)
@@ -172,18 +230,35 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
             from core.action_parser import run_actions
             context = {"interface": "telegram"}  # Add more context as needed
             
-            # Rimuovi azioni duplicate
+            # Collect errors for auto-correction
+            errors = []
+            processed_actions = []
+            
+            # Remove duplicate actions
             unique_actions = []
             seen_actions = set()
             for action in actions:
-                action_id = str(action)  # Converti l'azione in stringa per un confronto semplice
+                action_id = str(action)
                 if action_id not in seen_actions:
                     unique_actions.append(action)
                     seen_actions.add(action_id)
 
-            # Usa il sistema centralizzato per le azioni uniche
-            await run_actions(unique_actions, context, bot, message)
-            log_info(f"[transport] Processed {len(unique_actions)} unique JSON actions via plugin system")
+            # Process actions and collect errors
+            try:
+                result = await run_actions(unique_actions, context, bot, message)
+                if isinstance(result, dict) and "errors" in result:
+                    errors.extend(result["errors"])
+                    processed_actions.extend(result.get("processed", []))
+                else:
+                    processed_actions = unique_actions
+            except Exception as e:
+                errors.append(f"Processing error: {e}")
+            
+            # If there are errors, try auto-correction (max 2 attempts)
+            if errors and hasattr(message, 'chat_id'):
+                await _handle_action_errors(errors, unique_actions, bot, message, max_retries=2)
+            
+            log_info(f"[transport] Processed {len(processed_actions)} unique JSON actions via plugin system")
             return
             
         except Exception as e:

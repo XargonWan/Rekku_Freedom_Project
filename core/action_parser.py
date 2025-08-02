@@ -458,7 +458,7 @@ async def _handle_plugin_action(
                 if inspect.iscoroutine(result):
                     await result
                 log_info(f"[action_parser] ✅ Successfully executed action via {plugin_iface}")
-                return  # Exit after successful execution
+                return None  # Success - no error to return
             except Exception as e:
                 log_error(
                     f"[action_parser] ❌ Error executing {action_type} with {plugin.__class__.__name__}: {repr(e)}"
@@ -468,7 +468,12 @@ async def _handle_plugin_action(
         else:
             log_warning(f"[action_parser] ⚠️ Plugin {plugin.__class__.__name__} has no execute_action() method")
 
+    # No matching plugin found - collect error for auto-correction
+    available_interfaces = list(ACTIVE_INTERFACES) if ACTIVE_INTERFACES else ["No interfaces registered"]
+    error_msg = f"Interface '{iface_target}' not found for action '{action_type}'. Available interfaces: {', '.join(available_interfaces)}"
+    
     log_error(f"[action_parser] 💥 No plugin matched interface '{iface_target}' for action '{action_type}'")
+    return {"error": error_msg, "action": action, "available_interfaces": available_interfaces}
 
 
 async def run_action(action: Any, context: Dict[str, Any], bot, original_message):
@@ -477,51 +482,70 @@ async def run_action(action: Any, context: Dict[str, Any], bot, original_message
     
     if isinstance(action, list):
         log_info(f"[action_parser] 📋 Processing action list with {len(action)} items")
-        for act in action:
-            await run_action(act, context, bot, original_message)
-        return
+        return await run_actions(action, context, bot, original_message)
 
     valid, errors = validate_action(action, context, original_message)
     if not valid:
-        log_error(f"[action_parser] ❌ Invalid action: {errors}")
-        return
+        error_msg = f"Invalid action: {errors}"
+        log_error(f"[action_parser] ❌ {error_msg}")
+        return {"error": error_msg}
 
     action_type = action.get("type")
     action_interface = action.get("interface")
     log_info(f"[action_parser] 🚀 Executing action: type={action_type}, interface={action_interface}")
 
     # Use plugin system for all action types (including messages)
-    await _handle_plugin_action(action, context, bot, original_message)
+    result = await _handle_plugin_action(action, context, bot, original_message)
+    return result
 
 
 async def run_actions(actions: Any, context: Dict[str, Any], bot, original_message):
     """Execute multiple actions in sequence.
 
     If ``actions`` is a single dict, it will be wrapped in a list.
-    Invalid actions are logged and skipped.
+    Invalid actions are logged and errors collected for auto-correction.
+    
+    Returns:
+        dict: {"processed": [successful_actions], "errors": [error_messages]}
     """
     if actions is None:
-        return
+        return {"processed": [], "errors": []}
 
     if isinstance(actions, dict):
         actions = [actions]
     elif not isinstance(actions, list):
-        log_error("[action_parser] run_actions expects a list or dict")
-        return
+        error_msg = "[action_parser] run_actions expects a list or dict"
+        log_error(error_msg)
+        return {"processed": [], "errors": [error_msg]}
 
     log_debug(f"[action_parser] run_actions called with {len(actions)} actions")
     log_debug(f"[action_parser] Actions: {actions}")
+
+    processed_actions = []
+    collected_errors = []
 
     for idx, action in enumerate(actions):
         try:
             valid, errors = validate_action(action, context, original_message)
             if not valid:
-                log_warning(f"[action_parser] Skipping invalid action {idx}: {errors}")
+                error_msg = f"Invalid action {idx}: {errors}"
+                log_warning(f"[action_parser] Skipping {error_msg}")
+                collected_errors.append(error_msg)
                 continue
+            
             log_debug(f"[action_parser] Running action {idx}: {action.get('type')}")
-            await run_action(action, context, bot, original_message)
+            result = await run_action(action, context, bot, original_message)
+            
+            # Check if run_action returned error info
+            if isinstance(result, dict) and "error" in result:
+                collected_errors.append(result["error"])
+            else:
+                processed_actions.append(action)
+                
         except Exception as e:
-            log_error(f"[action_parser] Error executing action {idx}: {repr(e)}")
+            error_msg = f"Error executing action {idx}: {repr(e)}"
+            log_error(f"[action_parser] {error_msg}")
+            collected_errors.append(error_msg)
 
     # After all actions processed, mark scheduled event as delivered if applicable
     event_id = context.get("event_id") or getattr(original_message, "event_id", None)
@@ -543,6 +567,8 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             log_warning(
                 f"[action_parser] Failed to clear processing flag for event {event_id}: {e}"
             )
+    
+    return {"processed": processed_actions, "errors": collected_errors}
 
 
 async def parse_action(action: dict, bot, message):

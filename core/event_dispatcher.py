@@ -72,7 +72,7 @@ async def dispatch_pending_events(bot):
         summary = format_dual_time(scheduled_dt) + " → " + str(ev["description"])
 
         try:
-            await message_queue.enqueue_event(bot, prompt)
+            await message_queue.enqueue_event(bot, prompt, event_id=ev_id)
             _processing_events[ev_id] = time.time()
             log_debug(f"[DISPATCH] Event queued with priority: {summary}")
             dispatched += 1
