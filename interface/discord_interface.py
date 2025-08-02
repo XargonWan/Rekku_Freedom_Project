@@ -16,18 +16,18 @@ class DiscordInterface:
         return "discord_bot"
 
     @staticmethod
-    def get_supported_action_types() -> list[str]:
+    def get_action_types() -> list[str]:
         """Return action types supported by this interface."""
-        return ["message"]
+        return ["message_discord_bot"]
 
     @staticmethod
     def get_supported_actions() -> dict:
         """Return a compact description of supported actions."""
         return {
-            "message": {
+            "message_discord_bot": {
                 "description": "Send a text message to a Discord channel.",
                 "usage": {
-                    "type": "message",
+                    "type": "message_discord_bot",
                     "interface": "discord_bot",
                     "payload": {
                         "text": "...",

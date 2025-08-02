@@ -50,12 +50,17 @@ class RedditInterface:
         return ["message"]
 
     @staticmethod
+    def get_action_types() -> list[str]:
+        """Return action types supported by this interface."""
+        return ["message_reddit"]
+
+    @staticmethod
     def get_supported_actions() -> dict:
         return {
-            "message": {
+            "message_reddit": {
                 "description": "Send a message or reply on Reddit.",
                 "usage": {
-                    "type": "message",
+                    "type": "message_reddit",
                     "interface": "reddit",
                     "payload": {"text": "...", "target": "<username>", "reply_to": "<comment_or_message_id>"},
                 },
