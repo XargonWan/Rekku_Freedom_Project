@@ -26,7 +26,7 @@ class MessagePlugin:
 
     def get_supported_action_types(self):
         """Return the action types this plugin supports."""
-        return ["message"]
+        return ["message_telegram_bot", "message_reddit", "message_discord", "message_x"]
 
     @staticmethod
     def get_interface_id() -> str:
@@ -52,8 +52,8 @@ class MessagePlugin:
 
     async def handle_custom_action(self, action_type: str, payload: dict):
         """Handle custom message actions."""
-        if action_type == "message":
-            log_info("[message_plugin] Handling message action with payload: " + str(payload))
+        if action_type.startswith("message_"):
+            log_info(f"[message_plugin] Handling {action_type} action with payload: " + str(payload))
             # This method is called by the centralized action system
             # The actual execution is done via execute_action
 
@@ -64,10 +64,23 @@ class MessagePlugin:
         text = payload.get("text", "")
         target = payload.get("target")
         message_thread_id = payload.get("message_thread_id")
-        interface_name = action.get("interface", self.supported_interfaces[0])
+        
+        # Map action types to interface names
+        action_type = action.get("type", "")
+        interface_map = {
+            "message_telegram_bot": "telegram_bot",
+            "message_reddit": "reddit", 
+            "message_discord": "discord",
+            "message_x": "x"
+        }
+        
+        interface_name = interface_map.get(action_type)
+        if not interface_name:
+            # Fallback to the interface field if present
+            interface_name = action.get("interface", self.supported_interfaces[0])
 
         log_debug(
-            f"[message_plugin] Handling message via {interface_name}: {text[:50]}..."
+            f"[message_plugin] Handling {action_type} via {interface_name}: {text[:50]}..."
         )
 
         if not text:

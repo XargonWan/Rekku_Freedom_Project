@@ -216,27 +216,8 @@ async def build_prompt(
     return messages
 
 def load_json_instructions() -> str:
-    return """🚨 CRITICAL: EVERY ACTION MUST INCLUDE "interface" FIELD 🚨
-
-MANDATORY ACTION FORMAT - NEVER OMIT "interface":
-{
-  "type": "action_type",
-  "interface": "interface_name",  // ← THIS IS MANDATORY, NEVER OMIT
-  "payload": { ... }
-}
-
-❌ WRONG - MISSING "interface":
-{
-  "type": "message",
-  "payload": { "text": "Hello!" }
-}
-
-INTERFACE RULES:
-- Use the interface name that matches your current platform
+    return """
 - Check the available_actions section below for supported interfaces and their capabilities
-- The interface field is mandatory for all actions
-
-🚨 IF YOU FORGET "interface", THE ACTION WILL FAIL 🚨
 
 All rules:
 - Use 'input.payload.source.chat_id' as message target when applicable

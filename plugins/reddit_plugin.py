@@ -26,7 +26,7 @@ class RedditPlugin:
         return "Post messages to Reddit using the message action"
 
     def get_supported_action_types(self) -> list[str]:
-        return ["message"]
+        return ["message_reddit"]
 
     @staticmethod
     def get_interface_id() -> str:
@@ -35,7 +35,7 @@ class RedditPlugin:
 
     def get_supported_actions(self) -> dict:
         return {
-            "message": {
+            "message_reddit": {
                 "required_fields": ["text", "target", "title"],
                 "optional_fields": ["thread_id"],
                 "description": "Post a submission or comment to Reddit",
@@ -43,8 +43,8 @@ class RedditPlugin:
         }
 
     def get_prompt_instructions(self, action_name: str) -> dict:
-        if action_name != "message":
-            return {}
+        if action_name != "message_reddit":
+            return None
         return {
             "description": "Send a post or comment on Reddit",
             "payload": {
@@ -110,13 +110,13 @@ class RedditPlugin:
             log_error(f"[reddit_plugin] Failed to execute action: {e}", e)
 
     async def handle_custom_action(self, action_type: str, payload: dict):
-        if action_type != "message":
+        if action_type != "message_reddit":
             log_warning(f"[reddit_plugin] Unsupported action type: {action_type}")
             return
         if not self.reddit:
             log_error("[reddit_plugin] Reddit plugin not configured; skipping action")
             return
-        action = {"type": "message", "interface": "reddit", "payload": payload}
+        action = {"type": "message_reddit", "interface": "reddit", "payload": payload}
         await asyncio.to_thread(self.execute_action, action, {}, None, None)
 
 

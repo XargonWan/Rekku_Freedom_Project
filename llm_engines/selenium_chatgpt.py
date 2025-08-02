@@ -1076,7 +1076,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     log_warning(f"[selenium] Existing chat {chat_id} no longer accessible: {e}")
                     log_info(f"[selenium] Creating new chat to replace inaccessible chat {chat_id}")
                     # Clear the old link and create new chat
-                    await chat_link_store.remove_link(message.chat_id, message_thread_id)
+                    await chat_link_store.remove(message.chat_id, message_thread_id)
                     recent_chats.clear_chat_path(message.chat_id)
                     _open_new_chat(driver)
                     chat_id = None  # Will be set after creating new chat

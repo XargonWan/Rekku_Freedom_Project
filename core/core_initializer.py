@@ -212,7 +212,7 @@ class CoreInitializer:
                 }
 
             instr = instr_fn(action_type) if instr_fn else None
-            if not instr:
+            if instr is None:
                 raise ValueError(f"Missing prompt instructions for {action_type} in {iface}")
             if not isinstance(instr, dict):
                 raise ValueError(

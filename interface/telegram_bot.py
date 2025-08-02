@@ -884,7 +884,7 @@ class TelegramInterface:
     def get_supported_actions() -> dict:
         """Return schema information for supported actions."""
         return {
-            "message": {
+            "message_telegram_bot": {
                 "required_fields": ["text", "target"],
                 "optional_fields": ["message_thread_id"],
                 "description": "Send a text message via Telegram",
@@ -894,16 +894,16 @@ class TelegramInterface:
     @staticmethod  
     def get_prompt_instructions(action_name: str) -> dict:
         """Prompt instructions for supported actions."""
-        if action_name != "message":
-            return {}
-        return {
-            "description": "Send a message via Telegram",
-            "payload": {
-                "text": {"type": "string", "example": "Hello!", "description": "The message text to send"},
-                "target": {"type": "integer", "example": 123456789, "description": "The chat_id of the recipient"},
-                "message_thread_id": {"type": "integer", "example": 456, "description": "Optional thread ID for group chats", "optional": True}, 
-            },
-        }
+        if action_name == "message_telegram_bot":
+            return {
+                "description": "Send a message via Telegram bot",
+                "payload": {
+                    "text": {"type": "string", "example": "Hello!", "description": "The message text to send"},
+                    "target": {"type": "string", "example": "-123456789", "description": "The chat_id of the recipient"},
+                    "message_thread_id": {"type": "string", "example": "456", "description": "Optional thread ID for group chats", "optional": True},
+                },
+            }
+        return None
 
     # RESTORED: get_supported_actions() and get_prompt_instructions() to handle message actions
 
