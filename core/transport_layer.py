@@ -139,6 +139,11 @@ async def _handle_action_errors(errors: list, failed_actions: list, bot, message
         log_warning(f"[transport] Max retries reached for action correction. Giving up.")
         return
     
+    # Validate message has valid chat_id before proceeding
+    if not hasattr(message, 'chat_id') or message.chat_id is None or not isinstance(message.chat_id, int):
+        log_warning(f"[transport] Cannot request correction: invalid chat_id in message: {getattr(message, 'chat_id', 'None')}")
+        return
+    
     # Create error summary for LLM
     error_summary = "\n".join([f"- {error}" for error in errors[:5]])  # Limit to 5 errors
     failed_actions_json = json.dumps(failed_actions, indent=2)
@@ -233,7 +238,14 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
             
             # Create message context for actions
             message = SimpleNamespace()
-            message.chat_id = kwargs.get('chat_id') or (args[0] if args else None)
+            chat_id_value = kwargs.get('chat_id') or (args[0] if args else None)
+            
+            # Validate chat_id before proceeding
+            if chat_id_value is None or not isinstance(chat_id_value, int):
+                log_warning(f"[transport] Invalid chat_id for action processing: {chat_id_value}")
+                return await interface_send_func(*args, text=text, **kwargs)
+                
+            message.chat_id = chat_id_value
             message.text = ""
             message.message_thread_id = kwargs.get('message_thread_id')
             from datetime import datetime
@@ -268,8 +280,11 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
                 errors.append(f"Processing error: {e}")
             
             # If there are errors, try auto-correction (max 2 attempts)
-            if errors and hasattr(message, 'chat_id'):
-                await _handle_action_errors(errors, unique_actions, bot, message, max_retries=2)
+            # TEMPORARILY DISABLED: Auto-correction causing chat_id issues
+            # if errors and hasattr(message, 'chat_id'):
+            #     await _handle_action_errors(errors, unique_actions, bot, message, max_retries=2)
+            if errors:
+                log_warning(f"[transport] Action errors detected but auto-correction disabled: {errors[:3]}")
             
             log_info(f"[transport] Processed {len(processed_actions)} unique JSON actions via plugin system")
             return
@@ -287,6 +302,11 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
 
     if text is None:
         text = ""
+
+    # Validate chat_id first
+    if chat_id is None or not isinstance(chat_id, int):
+        log_error(f"[telegram_transport] Invalid chat_id provided: {chat_id}")
+        return None
 
     # Don't try to parse JSON from system/error messages
     is_system_message = text.startswith(('[ERROR]', '[WARNING]', '[INFO]', '[DEBUG]'))

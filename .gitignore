@@ -5,8 +5,9 @@ data
 *.pyc
 *.pyo
 *.pyd
-*.db
-*.sqlite3
+# Only ignore specific temporary database files, not all .db files
+temp.db
+test.db
 *.log
 *.egg-info
 *.egg
