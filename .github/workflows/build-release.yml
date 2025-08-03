@@ -17,6 +17,17 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            tag_suffix: ""
+            latest_tag: latest
+            develop_tag: latest-develop
+          - arch: arm64
+            tag_suffix: "-arm"
+            latest_tag: latest-arm
+            develop_tag: latest-develop-arm
 
     permissions:
       contents: read
@@ -51,47 +62,26 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Build and push Docker image (amd64)
+    - name: Build and push Docker image (${{ matrix.arch }})
       uses: docker/build-push-action@v5
       with:
         context: .
         push: true
-        platforms: linux/amd64
-        build-args: TARGETARCH=amd64
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}
+        platforms: linux/${{ matrix.arch }}
+        build-args: TARGETARCH=${{ matrix.arch }}
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}${{ matrix.tag_suffix }}
 
-    - name: Build and push Docker image (arm64)
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: true
-        platforms: linux/arm64
-        build-args: TARGETARCH=arm64
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-arm
-
-    - name: Tag image as latest (main branch only)
+    - name: Tag image as ${{ matrix.latest_tag }} (main branch only)
       if: github.ref == 'refs/heads/main'
       run: |
-        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest
+        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}${{ matrix.tag_suffix }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ matrix.latest_tag }}
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ matrix.latest_tag }}
 
-    - name: Tag arm image as latest-arm (main branch only)
-      if: github.ref == 'refs/heads/main'
-      run: |
-        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-arm ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest-arm
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest-arm
-
-    - name: Tag image as latest-develop (develop branch only)
+    - name: Tag image as ${{ matrix.develop_tag }} (develop branch only)
       if: github.ref == 'refs/heads/develop'
       run: |
-        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest-develop
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest-develop
-
-    - name: Tag arm image as latest-develop-arm (develop branch only)
-      if: github.ref == 'refs/heads/develop'
-      run: |
-        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-arm ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest-develop-arm
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest-develop-arm
+        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}${{ matrix.tag_suffix }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ matrix.develop_tag }}
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ matrix.develop_tag }}
 
     - name: Tag image for non-main and non-develop branches
       if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop'
@@ -99,17 +89,8 @@ jobs:
         branch_name=${GITHUB_REF#refs/heads/}
         branch_name=${branch_name#refs/pull/}
         sanitized_branch_name=$(echo "$branch_name" | sed 's|/|-|g')
-        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-$sanitized_branch_name
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-$sanitized_branch_name
-
-    - name: Tag arm image for non-main and non-develop branches
-      if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop'
-      run: |
-        branch_name=${GITHUB_REF#refs/heads/}
-        branch_name=${branch_name#refs/pull/}
-        sanitized_branch_name=$(echo "$branch_name" | sed 's|/|-|g')
-        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-arm ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-$sanitized_branch_name-arm
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-$sanitized_branch_name-arm
+        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}${{ matrix.tag_suffix }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-$sanitized_branch_name${{ matrix.tag_suffix }}
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-$sanitized_branch_name${{ matrix.tag_suffix }}
 
   cleanup-images:
     runs-on: ubuntu-latest
