@@ -1,5 +1,5 @@
 ARG TARGETPLATFORM
-FROM --platform=$TARGETPLATFORM lscr.io/linuxserver/webtop:ubuntu-xfce
+FROM --platform=$TARGETPLATFORM lscr.io/linuxserver/webtop:ubuntu-xfce-version-20ec514a
 
 ARG TARGETARCH
 
