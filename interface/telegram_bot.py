@@ -39,7 +39,6 @@ from core.config import BOT_TOKEN, BOT_USERNAME, TRAINER_ID
 # Import mention detector to recognize Rekku aliases even without explicit @username
 from core.mention_utils import is_rekku_mentioned, is_message_for_bot
 import core.plugin_instance as plugin_instance
-from core.weather import start_weather_updater, update_weather
 import traceback
 from core.action_parser import initialize_core
 from core.interfaces import register_interface
@@ -756,17 +755,6 @@ async def start_bot():
         log_info("[telegram_bot] Core components initialized successfully")
     except Exception as e:
         log_error(f"[telegram_bot] Error in core initialization: {repr(e)}")
-        raise
-
-    # 🌀 Weather fetch immediately and periodic loop
-    try:
-        log_info("[telegram_bot] Fetching initial weather...")
-        await update_weather()
-        log_info("[telegram_bot] Starting weather updater...")
-        start_weather_updater()
-        log_info("[telegram_bot] Weather components initialized")
-    except Exception as e:
-        log_error(f"[telegram_bot] Error in weather initialization: {repr(e)}")
         raise
 
     try:

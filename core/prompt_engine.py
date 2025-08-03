@@ -7,7 +7,6 @@ from core.db import get_conn
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 import aiomysql
-import core.weather
 from core.rekku_utils import (
     get_local_timezone,
     utc_to_local,
@@ -39,23 +38,30 @@ async def build_json_prompt(message, context_memory) -> dict:
     if expanded_tags:
         memories = await search_memories(tags=expanded_tags, limit=5)
 
-    # === 3. Temporal and weather info ===
-    location = os.getenv("WEATHER_LOCATION", "Kyoto")
+    # === 3. Temporal info ===
+    location = os.getenv("PROMPT_LOCATION", "Kyoto")
     tz = get_local_timezone()
     now_local = datetime.now(tz)
     now_utc = now_local.astimezone(timezone.utc)
     date = now_local.strftime("%Y-%m-%d")
     time = format_dual_time(now_utc)
-    weather = core.weather.current_weather
-
     context_section = {
         "messages": messages,
         "memories": memories,
         "location": location,
-        "weather": weather if weather else "Unavailable",
         "date": date,
         "time": time,
     }
+
+    # === 3b. Static injections from plugins ===
+    try:
+        from core.action_parser import gather_static_injections
+
+        injections = await gather_static_injections()
+        if isinstance(injections, dict):
+            context_section.update(injections)
+    except Exception as e:
+        log_warning(f"[json_prompt] Failed to gather static injections: {e}")
 
     # === 4. Input payload ===
     message_thread_id = getattr(message, "message_thread_id", None)
