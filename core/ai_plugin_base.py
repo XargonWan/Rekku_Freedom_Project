@@ -43,7 +43,8 @@ class AIPluginBase:
         """Handle a plugin-defined custom action."""
         raise NotImplementedError("handle_custom_action not implemented")
 
-    def get_supported_actions(self) -> dict:
+    @staticmethod
+    def get_supported_actions() -> dict:
         """Return schema information for supported actions."""
         return {}
 
