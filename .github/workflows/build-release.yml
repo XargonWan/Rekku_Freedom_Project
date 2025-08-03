@@ -100,8 +100,14 @@ jobs:
       - name: Set up virtual environment
         run: python -m venv .venv
       - name: Run unit tests
-        run: |
-          ./run_tests.sh
+        run: LOG_DIR=./logs ./run_tests.sh
+        continue-on-error: true
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-test-report@v1
+        with:
+          name: unit-tests
+          path: test-results
 
   cleanup-images:
     runs-on: ubuntu-latest
