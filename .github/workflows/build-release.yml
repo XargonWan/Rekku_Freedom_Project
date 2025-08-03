@@ -48,9 +48,9 @@ jobs:
 
     - name: Determine version with GitVersion
       id: gitversion_build
-      uses: gittools/actions/gitversion/execute@v0.9.14
-      with:
-        useConfigFile: true
+      run: |
+        semver=$(dotnet-gitversion /config GitVersion.yml /showvariable SemVer)
+        echo "semVer=$semver" >> "$GITHUB_OUTPUT"
 
     - name: Log in to Docker Hub
       uses: docker/login-action@v3
@@ -67,7 +67,9 @@ jobs:
         context: .
         push: true
         platforms: linux/${{ matrix.arch }}
-        build-args: TARGETARCH=${{ matrix.arch }}
+        build-args: |
+          TARGETARCH=${{ matrix.arch }}
+          GITVERSION_TAG=${{ steps.gitversion_build.outputs.semVer }}
         tags: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}${{ matrix.tag_suffix }}
 
     - name: Tag image as ${{ matrix.latest_tag }} (main branch only)
