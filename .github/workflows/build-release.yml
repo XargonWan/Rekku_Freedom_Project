@@ -19,17 +19,17 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: ubuntu-latest
-            arch: amd64
+          - arch: amd64
             tag_suffix: ""
             latest_tag: latest
             develop_tag: latest-develop
-          - runner: ubuntu-latest-arm64
-            arch: arm64
+          - arch: arm64
             tag_suffix: "-arm"
             latest_tag: latest-arm
             develop_tag: latest-develop-arm
-    runs-on: ${{ matrix.runner }}
+    runs-on:
+      group: ubuntu-latest
+      architecture: ${{ matrix.arch }}
 
     permissions:
       contents: read
