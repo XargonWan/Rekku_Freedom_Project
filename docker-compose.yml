@@ -52,6 +52,7 @@ services:
   rfp-db-backup:
     container_name: rfp-db-backup
     image: tiredofit/db-backup
+    platform: ${PLATFORM_BACKUP:-linux/amd64}
     env_file:
       - .env
     depends_on:

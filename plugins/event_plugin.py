@@ -40,7 +40,7 @@ class EventPlugin(AIPluginBase):
     async def ensure_table_exists(self) -> None:
         """Ensure the scheduled_events table is present."""
         host = os.getenv("DB_HOST", "localhost")
-        port = int(os.getenv("DB_PORT", "3306"))
+        port = int(os.getenv("EXT_DB_PORT", "3306"))
         user = os.getenv("DB_USER", "root")
         # Reuse the same variable name used in core.db for consistency
         password = os.getenv("DB_PASS", "")

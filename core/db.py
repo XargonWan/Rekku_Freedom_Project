@@ -11,12 +11,12 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 # Database connection parameters
 DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = int(os.getenv("DB_PORT", "3306"))
+DB_PORT = int(os.getenv("EXT_DB_PORT", "3306"))
 DB_USER = os.getenv("DB_USER", "rekku")
 DB_PASS = os.getenv("DB_PASS", "rekku")
 DB_NAME = os.getenv("DB_NAME", "rekku")
 
-# Log della configurazione del database per debug
+# Database configuration log for debugging
 log_info(f"[db] Configuration: HOST={DB_HOST}, PORT={DB_PORT}, USER={DB_USER}, DB_NAME={DB_NAME}")
 log_debug(f"[db] Password length: {len(DB_PASS)} characters")
 
