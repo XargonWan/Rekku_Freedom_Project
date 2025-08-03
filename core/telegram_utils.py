@@ -38,11 +38,16 @@ async def _send_with_retry(
     if chat_id is None or not isinstance(chat_id, int):
         log_error("[telegram_utils] Cannot send message: chat_id is invalid")
         return None
+    
+    # Filter kwargs to only include valid Telegram bot parameters
+    # Remove custom parameters that are not supported by bot.send_message()
+    valid_kwargs = {k: v for k, v in kwargs.items() if k not in ['event_id']}
+    
     last_error = None
     logger = setup_logging()
     for attempt in range(1, retries + 1):
         try:
-            return await bot.send_message(chat_id=chat_id, text=text, **kwargs)
+            return await bot.send_message(chat_id=chat_id, text=text, **valid_kwargs)
         except TimedOut as e:
             last_error = e
             if attempt < retries:
@@ -83,10 +88,15 @@ async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retrie
 
 async def safe_edit(bot, chat_id: int, message_id: int, text: str, retries: int = 3, delay: int = 2, **kwargs):
     """Edit a Telegram message with retry support."""  # [FIX][telegram retry]
+    
+    # Filter kwargs to only include valid Telegram bot parameters
+    # Remove custom parameters that are not supported by bot.edit_message_text()
+    valid_kwargs = {k: v for k, v in kwargs.items() if k not in ['event_id']}
+    
     last_error = None
     for attempt in range(1, retries + 1):
         try:
-            return await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, **kwargs)
+            return await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, **valid_kwargs)
         except TimedOut as e:
             last_error = e
             if attempt < retries:
