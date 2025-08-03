@@ -20,16 +20,16 @@ jobs:
       matrix:
         include:
           - arch: amd64
+            runner: ubuntu-latest
             tag_suffix: ""
             latest_tag: latest
             develop_tag: latest-develop
           - arch: arm64
+            runner: ubuntu-latest-arm64
             tag_suffix: "-arm"
             latest_tag: latest-arm
             develop_tag: latest-develop-arm
-    runs-on:
-      group: ubuntu-latest
-      architecture: ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
 
     permissions:
       contents: read
