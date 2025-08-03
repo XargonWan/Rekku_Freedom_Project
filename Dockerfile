@@ -1,5 +1,7 @@
 FROM lscr.io/linuxserver/webtop:ubuntu-xfce-version-20ec514a
 
+ARG TARGETARCH
+
 # Temporarily switch to root to create noVNC directory
 RUN mkdir -p /usr/share/novnc && \
     echo '<!DOCTYPE html><html><head><title>noVNC</title></head><body><h1>noVNC placeholder</h1></body></html>' > /usr/share/novnc/vnc.html && \
@@ -24,13 +26,34 @@ RUN apt-get update && \
       fonts-noto-cjk fonts-noto-color-emoji xfonts-base && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install Google Chrome (let undetected-chromedriver handle compatibility)
-RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/trusted.gpg.d/google-chrome.gpg && \
-    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-    apt-get update && \
-    apt-get install -y google-chrome-stable && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    google-chrome --version
+# Install browser based on architecture
+RUN ARCH="$TARGETARCH" && \
+    if [ -z "$ARCH" ]; then \
+        echo "Warning: TARGETARCH not set, defaulting to amd64" && \
+        ARCH=amd64; \
+    fi && \
+    if [ "$ARCH" = "amd64" ]; then \
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/trusted.gpg.d/google-chrome.gpg && \
+        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+        apt-get update && \
+        apt-get install -y google-chrome-stable && \
+        apt-get clean && rm -rf /var/lib/apt/lists/* && \
+        google-chrome --version; \
+    elif [ "$ARCH" = "arm64" ]; then \
+        apt-get update && \
+        apt-get install -y chromium chromium-driver && \
+        apt-get clean && rm -rf /var/lib/apt/lists/* && \
+        chromium --version && \
+        ln -s /usr/bin/chromium /usr/bin/google-chrome; \
+    else \
+        echo "Warning: unsupported architecture '$ARCH', defaulting to amd64" && \
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/trusted.gpg.d/google-chrome.gpg && \
+        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+        apt-get update && \
+        apt-get install -y google-chrome-stable && \
+        apt-get clean && rm -rf /var/lib/apt/lists/* && \
+        google-chrome --version; \
+    fi
 
 # Display configuration
 ENV DISPLAY=:1
