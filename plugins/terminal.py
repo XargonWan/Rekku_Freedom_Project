@@ -170,23 +170,47 @@ class TerminalPlugin(AIPluginBase):
                 
             log_debug(f"[terminal] Command output: {output}")
             
-            # If we have a bot and message, send the response
-            if bot and original_message and hasattr(original_message, 'chat_id'):
-                truncated = output[:4000] + "\n..." if len(output) > 4000 else output
-                await bot.send_message(
-                    chat_id=original_message.chat_id,
-                    text=f"```\n{truncated}\n```" if truncated else "(no output)",
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_to_message_id=getattr(original_message, 'message_id', None),
+            # NEW: Use auto-response system instead of direct Telegram response
+            if original_message and hasattr(original_message, 'chat_id'):
+                # Prepare context for LLM-mediated response
+                response_context = {
+                    'chat_id': original_message.chat_id,
+                    'message_id': getattr(original_message, 'message_id', None),
+                    'interface_name': context.get('interface', 'telegram_bot'),
+                    'original_command': command,
+                    'action_type': action_type
+                }
+                
+                # Request LLM to deliver the output
+                from core.auto_response import request_llm_delivery
+                await request_llm_delivery(
+                    output=output,
+                    original_context=response_context,
+                    action_type=action_type,
+                    command=command
                 )
+                
+                log_info(f"[terminal] Requested LLM delivery of {action_type} output to chat {original_message.chat_id}")
+            else:
+                log_warning("[terminal] No original_message context for auto-response")
                 
         except Exception as e:
             log_error(f"[terminal] Error executing {action_type} command '{command}': {e}")
-            if bot and original_message and hasattr(original_message, 'chat_id'):
-                await bot.send_message(
-                    chat_id=original_message.chat_id,
-                    text=f"❌ Error executing command: {str(e)}",
-                    reply_to_message_id=getattr(original_message, 'message_id', None),
+            
+            # Also use auto-response for errors
+            if original_message and hasattr(original_message, 'chat_id'):
+                error_context = {
+                    'chat_id': original_message.chat_id,
+                    'message_id': getattr(original_message, 'message_id', None),
+                    'interface_name': context.get('interface', 'telegram_bot'),
+                }
+                
+                from core.auto_response import request_llm_delivery
+                await request_llm_delivery(
+                    output=f"Error executing command '{command}': {str(e)}",
+                    original_context=error_context,
+                    action_type=f"{action_type}_error",
+                    command=command
                 )
 
     def get_target(self, trainer_message_id):

@@ -23,6 +23,7 @@ getting started.
    features
    architecture
    event_id_flow
+   auto_response
    llm_engines
    plugins
    contributing

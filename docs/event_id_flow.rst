@@ -168,6 +168,8 @@ Related Files
 - ``core/telegram_utils.py`` - Telegram API filtering
 - ``core/action_parser.py`` - Event delivery logic
 - ``core/db.py`` - Database event marking
+- ``core/auto_response.py`` - Auto-response system for interface callbacks
+- ``plugins/terminal.py`` - Terminal plugin with auto-response integration
 - ``llm_engines/selenium_chatgpt.py`` - Event_id usage
 
 .. note::

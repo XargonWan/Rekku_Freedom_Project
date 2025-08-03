@@ -19,6 +19,7 @@ except Exception:  # pragma: no cover - library missing in env
 from core.logging_utils import log_debug, log_warning, log_error
 from core.transport_layer import universal_send
 from core.interfaces import register_interface
+from core.auto_response import request_llm_delivery
 import core.plugin_instance as plugin_instance
 
 
@@ -159,7 +160,13 @@ class RedditInterface:
             async for item in self.reddit.inbox.stream(skip_existing=True):
                 wrapper = self._wrap_item(item)
                 if wrapper:
-                    await plugin_instance.handle_incoming_message(self, wrapper, {})
+                    # Use auto-response system for autonomous Reddit interactions
+                    await request_llm_delivery(
+                        message=wrapper,
+                        interface=self,
+                        context={},
+                        reason="reddit_autonomous_response"
+                    )
         except Exception as e:
             log_error(f"[reddit_interface] Inbox listener stopped: {e}")
             self._running = False

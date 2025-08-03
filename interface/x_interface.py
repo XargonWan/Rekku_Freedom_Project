@@ -17,6 +17,7 @@ sntwitter = None
 
 from core.logging_utils import log_info, log_debug, log_warning
 from core.interfaces import register_interface
+from core.auto_response import request_llm_delivery
 
 log_warning("[x_interface] snscrape disabled due to Python 3.12 compatibility issues")
 
@@ -69,6 +70,13 @@ class XInterface:
         if not text:
             return
 
+        # Check if this is an autonomous posting (no original_message) that should use auto-response
+        if original_message is None and payload.get("autonomous", False):
+            # This would be for future autonomous X posting features
+            log_debug("[x_interface] Autonomous posting detected, using auto-response system")
+            # For now, just log. Future implementation could create a synthetic message
+            # and route through request_llm_delivery for LLM-mediated posting decisions
+        
         log_info(f"[x_interface] Message posted: {text}")
 
     async def _read_timeline(self) -> List[str]:

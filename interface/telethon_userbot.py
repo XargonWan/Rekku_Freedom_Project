@@ -16,6 +16,7 @@ from core.config import set_active_llm, list_available_llms, get_active_llm
 from core.config import TRAINER_ID
 from core import blocklist, response_proxy, say_proxy, recent_chats
 from core.context import context_command
+from core.auto_response import request_llm_delivery
 import traceback
 
 load_dotenv()
@@ -222,12 +223,17 @@ async def handle_message(event):
         else:
             await event.reply("⚠️ No message to reply to found.")
         return
-    # Pass to plugin
+    # Pass to plugin via auto-response system for autonomous userbot interactions
     try:
-        await plugin_instance.handle_incoming_message(client, message, context_memory)
+        await request_llm_delivery(
+            message=message,
+            interface=client,
+            context=context_memory,
+            reason="telethon_userbot_autonomous"
+        )
     except Exception as e:
         log_error(
-            f"plugin_instance.handle_incoming_message failed: {e}",
+            f"auto-response delivery failed for telethon userbot: {e}",
             e,
         )
 

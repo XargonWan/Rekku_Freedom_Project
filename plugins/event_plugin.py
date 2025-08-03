@@ -9,6 +9,7 @@ from core.ai_plugin_base import AIPluginBase
 from core.db import insert_scheduled_event, get_due_events
 from core.logging_utils import log_debug, log_info, log_error, log_warning
 from core.telegram_utils import send_with_thread_fallback
+from core.auto_response import request_llm_delivery
 import traceback
 import asyncio
 import json
@@ -397,7 +398,7 @@ class EventPlugin(AIPluginBase):
             event_prompt = self._create_event_prompt(event)
 
             log_debug(
-                f"[event_plugin] Delivering event {event['id']} to LLM via handle_incoming_message"
+                f"[event_plugin] Delivering event {event['id']} to LLM via auto-response system"
             )
 
             bot = self.bot
@@ -412,8 +413,14 @@ class EventPlugin(AIPluginBase):
                 except Exception:
                     bot = None
 
-            await plugin_instance.handle_incoming_message(bot, None, event_prompt)
-            log_info(f"[event_plugin] Event {event['id']} delivered to LLM")
+            # Use auto-response system for autonomous event notifications
+            await request_llm_delivery(
+                message=None,  # No original message for autonomous events
+                interface=bot,  # Use telegram bot interface
+                context=event_prompt,
+                reason=f"scheduled_event_{event['id']}"
+            )
+            log_info(f"[event_plugin] Event {event['id']} delivered to LLM via auto-response")
 
         except Exception as e:
             log_error(
@@ -778,29 +785,27 @@ For recurring events, you can use:
             )
 
             log_debug(
-                f"[event_plugin] Delegating event {event_id} to active LLM: {active_plugin.__class__.__name__}"
+                f"[event_plugin] Delegating event {event_id} to active LLM via auto-response system"
             )
 
-            # Execute through the active LLM plugin
-            if hasattr(active_plugin, "handle_incoming_message"):
-                # Create a mock bot for the LLM to send responses
-                mock_bot = self._create_mock_bot_for_llm()
+            # Create a JSON prompt for the scheduled action with lateness info
+            scheduled_prompt = self._create_scheduled_action_prompt(
+                action, event_id, event_info
+            )
 
-                # Create a JSON prompt for the scheduled action with lateness info
-                scheduled_prompt = self._create_scheduled_action_prompt(
-                    action, event_id, event_info
-                )
+            # Use auto-response system for autonomous scheduled event execution
+            await request_llm_delivery(
+                message=unified_message,
+                interface=None,  # Let auto-response determine interface
+                context=scheduled_prompt,
+                reason=f"scheduled_action_{event_id}"
+            )
 
-                await active_plugin.handle_incoming_message(
-                    bot=mock_bot, message=unified_message, prompt=scheduled_prompt
-                )
-            else:
-                log_error(
-                    f"[event_plugin] Active LLM plugin {active_plugin.__class__.__name__} doesn't support handle_incoming_message"
-                )
-                # Clean up the tracking since we can't process
-                if hasattr(self, "_current_processing_event_id"):
-                    delattr(self, "_current_processing_event_id")
+        except Exception as e:
+            log_error(f"[event_plugin] Error processing scheduled event {event_id}: {repr(e)}")
+            # Clean up the tracking since we can't process
+            if hasattr(self, "_current_processing_event_id"):
+                delattr(self, "_current_processing_event_id")
 
         except Exception as e:
             log_error(
