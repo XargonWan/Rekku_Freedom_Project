@@ -1,17 +1,10 @@
 # core/prompt_engine.py
 
 from core.rekku_tagging import extract_tags, expand_tags
-import os
-from datetime import datetime, timezone
 from core.db import get_conn
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 import aiomysql
-from core.rekku_utils import (
-    get_local_timezone,
-    utc_to_local,
-    format_dual_time,
-)
 
 
 async def build_json_prompt(message, context_memory) -> dict:
@@ -38,19 +31,10 @@ async def build_json_prompt(message, context_memory) -> dict:
     if expanded_tags:
         memories = await search_memories(tags=expanded_tags, limit=5)
 
-    # === 3. Temporal info ===
-    location = os.getenv("PROMPT_LOCATION", "Kyoto")
-    tz = get_local_timezone()
-    now_local = datetime.now(tz)
-    now_utc = now_local.astimezone(timezone.utc)
-    date = now_local.strftime("%Y-%m-%d")
-    time = format_dual_time(now_utc)
+    # === 3. Context base ===
     context_section = {
         "messages": messages,
         "memories": memories,
-        "location": location,
-        "date": date,
-        "time": time,
     }
 
     # === 3b. Static injections from plugins ===

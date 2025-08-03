@@ -7,6 +7,7 @@ import urllib.request
 from typing import Optional
 
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.rekku_utils import get_local_location
 
 
 class WeatherPlugin:
@@ -46,7 +47,7 @@ class WeatherPlugin:
             await self._update_weather()
 
     async def _update_weather(self) -> None:
-        location = os.getenv("WEATHER_LOCATION", "Kyoto")
+        location = get_local_location()
         encoded = urllib.parse.quote(location)
         url = f"https://wttr.in/{encoded}?format=j1"
         log_info(f"[weather_plugin] Fetching weather for {location}")
