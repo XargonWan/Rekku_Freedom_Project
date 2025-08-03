@@ -22,6 +22,7 @@ getting started.
    quickstart
    features
    architecture
+   event_id_flow
    llm_engines
    plugins
    contributing
