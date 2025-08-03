@@ -80,6 +80,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Create mock .env file
+        run: |
+          cat <<'EOF' > .env
+          BOTFATHER_TOKEN=dummy
+          TRAINER_ID=123456789
+          OPENAI_API_KEY=dummy
+          DB_HOST=localhost
+          DB_USER=rekku
+          DB_PASS=rekku
+          DB_NAME=rekku
+          TELEGRAM_API_ID=0
+          TELEGRAM_API_HASH=dummy
+          TELEGRAM_PHONE_NUMBER=dummy
+          EOF
+      - name: Set up virtual environment
+        run: python -m venv .venv
       - name: Run unit tests
         run: |
           ./run_tests.sh
