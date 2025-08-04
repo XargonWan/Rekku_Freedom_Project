@@ -49,8 +49,15 @@ jobs:
     - name: Determine version with GitVersion
       id: gitversion_build
       run: |
-        semver=$(dotnet-gitversion /config GitVersion.yml /output json | tail -n 1 | jq -r '.SemVer')
-        echo "semVer=${semver}" >> "$GITHUB_OUTPUT"
+        output=$(dotnet-gitversion /config GitVersion.yml /output json)
+        echo "$output"
+        if echo "$output" | jq empty >/dev/null 2>&1; then
+          semver=$(echo "$output" | jq -r '.SemVer')
+          echo "semVer=${semver}" >> "$GITHUB_OUTPUT"
+        else
+          echo "::error::dotnet-gitversion did not produce valid JSON"
+          exit 1
+        fi
 
     - name: Log in to Docker Hub
       uses: docker/login-action@v3
