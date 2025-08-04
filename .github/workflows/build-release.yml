@@ -116,11 +116,12 @@ jobs:
           else
             echo "✅ Unit tests passed" >> "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Publish unit test results
+      - name: Upload unit test results
         if: always()
-        uses: EnricoMi/publish-unit-test-result-action@v2
+        uses: actions/upload-artifact@v4
         with:
-          files: test-results/*.xml
+          name: unit-test-results
+          path: test-results/
 
   cleanup-images:
     runs-on: ubuntu-latest
