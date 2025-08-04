@@ -3,10 +3,34 @@
 import asyncio
 from typing import Optional
 from core.ai_plugin_base import AIPluginBase
-from core.config import TRAINER_ID
-from core.telegram_utils import truncate_message
-from telegram.constants import ParseMode
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+
+# Import config safely - may fail in test environments
+try:
+    from core.config import TRAINER_ID
+except Exception:
+    TRAINER_ID = None
+
+# Import telegram safely - may fail if not available
+try:
+    from telegram.constants import ParseMode
+except Exception:
+    class ParseMode:
+        MARKDOWN = "Markdown"
+
+# Import telegram utils safely
+try:
+    from core.telegram_utils import truncate_message
+except Exception:
+    def truncate_message(text, max_length=4000):
+        return text[:max_length] if len(text) > max_length else text
+
+# Import auto_response safely
+try:
+    from core.auto_response import request_llm_delivery
+except Exception:
+    async def request_llm_delivery(*args, **kwargs):
+        log_warning("[terminal] Auto-response not available")
 
 
 class TerminalPlugin(AIPluginBase):
@@ -111,37 +135,50 @@ class TerminalPlugin(AIPluginBase):
         """Return the unique identifier for this plugin interface."""
         return "terminal"
 
+    @staticmethod
+    def get_supported_action_types() -> list[str]:
+        """Return the list of action types this plugin supports."""
+        return ["terminal", "bash"]
+
     def get_supported_actions(self) -> dict:
         """Return schema information for supported actions."""
         return {
             "terminal": {
                 "required_fields": ["command"],
                 "optional_fields": [],
-                "description": "Run commands in a persistent shell session",
+                "description": "Execute shell commands (bash, python, etc.) in a persistent terminal session.",
             },
             "bash": {
                 "required_fields": ["command"],
                 "optional_fields": [],
-                "description": "Execute a single shell command",
+                "description": "Execute a single shell command directly.",
             }
         }
 
     def get_prompt_instructions(self, action_name: str) -> dict:
         if action_name == "terminal":
             return {
-                "description": "Run commands in a persistent shell session",
+                "description": "Execute commands in a persistent shell session (bash, python, etc.)",
                 "payload": {
-                    "command": "echo hello",
+                    "command": "df -h",
                     "interface": self.get_interface_id(),
                 },
+                "example": {
+                    "type": "terminal",
+                    "payload": {"command": "df -h"}
+                }
             }
         elif action_name == "bash":
             return {
-                "description": "Execute a single shell command",
+                "description": "Execute a single shell command directly",
                 "payload": {
                     "command": "ls -la",
                     "interface": self.get_interface_id(),
                 },
+                "example": {
+                    "type": "bash",
+                    "payload": {"command": "ls -la"}
+                }
             }
         return {}
 

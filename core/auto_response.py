@@ -83,20 +83,58 @@ _auto_response_system = AutoResponseSystem()
 
 
 async def request_llm_delivery(
-    output: str,
-    original_context: Dict[str, Any], 
-    action_type: str,
-    command: str = None
+    message=None,
+    interface=None,
+    context=None,
+    reason=None,
+    output=None,
+    original_context=None,
+    action_type=None,
+    command=None
 ):
     """
-    Convenience function to request LLM-mediated delivery of action output.
+    Unified convenience function to request LLM-mediated delivery.
     
-    Args:
-        output: The result to deliver
-        original_context: Original request context (chat_id, message_id, etc.)
-        action_type: Type of action that generated the output
-        command: Original command if applicable
+    Supports multiple calling patterns:
+    1. Legacy: request_llm_delivery(output, original_context, action_type, command)
+    2. New: request_llm_delivery(message, interface, context, reason)
     """
-    await _auto_response_system.request_llm_response(
-        output, original_context, action_type, command
-    )
+    # Handle legacy calling pattern (terminal plugin style)
+    if output is not None and original_context is not None:
+        await _auto_response_system.request_llm_response(
+            output, original_context, action_type or "unknown", command
+        )
+        return
+    
+    # Handle new calling pattern (interface style)
+    if message is not None or interface is not None:
+        try:
+            from core.message_queue import enqueue
+            import core.plugin_instance as plugin_instance
+            
+            log_info(f"[auto_response] Processing {reason or 'autonomous'} request")
+            
+            # If we have a message, use it directly with plugin_instance
+            if message is not None:
+                await plugin_instance.handle_incoming_message(
+                    interface, message, context or {}
+                )
+            else:
+                # For interface-only requests, create synthetic message
+                from types import SimpleNamespace
+                mock_message = SimpleNamespace()
+                mock_message.chat_id = -1  # Default chat
+                mock_message.message_id = 0
+                mock_message.text = f"Auto-generated message for {reason}"
+                
+                await plugin_instance.handle_incoming_message(
+                    interface, mock_message, context or {}
+                )
+                
+        except Exception as e:
+            log_error(f"[auto_response] Failed to process {reason}: {e}")
+            import traceback
+            traceback.print_exc()
+        return
+    
+    log_warning("[auto_response] request_llm_delivery called with insufficient parameters")
