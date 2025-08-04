@@ -64,6 +64,19 @@ else
     echo "✅ All tests passed."
 fi
 
+# If running inside GitHub Actions, publish a step summary
+if [ -n "$GITHUB_STEP_SUMMARY" ]; then
+    {
+        echo "## Unit test results"
+        echo ""
+        if [ $TEST_EXIT_CODE -ne 0 ]; then
+            echo "- ❌ Unit tests failed with exit code $TEST_EXIT_CODE"
+        else
+            echo "- ✅ Unit tests passed"
+        fi
+    } >> "$GITHUB_STEP_SUMMARY"
+fi
+
 # Deactivate venv
 echo "🔒 Deactivating the virtual environment..."
 deactivate

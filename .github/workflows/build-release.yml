@@ -108,15 +108,6 @@ jobs:
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
           # Always exit successfully so the job continues
           exit 0
-      - name: Report unit test result
-        if: always()
-        run: |
-          echo "## Unit test results" >> "$GITHUB_STEP_SUMMARY"
-          if [ "${{ steps.run-tests.outputs.exit_code }}" != '0' ]; then
-            echo "❌ Unit tests failed with exit code ${{ steps.run-tests.outputs.exit_code }}" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "✅ Unit tests passed" >> "$GITHUB_STEP_SUMMARY"
-          fi
       - name: Upload unit test results
         if: always()
         uses: actions/upload-artifact@v4
