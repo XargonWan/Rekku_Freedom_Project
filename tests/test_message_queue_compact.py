@@ -160,10 +160,9 @@ def test_batching_combines_text(monkeypatch):
         msg2 = Msg(1, 10, text="two")
 
         await message_queue.enqueue(bot, msg1, None)
-        task = asyncio.create_task(message_queue._consumer_loop())
-        await asyncio.sleep(0.05)
         await message_queue.enqueue(bot, msg2, None)
-        await asyncio.sleep(0.6)
+        task = asyncio.create_task(message_queue._consumer_loop())
+        await asyncio.sleep(0.1)
         task.cancel()
         await task
 
@@ -205,7 +204,7 @@ def test_messages_during_processing_are_grouped(monkeypatch):
         await message_queue.enqueue(bot, msg2, None)
         await message_queue.enqueue(bot, msg3, None)
 
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.8)
         task.cancel()
         await task
 
