@@ -6,8 +6,8 @@ services:
     env_file:
       - .env
     ports:
-      - "${WEBVIEW_PORT:-5006}:3000"
-      - "${VNC_PORT:-6901}:6901"
+      - "${WEBVIEW_HTTPS_PORT:-3000}:3000"
+      - "${WEBVIEW_HTTP_PORT:-3001}:3001"
     volumes:
       - ./persona/home:/home/rekku
       - ./persona/mind:/app/persona
@@ -15,8 +15,6 @@ services:
       - ./logs:/config/logs
       - .env:/app/.env:ro
     environment:
-      - WEBVIEW_PORT=${WEBVIEW_PORT:-5006}
-      - WEBVIEW_HOST=${WEBVIEW_HOST:-localhost}
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
       - DISPLAY_WIDTH=${DISPLAY_WIDTH:-1280}
@@ -25,8 +23,8 @@ services:
       - TZ=${TZ:-Asia/Tokyo}
       - CUSTOM_USER=${CUSTOM_USER:-rekku}
       - HOME=${REKKU_HOME:-/home/rekku}
-      - PASSWORD=${PASSWORD:-"password"}
-      - SECURE_CONNECTION=0
+      - PASSWORD=${SELKIES_PASSWORD:-"password"}
+      - SECURE_CONNECTION=${SECURE_CONNECTION:-1}
       - VNC_PASSWORD=${PASSWORD:-"password"}
       - DB_HOST=${DB_HOST:-rfp-db}
     restart: unless-stopped
@@ -51,8 +49,7 @@ services:
 
   rfp-db-backup:
     container_name: rfp-db-backup
-    image: tiredofit/db-backup
-    platform: ${PLATFORM_BACKUP:-linux/amd64}
+    image: tiredofit/db-backup:4.1.19 # latest version didn't havce arm64 support
     env_file:
       - .env
     depends_on:
