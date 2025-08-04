@@ -35,3 +35,25 @@ def format_dual_time(dt_utc: datetime) -> str:
     """Return formatted time in local timezone with UTC in parentheses."""
     dt_local = utc_to_local(dt_utc)
     return f"{dt_local.strftime('%H:%M %Z')} ({dt_utc.strftime('%H:%M UTC')})"
+
+
+def get_local_location() -> str:
+    """Return a human-readable location using a dedicated environment variable.
+
+    The location is primarily sourced from the PROMPT_LOCATION environment
+    variable. If it is not set, a best-effort location name is derived from the
+    TZ environment variable. This keeps timezone and location as separate
+    configuration options while providing a sensible fallback.
+    """
+
+    location = os.environ.get("PROMPT_LOCATION")
+    if location:
+        return location
+
+    tz_name = os.environ.get("TZ", "UTC")
+    # Typically in the form Region/City; use the last part as location
+    if "/" in tz_name:
+        location = tz_name.split("/")[-1]
+    else:
+        location = tz_name
+    return location.replace("_", " ")
