@@ -110,6 +110,12 @@ jobs:
           exit 0
       - name: Upload unit test results
         if: always()
+        uses: actions/upload-test-results@v1
+        with:
+          files: test-results/**/*.xml
+
+      - name: Archive unit test results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-results

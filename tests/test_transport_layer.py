@@ -5,6 +5,7 @@ Test suite for the transport layer retry system.
 
 import unittest
 import time
+import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 from types import SimpleNamespace
 
@@ -106,48 +107,50 @@ class TestTransportLayerRetry(unittest.TestCase):
     
     @patch('core.transport_layer.log_warning')
     @patch('core.transport_layer.log_info')
-    async def test_handle_action_errors_max_retries(self, mock_log_info, mock_log_warning):
+    def test_handle_action_errors_max_retries(self, mock_log_info, mock_log_warning):
         """Test that max retries are respected."""
-        message = SimpleNamespace()
-        message.chat_id = 12345
-        message.message_thread_id = None
-        
-        # Set retry count to max
-        _increment_retry(message)
-        _increment_retry(message)
-        
-        # Mock bot and errors
-        mock_bot = Mock()
-        errors = ["Missing 'type'", "Missing 'payload'"]
-        failed_actions = [{"invalid": "action"}]
-        
-        # Should not retry when max reached
-        await _handle_action_errors(errors, failed_actions, mock_bot, message)
-        
-        # Verify warning was logged about max retries
-        mock_log_warning.assert_called()
-        warning_call = mock_log_warning.call_args[0][0]
-        self.assertIn("Max retries", warning_call)
-        self.assertIn("reached", warning_call)
-    
+
+        async def run():
+            message = SimpleNamespace()
+            message.chat_id = 12345
+            message.message_thread_id = None
+
+            _increment_retry(message)
+            _increment_retry(message)
+
+            mock_bot = Mock()
+            errors = ["Missing 'type'", "Missing 'payload'"]
+            failed_actions = [{"invalid": "action"}]
+
+            await _handle_action_errors(errors, failed_actions, mock_bot, message)
+
+            mock_log_warning.assert_called()
+            warning_call = mock_log_warning.call_args[0][0]
+            self.assertIn("Max retries", warning_call)
+            self.assertIn("reached", warning_call)
+
+        asyncio.run(run())
+
     @patch('core.transport_layer.log_warning')
-    async def test_handle_action_errors_invalid_chat_id(self, mock_log_warning):
+    def test_handle_action_errors_invalid_chat_id(self, mock_log_warning):
         """Test that invalid chat_id is handled properly."""
-        message = SimpleNamespace()
-        message.chat_id = None  # Invalid chat_id
-        
-        mock_bot = Mock()
-        errors = ["Missing 'type'"]
-        failed_actions = [{"invalid": "action"}]
-        
-        # Should not retry with invalid chat_id
-        await _handle_action_errors(errors, failed_actions, mock_bot, message)
-        
-        # Verify warning was logged about invalid chat_id
-        mock_log_warning.assert_called()
-        warning_call = mock_log_warning.call_args[0][0]
-        self.assertIn("Cannot request correction", warning_call)
-        self.assertIn("invalid chat_id", warning_call)
+
+        async def run():
+            message = SimpleNamespace()
+            message.chat_id = None
+
+            mock_bot = Mock()
+            errors = ["Missing 'type'"]
+            failed_actions = [{"invalid": "action"}]
+
+            await _handle_action_errors(errors, failed_actions, mock_bot, message)
+
+            mock_log_warning.assert_called()
+            warning_call = mock_log_warning.call_args[0][0]
+            self.assertIn("Cannot request correction", warning_call)
+            self.assertIn("invalid chat_id", warning_call)
+
+        asyncio.run(run())
     
     def test_json_extraction_chatgpt_format(self):
         """Test extraction of JSON with ChatGPT prefixes."""
