@@ -74,7 +74,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
       - name: Build and push by digest (${{ matrix.arch }})
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: ${{ matrix.platform }}
@@ -83,8 +83,12 @@ jobs:
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,push=true
           provenance: false
           sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: Export digest
-        run: echo "${{ steps.build.outputs.digest }}" > digest-${{ matrix.arch }}
+        run: |
+          echo "${{ steps.build.outputs.digest }}" > digest-${{ matrix.arch }}
+          echo "Digest for ${{ matrix.arch }}: ${{ steps.build.outputs.digest }}"
       - uses: actions/upload-artifact@v4
         with:
           name: digest-${{ matrix.arch }}
@@ -117,8 +121,14 @@ jobs:
       - name: Read digests
         id: digests
         run: |
+          if [ ! -f digest-amd64 ] || [ ! -f digest-arm64 ]; then
+            echo "::error::One or more digest files are missing"
+            exit 1
+          fi
           echo "amd64=$(cat digest-amd64)" >> "$GITHUB_OUTPUT"
           echo "arm64=$(cat digest-arm64)" >> "$GITHUB_OUTPUT"
+          echo "AMD64 digest: $(cat digest-amd64)"
+          echo "ARM64 digest: $(cat digest-arm64)"
       - name: Compute image tags
         id: meta
         env:
@@ -139,22 +149,31 @@ jobs:
             tags="$IMAGE_NAME:$sanitized-$SEMVER"
           fi
           echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          echo "Generated tags: $tags"
       - name: Create multi-arch manifest
         env:
           AMD64_DIGEST: ${{ steps.digests.outputs.amd64 }}
           ARM64_DIGEST: ${{ steps.digests.outputs.arm64 }}
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
+          if [ -z "$AMD64_DIGEST" ] || [ -z "$ARM64_DIGEST" ]; then
+            echo "::error::Missing digest values"
+            exit 1
+          fi
+          
           for tag in $(echo "$TAGS" | tr ',' ' '); do
+            echo "Creating manifest for tag: $tag"
             docker buildx imagetools create -t "$tag" \
               "$IMAGE_NAME@$AMD64_DIGEST" \
               "$IMAGE_NAME@$ARM64_DIGEST"
+            echo "✅ Created manifest for $tag"
           done
 
   cleanup-images:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
     needs: manifest
+    continue-on-error: true
     steps:
       - name: Remove dangling and old PR images from Docker Hub
         env:
@@ -162,24 +181,40 @@ jobs:
           PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           repo="$USERNAME/rekku_freedom_project"
-          token=$(curl -s -H "Content-Type: application/json" -X POST -d "{\"username\": \"$USERNAME\", \"password\": \"$PASSWORD\"}" https://hub.docker.com/v2/users/login/ | jq -r .token)
+          
+          # Get auth token
+          token_response=$(curl -s -H "Content-Type: application/json" -X POST \
+            -d "{\"username\": \"$USERNAME\", \"password\": \"$PASSWORD\"}" \
+            https://hub.docker.com/v2/users/login/)
+          
+          token=$(echo "$token_response" | jq -r '.token // empty')
+          if [ -z "$token" ] || [ "$token" = "null" ]; then
+            echo "::warning::Failed to authenticate with Docker Hub API"
+            exit 0
+          fi
 
           # Delete untagged images
+          echo "🧹 Cleaning up untagged images..."
           curl -s -H "Authorization: JWT $token" "https://hub.docker.com/v2/repositories/$repo/images?page_size=100" | \
-            jq -r '.results[] | select((.digest != null) and (.tags | length == 0)) | .digest' | while read digest; do
-              echo "Deleting dangling image $digest"
-              curl -s -H "Authorization: JWT $token" -X DELETE "https://hub.docker.com/v2/repositories/$repo/images/$digest/"
+            jq -r '.results[]? | select((.digest != null) and (.tags | length == 0)) | .digest' | while read digest; do
+              if [ -n "$digest" ]; then
+                echo "Deleting dangling image $digest"
+                curl -s -H "Authorization: JWT $token" -X DELETE "https://hub.docker.com/v2/repositories/$repo/images/$digest/" || true
+              fi
             done
 
           # Delete PR tags older than two weeks
+          echo "🧹 Cleaning up old PR tags..."
           cutoff=$(date -u -d '14 days ago' +%s)
           curl -s -H "Authorization: JWT $token" "https://hub.docker.com/v2/repositories/$repo/tags?page_size=100" | \
-            jq -r '.results[] | .name + " " + .last_updated' | while read name updated; do
-              if [[ "$name" == pr* ]]; then
-                ts=$(date -u -d "$updated" +%s)
-                if [ $ts -lt $cutoff ]; then
+            jq -r '.results[]? | .name + " " + .last_updated' | while read name updated; do
+              if [[ "$name" == pr* ]] && [ -n "$updated" ]; then
+                ts=$(date -u -d "$updated" +%s 2>/dev/null || echo 0)
+                if [ $ts -lt $cutoff ] && [ $ts -gt 0 ]; then
                   echo "Deleting tag $name (older than two weeks)"
-                  curl -s -H "Authorization: JWT $token" -X DELETE "https://hub.docker.com/v2/repositories/$repo/tags/$name/"
+                  curl -s -H "Authorization: JWT $token" -X DELETE "https://hub.docker.com/v2/repositories/$repo/tags/$name/" || true
                 fi
               fi
             done
+          
+          echo "✅ Cleanup completed"
