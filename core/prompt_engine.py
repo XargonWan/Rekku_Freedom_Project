@@ -240,7 +240,7 @@ def load_json_instructions() -> str:
     return """
 - Check the available_actions section below for supported interfaces and their capabilities
 - Use context.participants for bios, nicknames and usernames of chat members
-- If you cannot recall something mentioned by a user, search your memories (placeholder)
+- If you cannot recall something mentioned by a user, search your memories (TODO: implement lookup)
 
 All rules:
 - Use 'input.payload.source.chat_id' as message target when applicable
