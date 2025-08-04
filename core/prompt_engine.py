@@ -8,6 +8,10 @@ import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 import aiomysql
 import core.weather
+try:
+    from plugins.bio_plugin import collect_prompt_participants
+except Exception:  # pragma: no cover - plugin optional
+    collect_prompt_participants = None
 from core.rekku_utils import (
     get_local_timezone,
     utc_to_local,
@@ -32,6 +36,15 @@ async def build_json_prompt(message, context_memory) -> dict:
     # === 1. Context messages ===
     messages = list(context_memory.get(chat_id, []))[-10:]
 
+    # === 1b. Participants with bios (via optional plugin) ===
+    current_user_id = f"user_{message.from_user.id}"
+    participants: list[dict] = []
+    if collect_prompt_participants:
+        try:
+            participants = collect_prompt_participants(messages, current_user_id)
+        except Exception as exc:  # pragma: no cover - plugin may misbehave
+            log_warning(f"[prompt_engine] bio_plugin failed: {exc}")
+
     # === 2. Tags and memory lookup ===
     tags = extract_tags(text)
     expanded_tags = expand_tags(tags)
@@ -50,6 +63,7 @@ async def build_json_prompt(message, context_memory) -> dict:
 
     context_section = {
         "messages": messages,
+        "participants": participants,
         "memories": memories,
         "location": location,
         "weather": weather if weather else "Unavailable",
@@ -216,6 +230,8 @@ async def build_prompt(
 def load_json_instructions() -> str:
     return """
 - Check the available_actions section below for supported interfaces and their capabilities
+- Use context.participants for bios, nicknames and usernames of chat members
+- If you cannot recall something mentioned by a user, search your memories (placeholder)
 
 All rules:
 - Use 'input.payload.source.chat_id' as message target when applicable

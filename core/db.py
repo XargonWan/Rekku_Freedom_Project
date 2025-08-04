@@ -166,7 +166,8 @@ async def ensure_core_tables() -> None:
                         known_as TEXT,
                         likes TEXT,
                         not_likes TEXT,
-                        information TEXT,
+                        bio_resume TEXT,
+                        bio_extended TEXT,
                         past_events TEXT,
                         feelings TEXT,
                         contacts TEXT

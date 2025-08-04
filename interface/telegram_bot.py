@@ -295,10 +295,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context_memory[message.chat_id] = deque(maxlen=10)
     context_memory[message.chat_id].append({
         "message_id": message.message_id,
+        "user_id": f"user_{user_id}",
         "username": username,
         "usertag": usertag,
         "text": text,
-        "timestamp": message.date.isoformat()
+        "timestamp": message.date.isoformat(),
     })
     chat_meta = message.chat.title or message.chat.username or message.chat.first_name
     await recent_chats.track_chat(message.chat_id, chat_meta)
