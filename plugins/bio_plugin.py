@@ -37,6 +37,10 @@ def collect_prompt_participants(messages: List[dict], viewer_id: str) -> List[di
             continue
         name = msg.get("username", "")
         usertag = msg.get("usertag", "")
+
+        # Ensure the record exists and update last contact
+        update_bio_fields(uid, {})
+
         bio = get_bio_light(uid, viewer_id=viewer_id)
         participants.append(
             {
@@ -123,6 +127,23 @@ class BioPlugin(AIPluginBase):
                     except Exception:
                         log_warning("[bio_plugin] notify_fn failed for bio_update")
 
+    # ------------------------------------------------------------------
+    # Static injection for prompt context
+    # ------------------------------------------------------------------
 
-__all__ = ["BioPlugin", "collect_prompt_participants"]
+    def gather_static_injection(self, message, context_memory) -> Dict[str, Any]:
+        """Provide participant bios for the current chat."""
+        try:
+            chat_id = message.chat_id
+            messages = list(context_memory.get(chat_id, []))[-10:]
+            viewer_id = f"user_{message.from_user.id}"
+            participants = collect_prompt_participants(messages, viewer_id)
+            if participants:
+                return {"participants": participants}
+        except Exception as exc:  # pragma: no cover - defensive
+            log_warning(f"[bio_plugin] gather_static_injection failed: {exc}")
+        return {}
+
+
+__all__ = ["BioPlugin"]
 PLUGIN_CLASS = BioPlugin

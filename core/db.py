@@ -156,27 +156,6 @@ async def ensure_core_tables() -> None:
             await init_db()
             _db_initialized = True
 
-        conn = await get_conn()
-        try:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS bio (
-                        id VARCHAR(255) PRIMARY KEY,
-                        known_as TEXT,
-                        likes TEXT,
-                        not_likes TEXT,
-                        bio_resume TEXT,
-                        bio_extended TEXT,
-                        past_events TEXT,
-                        feelings TEXT,
-                        contacts TEXT
-                    )
-                    """
-                )
-        finally:
-            conn.close()
-
 # 🧠 Insert a new memory into the database
 async def insert_memory(
     content: str,

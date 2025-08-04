@@ -560,6 +560,30 @@ def get_action_plugin_instructions() -> dict[str, dict]:
     return instructions
 
 
+async def gather_static_injections(message=None, context_memory=None) -> Dict[str, Any]:
+    """Collect static context injections from all plugins."""
+    injections: Dict[str, Any] = {}
+    try:
+        for plugin in _load_action_plugins():
+            gatherer = getattr(plugin, "gather_static_injection", None)
+            if not gatherer:
+                continue
+            try:
+                if inspect.iscoroutinefunction(gatherer):
+                    result = await gatherer(message, context_memory)
+                else:
+                    result = gatherer(message, context_memory)
+                if isinstance(result, dict):
+                    injections.update(result)
+            except Exception as exc:
+                log_warning(
+                    f"[action_parser] Static injection failed for {plugin.__class__.__name__}: {exc}"
+                )
+    except Exception as e:
+        log_error(f"[action_parser] Error gathering static injections: {repr(e)}")
+    return injections
+
+
 __all__ = [
     "run_action",
     "run_actions",
@@ -567,4 +591,5 @@ __all__ = [
     "validate_action",
     "initialize_core",
     "get_action_plugin_instructions",
+    "gather_static_injections",
 ]
