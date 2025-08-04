@@ -21,41 +21,47 @@ else
     echo "⚠️ requirements.txt file not found. Make sure you have the necessary dependencies."
 fi
 
+# Ensure xmlrunner is available for JUnit XML output
+pip install -q xmlrunner || true
+
 # Prepare environment
 LOG_DIR="${LOG_DIR:-$(pwd)/logs}"
 export LOG_DIR
 mkdir -p "$LOG_DIR"
 mkdir -p test-results
 
-# Run tests and generate minimal JUnit report
+# Run tests (prefer xmlrunner, fallback to minimal JUnit XML)
 set +e
-echo "🧪 Running all test scripts in tests/ directory..."
-python3 <<'PY'
-import glob, os, subprocess, sys, xml.etree.ElementTree as ET
+echo "🧪 Running tests..."
+python3 <<'PY' 2>&1 | tee test-results/unit-tests.log
+import glob, os, subprocess, sys, xml.etree.ElementTree as ET, pkgutil, unittest
 
-tests = sorted(glob.glob("tests/test_*.py"))
-suite = ET.Element("testsuite", name="tests", tests=str(len(tests)))
-failures = 0
-
-for path in tests:
-    case = ET.SubElement(suite, "testcase", name=os.path.basename(path))
-    proc = subprocess.run([sys.executable, path], capture_output=True, text=True)
-    if proc.returncode != 0:
-        failures += 1
-        failure = ET.SubElement(case, "failure", message="non-zero exit")
-        failure.text = proc.stdout + proc.stderr
-    else:
-        stdout = ET.SubElement(case, "system-out")
-        stdout.text = proc.stdout
-
-suite.set("failures", str(failures))
-root = ET.Element("testsuites")
-root.append(suite)
-os.makedirs("test-results", exist_ok=True)
-ET.ElementTree(root).write("test-results/results.xml", encoding="utf-8")
-sys.exit(failures)
+if pkgutil.find_loader('xmlrunner'):
+    import xmlrunner
+    suite = unittest.defaultTestLoader.discover('tests')
+    runner = xmlrunner.XMLTestRunner(output='test-results')
+    result = runner.run(suite)
+    sys.exit(0 if result.wasSuccessful() else 1)
+else:
+    tests = sorted(glob.glob('tests/test_*.py'))
+    suite_el = ET.Element('testsuite', name='tests', tests=str(len(tests)))
+    failures = 0
+    for path in tests:
+        case = ET.SubElement(suite_el, 'testcase', name=os.path.basename(path))
+        proc = subprocess.run([sys.executable, path], capture_output=True, text=True)
+        if proc.returncode != 0:
+            failures += 1
+            failure = ET.SubElement(case, 'failure', message='non-zero exit')
+            failure.text = proc.stdout + proc.stderr
+        else:
+            stdout = ET.SubElement(case, 'system-out')
+            stdout.text = proc.stdout
+    suite_el.set('failures', str(failures))
+    os.makedirs('test-results', exist_ok=True)
+    ET.ElementTree(suite_el).write('test-results/results.xml', encoding='utf-8', xml_declaration=True)
+    sys.exit(failures)
 PY
-TEST_EXIT_CODE=$?
+TEST_EXIT_CODE=${PIPESTATUS[0]}
 set -e
 
 if [ $TEST_EXIT_CODE -ne 0 ]; then
