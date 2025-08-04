@@ -51,7 +51,7 @@ jobs:
       run: |
         output=$(dotnet-gitversion /config GitVersion.yml /output json 2>&1)
         echo "$output"
-        json=$(echo "$output" | grep -m 1 '^{')
+        json=$(echo "$output" | awk 'BEGIN{found=0} /^\s*{/ {found=1} {if (found) print} /^\s*}/ {exit}')
         if echo "$json" | jq empty >/dev/null 2>&1; then
           semver=$(echo "$json" | jq -r '.SemVer')
           echo "semVer=${semver}" >> "$GITHUB_OUTPUT"
