@@ -800,6 +800,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         shutil.rmtree(uc_cache_dir, ignore_errors=True)
                         log_debug("[selenium] Cleared undetected-chromedriver cache")
                     
+                    # Find system-installed chromedriver to avoid architecture issues
+                    chromedriver_path = None
+                    for candidate in ["/usr/local/bin/chromedriver", "/usr/bin/chromedriver"]:
+                        if os.path.exists(candidate):
+                            chromedriver_path = candidate
+                            log_debug(f"[selenium] Found system chromedriver: {chromedriver_path}")
+                            break
+                    
                     # Try with automatic configuration first
                     self.driver = uc.Chrome(
                         options=options,
@@ -808,7 +816,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         version_main=None,  # Auto-detect Chrome version
                         suppress_welcome=True,
                         log_level=3,
-                        driver_executable_path=None,  # Let UC handle chromedriver
+                        driver_executable_path=chromedriver_path,  # Use system chromedriver if found
                         browser_executable_path=None,  # Let UC find Chrome
                         user_data_dir=profile_dir
                     )

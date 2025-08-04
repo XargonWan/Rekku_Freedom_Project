@@ -181,21 +181,38 @@ ENV GITVERSION_TAG=$GITVERSION_TAG
 RUN echo "$GITVERSION_TAG" > /app/version.txt && \
     echo "Building with tag: $GITVERSION_TAG"
 
-# Create autostart script to run XFCE and rekku
-RUN mkdir -p /defaults && \
-    echo '#!/bin/bash' > /defaults/autostart && \
-    echo '# Start XFCE4 session' >> /defaults/autostart && \
-    echo 'export DISPLAY=:0' >> /defaults/autostart && \
-    echo 'startxfce4 &' >> /defaults/autostart && \
-    echo 'sleep 5' >> /defaults/autostart && \
-    echo '# Clean up any Chrome processes from previous sessions' >> /defaults/autostart && \
-    echo '/usr/local/bin/cleanup_chrome.sh' >> /defaults/autostart && \
-    echo '# Start Rekku application' >> /defaults/autostart && \
-    echo 'exec /usr/local/bin/rekku.sh run --as-service' >> /defaults/autostart && \
-    chmod +x /defaults/autostart
+# Create S6 service for Rekku
+RUN mkdir -p /etc/s6-overlay/s6-rc.d/rekku && \
+    echo '#!/command/with-contenv bash' > /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo 'set -e' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo '' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo '# Wait for X server to be ready' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo 'echo "Waiting for X server to be ready..."' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo 'while ! su abc -c "DISPLAY=:1 xset q >/dev/null 2>&1"; do' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo '    sleep 2' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo '    echo "Still waiting for X server..."' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo 'done' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo 'echo "X server is ready"' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo '' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo '# Clean up any Chrome processes from previous sessions' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo '/usr/local/bin/cleanup_chrome.sh' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo '' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo '# Start Rekku application' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo 'cd /app' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo 'echo "Starting Rekku Freedom Project..."' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo 'exec s6-setuidgid abc /usr/local/bin/rekku.sh run' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    chmod +x /etc/s6-overlay/s6-rc.d/rekku/run
+
+# Create S6 service dependencies
+RUN echo 'longrun' > /etc/s6-overlay/s6-rc.d/rekku/type && \
+    mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
+    touch /etc/s6-overlay/s6-rc.d/user/contents.d/rekku
 
 # Set permissions for abc user
-RUN chown -R abc:abc /app /defaults
+RUN chown -R abc:abc /app && \
+    chown -R abc:abc /etc/s6-overlay/s6-rc.d/rekku && \
+    mkdir -p /usr/share/novnc && \
+    chown -R abc:abc /usr/share/novnc
 
 # Expose port 3000 (selkies default)
 EXPOSE 3000
