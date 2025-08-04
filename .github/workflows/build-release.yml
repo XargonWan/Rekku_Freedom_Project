@@ -16,7 +16,20 @@ on:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            tag_suffix: ""
+            latest_tag: latest
+            develop_tag: latest-develop
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            tag_suffix: "-arm"
+            latest_tag: latest-arm
+            develop_tag: latest-develop-arm
+    runs-on: ${{ matrix.runner }}
 
     permissions:
       contents: read
@@ -35,9 +48,17 @@ jobs:
 
     - name: Determine version with GitVersion
       id: gitversion_build
-      uses: gittools/actions/gitversion/execute@v0.9.14
-      with:
-        useConfigFile: true
+      run: |
+        output=$(dotnet-gitversion /config GitVersion.yml /output json 2>&1)
+        echo "$output"
+        json=$(echo "$output" | awk 'BEGIN{found=0} /^\s*{/ {found=1} {if (found) print} /^\s*}/ {exit}')
+        if echo "$json" | jq empty >/dev/null 2>&1; then
+          semver=$(echo "$json" | jq -r '.SemVer')
+          echo "semVer=${semver}" >> "$GITHUB_OUTPUT"
+        else
+          echo "::error::dotnet-gitversion did not produce valid JSON"
+          exit 1
+        fi
 
     - name: Log in to Docker Hub
       uses: docker/login-action@v3
@@ -45,33 +66,41 @@ jobs:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-    - name: Build and push Docker image
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and push Docker image (${{ matrix.arch }})
       uses: docker/build-push-action@v5
       with:
         context: .
         push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}
+        platforms: linux/${{ matrix.arch }}
+        build-args: |
+          TARGETARCH=${{ matrix.arch }}
+          GITVERSION_TAG=${{ steps.gitversion_build.outputs.semVer }}
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}${{ matrix.tag_suffix }}
 
-    - name: Tag image as latest (main branch only)
+    - name: Tag image as ${{ matrix.latest_tag }} (main branch only)
       if: github.ref == 'refs/heads/main'
       run: |
-        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest
+        docker buildx imagetools create -t ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ matrix.latest_tag }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}${{ matrix.tag_suffix }}
 
-    - name: Tag image as latest-develop (develop branch only)
+    - name: Tag image as ${{ matrix.develop_tag }} (develop branch only)
       if: github.ref == 'refs/heads/develop'
       run: |
-        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest-develop
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest-develop
+        docker buildx imagetools create -t ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ matrix.develop_tag }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}${{ matrix.tag_suffix }}
 
     - name: Tag image for non-main and non-develop branches
       if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop'
+      env:
+        IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project
+        SEMVER: ${{ steps.gitversion_build.outputs.semVer }}
+        TAG_SUFFIX: ${{ matrix.tag_suffix }}
       run: |
         branch_name=${GITHUB_REF#refs/heads/}
         branch_name=${branch_name#refs/pull/}
         sanitized_branch_name=$(echo "$branch_name" | sed 's|/|-|g')
-        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-$sanitized_branch_name
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-$sanitized_branch_name
+        docker buildx imagetools create -t "$IMAGE_NAME:$SEMVER-$sanitized_branch_name$TAG_SUFFIX" "$IMAGE_NAME:$SEMVER$TAG_SUFFIX"
 
   cleanup-images:
     runs-on: ubuntu-latest
