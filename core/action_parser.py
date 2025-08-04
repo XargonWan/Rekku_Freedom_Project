@@ -560,6 +560,39 @@ def get_action_plugin_instructions() -> dict[str, dict]:
     return instructions
 
 
+async def gather_static_injections() -> dict:
+    """Collect static injections from plugins supporting the static_inject action."""
+    injections: dict = {}
+    try:
+        for plugin in _load_action_plugins():
+            try:
+                supported = False
+                if hasattr(plugin, "get_supported_action_types"):
+                    types = plugin.get_supported_action_types()
+                    if types and "static_inject" in types:
+                        supported = True
+                elif hasattr(plugin, "get_supported_actions"):
+                    acts = plugin.get_supported_actions()
+                    if isinstance(acts, dict):
+                        supported = "static_inject" in acts
+                    elif isinstance(acts, (list, set, tuple)):
+                        supported = "static_inject" in acts
+                if not supported or not hasattr(plugin, "get_static_injection"):
+                    continue
+                result = plugin.get_static_injection()
+                if inspect.iscoroutine(result):
+                    result = await result
+                if isinstance(result, dict):
+                    injections.update(result)
+            except Exception as e:
+                log_warning(
+                    f"[action_parser] Error gathering static injection from {plugin.__class__.__name__}: {e}"
+                )
+    except Exception as e:
+        log_error(f"[action_parser] Error collecting static injections: {e}")
+    return injections
+
+
 __all__ = [
     "run_action",
     "run_actions",
@@ -567,4 +600,5 @@ __all__ = [
     "validate_action",
     "initialize_core",
     "get_action_plugin_instructions",
+    "gather_static_injections",
 ]

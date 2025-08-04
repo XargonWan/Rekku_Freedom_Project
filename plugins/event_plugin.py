@@ -395,7 +395,7 @@ class EventPlugin(AIPluginBase):
                 )
                 return
 
-            event_prompt = self._create_event_prompt(event)
+            event_prompt = await self._create_event_prompt(event)
 
             log_debug(
                 f"[event_plugin] Delivering event {event['id']} to LLM via auto-response system"
@@ -427,7 +427,7 @@ class EventPlugin(AIPluginBase):
                 f"[event_plugin] Error delivering event {event['id']} to LLM: {repr(e)}"
             )
 
-    def _create_event_prompt(self, event: dict):
+    async def _create_event_prompt(self, event: dict):
         """Create a structured prompt for the event delivery."""
 
         # Extract event details
@@ -466,21 +466,30 @@ class EventPlugin(AIPluginBase):
         else:
             lateness_context = f"✅ Event on time (scheduled for {scheduled_time})"
 
-        return {
-            "context": {
-                "messages": [],
-                "memories": [],
-                "location": "",
-                "weather": "",
-                "date": datetime.utcnow().strftime("%Y-%m-%d"),
-                "time": format_dual_time(datetime.utcnow().replace(tzinfo=timezone.utc)),
-                "event_status": {
-                    "is_late": is_late,
-                    "minutes_late": minutes_late,
-                    "scheduled_time": scheduled_time,
-                    "lateness_context": lateness_context,
-                },
+        context = {
+            "messages": [],
+            "memories": [],
+            "location": "",
+            "date": datetime.utcnow().strftime("%Y-%m-%d"),
+            "time": format_dual_time(datetime.utcnow().replace(tzinfo=timezone.utc)),
+            "event_status": {
+                "is_late": is_late,
+                "minutes_late": minutes_late,
+                "scheduled_time": scheduled_time,
+                "lateness_context": lateness_context,
             },
+        }
+        try:
+            from core.action_parser import gather_static_injections
+
+            injections = await gather_static_injections()
+            if isinstance(injections, dict):
+                context.update(injections)
+        except Exception as e:
+            log_warning(f"[event_plugin] Failed to gather static injections: {e}")
+
+        return {
+            "context": context,
             "input": {
                 "type": "event",
                 "payload": {
@@ -789,7 +798,7 @@ For recurring events, you can use:
             )
 
             # Create a JSON prompt for the scheduled action with lateness info
-            scheduled_prompt = self._create_scheduled_action_prompt(
+            scheduled_prompt = await self._create_scheduled_action_prompt(
                 action, event_id, event_info
             )
 
@@ -870,7 +879,7 @@ For recurring events, you can use:
 
         return message
 
-    def _create_scheduled_action_prompt(
+    async def _create_scheduled_action_prompt(
         self, action: dict, event_id: int, event_info: dict = None
     ):
         """Create a JSON prompt for the scheduled action with lateness information."""
@@ -908,21 +917,31 @@ For recurring events, you can use:
         else:
             lateness_context = f"✅ Message on time (scheduled for {scheduled_time})"
 
-        return {
-            "context": {
-                "messages": [],
-                "memories": [],
-                "location": "",
-                "weather": "",
-                "date": datetime.utcnow().strftime("%Y-%m-%d"),
-                "time": format_dual_time(datetime.utcnow().replace(tzinfo=timezone.utc)),
-                "event_status": {
-                    "is_late": is_late,
-                    "minutes_late": minutes_late,
-                    "scheduled_time": scheduled_time,
-                    "lateness_context": lateness_context,
-                },
+        context = {
+            "messages": [],
+            "memories": [],
+            "location": "",
+            "date": datetime.utcnow().strftime("%Y-%m-%d"),
+            "time": format_dual_time(datetime.utcnow().replace(tzinfo=timezone.utc)),
+            "event_status": {
+                "is_late": is_late,
+                "minutes_late": minutes_late,
+                "scheduled_time": scheduled_time,
+                "lateness_context": lateness_context,
             },
+        }
+
+        try:
+            from core.action_parser import gather_static_injections
+
+            injections = await gather_static_injections()
+            if isinstance(injections, dict):
+                context.update(injections)
+        except Exception as e:
+            log_warning(f"[event_plugin] Failed to gather static injections: {e}")
+
+        return {
+            "context": context,
             "input": {
                 "type": "scheduled_event",
                 "event_id": event_id,
