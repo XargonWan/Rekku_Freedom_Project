@@ -15,6 +15,7 @@ DB_PORT = int(os.getenv("EXT_DB_PORT", "3306"))
 DB_USER = os.getenv("DB_USER", "rekku")
 DB_PASS = os.getenv("DB_PASS", "rekku")
 DB_NAME = os.getenv("DB_NAME", "rekku")
+DB_ROOT_PASS = os.getenv("DB_ROOT_PASS", "root")
 
 # Database configuration log for debugging
 log_info(f"[db] Configuration: HOST={DB_HOST}, PORT={DB_PORT}, USER={DB_USER}, DB_NAME={DB_NAME}")
@@ -22,6 +23,43 @@ log_debug(f"[db] Password length: {len(DB_PASS)} characters")
 
 _db_initialized = False
 _db_init_lock = asyncio.Lock()
+
+async def get_root_conn() -> aiomysql.Connection:
+    """Return an async MariaDB connection using root credentials."""
+    log_debug(f"[db] Opening root connection to {DB_HOST}:{DB_PORT}")
+    conn = await aiomysql.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        user="root",
+        password=DB_ROOT_PASS,
+        autocommit=True,
+    )
+    log_debug("[db] Root connection opened")
+    return conn
+
+async def ensure_database_and_user() -> bool:
+    """Ensure the database and user exist with proper permissions."""
+    try:
+        log_info("[db] Ensuring database and user exist...")
+        conn = await get_root_conn()
+        try:
+            async with conn.cursor() as cur:
+                # Create database if it doesn't exist
+                await cur.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}`")
+                log_info(f"[db] Database '{DB_NAME}' ensured")
+                
+                # Create user if it doesn't exist and grant permissions
+                await cur.execute(f"CREATE USER IF NOT EXISTS '{DB_USER}'@'%' IDENTIFIED BY '{DB_PASS}'")
+                await cur.execute(f"GRANT ALL PRIVILEGES ON `{DB_NAME}`.* TO '{DB_USER}'@'%'")
+                await cur.execute("FLUSH PRIVILEGES")
+                log_info(f"[db] User '{DB_USER}' ensured with privileges on '{DB_NAME}'")
+                
+        finally:
+            conn.close()
+        return True
+    except Exception as e:
+        log_error(f"[db] Error ensuring database and user: {e}")
+        return False
 
 async def get_conn() -> aiomysql.Connection:
     """Return an async MariaDB connection using aiomysql."""

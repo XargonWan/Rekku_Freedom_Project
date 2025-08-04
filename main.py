@@ -3,7 +3,7 @@ import signal
 import sys
 import subprocess
 import asyncio
-from core.db import init_db, test_connection, get_conn
+from core.db import init_db, test_connection, get_conn, ensure_database_and_user
 from core.blocklist import init_blocklist_table
 from core.config import get_active_llm
 from core.logging_utils import (
@@ -162,6 +162,11 @@ async def initialize_database():
                 conn.close()
 
     try:
+        log_info("[main] Ensuring database and user exist...")
+        if not await ensure_database_and_user():
+            log_error("[main] Failed to ensure database and user exist")
+            return False
+        
         grants = await check_permissions()
         log_info(f"[main] Database user permissions: {grants}")
 
