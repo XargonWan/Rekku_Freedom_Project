@@ -160,13 +160,55 @@ def test_batching_combines_text(monkeypatch):
         msg2 = Msg(1, 10, text="two")
 
         await message_queue.enqueue(bot, msg1, None)
-        await message_queue.enqueue(bot, msg2, None)
-
         task = asyncio.create_task(message_queue._consumer_loop())
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.05)
+        await message_queue.enqueue(bot, msg2, None)
+        await asyncio.sleep(0.6)
         task.cancel()
         await task
 
         assert calls == ["one\ntwo"]
+
+    asyncio.run(scenario())
+
+
+def test_messages_during_processing_are_grouped(monkeypatch):
+    async def scenario():
+        calls = []
+
+        async def fake_handle(bot, message, context):
+            calls.append(message.text)
+            await asyncio.sleep(0.3)
+
+        class Plugin:
+            def get_rate_limit(self):
+                return 1000, 1, 0.0
+
+        plugin_instance.plugin = Plugin()
+        monkeypatch.setattr(plugin_instance, "handle_incoming_message", fake_handle)
+
+        async def fake_track_chat(chat_id, meta):
+            return None
+
+        monkeypatch.setattr(recent_chats, "track_chat", fake_track_chat)
+
+        message_queue._queue = StubQueue()
+
+        bot = BotA()
+        msg1 = Msg(1, 10, text="first")
+        await message_queue.enqueue(bot, msg1, None)
+
+        task = asyncio.create_task(message_queue._consumer_loop())
+        await asyncio.sleep(0.35)
+        msg2 = Msg(1, 10, text="second")
+        msg3 = Msg(1, 10, text="third")
+        await message_queue.enqueue(bot, msg2, None)
+        await message_queue.enqueue(bot, msg3, None)
+
+        await asyncio.sleep(1)
+        task.cancel()
+        await task
+
+        assert calls == ["first", "second\nthird"]
 
     asyncio.run(scenario())

@@ -97,31 +97,35 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
         )
 
 
-async def compact_similar_messages(first: dict) -> list:
-    """Merge up to 4 additional queued messages from the same chat, thread and interface."""
+async def compact_similar_messages(first: dict, quiet: float = 0.3) -> list:
+    """Collect subsequent messages from same chat/thread/interface until quiet period."""
     batch = [first]
     chat_id = first["chat_id"]
     thread_id = first.get("thread_id")
     interface = first.get("interface")
     ts = first["timestamp"]
-    candidates = []
-    
-    # Convert internal queue list to iterate and remove
-    queue_items = list(_queue._queue)
-    for prio, item in queue_items:
-        if len(batch) >= 5:
-            break
-        if (
-            item["chat_id"] == chat_id
-            and item.get("thread_id") == thread_id
-            and item.get("interface") == interface
-            and item["timestamp"] - ts <= 600
-        ):
-            candidates.append((prio, item))
 
-    for prio, item in candidates:
-        _queue._queue.remove((prio, item))
-        batch.append(item)
+    while len(batch) < 5:
+        await asyncio.sleep(quiet)
+        candidates = []
+        queue_items = list(_queue._queue)
+        for prio, item in queue_items:
+            if len(batch) >= 5:
+                break
+            if (
+                item["chat_id"] == chat_id
+                and item.get("thread_id") == thread_id
+                and item.get("interface") == interface
+                and item["timestamp"] - ts <= 600
+            ):
+                candidates.append((prio, item))
+
+        if not candidates:
+            break
+
+        for prio, item in candidates:
+            _queue._queue.remove((prio, item))
+            batch.append(item)
 
     batch.sort(key=lambda x: x["timestamp"])
 
