@@ -69,10 +69,15 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
     meta = message.chat.title or message.chat.username or message.chat.first_name
     await recent_chats.track_chat(chat_id, meta)
 
+    thread_id = getattr(message, "message_thread_id", None)
+    interface = bot.__class__.__name__ if bot else None
+
     item = {
         "bot": bot,
         "message": message,
         "chat_id": chat_id,
+        "thread_id": thread_id,
+        "interface": interface,
         "timestamp": time.time(),
         "context": context_memory,
         "priority": priority,
@@ -81,15 +86,23 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
     priority_val = HIGH_PRIORITY if priority else NORMAL_PRIORITY
     await _queue.put((priority_val, item))
     if priority:
-        log_debug(f"[QUEUE] High-priority message enqueued from chat {chat_id} by user {user_id}")
+        log_debug(
+            f"[QUEUE] High-priority message enqueued from {interface} chat {chat_id}"
+            f" thread {thread_id} by user {user_id}"
+        )
     else:
-        log_debug(f"[QUEUE] Regular message enqueued from chat {chat_id} by user {user_id}")
+        log_debug(
+            f"[QUEUE] Regular message enqueued from {interface} chat {chat_id}"
+            f" thread {thread_id} by user {user_id}"
+        )
 
 
 async def compact_similar_messages(first: dict) -> list:
-    """Merge up to 4 additional queued messages from the same chat."""
+    """Merge up to 4 additional queued messages from the same chat, thread and interface."""
     batch = [first]
     chat_id = first["chat_id"]
+    thread_id = first.get("thread_id")
+    interface = first.get("interface")
     ts = first["timestamp"]
     candidates = []
     
@@ -98,7 +111,12 @@ async def compact_similar_messages(first: dict) -> list:
     for prio, item in queue_items:
         if len(batch) >= 5:
             break
-        if item["chat_id"] == chat_id and item["timestamp"] - ts <= 600:
+        if (
+            item["chat_id"] == chat_id
+            and item.get("thread_id") == thread_id
+            and item.get("interface") == interface
+            and item["timestamp"] - ts <= 600
+        ):
             candidates.append((prio, item))
 
     for prio, item in candidates:
@@ -210,6 +228,8 @@ async def enqueue_event(bot, prompt_data, event_id: int = None) -> None:
         "bot": bot,
         "message": None,  # Events don't have actual messages
         "chat_id": "TARDIS/system/events",
+        "thread_id": None,
+        "interface": bot.__class__.__name__ if bot else None,
         "timestamp": time.time(),
         "context": {"event_id": event_id} if event_id else {},
         "priority": True,
