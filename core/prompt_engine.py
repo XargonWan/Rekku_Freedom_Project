@@ -14,7 +14,6 @@ except Exception:  # pragma: no cover - plugin optional
     collect_prompt_participants = None
 from core.rekku_utils import (
     get_local_timezone,
-    utc_to_local,
     format_dual_time,
 )
 
@@ -70,6 +69,16 @@ async def build_json_prompt(message, context_memory) -> dict:
         "date": date,
         "time": time,
     }
+
+    # === 3b. Static injections from plugins ===
+    try:
+        from core.action_parser import gather_static_injections
+
+        injections = await gather_static_injections()
+        if isinstance(injections, dict):
+            context_section.update(injections)
+    except Exception as e:  # pragma: no cover - defensive
+        log_warning(f"[json_prompt] Failed to gather static injections: {e}")
 
     # === 4. Input payload ===
     message_thread_id = getattr(message, "message_thread_id", None)
