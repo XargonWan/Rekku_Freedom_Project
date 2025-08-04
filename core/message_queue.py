@@ -144,6 +144,24 @@ async def _consumer_loop() -> None:
             async with _lock:
                 batch = await compact_similar_messages(item)
                 final = batch[-1]
+                if len(batch) > 1 and final.get("message"):
+                    texts = [
+                        b["message"].text
+                        for b in batch
+                        if b.get("message") and getattr(b["message"], "text", None)
+                    ]
+                    base = final["message"]
+                    merged = SimpleNamespace(
+                        chat_id=getattr(base, "chat_id", None),
+                        message_id=getattr(base, "message_id", None),
+                        text="\n".join(texts),
+                        from_user=getattr(base, "from_user", None),
+                        date=getattr(base, "date", datetime.utcnow()),
+                        message_thread_id=getattr(base, "message_thread_id", None),
+                        chat=getattr(base, "chat", None),
+                        reply_to_message=getattr(base, "reply_to_message", None),
+                    )
+                    final["message"] = merged
                 log_debug(
                     f"[QUEUE] Processing message from chat {final.get('chat_id')}"
                 )
