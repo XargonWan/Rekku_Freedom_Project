@@ -294,6 +294,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context_memory[message.chat_id] = deque(maxlen=10)
     context_memory[message.chat_id].append({
         "message_id": message.message_id,
+        "user_id": user_id,
         "username": username,
         "usertag": usertag,
         "text": text,
