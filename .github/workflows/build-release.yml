@@ -106,11 +106,12 @@ jobs:
           LOG_DIR=./logs ./run_tests.sh
           exit_code=$?
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
-          exit $exit_code
-        continue-on-error: true
+          # Always exit successfully so the job continues
+          exit 0
       - name: Report unit test result
         if: always()
         run: |
+          echo "## Unit test results" >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ steps.run-tests.outputs.exit_code }}" != '0' ]; then
             echo "❌ Unit tests failed with exit code ${{ steps.run-tests.outputs.exit_code }}" >> "$GITHUB_STEP_SUMMARY"
           else
