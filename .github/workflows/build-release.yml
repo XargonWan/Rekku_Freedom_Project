@@ -15,24 +15,20 @@ on:
       - "feat/**"
 
 jobs:
-  build-and-push:
+  prepare:
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
-      packages: write
-      id-token: write
-
+    outputs:
+      semver: ${{ steps.gitversion.outputs.semVer }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Install GitVersion
         uses: gittools/actions/gitversion/setup@v0.9.14
         with:
           versionSpec: '5.x'
-
       - name: Determine version with GitVersion
         id: gitversion
         run: |
@@ -47,22 +43,83 @@ jobs:
             exit 1
           fi
 
+  build-images:
+    needs: prepare
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project
+    steps:
+      - uses: actions/checkout@v4
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+      - name: Build and push by digest (${{ matrix.arch }})
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            GITVERSION_TAG=${{ needs.prepare.outputs.semver }}
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,push=true
+      - name: Export digest
+        run: echo "${{ steps.build.outputs.digest }}" > digest-${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digest-${{ matrix.arch }}
 
+  manifest:
+    needs: [prepare, build-images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: digest-amd64
+          path: .
+      - uses: actions/download-artifact@v4
+        with:
+          name: digest-arm64
+          path: .
+      - name: Read digests
+        id: digests
+        run: |
+          echo "amd64=$(cat digest-amd64)" >> "$GITHUB_OUTPUT"
+          echo "arm64=$(cat digest-arm64)" >> "$GITHUB_OUTPUT"
       - name: Compute image tags
         id: meta
         env:
-          IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project
-          SEMVER: ${{ steps.gitversion.outputs.semVer }}
+          SEMVER: ${{ needs.prepare.outputs.semver }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          IMAGE_NAME="$IMAGE_NAME"
           tags=""
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             tags="$IMAGE_NAME:pr$PR_NUMBER-$SEMVER"
@@ -76,21 +133,22 @@ jobs:
             tags="$IMAGE_NAME:$sanitized-$SEMVER"
           fi
           echo "tags=$tags" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          build-args: |
-            GITVERSION_TAG=${{ steps.gitversion.outputs.semVer }}
-          tags: ${{ steps.meta.outputs.tags }}
+      - name: Create multi-arch manifest
+        env:
+          AMD64_DIGEST: ${{ steps.digests.outputs.amd64 }}
+          ARM64_DIGEST: ${{ steps.digests.outputs.arm64 }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in $(echo "$TAGS" | tr ',' ' '); do
+            docker buildx imagetools create -t "$tag" \
+              "$IMAGE_NAME@$AMD64_DIGEST" \
+              "$IMAGE_NAME@$ARM64_DIGEST"
+          done
 
   cleanup-images:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
-    needs: build-and-push
+    needs: manifest
     steps:
       - name: Remove dangling and old PR images from Docker Hub
         env:
