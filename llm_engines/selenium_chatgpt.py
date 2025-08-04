@@ -784,7 +784,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     
                     # Use persistent profile directory to maintain login sessions
                     # This preserves ChatGPT login and other site sessions across restarts
-                    profile_dir = os.path.expanduser("~/.config/google-chrome-rekku")
+                    # Support both Chrome and Chromium
+                    if os.path.exists("/usr/bin/google-chrome") or os.path.exists("/usr/bin/google-chrome-stable"):
+                        profile_dir = os.path.expanduser("~/.config/google-chrome-rekku")
+                    else:
+                        profile_dir = os.path.expanduser("~/.config/chromium-rekku")
                     os.makedirs(profile_dir, exist_ok=True)
                     options.add_argument(f"--user-data-dir={profile_dir}")
                     
@@ -835,10 +839,22 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         time.sleep(delay)
                     else:
                         # Final attempt with explicit Chrome binary
-                        log_debug("[selenium] Final attempt with explicit Chrome binary path...")
+                        log_debug("[selenium] Final attempt with explicit Chrome/Chromium binary path...")
                         try:
-                            chrome_binary = "/usr/bin/google-chrome-stable"
-                            if os.path.exists(chrome_binary):
+                            # Try to find available browser binary
+                            chrome_binary = None
+                            for candidate in [
+                                "/usr/bin/google-chrome-stable",
+                                "/usr/bin/google-chrome", 
+                                "/usr/bin/chromium",
+                                "/usr/bin/chromium-browser"
+                            ]:
+                                if os.path.exists(candidate):
+                                    chrome_binary = candidate
+                                    break
+                            
+                            if chrome_binary:
+                                log_debug(f"[selenium] Using browser binary: {chrome_binary}")
                                 # Create fresh ChromeOptions for fallback attempt
                                 fallback_options = uc.ChromeOptions()
                                 for arg in essential_args:
@@ -855,16 +871,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                     browser_executable_path=chrome_binary,
                                     user_data_dir=profile_dir
                                 )
-                                log_debug("[selenium] ✅ Chrome initialized with explicit binary path")
+                                log_debug(f"[selenium] ✅ Browser initialized with explicit binary path: {chrome_binary}")
                                 return
                             else:
-                                raise Exception("Chrome binary not found")
+                                raise Exception("No compatible browser binary found (Chrome/Chromium)")
                                 
                         except Exception as e2:
-                            log_warning("[selenium] Chrome lock suspected - attempting forced lock cleanup...")
+                            log_warning("[selenium] Browser lock suspected - attempting forced lock cleanup...")
                             self._cleanup_chrome_remnants()
                             try:
-                                if os.path.exists(chrome_binary):
+                                if chrome_binary:
                                     fallback_options = uc.ChromeOptions()
                                     for arg in essential_args:
                                         fallback_options.add_argument(arg)
@@ -880,24 +896,26 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                         browser_executable_path=chrome_binary,
                                         user_data_dir=profile_dir
                                     )
-                                    log_debug("[selenium] ✅ Chrome initialized after forced lock cleanup")
+                                    log_debug(f"[selenium] ✅ Browser initialized after forced lock cleanup: {chrome_binary}")
                                     return
                                 else:
-                                    raise Exception("Chrome binary not found")
+                                    raise Exception("No compatible browser binary found (Chrome/Chromium)")
                             except Exception as e3:
                                 log_error(f"[selenium] ❌ All initialization attempts failed: {e3}")
                                 _notify_gui(f"❌ Selenium error: {e3}. Check graphics environment.")
                                 raise SystemExit(1)
 
     def _cleanup_chrome_remnants(self):
-        """Clean up Chrome processes and leftover lock files."""
+        """Clean up Chrome/Chromium processes and leftover lock files."""
         try:
+            # Kill both Chrome and Chromium processes
             subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
+            subprocess.run(["pkill", "-f", "chromium"], capture_output=True, text=True)
             subprocess.run(["pkill", "chromedriver"], capture_output=True, text=True)
             time.sleep(1)
-            log_debug("[selenium] Issued pkill for chrome and chromedriver")
+            log_debug("[selenium] Issued pkill for chrome, chromium and chromedriver")
         except Exception as e:
-            log_debug(f"[selenium] Failed to kill chrome processes: {e}")
+            log_debug(f"[selenium] Failed to kill browser processes: {e}")
 
         try:
             import glob

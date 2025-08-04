@@ -32,6 +32,20 @@ RUN apt-get update && \
       htop net-tools iputils-ping && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Install XFCE4 desktop environment
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      xfce4 \
+      xfce4-goodies \
+      xfce4-terminal \
+      thunar \
+      mousepad \
+      dbus-x11 \
+      at-spi2-core \
+      pulseaudio \
+      pavucontrol && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Install browser based on architecture (no snap)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends jq && \
@@ -167,9 +181,13 @@ ENV GITVERSION_TAG=$GITVERSION_TAG
 RUN echo "$GITVERSION_TAG" > /app/version.txt && \
     echo "Building with tag: $GITVERSION_TAG"
 
-# Create autostart script to run rekku
+# Create autostart script to run XFCE and rekku
 RUN mkdir -p /defaults && \
     echo '#!/bin/bash' > /defaults/autostart && \
+    echo '# Start XFCE4 session' >> /defaults/autostart && \
+    echo 'export DISPLAY=:0' >> /defaults/autostart && \
+    echo 'startxfce4 &' >> /defaults/autostart && \
+    echo 'sleep 5' >> /defaults/autostart && \
     echo '# Clean up any Chrome processes from previous sessions' >> /defaults/autostart && \
     echo '/usr/local/bin/cleanup_chrome.sh' >> /defaults/autostart && \
     echo '# Start Rekku application' >> /defaults/autostart && \
