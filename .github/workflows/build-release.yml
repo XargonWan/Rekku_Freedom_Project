@@ -16,67 +16,7 @@ on:
 
 jobs:
   build-and-push:
-    strategy:
-      matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
-    - name: Install GitVersion
-      uses: gittools/actions/gitversion/setup@v0.9.14
-      with:
-        versionSpec: '5.x'
-
-    - name: Determine version with GitVersion
-      id: gitversion_build
-      run: |
-        output=$(dotnet-gitversion /config GitVersion.yml /output json 2>&1)
-        echo "$output"
-        json=$(echo "$output" | awk 'BEGIN{found=0} /^\s*{/ {found=1} {if (found) print} /^\s*}/ {exit}')
-        if echo "$json" | jq empty >/dev/null 2>&1; then
-          semver=$(echo "$json" | jq -r '.SemVer')
-          echo "semVer=${semver}" >> "$GITHUB_OUTPUT"
-        else
-          echo "::error::dotnet-gitversion did not produce valid JSON"
-          exit 1
-        fi
-
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Build and push Docker image (${{ matrix.arch }})
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: true
-        platforms: linux/${{ matrix.arch }}
-        build-args: |
-          TARGETARCH=${{ matrix.arch }}
-          GITVERSION_TAG=${{ steps.gitversion_build.outputs.semVer }}
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}-${{ matrix.arch }}
-
-  create-manifest:
     runs-on: ubuntu-latest
-    needs: build-and-push
 
     permissions:
       contents: read
@@ -84,67 +24,73 @@ jobs:
       id-token: write
 
     steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Install GitVersion
-      uses: gittools/actions/gitversion/setup@v0.9.14
-      with:
-        versionSpec: '5.x'
+      - name: Install GitVersion
+        uses: gittools/actions/gitversion/setup@v0.9.14
+        with:
+          versionSpec: '5.x'
 
-    - name: Determine version with GitVersion
-      id: gitversion_manifest
-      run: |
-        output=$(dotnet-gitversion /config GitVersion.yml /output json 2>&1)
-        echo "$output"
-        json=$(echo "$output" | awk 'BEGIN{found=0} /^\s*{/ {found=1} {if (found) print} /^\s*}/ {exit}')
-        if echo "$json" | jq empty >/dev/null 2>&1; then
-          semver=$(echo "$json" | jq -r '.SemVer')
-          echo "semVer=${semver}" >> "$GITHUB_OUTPUT"
-        else
-          echo "::error::dotnet-gitversion did not produce valid JSON"
-          exit 1
-        fi
+      - name: Determine version with GitVersion
+        id: gitversion
+        run: |
+          output=$(dotnet-gitversion /config GitVersion.yml /output json 2>&1)
+          echo "$output"
+          json=$(echo "$output" | awk 'BEGIN{found=0} /^\s*{/ {found=1} {if (found) print} /^\s*}/ {exit}')
+          if echo "$json" | jq empty >/dev/null 2>&1; then
+            semver=$(echo "$json" | jq -r '.SemVer')
+            echo "semVer=${semver}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::dotnet-gitversion did not produce valid JSON"
+            exit 1
+          fi
 
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-    - name: Create multi-architecture manifest
-      env:
-        IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project
-        SEMVER: ${{ steps.gitversion_manifest.outputs.semVer }}
-      run: |
-        docker buildx imagetools create -t "$IMAGE_NAME:$SEMVER" \
-          "$IMAGE_NAME:$SEMVER-amd64" \
-          "$IMAGE_NAME:$SEMVER-arm64"
+      - name: Compute image tags
+        id: meta
+        env:
+          IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project
+          SEMVER: ${{ steps.gitversion.outputs.semVer }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          tags=""
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            tags="$IMAGE_NAME:pr$PR_NUMBER-$SEMVER"
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            tags="$IMAGE_NAME:$SEMVER,$IMAGE_NAME:latest"
+          elif [ "$GITHUB_REF" = "refs/heads/develop" ]; then
+            tags="$IMAGE_NAME:develop-$SEMVER,$IMAGE_NAME:latest-develop"
+          else
+            branch="${GITHUB_REF#refs/heads/}"
+            sanitized=$(echo "$branch" | tr '/' '-')
+            tags="$IMAGE_NAME:$sanitized-$SEMVER"
+          fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
 
-        if [ "$GITHUB_REF" = 'refs/heads/main' ]; then
-          docker buildx imagetools create -t "$IMAGE_NAME:latest" \
-            "$IMAGE_NAME:$SEMVER-amd64" \
-            "$IMAGE_NAME:$SEMVER-arm64"
-        elif [ "$GITHUB_REF" = 'refs/heads/develop' ]; then
-          docker buildx imagetools create -t "$IMAGE_NAME:latest-develop" \
-            "$IMAGE_NAME:$SEMVER-amd64" \
-            "$IMAGE_NAME:$SEMVER-arm64"
-        else
-          branch_name=${GITHUB_REF#refs/heads/}
-          branch_name=${branch_name#refs/pull/}
-          sanitized_branch_name=$(echo "$branch_name" | sed 's|/|-|g')
-          docker buildx imagetools create -t "$IMAGE_NAME:$SEMVER-$sanitized_branch_name" \
-            "$IMAGE_NAME:$SEMVER-amd64" \
-            "$IMAGE_NAME:$SEMVER-arm64"
-        fi
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            GITVERSION_TAG=${{ steps.gitversion.outputs.semVer }}
+          tags: ${{ steps.meta.outputs.tags }}
 
   cleanup-images:
     runs-on: ubuntu-latest
-    needs: create-manifest
+    if: github.event_name != 'pull_request'
+    needs: build-and-push
     steps:
       - name: Remove dangling and old PR images from Docker Hub
         env:
@@ -165,7 +111,7 @@ jobs:
           cutoff=$(date -u -d '14 days ago' +%s)
           curl -s -H "Authorization: JWT $token" "https://hub.docker.com/v2/repositories/$repo/tags?page_size=100" | \
             jq -r '.results[] | .name + " " + .last_updated' | while read name updated; do
-              if [[ "$name" == *-pr-* ]]; then
+              if [[ "$name" == pr* ]]; then
                 ts=$(date -u -d "$updated" +%s)
                 if [ $ts -lt $cutoff ]; then
                   echo "Deleting tag $name (older than two weeks)"
@@ -173,4 +119,3 @@ jobs:
                 fi
               fi
             done
-
