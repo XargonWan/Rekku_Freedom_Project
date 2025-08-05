@@ -9,6 +9,7 @@ import nodriver as uc
 
 from core.db import get_conn
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.ai_plugin_base import AIPluginBase
 
 
 class Keys:
@@ -207,12 +208,17 @@ class NodriverSeleniumWrapper:
         return self._tab.url
 
 
-class SeleniumChatGPTClient:
+class SeleniumChatGPTClient(AIPluginBase):
     """Minimal ChatGPT browser client powered by nodriver."""
 
-    def __init__(self):
+    def __init__(self, notify_fn=None):
         self._browser = None
         self._driver: NodriverSeleniumWrapper | None = None
+        if notify_fn:
+            from core.notifier import set_notifier
+
+            log_debug("[selenium] Using custom notifier function")
+            set_notifier(notify_fn)
 
     async def _ensure_driver(self) -> NodriverSeleniumWrapper:
         if self._driver:
@@ -264,18 +270,26 @@ class SeleniumChatGPTClient:
         log_debug("[selenium] received reply of %d chars" % len(reply))
         return reply, driver.current_url
 
-    async def handle_incoming_message(self, prompt: str, chat_id: int) -> str:
-        """Entry point used by the RFP."""
-        conv = await chat_link_store.get_link(chat_id, None)
+    async def handle_incoming_message(self, bot, message, prompt: dict) -> str:
+        """Process an incoming message using the ChatGPT web UI."""
+        chat_id = getattr(message, "chat_id", None)
+        thread_id = getattr(message, "message_thread_id", None)
+        user_prompt = prompt.get("message", {}).get("text", "") if isinstance(prompt, dict) else str(prompt)
+
+        if not user_prompt or chat_id is None:
+            log_warning("[selenium] Missing prompt or chat_id")
+            return ""
+
+        conv = await chat_link_store.get_link(chat_id, thread_id)
         url = f"https://chat.openai.com/c/{conv}" if conv else "https://chat.openai.com"
         try:
-            reply, final_url = await self.ask(prompt, url)
+            reply, final_url = await self.ask(user_prompt, url)
         except Exception as e:  # pragma: no cover - best effort
             if conv:
                 log_warning(
                     f"[selenium] stored chat {conv} failed ({e}), using new chat"
                 )
-                reply, final_url = await self.ask(prompt, "https://chat.openai.com")
+                reply, final_url = await self.ask(user_prompt, "https://chat.openai.com")
                 conv = None
             else:
                 log_error(f"[selenium] error handling message: {e}")
@@ -284,7 +298,17 @@ class SeleniumChatGPTClient:
         if conv is None:
             new_id = _extract_chat_id(final_url)
             if new_id:
-                await chat_link_store.save_link(chat_id, None, new_id)
+                await chat_link_store.save_link(chat_id, thread_id, new_id)
+
+        if bot and reply:
+            try:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=reply,
+                    reply_to_message_id=getattr(message, "message_id", None),
+                )
+            except Exception as e:  # pragma: no cover - network issues
+                log_error(f"[selenium] Failed to send message via bot: {e}")
 
         return reply
 
