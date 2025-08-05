@@ -123,35 +123,70 @@ def _extract_chat_id(url: str) -> Optional[str]:
 class NodriverElementWrapper:
     """Minimal wrapper to provide a selenium-like API."""
 
-    def __init__(self, element):
+    def __init__(self, element, tab):
         self._el = element
+        self._tab = tab
 
     async def clear(self) -> None:
+        """Attempt to empty the element's value using available nodriver APIs."""
         try:
-            await self._el.evaluate(
-                "el => { el.value=''; el.dispatchEvent(new Event('input',{bubbles:true})); }"
-            )
+            if hasattr(self._el, "clear"):
+                await self._el.clear()
+                return
+            if hasattr(self._el, "set_value"):
+                await self._el.set_value("")
+                return
+            if hasattr(self._el, "type"):
+                await self._el.type("")
+                return
         except Exception as e:  # pragma: no cover - best effort
             log_error(f"[selenium] failed to clear textarea: {e}")
 
     async def send_keys(self, text: str) -> None:
+        """Send text or special keys to the wrapped element."""
         try:
             if text == Keys.ENTER:
-                await self._el.evaluate(
-                    "el => { el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',bubbles:true}));"
-                    "el.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',bubbles:true})); }"
-                )
+                if hasattr(self._el, "press"):
+                    await self._el.press("Enter")
+                    return
+                if hasattr(self._el, "type"):
+                    await self._el.type("\n")
+                    return
             else:
-                escaped = (
-                    text.replace("\\", "\\\\")
-                    .replace("'", "\\'")
-                    .replace("\n", "\\n")
-                )
-                await self._el.evaluate(
-                    "el => { el.value='" + escaped + "'; el.dispatchEvent(new Event('input',{bubbles:true})); }"
-                )
+                if hasattr(self._el, "type"):
+                    await self._el.type(text)
+                    return
+                if hasattr(self._el, "send_keys"):
+                    await self._el.send_keys(text)
+                    return
+                if hasattr(self._el, "set_value"):
+                    await self._el.set_value(text)
+                    return
         except Exception as e:  # pragma: no cover - best effort
             log_error(f"[selenium] failed to send keys: {e}")
+
+    async def get_attribute(self, name: str) -> Optional[str]:
+        try:
+            if hasattr(self._el, "get_attribute"):
+                return await self._el.get_attribute(name)
+            if hasattr(self._el, "get_property"):
+                return await self._el.get_property(name)
+        except Exception:
+            return None
+        return None
+
+    async def text(self) -> str:
+        try:
+            if hasattr(self._el, "text"):
+                return await self._el.text()
+            if hasattr(self._el, "inner_text"):
+                return await self._el.inner_text()
+            attr = await self.get_attribute("innerText")
+            if attr:
+                return attr
+        except Exception:
+            return ""
+        return ""
  
 class NodriverSeleniumWrapper:
     """Expose a very small selenium-like surface over nodriver."""
@@ -167,14 +202,14 @@ class NodriverSeleniumWrapper:
         if not css:
             return None
         el = await self._tab.select(css, timeout=20)
-        return NodriverElementWrapper(el) if el else None
+        return NodriverElementWrapper(el, self._tab) if el else None
 
     async def find_elements(self, by: str, selector: str):
         css = self._to_css(by, selector)
         if not css:
             return []
         els = await self._tab.select_all(css, timeout=1)
-        return [NodriverElementWrapper(e) for e in els]
+        return [NodriverElementWrapper(e, self._tab) for e in els]
 
     def _to_css(self, by: str, selector: str) -> str | None:
         if by == By.ID:
@@ -227,7 +262,7 @@ class SeleniumChatGPTClient(AIPluginBase):
                 last = elems[-1]
                 text = await last.get_attribute("innerText")
                 if not text:
-                    text = last.text
+                    text = await last.text()
                 return text.strip()
             await asyncio.sleep(1)
         raise TimeoutError("assistant reply not found")
