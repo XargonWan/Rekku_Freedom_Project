@@ -112,8 +112,10 @@ def _extract_chat_id(url: str) -> Optional[str]:
     patterns = [
         r"/chat/([^/?#]+)",
         r"/c/([^/?#]+)",
+        r"/g/([^/?#]+)",
         r"chat\\.openai\\.com/chat/([^/?#]+)",
         r"chat\\.openai\\.com/c/([^/?#]+)",
+        r"chat\\.openai\\.com/g/([^/?#]+)",
     ]
     for pattern in patterns:
         m = re.search(pattern, url)
@@ -276,9 +278,11 @@ class NodriverSeleniumWrapper:
             return selector
         return None
 
-    @property
-    def current_url(self) -> str:
-        return self._tab.url
+    async def current_url(self) -> str:
+        try:
+            return await self._tab.evaluate("window.location.href")
+        except Exception:
+            return getattr(self._tab, "url", "")
 
 
 class SeleniumChatGPTClient(AIPluginBase):
@@ -322,20 +326,22 @@ class SeleniumChatGPTClient(AIPluginBase):
         return self._driver
 
     async def _wait_for_response(self, driver, prev_count: int) -> str:
+        tab = driver._tab  # type: ignore[attr-defined]
         start = asyncio.get_event_loop().time()
         while asyncio.get_event_loop().time() - start < 20:
-            elems = await driver.find_elements(
-                By.CSS_SELECTOR, "div[data-message-author-role='assistant']"
+            try:
+                html = await tab.html()
+            except Exception:
+                html = ""
+            matches = re.findall(
+                r"<div[^>]*data-message-author-role=\"assistant\"[^>]*>(.*?)</div>",
+                html,
+                re.DOTALL,
             )
-            if len(elems) > prev_count:
-                last = elems[-1]
-                text = await last.text()
-                if text and text.strip():
-                    return text.strip()
-                html = await last.get_attribute("innerHTML")
-                if html and html.strip():
-                    text_only = re.sub(r"<[^>]+>", "", html)
-                    return text_only.strip() if text_only.strip() else html.strip()
+            if len(matches) > prev_count:
+                content = matches[-1]
+                text_only = re.sub(r"<[^>]+>", "", content).strip()
+                return text_only if text_only else content.strip()
             await asyncio.sleep(1)
         raise TimeoutError("assistant reply not found")
 
@@ -351,11 +357,30 @@ class SeleniumChatGPTClient(AIPluginBase):
             )
         )
         await textarea.clear()
-        await textarea.send_keys(prompt)
+        # paste in chunks to avoid slow per-character typing
+        chunks = [prompt[i : i + 1000] for i in range(0, len(prompt), 1000)] or [""]
+        for idx, chunk in enumerate(chunks, 1):
+            log_debug(
+                f"[selenium] sending chunk {idx}/{len(chunks)} ({len(chunk)} chars)"
+            )
+            escaped = json.dumps(chunk)
+            await textarea._tab.evaluate(
+                f"""
+                const el = document.getElementById('prompt-textarea');
+                if (el) {{
+                    el.value += {escaped};
+                    el.dispatchEvent(new Event('input', {{bubbles:true}}));
+                }}
+                """
+            )
+        await textarea._tab.evaluate(
+            "document.getElementById('prompt-textarea')?.focus();"
+        )
         await textarea.send_keys(Keys.ENTER)
         reply = await self._wait_for_response(driver, prev)
         log_debug("[selenium] received reply of %d chars" % len(reply))
-        return reply, driver.current_url
+        final_url = await driver.current_url()
+        return reply, final_url
 
     async def handle_incoming_message(self, bot, message, prompt: dict) -> str:
         """Process an incoming message using the ChatGPT web UI."""
@@ -377,7 +402,7 @@ class SeleniumChatGPTClient(AIPluginBase):
             return ""
 
         conv = await chat_link_store.get_link(chat_id, thread_id)
-        url = f"https://chat.openai.com/c/{conv}" if conv else "https://chat.openai.com"
+        url = f"https://chat.openai.com/g/{conv}" if conv else "https://chat.openai.com"
         try:
             reply, final_url = await self.ask(json_prompt, url)
         except Exception as e:  # pragma: no cover - best effort
