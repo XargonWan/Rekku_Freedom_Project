@@ -30,6 +30,8 @@ services:
       - VNC_PASSWORD=${PASSWORD:-"password"}
       - DB_HOST=${DB_HOST:-rfp-db}
     restart: unless-stopped
+    depends_on:
+      - rfp-db
     stdin_open: true
     tty: true
     networks:

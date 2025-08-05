@@ -34,6 +34,129 @@ from core.db import get_conn
 import aiomysql
 
 
+class NodriverElementWrapper:
+    """Wrapper to make nodriver elements compatible with Selenium API"""
+    
+    def __init__(self, nodriver_element, tab):
+        self._element = nodriver_element
+        self._tab = tab
+        
+    async def clear(self):
+        """Clear element content"""
+        log_debug("[selenium] NodriverElementWrapper.clear() called")
+        try:
+            if not self._element:
+                log_error("[selenium] clear() called with None element")
+                return
+            if not self._tab:
+                log_error("[selenium] clear() called with None tab")
+                return
+            
+            # For textarea, use JavaScript to clear
+            log_debug("[selenium] Clearing textarea using JavaScript")
+            await self._tab.evaluate("""
+                const element = document.getElementById('prompt-textarea');
+                if (element) {
+                    element.value = '';
+                    element.dispatchEvent(new Event('input', { bubbles: true }));
+                    console.log('Textarea cleared successfully');
+                } else {
+                    console.log('Textarea element not found');
+                }
+            """)
+            log_debug("[selenium] clear() completed successfully")
+        except Exception as e:
+            log_error(f"[selenium] Failed to clear element: {e}")
+            raise
+            
+    async def send_keys(self, text):
+        """Send keys to element"""
+        log_debug(f"[selenium] NodriverElementWrapper.send_keys() called with text: {text!r}")
+        try:
+            if not self._element:
+                log_error("[selenium] send_keys() called with None element")
+                return
+            if not self._tab:
+                log_error("[selenium] send_keys() called with None tab")
+                return
+                
+            if text == Keys.ENTER:
+                # Handle Enter key - submit the form
+                log_debug("[selenium] Sending ENTER key via JavaScript")
+                await self._tab.evaluate("""
+                    const element = document.getElementById('prompt-textarea');
+                    if (element) {
+                        const form = element.closest('form');
+                        if (form) {
+                            const submitBtn = form.querySelector('button[type="submit"], button:not([type])');
+                            if (submitBtn) {
+                                console.log('Clicking submit button');
+                                submitBtn.click();
+                            } else {
+                                console.log('Submit button not found, simulating Enter keypress');
+                                element.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', bubbles: true}));
+                            }
+                        }
+                    } else {
+                        console.log('Textarea element not found for ENTER');
+                    }
+                """)
+            else:
+                # Send text to the element
+                log_debug(f"[selenium] Sending text to textarea: {text[:50]}...")
+                escaped_text = text.replace("'", "\\'").replace('"', '\\"').replace('\n', '\\n')
+                await self._tab.evaluate(f"""
+                    const element = document.getElementById('prompt-textarea');
+                    if (element) {{
+                        element.value = '{escaped_text}';
+                        element.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        element.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        console.log('Text sent to textarea, length:', element.value.length);
+                    }} else {{
+                        console.log('Textarea element not found for text input');
+                    }}
+                """)
+            log_debug("[selenium] send_keys() completed successfully")
+        except Exception as e:
+            log_error(f"[selenium] Failed to send keys: {e}")
+            raise
+            
+    async def click(self):
+        """Click the element"""
+        try:
+            # Use nodriver's click method if available
+            await self._element.click()
+        except Exception as e:
+            log_warning(f"[selenium] Direct click failed: {e}")
+            # Fallback to JavaScript click
+            try:
+                await self._tab.evaluate("""
+                    const element = arguments[0];
+                    if (element && element.click) {
+                        element.click();
+                    }
+                """, self._element)
+            except Exception as e2:
+                log_error(f"[selenium] JavaScript click also failed: {e2}")
+
+    async def get_attribute(self, name):
+        """Get element attribute"""
+        try:
+            return await self._element.get_attribute(name)
+        except Exception as e:
+            log_warning(f"[selenium] Failed to get attribute {name}: {e}")
+            return None
+
+    @property
+    def text(self):
+        """Get element text - this should be awaitable in practice"""
+        try:
+            return self._element.text
+        except Exception as e:
+            log_warning(f"[selenium] Failed to get text: {e}")
+            return ""
+
+
 class NodriverSeleniumWrapper:
     """Wrapper class to make nodriver compatible with Selenium API patterns used in the code"""
     
@@ -55,20 +178,39 @@ class NodriverSeleniumWrapper:
         """Find elements by various selector types"""
         css_selector = self._convert_selector(by_type, selector)
         if css_selector:
-            elements = await self._tab.select_all(css_selector, timeout=2)
-            return elements if elements else []
+            try:
+                elements = await self._tab.select_all(css_selector, timeout=2)
+                # Wrap each element to make them Selenium-compatible
+                if elements:
+                    return [NodriverElementWrapper(elem, self._tab) for elem in elements]
+                return []
+            except Exception:
+                return []
         else:
             log_warning(f"[selenium] Unsupported selector type: {by_type}")
             return []
             
     async def find_element(self, by_type, selector):
         """Find single element by various selector types"""
+        log_debug(f"[selenium] find_element called with by_type: {by_type}, selector: {selector}")
         css_selector = self._convert_selector(by_type, selector)
+        log_debug(f"[selenium] Converted to CSS selector: {css_selector}")
         if css_selector:
             try:
+                log_debug(f"[selenium] Searching for element with CSS: {css_selector}")
                 element = await self._tab.select(css_selector, timeout=2)
-                return element
-            except Exception:
+                log_debug(f"[selenium] Element found: {element is not None}")
+                if element:
+                    # Wrap the nodriver element to make it Selenium-compatible
+                    log_debug("[selenium] Creating NodriverElementWrapper")
+                    wrapper = NodriverElementWrapper(element, self._tab)
+                    log_debug("[selenium] Wrapper created successfully")
+                    return wrapper
+                else:
+                    log_debug("[selenium] Element not found")
+                    return None
+            except Exception as e:
+                log_warning(f"[selenium] Exception while finding element: {e}")
                 return None
         else:
             log_warning(f"[selenium] Unsupported selector type: {by_type}")
@@ -685,36 +827,63 @@ async def process_prompt_in_chat(
 
     try:
         # Wait for textarea to be available
+        log_debug("[selenium] Starting to wait for textarea...")
         start_time = time.time()
         textarea = None
         while time.time() - start_time < 10:  # 10 second timeout
             try:
+                log_debug(f"[selenium] Attempting to find textarea (elapsed: {time.time() - start_time:.1f}s)")
                 textarea = await driver.find_element(By.ID, "prompt-textarea")
                 if textarea:
+                    log_debug("[selenium] Textarea found successfully!")
                     break
-            except:
-                pass
+                else:
+                    log_debug("[selenium] find_element returned None")
+            except Exception as search_error:
+                log_debug(f"[selenium] find_element raised exception: {search_error}")
             await asyncio.sleep(0.5)
         
         if not textarea:
-            log_error("[selenium][ERROR] prompt textarea not found")
+            log_error("[selenium][ERROR] prompt textarea not found after 10 seconds")
             return None
+        else:
+            log_debug(f"[selenium] Textarea found, type: {type(textarea)}")
     except Exception as e:
         log_error(f"[selenium][ERROR] Failed to find textarea: {e}")
         return None
 
+    prompt_sent_successfully = False
     for attempt in range(1, 4):  # Retry up to 3 times
         try:
-            # Note: paste_and_send needs to be updated for nodriver too
-            # For now, let's use a simpler approach with nodriver's text input
+            log_debug(f"[selenium] Attempt {attempt}/3: Starting to send prompt")
+            log_debug(f"[selenium] Prompt text length: {len(prompt_text)}")
+            
+            log_debug("[selenium] Calling textarea.clear()...")
             await textarea.clear()
+            log_debug("[selenium] textarea.clear() completed")
+            
+            log_debug("[selenium] Calling textarea.send_keys() with prompt text...")
             await textarea.send_keys(prompt_text)
+            log_debug("[selenium] textarea.send_keys() with text completed")
+            
+            log_debug("[selenium] Calling textarea.send_keys() with ENTER...")
             await textarea.send_keys(Keys.ENTER)
+            log_debug("[selenium] textarea.send_keys() with ENTER completed")
+            
+            log_debug("[selenium] Prompt sent successfully, breaking from retry loop")
+            prompt_sent_successfully = True
+            break  # Success, exit retry loop
+            
         except Exception as e:
             log_warning(f"[selenium][retry] Failed to send prompt on attempt {attempt}: {e}")
+            log_warning(f"[selenium][retry] Exception type: {type(e).__name__}")
+            import traceback
+            log_debug(f"[selenium][retry] Full traceback: {traceback.format_exc()}")
             await asyncio.sleep(2)
             continue
 
+    # Only wait for response if prompt was sent successfully
+    if prompt_sent_successfully:
         log_debug("🔍 Waiting for response block...")
         try:
             # Note: wait_until_response_stabilizes also needs to be updated for nodriver
@@ -734,14 +903,15 @@ async def process_prompt_in_chat(
                     log_debug(f"[selenium] New chat ID extracted after response: {new_chat_id}")
                     # This will be used by the calling function to save the link
             return response_text.strip()
-
-        log_warning(f"[selenium][retry] Empty response attempt {attempt}")
-        await asyncio.sleep(2)
+        else:
+            log_warning("[selenium] No valid response received after successful prompt send")
+    else:
+        log_error("[selenium] Failed to send prompt after all retry attempts")
 
     os.makedirs("screenshots", exist_ok=True)
     fname = f"screenshots/chat_{chat_id or 'unknown'}_no_response.png"
     try:
-        driver.save_screenshot(fname)
+        await driver.save_screenshot(fname)
         log_warning(f"[selenium] Saved screenshot to {fname}")
     except Exception as e:
         log_warning(f"[selenium] Failed to save screenshot: {e}")
@@ -1260,8 +1430,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             prompt_text = json.dumps(prompt, ensure_ascii=False)
             if not chat_id:
                 path = recent_chats.get_chat_path(message.chat_id)
-                if path and go_to_chat_by_path_with_retries(driver, path):
-                    chat_id = _extract_chat_id(driver.current_url)
+                if path and await go_to_chat_by_path_with_retries_async(driver, path):
+                    current_url = driver.current_url
+                    if hasattr(current_url, '__await__'):
+                        current_url = await current_url
+                    chat_id = _extract_chat_id(current_url)
                     if chat_id:  # [FIX] save and notify about recovered chat
                         await chat_link_store.save_link(message.chat_id, message_thread_id, chat_id)
                         _safe_notify(
@@ -1485,15 +1658,27 @@ PLUGIN_CLASS = SeleniumChatGPTPlugin
 
 def go_to_chat_by_path(driver, path: str) -> bool:
     """Navigate to a specific chat using its path."""
+    log_warning("[selenium] go_to_chat_by_path is deprecated - use async version")
+    return False
+
+async def go_to_chat_by_path_async(driver, path: str) -> bool:
+    """Navigate to a specific chat using its path (async version for nodriver)."""
     try:
         chat_url = f"https://chat.openai.com{path}"
-        driver.get(chat_url)
-        WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.ID, "prompt-textarea"))
-        )
-        log_debug(f"[selenium] Successfully navigated to chat path: {path}")
-        return True
-    except TimeoutException:
+        await driver.get(chat_url)
+        
+        # Wait for textarea with custom timeout
+        start_time = time.time()
+        while time.time() - start_time < 5:  # 5 second timeout
+            try:
+                textarea = await driver.find_element(By.ID, "prompt-textarea")
+                if textarea:
+                    log_debug(f"[selenium] Successfully navigated to chat path: {path}")
+                    return True
+            except:
+                pass
+            await asyncio.sleep(0.5)
+            
         log_warning(f"[selenium] Timeout while navigating to chat path: {path}")
         return False
     except Exception as e:
@@ -1502,17 +1687,34 @@ def go_to_chat_by_path(driver, path: str) -> bool:
 
 def go_to_chat_by_path_with_retries(driver, path: str, retries: int = 3) -> bool:
     """Navigate to a specific chat using its path with retries."""
+    log_warning("[selenium] go_to_chat_by_path_with_retries is deprecated - use async version")
+    return False
+
+async def go_to_chat_by_path_with_retries_async(driver, path: str, retries: int = 3) -> bool:
+    """Navigate to a specific chat using its path with retries (async version for nodriver)."""
     for attempt in range(1, retries + 1):
         try:
             chat_url = f"https://chat.openai.com{path}"
-            driver.get(chat_url)
-            WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.ID, "prompt-textarea"))
-            )
-            log_debug(f"[selenium] Successfully navigated to chat path: {path} on attempt {attempt}")
-            return True
-        except TimeoutException:
-            log_warning(f"[selenium] Timeout while navigating to chat path: {path} on attempt {attempt}")
+            await driver.get(chat_url)
+            
+            # Wait for textarea with custom timeout
+            start_time = time.time()
+            textarea_found = False
+            while time.time() - start_time < 5:  # 5 second timeout
+                try:
+                    textarea = await driver.find_element(By.ID, "prompt-textarea")
+                    if textarea:
+                        textarea_found = True
+                        break
+                except:
+                    pass
+                await asyncio.sleep(0.5)
+                
+            if textarea_found:
+                log_debug(f"[selenium] Successfully navigated to chat path: {path} on attempt {attempt}")
+                return True
+            else:
+                log_warning(f"[selenium] Timeout while navigating to chat path: {path} on attempt {attempt}")
         except Exception as e:
             log_error(f"[selenium] Error navigating to chat path on attempt {attempt}: {repr(e)}")
 
