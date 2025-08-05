@@ -1,9 +1,8 @@
 services:
   rekku_freedom_project:
-    #image: rekku-selkies-s6:latest
     build:
-     context: .
-     dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile
     container_name: rekku_freedom_project
     hostname: luna-workstation
     env_file:
@@ -33,6 +32,8 @@ services:
     restart: unless-stopped
     stdin_open: true
     tty: true
+    networks:
+      - rekku_net
 
   rfp-db:
     container_name: rfp-db
@@ -49,10 +50,12 @@ services:
     command: --bind-address=0.0.0.0
     volumes:
       - rfp_db_data:/var/lib/mysql
+    networks:
+      - rekku_net
 
   rfp-db-backup:
     container_name: rfp-db-backup
-    image: tiredofit/db-backup:4.1.19 # latest version didn't havce arm64 support
+    image: tiredofit/db-backup:4.1.19
     env_file:
       - .env
     depends_on:
@@ -71,6 +74,12 @@ services:
     volumes:
       - ./backups:/backup
     restart: unless-stopped
+    networks:
+      - rekku_net
 
 volumes:
   rfp_db_data:
+
+networks:
+  rekku_net:
+    driver: bridge
