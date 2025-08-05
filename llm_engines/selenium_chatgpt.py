@@ -17,6 +17,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 import json
 import re
+import platform
 from typing import Dict, Optional
 from collections import defaultdict
 import threading
@@ -650,11 +651,24 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     chat_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
     def __init__(self, notify_fn=None):
         """Initialize the plugin without starting Selenium yet."""
+        # Check if we're on ARM64 architecture - ChromeDriver doesn't support ARM64
+        machine = platform.machine().lower()
+        if machine in ['aarch64', 'arm64']:
+            error_msg = (
+                "❌ selenium_chatgpt plugin is not supported on ARM64 architecture.\n"
+                f"Current machine type: {machine}\n"
+                "ChromeDriver does not officially support ARM64.\n"
+                "Please use a different LLM engine (openai_chatgpt, manual, etc.)."
+            )
+            log_error(f"[selenium] {error_msg}")
+            raise RuntimeError(error_msg)
+        
         self.driver = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task = None
         self._notify_fn = notify_fn or notify_trainer
         log_debug(f"[selenium] notify_fn passed: {bool(notify_fn)}")
+        log_debug(f"[selenium] Architecture: {machine} (compatible)")
         set_notifier(self._notify_fn)
 
     def cleanup(self):
@@ -876,6 +890,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                     version_main=None,
                                     suppress_welcome=True,
                                     log_level=3,
+                                    driver_executable_path=chromedriver_path,  # Use system chromedriver
                                     browser_executable_path=chrome_binary,
                                     user_data_dir=profile_dir
                                 )
@@ -901,6 +916,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                         version_main=None,
                                         suppress_welcome=True,
                                         log_level=3,
+                                        driver_executable_path=chromedriver_path,  # Use system chromedriver
                                         browser_executable_path=chrome_binary,
                                         user_data_dir=profile_dir
                                     )
