@@ -105,25 +105,6 @@ class ChatLinkStore:
 chat_link_store = ChatLinkStore()
 
 
-def _extract_chat_id(url: str) -> Optional[str]:
-    """Extract chat identifier from ChatGPT URL."""
-    if not url or not isinstance(url, str):
-        return None
-    patterns = [
-        r"/chat/([^/?#]+)",
-        r"/c/([^/?#]+)",
-        r"/g/([^/?#]+)",
-        r"chat\\.openai\\.com/chat/([^/?#]+)",
-        r"chat\\.openai\\.com/c/([^/?#]+)",
-        r"chat\\.openai\\.com/g/([^/?#]+)",
-    ]
-    for pattern in patterns:
-        m = re.search(pattern, url)
-        if m:
-            return m.group(1)
-    return None
-
-
 class NodriverElementWrapper:
     """Minimal wrapper to provide a selenium-like API."""
 
@@ -363,16 +344,16 @@ class SeleniumChatGPTClient(AIPluginBase):
             log_debug(
                 f"[selenium] sending chunk {idx}/{len(chunks)} ({len(chunk)} chars)"
             )
-            escaped = json.dumps(chunk)
-            await textarea._tab.evaluate(
-                f"""
-                const el = document.getElementById('prompt-textarea');
-                if (el) {{
-                    el.value += {escaped};
-                    el.dispatchEvent(new Event('input', {{bubbles:true}}));
-                }}
-                """
-            )
+        escaped_full = json.dumps(prompt)
+        await textarea._tab.evaluate(
+            f"""
+            const el = document.getElementById('prompt-textarea');
+            if (el) {{
+                el.value = {escaped_full};
+                el.dispatchEvent(new InputEvent('input', {{bubbles:true}}));
+            }}
+            """
+        )
         await textarea._tab.evaluate(
             "document.getElementById('prompt-textarea')?.focus();"
         )
@@ -402,7 +383,10 @@ class SeleniumChatGPTClient(AIPluginBase):
             return ""
 
         conv = await chat_link_store.get_link(chat_id, thread_id)
-        url = f"https://chat.openai.com/g/{conv}" if conv else "https://chat.openai.com"
+        if conv:
+            url = conv if conv.startswith("http") else f"https://chat.openai.com/g/{conv}"
+        else:
+            url = "https://chat.openai.com"
         try:
             reply, final_url = await self.ask(json_prompt, url)
         except Exception as e:  # pragma: no cover - best effort
@@ -411,15 +395,11 @@ class SeleniumChatGPTClient(AIPluginBase):
                     f"[selenium] stored chat {conv} failed ({e}), using new chat"
                 )
                 reply, final_url = await self.ask(json_prompt, "https://chat.openai.com")
-                conv = None
             else:
                 log_error(f"[selenium] error handling message: {e}")
                 return ""
 
-        if conv is None:
-            new_id = _extract_chat_id(final_url)
-            if new_id:
-                await chat_link_store.save_link(chat_id, thread_id, new_id)
+        await chat_link_store.save_link(chat_id, thread_id, final_url)
 
         if bot and reply:
             try:
