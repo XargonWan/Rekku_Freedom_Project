@@ -37,11 +37,11 @@ import aiomysql
 class NodriverSeleniumWrapper:
     """Wrapper class to make nodriver compatible with Selenium API patterns used in the code"""
     
-    def __init__(self, nodriver_instance):
+    def __init__(self, nodriver_tab):
         log_debug("[selenium] 🔧 Creating NodriverSeleniumWrapper...")
-        log_debug(f"[selenium] 📋 nodriver_instance type: {type(nodriver_instance)}")
+        log_debug(f"[selenium] 📋 nodriver_tab type: {type(nodriver_tab)}")
         try:
-            self._nodriver = nodriver_instance
+            self._tab = nodriver_tab  # This is actually a Tab, not Browser
             log_debug("[selenium] ✅ NodriverSeleniumWrapper created successfully")
         except Exception as e:
             log_error(f"[selenium] ❌ Failed to create NodriverSeleniumWrapper: {e}")
@@ -49,43 +49,72 @@ class NodriverSeleniumWrapper:
         
     async def get(self, url):
         """Navigate to URL"""
-        await self._nodriver.get(url)
+        await self._tab.get(url)
         
     async def find_elements(self, by_type, selector):
-        """Find elements by CSS selector (most common case)"""
-        if by_type == By.CSS_SELECTOR:
-            elements = await self._nodriver.select_all(selector)
+        """Find elements by various selector types"""
+        css_selector = self._convert_selector(by_type, selector)
+        if css_selector:
+            elements = await self._tab.select_all(css_selector, timeout=2)
             return elements if elements else []
         else:
-            # For other selector types, we'd need to convert
             log_warning(f"[selenium] Unsupported selector type: {by_type}")
             return []
             
     async def find_element(self, by_type, selector):
-        """Find single element by CSS selector"""
-        if by_type == By.CSS_SELECTOR:
-            element = await self._nodriver.select(selector)
-            return element
+        """Find single element by various selector types"""
+        css_selector = self._convert_selector(by_type, selector)
+        if css_selector:
+            try:
+                element = await self._tab.select(css_selector, timeout=2)
+                return element
+            except Exception:
+                return None
         else:
             log_warning(f"[selenium] Unsupported selector type: {by_type}")
             return None
             
+    def _convert_selector(self, by_type, selector):
+        """Convert Selenium selector types to CSS selectors"""
+        if by_type == By.CSS_SELECTOR:
+            return selector
+        elif by_type == By.ID:
+            return f"#{selector}"
+        elif by_type == By.TAG_NAME:
+            return selector
+        elif by_type == By.CLASS_NAME:
+            return f".{selector}"
+        elif by_type == By.XPATH:
+            # XPATH is more complex to convert, we'll try to use nodriver's xpath method
+            # For now, log warning and return None for CSS conversion
+            log_warning(f"[selenium] XPATH selector will be handled separately: {selector}")
+            return None
+        elif by_type == By.NAME:
+            return f"[name='{selector}']"
+        else:
+            log_warning(f"[selenium] Unknown selector type: {by_type}")
+            return None
+            
     @property
     def current_url(self):
-        """Get current URL - note: this should be awaited in nodriver"""
-        return self._nodriver.current_url
+        """Get current URL - in nodriver this is a property of the tab"""
+        return self._tab.url
         
     async def execute_script(self, script):
         """Execute JavaScript"""
-        return await self._nodriver.evaluate(script)
+        return await self._tab.evaluate(script)
         
     async def quit(self):
         """Close browser"""
-        await self._nodriver.stop()
+        await self._tab.close()
         
     async def stop(self):
-        """Alias for quit"""
-        await self._nodriver.stop()
+        """Stop the tab"""
+        await self._tab.close()
+        
+    async def save_screenshot(self, filename):
+        """Save screenshot"""
+        return await self._tab.save_screenshot(filename)
 
 
 class ChatLinkStore:
@@ -379,6 +408,62 @@ def wait_until_response_stabilizes(
         time.sleep(0.5)
 
 
+async def wait_until_response_stabilizes_async(
+    driver,
+    max_total_wait: int = 300,
+    no_change_grace: float = 3.5,
+) -> str:
+    """Return the last markdown text once its length stops growing (async version for nodriver)."""
+    selector = "div.markdown.prose"
+    start = time.time()
+    last_len = -1
+    last_change = start
+    final_text = ""
+
+    while True:
+        if time.time() - start >= max_total_wait:
+            log_warning("[WARNING] Timeout while waiting for new response")
+            return final_text
+
+        try:
+            elems = await driver.find_elements(By.CSS_SELECTOR, selector)
+            if not elems:
+                await asyncio.sleep(0.5)
+                continue
+            # Get text from the last element
+            text = ""
+            if elems:
+                # For nodriver, we might need to get text differently
+                try:
+                    text = await elems[-1].get_attribute('innerText') or ""
+                except:
+                    try:
+                        text = elems[-1].text or ""
+                    except:
+                        text = ""
+        except Exception as e:  # pragma: no cover - best effort
+            log_warning(f"[selenium] Response wait error: {e}")
+            await asyncio.sleep(0.5)
+            continue
+
+        current_len = len(text)
+        changed = current_len != last_len
+        log_debug(f"[DEBUG] len={current_len} changed={changed}")
+
+        if changed:
+            last_len = current_len
+            last_change = time.time()
+            final_text = text
+        elif time.time() - last_change >= no_change_grace:
+            elapsed = time.time() - start
+            log_debug(
+                f"[DEBUG] Response stabilized with length {current_len} after {elapsed:.1f}s"
+            )
+            return text
+
+        await asyncio.sleep(0.5)
+
+
 
 def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
     """Send text and wait for ChatGPT to start replying."""
@@ -499,47 +584,65 @@ def _extract_chat_id(url: str) -> Optional[str]:
     return None
 
 
-def _check_conversation_full(driver) -> bool:
+async def _check_conversation_full(driver) -> bool:
     try:
-        elems = driver.find_elements(By.CSS_SELECTOR, "div.text-token-text-error")
+        elems = await driver.find_elements(By.CSS_SELECTOR, "div.text-token-text-error")
         for el in elems:
-            text = (el.get_attribute("innerText") or "").strip()
-            if "maximum length for this conversation" in text:
-                return True
+            try:
+                text = await el.get_attribute("innerText") or ""
+                text = text.strip()
+                if "maximum length for this conversation" in text:
+                    return True
+            except:
+                # Fallback to text property if get_attribute fails
+                try:
+                    text = (el.text or "").strip()
+                    if "maximum length for this conversation" in text:
+                        return True
+                except:
+                    pass
     except Exception as e:  # pragma: no cover - best effort
         log_warning(f"[selenium] overflow check failed: {e}")
     return False
 
 
-def _open_new_chat(driver) -> None:
+async def _open_new_chat(driver) -> None:
     """Navigate to ChatGPT home to create a new chat with retries."""
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
             log_debug(f"[selenium] Attempt {attempt}/{max_retries} to navigate to ChatGPT home")
-            driver.get("https://chat.openai.com")
+            await driver.get("https://chat.openai.com")
             log_debug("[selenium] Successfully navigated to ChatGPT home")
             return
         except Exception as e:
             log_warning(f"[selenium] Attempt {attempt} failed: {e}")
             if attempt < max_retries:
-                time.sleep(2 * attempt)  # Exponential backoff
+                await asyncio.sleep(2 * attempt)  # Exponential backoff
             else:
                 log_error("[selenium] All attempts to navigate to ChatGPT home failed")
                 raise
 
 
-def is_chat_archived(driver, chat_id: str) -> bool:
+async def is_chat_archived(driver, chat_id: str) -> bool:
     """Check if a ChatGPT chat is archived."""
     try:
         chat_url = f"https://chat.openai.com/chat/{chat_id}"
-        driver.get(chat_url)
-        WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'This conversation is archived')]"))
-        )
-        log_warning("[selenium] Chat is archived.")
-        return True
-    except TimeoutException:
+        await driver.get(chat_url)
+        # Note: WebDriverWait doesn't work with nodriver, we need to implement our own wait
+        # For now, we'll use a simple timeout and check manually
+        import time
+        start_time = time.time()
+        timeout = 5
+        while time.time() - start_time < timeout:
+            try:
+                elements = await driver.find_elements(By.XPATH, "//div[contains(text(), 'This conversation is archived')]")
+                if elements:
+                    log_warning("[selenium] Chat is archived.")
+                    return True
+            except:
+                pass
+            await asyncio.sleep(0.5)
         log_debug("[selenium] Chat is not archived.")
         return False
     except Exception as e:
@@ -547,70 +650,93 @@ def is_chat_archived(driver, chat_id: str) -> bool:
         return False
 
 # Update process_prompt_in_chat to use the new functions
-def process_prompt_in_chat(
+async def process_prompt_in_chat(
     driver, chat_id: str | None, prompt_text: str, previous_text: str
 ) -> Optional[str]:
     """Send a prompt to a ChatGPT chat and return the newly generated text."""
-    if chat_id and is_chat_archived(driver, chat_id):
+    if chat_id and await is_chat_archived(driver, chat_id):
         chat_id = None  # Mark chat as invalid
 
     if not chat_id:
         log_debug("[selenium] Creating a new chat")
-        _open_new_chat(driver)
+        await _open_new_chat(driver)
         # Chat ID will be extracted later from the URL after sending the prompt
 
     # Some UI experiments may block the textarea with a "I prefer this response"
     # dialog. Dismiss it if present before looking for the textarea.
     try:
-        prefer_btn = WebDriverWait(driver, 2).until(
-            EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, "[data-testid='paragen-prefer-response-button']")
-            )
-        )
-        prefer_btn.click()
-        time.sleep(2)
-    except TimeoutException:
-        pass
+        # For nodriver, we need to implement our own wait for elements
+        start_time = time.time()
+        prefer_btn = None
+        while time.time() - start_time < 2:  # 2 second timeout
+            try:
+                prefer_btn = await driver.find_element(By.CSS_SELECTOR, "[data-testid='paragen-prefer-response-button']")
+                if prefer_btn:
+                    break
+            except:
+                pass
+            await asyncio.sleep(0.1)
+        
+        if prefer_btn:
+            await prefer_btn.click()
+            await asyncio.sleep(2)
     except Exception as e:  # pragma: no cover - best effort
         log_warning(f"[selenium] Failed to click prefer-response button: {e}")
 
     try:
-        textarea = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.ID, "prompt-textarea"))
-        )
-    except TimeoutException:
-        log_error("[selenium][ERROR] prompt textarea not found")
+        # Wait for textarea to be available
+        start_time = time.time()
+        textarea = None
+        while time.time() - start_time < 10:  # 10 second timeout
+            try:
+                textarea = await driver.find_element(By.ID, "prompt-textarea")
+                if textarea:
+                    break
+            except:
+                pass
+            await asyncio.sleep(0.5)
+        
+        if not textarea:
+            log_error("[selenium][ERROR] prompt textarea not found")
+            return None
+    except Exception as e:
+        log_error(f"[selenium][ERROR] Failed to find textarea: {e}")
         return None
 
     for attempt in range(1, 4):  # Retry up to 3 times
         try:
-            paste_and_send(textarea, prompt_text)
-            textarea.send_keys(Keys.ENTER)
-        except ElementNotInteractableException as e:
-            log_warning(f"[selenium][retry] Element not interactable: {e}")
-            time.sleep(2)
-            continue
+            # Note: paste_and_send needs to be updated for nodriver too
+            # For now, let's use a simpler approach with nodriver's text input
+            await textarea.clear()
+            await textarea.send_keys(prompt_text)
+            await textarea.send_keys(Keys.ENTER)
         except Exception as e:
-            log_error(f"[selenium][ERROR] Failed to send prompt: {repr(e)}")
-            return None
+            log_warning(f"[selenium][retry] Failed to send prompt on attempt {attempt}: {e}")
+            await asyncio.sleep(2)
+            continue
 
         log_debug("🔍 Waiting for response block...")
         try:
-            response_text = wait_until_response_stabilizes(driver)
-        except TimeoutException:
-            log_warning("[selenium][WARN] Timeout while waiting for response")
-        else:
-            if response_text and response_text != previous_text:
-                # If this was a new chat (no chat_id initially), extract and save the new chat ID
-                if not chat_id:
-                    new_chat_id = _extract_chat_id(driver.current_url)
-                    if new_chat_id:
-                        log_debug(f"[selenium] New chat ID extracted after response: {new_chat_id}")
-                        # This will be used by the calling function to save the link
-                return response_text.strip()
+            # Note: wait_until_response_stabilizes also needs to be updated for nodriver
+            response_text = await wait_until_response_stabilizes_async(driver)
+        except Exception as e:
+            log_warning(f"[selenium][WARN] Error while waiting for response: {e}")
+            response_text = None
+            
+        if response_text and response_text != previous_text:
+            # If this was a new chat (no chat_id initially), extract and save the new chat ID
+            if not chat_id:
+                current_url = driver.current_url
+                if hasattr(current_url, '__await__'):
+                    current_url = await current_url
+                new_chat_id = _extract_chat_id(current_url)
+                if new_chat_id:
+                    log_debug(f"[selenium] New chat ID extracted after response: {new_chat_id}")
+                    # This will be used by the calling function to save the link
+            return response_text.strip()
 
         log_warning(f"[selenium][retry] Empty response attempt {attempt}")
-        time.sleep(2)
+        await asyncio.sleep(2)
 
     os.makedirs("screenshots", exist_ok=True)
     fname = f"screenshots/chat_{chat_id or 'unknown'}_no_response.png"
@@ -711,6 +837,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         try:
             log_debug("[selenium] 🔧 Setting up basic attributes...")
             self.driver = None
+            self._browser = None  # Store browser reference for cleanup
             self._queue: asyncio.Queue = asyncio.Queue()
             self._worker_task = None
             self._notify_fn = notify_fn or notify_trainer
@@ -735,15 +862,25 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             self._worker_task.cancel()
             log_debug("[selenium] Worker task cancelled")
         
-        # Close the driver
+        # Close the driver and browser
         if self.driver:
             try:
                 await self.driver.stop()
-                log_debug("[selenium] nodriver browser closed")
+                log_debug("[selenium] nodriver tab closed")
             except Exception as e:
-                log_warning(f"[selenium] Failed to close driver: {e}")
+                log_warning(f"[selenium] Failed to close tab: {e}")
             finally:
                 self.driver = None
+                
+        # Close the browser instance
+        if self._browser:
+            try:
+                await self._browser.stop()
+                log_debug("[selenium] nodriver browser closed")
+            except Exception as e:
+                log_warning(f"[selenium] Failed to close browser: {e}")
+            finally:
+                self._browser = None
         
         # Kill any remaining browser processes
         try:
@@ -866,18 +1003,26 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     browser_args.append(f"--user-data-dir={profile_dir}")
                     
                     # Initialize nodriver with configuration
-                    log_debug("[selenium] 🚀 Starting nodriver instance...")
-                    nodriver_instance = await uc.start(
+                    log_debug("[selenium] 🚀 Starting nodriver browser...")
+                    browser = await uc.start(
                         headless=False,
                         browser_args=browser_args,
                         user_data_dir=profile_dir
                     )
-                    log_debug("[selenium] ✅ nodriver instance created successfully")
+                    log_debug("[selenium] ✅ nodriver browser created successfully")
                     
-                    # Wrap nodriver instance to maintain Selenium API compatibility
+                    # Get the first tab (page) from nodriver
+                    log_debug("[selenium] 🔄 Getting the first tab...")
+                    tab = await browser.get('about:blank')  # This creates/gets a tab
+                    log_debug("[selenium] ✅ Tab obtained successfully")
+                    
+                    # Wrap nodriver tab to maintain Selenium API compatibility
                     log_debug("[selenium] 🔄 Creating Selenium API wrapper...")
-                    self.driver = NodriverSeleniumWrapper(nodriver_instance)
+                    self.driver = NodriverSeleniumWrapper(tab)
                     log_debug("[selenium] ✅ Wrapper created successfully")
+                    
+                    # Store browser reference for cleanup
+                    self._browser = browser
                     
                     log_debug("[selenium] 🎉 Browser successfully initialized with nodriver")
                     return  # Success, exit retry loop
@@ -996,7 +1141,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         else:
             try:
                 # simple command to verify the session is still alive (for nodriver)
-                await self.driver.get("javascript:void(0)")
+                await self.driver._tab.evaluate("true")
             except Exception as e:
                 log_warning(f"[selenium] WebDriver session error: {e}. Restarting")
                 try:
@@ -1011,9 +1156,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     return None
         return self.driver
 
-    def _ensure_logged_in(self):
+    async def _ensure_logged_in(self):
         try:
+            # With nodriver, current_url might be a property that needs to be awaited
             current_url = self.driver.current_url
+            if hasattr(current_url, '__await__'):
+                current_url = await current_url
         except Exception:
             current_url = ""
         log_debug(f"[selenium] [STEP] Checking login state at {current_url}")
@@ -1083,24 +1231,26 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         log_debug(f"[selenium][STEP] processing prompt: {prompt}")
 
         for attempt in range(2):
-            driver = self._get_driver()
+            driver = await self._get_driver()
             if not driver:
                 log_error("[selenium] WebDriver unavailable, aborting")
                 _notify_gui("❌ Selenium driver not available. Open UI")
                 return
-            # [FIX] verify underlying Chrome process is alive
-            if (
-                not driver.service
-                or not getattr(driver.service, "process", None)
-                or driver.service.process.poll() is not None
-            ):
-                log_warning("[selenium] Driver process not running, restarting")
-                driver = self._get_driver()
+            # [FIX] verify underlying nodriver tab is alive
+            try:
+                # Test connection with nodriver by checking if we can access the tab
+                if not driver._tab:
+                    raise Exception("nodriver tab not available")
+                # Simple test to verify the browser is responsive
+                await driver.execute_script("return true;")
+            except Exception as e:
+                log_warning(f"[selenium] Driver not responsive ({e}), restarting")
+                driver = await self._get_driver()
                 if not driver:
                     log_error("[selenium] Failed to restart WebDriver")
                     _notify_gui("❌ Selenium driver not available. Open UI")
                     return
-            if not self._ensure_logged_in():
+            if not await self._ensure_logged_in():
                 return
 
             log_debug("[selenium][STEP] ensuring ChatGPT is accessible")
@@ -1124,25 +1274,38 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     if path:
                         log_warning(f"[selenium] Chat path {path} no longer accessible (archived/deleted), creating new chat")
                         recent_chats.clear_chat_path(message.chat_id)  # Clear old path
-                    _open_new_chat(driver)
+                    await _open_new_chat(driver)
                     # Chat ID will be extracted after sending the prompt
             else:
                 # [REGRESSION FIX] We have a chat_id but need to verify it's still accessible
                 # Try to navigate to the chat, if it fails, create a new one
                 chat_url = f"https://chat.openai.com/c/{chat_id}"
                 try:
-                    driver.get(chat_url)
-                    WebDriverWait(driver, 5).until(
-                        EC.presence_of_element_located((By.ID, "prompt-textarea"))
-                    )
+                    await driver.get(chat_url)
+                    # Wait for textarea with custom async wait
+                    start_time = time.time()
+                    textarea_found = False
+                    while time.time() - start_time < 5:  # 5 second timeout
+                        try:
+                            textarea = await driver.find_element(By.ID, "prompt-textarea")
+                            if textarea:
+                                textarea_found = True
+                                break
+                        except:
+                            pass
+                        await asyncio.sleep(0.5)
+                    
+                    if not textarea_found:
+                        raise Exception("prompt-textarea not found")
+                    
                     log_debug(f"[selenium] Successfully accessed existing chat: {chat_id}")
-                except (TimeoutException, Exception) as e:
+                except Exception as e:
                     log_warning(f"[selenium] Existing chat {chat_id} no longer accessible: {e}")
                     log_info(f"[selenium] Creating new chat to replace inaccessible chat {chat_id}")
                     # Clear the old link and create new chat
                     await chat_link_store.remove(message.chat_id, message_thread_id)
                     recent_chats.clear_chat_path(message.chat_id)
-                    _open_new_chat(driver)
+                    await _open_new_chat(driver)
                     chat_id = None  # Will be set after creating new chat
 
             log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
@@ -1151,31 +1314,47 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             # Only if we don't have a specific chat_id, go to home
             if not chat_id:
                 try:
-                    driver.get("https://chat.openai.com")
-                    WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.TAG_NAME, "main"))
-                    )
-                except TimeoutException:
-                    log_warning("[selenium][ERROR] ChatGPT UI failed to load")
+                    await driver.get("https://chat.openai.com")
+                    # Wait for main element with custom async wait
+                    start_time = time.time()
+                    main_found = False
+                    while time.time() - start_time < 10:  # 10 second timeout
+                        try:
+                            main = await driver.find_element(By.TAG_NAME, "main")
+                            if main:
+                                main_found = True
+                                break
+                        except:
+                            pass
+                        await asyncio.sleep(0.5)
+                    
+                    if not main_found:
+                        raise Exception("main element not found")
+                        
+                except Exception as e:
+                    log_warning(f"[selenium][ERROR] ChatGPT UI failed to load: {e}")
                     _notify_gui("❌ Selenium error: ChatGPT UI not ready. Open UI")
                     return
 
             try:
                 if chat_id:
                     previous = get_previous_response(message.chat_id)
-                    response_text = process_prompt_in_chat(driver, chat_id, prompt_text, previous)
+                    response_text = await process_prompt_in_chat(driver, chat_id, prompt_text, previous)
                     if response_text:
                         update_previous_response(message.chat_id, response_text)
                 else:
                     # Create new chat and send prompt - ID will be available after ChatGPT responds
                     previous = get_previous_response(message.chat_id)
-                    response_text = process_prompt_in_chat(driver, None, prompt_text, previous)
+                    response_text = await process_prompt_in_chat(driver, None, prompt_text, previous)
                     if response_text:
                         update_previous_response(message.chat_id, response_text)
                         # Now extract the new chat ID after ChatGPT has responded
-                        new_chat_id = _extract_chat_id(driver.current_url)
+                        current_url = driver.current_url
+                        if hasattr(current_url, '__await__'):
+                            current_url = await current_url
+                        new_chat_id = _extract_chat_id(current_url)
                         log_debug(f"[selenium][DEBUG] New chat created, extracted ID: {new_chat_id}")
-                        log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
+                        log_debug(f"[selenium][DEBUG] Current URL: {current_url}")
                         if new_chat_id:
                             await chat_link_store.save_link(message.chat_id, message_thread_id, new_chat_id)
                             log_debug(f"[selenium][DEBUG] Saved link: {message.chat_id}/{message_thread_id} -> {new_chat_id}")
@@ -1186,17 +1365,23 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         else:
                             log_warning("[selenium][WARN] Failed to extract chat ID from URL")
 
-                if _check_conversation_full(driver):
-                    current_id = chat_id or _extract_chat_id(driver.current_url)
+                if await _check_conversation_full(driver):
+                    current_url = driver.current_url
+                    if hasattr(current_url, '__await__'):
+                        current_url = await current_url
+                    current_id = chat_id or _extract_chat_id(current_url)
                     global queue_paused
                     queue_paused = True
-                    _open_new_chat(driver)
+                    await _open_new_chat(driver)
                     
                     # TODO: Chat renaming was commented out - using standard prompt sending
                     # response_text = rename_and_send_prompt(driver, message, prompt_text)
-                    response_text = process_prompt_in_chat(driver, None, prompt_text, "")
+                    response_text = await process_prompt_in_chat(driver, None, prompt_text, "")
                     
-                    new_chat_id = _extract_chat_id(driver.current_url)
+                    current_url = driver.current_url
+                    if hasattr(current_url, '__await__'):
+                        current_url = await current_url
+                    new_chat_id = _extract_chat_id(current_url)
                     if new_chat_id:
                         await chat_link_store.save_link(message.chat_id, message_thread_id, new_chat_id)
                         log_debug(
