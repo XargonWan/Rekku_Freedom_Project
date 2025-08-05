@@ -150,6 +150,19 @@ class NodriverElementWrapper:
             return
         if await self._call("type", ""):
             return
+        try:
+            await self._tab.evaluate(
+                """
+                const el = document.getElementById('prompt-textarea');
+                if (el) {
+                    el.value = '';
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+                """,
+            )
+            return
+        except Exception as e:  # pragma: no cover - best effort
+            log_error(f"[selenium] JS clear failed: {e}")
         log_error("[selenium] failed to clear textarea: no supported method")
 
     async def send_keys(self, text: str) -> None:
@@ -159,6 +172,20 @@ class NodriverElementWrapper:
                 return
             if await self._call("type", "\n"):
                 return
+            try:
+                await self._tab.evaluate(
+                    """
+                    const el = document.getElementById('prompt-textarea');
+                    if (el) {
+                        el.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', code:'Enter', bubbles:true}));
+                        el.dispatchEvent(new KeyboardEvent('keypress', {key:'Enter', code:'Enter', bubbles:true}));
+                        el.dispatchEvent(new KeyboardEvent('keyup', {key:'Enter', code:'Enter', bubbles:true}));
+                    }
+                    """,
+                )
+                return
+            except Exception as e:  # pragma: no cover - best effort
+                log_error(f"[selenium] JS ENTER failed: {e}")
         else:
             if await self._call("type", text):
                 return
@@ -166,6 +193,21 @@ class NodriverElementWrapper:
                 return
             if await self._call("set_value", text):
                 return
+            try:
+                escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
+                await self._tab.evaluate(
+                    f"""
+                    const el = document.getElementById('prompt-textarea');
+                    if (el) {{
+                        el.value = '{escaped}';
+                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}
+                    """,
+                )
+                return
+            except Exception as e:  # pragma: no cover - best effort
+                log_error(f"[selenium] JS send_keys failed: {e}")
         log_error("[selenium] failed to send keys: no supported method")
 
     async def get_attribute(self, name: str) -> Optional[str]:
