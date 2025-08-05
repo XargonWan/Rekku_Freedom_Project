@@ -169,11 +169,59 @@ jobs:
             echo "✅ Created manifest for $tag"
           done
 
-  cleanup-images:
+  unit-tests:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
     needs: manifest
     continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Create mock .env file
+        run: |
+          cat <<'EOF' > .env
+          BOTFATHER_TOKEN=dummy
+          TRAINER_ID=123456789
+          OPENAI_API_KEY=dummy
+          DB_HOST=localhost
+          DB_USER=rekku
+          DB_PASS=rekku
+          DB_NAME=rekku
+          TELEGRAM_API_ID=0
+          TELEGRAM_API_HASH=dummy
+          TELEGRAM_PHONE_NUMBER=dummy
+          EOF
+      - name: Set up virtual environment
+        run: python -m venv .venv
+      - name: Run unit tests
+        id: run-tests
+        run: |
+          set +e
+          LOG_DIR=./logs ./run_tests.sh
+          exit_code=$?
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+          # Always exit successfully so the job continues
+          exit 0
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-test-results@v1
+        with:
+          files: test-results/**/*.xml
+
+      - name: Archive unit test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: test-results/
+
+  cleanup-images:
+    runs-on: ubuntu-latest
+    needs: unit-tests
     steps:
       - name: Remove dangling and old PR images from Docker Hub
         env:

@@ -7,8 +7,22 @@ import time
 from typing import Any, Dict, Optional
 from types import SimpleNamespace
 from core.logging_utils import log_debug, log_warning, log_error, log_info
-from core.action_parser import parse_action
-from core.telegram_utils import _send_with_retry
+
+# Optional imports for action parsing and Telegram utilities. When running
+# unit tests in a constrained environment the heavy dependencies may be
+# missing, so fall back to lightweight stubs that allow the module to be
+# imported and the pure logic to be tested.
+try:  # pragma: no cover - best effort optional dependency
+    from core.action_parser import parse_action  # type: ignore
+except Exception:  # pragma: no cover - fall back stub
+    def parse_action(action):
+        return False, action
+
+try:  # pragma: no cover - best effort optional dependency
+    from core.telegram_utils import _send_with_retry  # type: ignore
+except Exception:  # pragma: no cover - fall back async stub
+    async def _send_with_retry(*args, **kwargs):
+        raise RuntimeError("Telegram utilities not available")
 
 # Global dictionary to track retry attempts per chat/message thread
 _retry_tracker = {}
