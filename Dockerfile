@@ -3,14 +3,12 @@ FROM --platform=$TARGETPLATFORM ghcr.io/linuxserver/baseimage-selkies:ubuntunobl
 
 ARG TARGETARCH
 ARG GITVERSION_TAG
-
-# Set version label
 ARG BUILD_DATE
 ARG VERSION
+
 LABEL build_version="Rekku Freedom Project version:- ${VERSION} Build-date:- ${BUILD_DATE}"
 LABEL maintainer="xargonwan"
 
-# Set title for selkies
 ENV TITLE="Rekku Freedom Project"
 
 # Block snap completely
@@ -46,7 +44,7 @@ RUN apt-get update && \
       pavucontrol && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install Chromium browser for all architectures (no snap)
+# Install Chromium browser (no snap)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends jq software-properties-common && \
     ARCH="$TARGETARCH" && \
@@ -64,20 +62,18 @@ RUN apt-get update && \
     ln -s /usr/bin/chromium /usr/bin/google-chrome && \
     echo "Chromium installed successfully from PPA for $ARCH"
 
-# Note: ChromeDriver not needed with nodriver - it handles browser automation natively
-# nodriver supports all architectures including ARM64
-RUN echo "✅ Using nodriver - no ChromeDriver installation needed (supports all architectures)"
+# Info: nodriver handles browser automation natively
+RUN echo "\u2705 Using nodriver - no ChromeDriver installation needed (supports all architectures)"
 
-# Copy project code and setup Python environment
+# Copy project code and set up Python venv
 COPY requirements.txt /app/requirements.txt
 WORKDIR /app
 
-# Python venv for the application
 RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir --upgrade pip setuptools && \
     /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 
-# Copy essential automation scripts
+# Copy essential scripts
 COPY automation_tools/cleanup_chromium.sh /usr/local/bin/cleanup_chromium.sh
 COPY automation_tools/container_rekku.sh /usr/local/bin/rekku.sh
 RUN chmod +x /usr/local/bin/cleanup_chromium.sh /usr/local/bin/rekku.sh
@@ -86,41 +82,24 @@ RUN chmod +x /usr/local/bin/cleanup_chromium.sh /usr/local/bin/rekku.sh
 COPY . /app
 ENV PYTHONPATH=/app
 
-# Inject GitVersion tags into the environment
+# Inject GitVersion tag
 ENV GITVERSION_TAG=$GITVERSION_TAG
 RUN echo "$GITVERSION_TAG" > /app/version.txt && \
     echo "Building with tag: $GITVERSION_TAG"
 
-# Create S6 service for Rekku
-RUN mkdir -p /etc/s6-overlay/s6-rc.d/rekku && \
-    echo '#!/command/with-contenv bash' > /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'set -e' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '# Wait for X server to be ready' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'echo "Waiting for X server to be ready..."' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'while ! su abc -c "DISPLAY=:1 xset q >/dev/null 2>&1"; do' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '    sleep 2' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '    echo "Still waiting for X server..."' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'done' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'echo "X server is ready"' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '# Clean up any Chrome processes from previous sessions' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '/usr/local/bin/cleanup_chromium.sh' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '# Start Rekku application' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'cd /app' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'echo "Starting Rekku Freedom Project..."' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'exec s6-setuidgid abc /usr/local/bin/rekku.sh run' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    chmod +x /etc/s6-overlay/s6-rc.d/rekku/run
+# Set XFCE as default session for Selkies
+RUN echo xfce4-session > /config/desktop-session
 
-# Create S6 service dependencies
-RUN echo 'longrun' > /etc/s6-overlay/s6-rc.d/rekku/type && \
+# Copy S6 Rekku service
+COPY s6-services/rekku /etc/s6-overlay/s6-rc.d/rekku
+RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo 'longrun' > /etc/s6-overlay/s6-rc.d/rekku/type && \
     mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
-    touch /etc/s6-overlay/s6-rc.d/user/contents.d/rekku
-
-# Set permissions for abc user
-RUN chown -R abc:abc /app && \
+    echo rekku > /etc/s6-overlay/s6-rc.d/user/contents.d/rekku && \
     chown -R abc:abc /etc/s6-overlay/s6-rc.d/rekku
 
-# Expose port 3000 (selkies default)
+# Set permissions for abc user
+RUN chown -R abc:abc /app
+
+# Expose Selkies port
 EXPOSE 3000
