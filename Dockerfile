@@ -46,42 +46,23 @@ RUN apt-get update && \
       pavucontrol && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install browser based on architecture (no snap)
+# Install Chromium browser for all architectures (no snap)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends jq && \
+    apt-get install -y --no-install-recommends jq software-properties-common && \
     ARCH="$TARGETARCH" && \
     echo "Building for architecture: $ARCH" && \
     if [ -z "$ARCH" ]; then \
         echo "Warning: TARGETARCH not set, defaulting to amd64" && \
         ARCH=amd64; \
     fi && \
-    if [ "$ARCH" = "amd64" ]; then \
-        echo "Installing Chrome for AMD64..." && \
-        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/trusted.gpg.d/google-chrome.gpg && \
-        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-        apt-get update && \
-        apt-get install -y google-chrome-stable && \
-        apt-get clean && rm -rf /var/lib/apt/lists/* && \
-        google-chrome --version; \
-    elif [ "$ARCH" = "arm64" ]; then \
-        echo "Installing Chromium for ARM64 from PPA (no snap)..." && \
-        apt-get install -y --no-install-recommends software-properties-common && \
-        add-apt-repository ppa:xtradeb/apps -y && \
-        apt-get update && \
-        apt-get install -y --no-install-recommends chromium && \
-        apt-get clean && rm -rf /var/lib/apt/lists/* && \
-        chromium --version && \
-        ln -s /usr/bin/chromium /usr/bin/google-chrome && \
-        echo "Chromium installed successfully from PPA"; \
-    else \
-        echo "Warning: unsupported architecture '$ARCH', defaulting to amd64" && \
-        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/trusted.gpg.d/google-chrome.gpg && \
-        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-        apt-get update && \
-        apt-get install -y google-chrome-stable && \
-        apt-get clean && rm -rf /var/lib/apt/lists/* && \
-        google-chrome --version; \
-    fi
+    echo "Installing Chromium for $ARCH from PPA (no snap)..." && \
+    add-apt-repository ppa:xtradeb/apps -y && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends chromium && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    chromium --version && \
+    ln -s /usr/bin/chromium /usr/bin/google-chrome && \
+    echo "Chromium installed successfully from PPA for $ARCH"
 
 # Note: ChromeDriver not needed with nodriver - it handles browser automation natively
 # nodriver supports all architectures including ARM64
@@ -139,9 +120,7 @@ RUN echo 'longrun' > /etc/s6-overlay/s6-rc.d/rekku/type && \
 
 # Set permissions for abc user
 RUN chown -R abc:abc /app && \
-    chown -R abc:abc /etc/s6-overlay/s6-rc.d/rekku && \
-    mkdir -p /usr/share/novnc && \
-    chown -R abc:abc /usr/share/novnc
+    chown -R abc:abc /etc/s6-overlay/s6-rc.d/rekku
 
 # Expose port 3000 (selkies default)
 EXPOSE 3000

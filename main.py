@@ -14,22 +14,12 @@ from core.logging_utils import (
     log_error,
 )
 
-# WORKAROUND, TODO: INVESTIGATE THIS
-# Ensure /usr/share/novnc exists
-novnc_path = "/usr/share/novnc"
-if not os.path.exists(novnc_path):
-    os.makedirs(novnc_path)
-    with open(os.path.join(novnc_path, "vnc.html"), "w") as f:
-        f.write("<!DOCTYPE html><html><head><title>noVNC</title></head><body><h1>noVNC placeholder</h1></body></html>")
-    with open(os.path.join(novnc_path, "index.html"), "w") as f:
-        f.write("index.html")
-    print("[main] Created /usr/share/novnc with placeholder files")
-
 def cleanup_chrome_processes():
-    """Clean up any remaining Chrome/Chromium processes and lock files while preserving login sessions."""
+    """Clean up any remaining Chromium processes and lock files while preserving login sessions.
+    Note: google-chrome is symlinked to chromium, but we clean both for compatibility."""
     try:
-        # Kill Chrome and Chromium processes
-        log_debug("[main] Cleaning up Chrome/Chromium processes...")
+        # Kill Chromium processes (google-chrome is symlinked to chromium)
+        log_debug("[main] Cleaning up Chromium processes...")
         subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
         subprocess.run(["pkill", "-f", "chromium"], capture_output=True, text=True)
         subprocess.run(["pkill", "-f", "chromedriver"], capture_output=True, text=True)
@@ -45,7 +35,8 @@ def cleanup_chrome_processes():
             shutil.rmtree(uc_cache_dir, ignore_errors=True)
             log_debug("[main] Removed undetected_chromedriver cache")
         
-        # Remove browser lock files (preserves login data) - support both Chrome and Chromium
+        # Remove browser lock files (preserves login data) - using Chromium
+        # Note: google-chrome is symlinked to chromium, but we keep both paths for compatibility
         profile_patterns = [
             os.path.expanduser("~/.config/google-chrome*"),
             os.path.expanduser("~/.config/chromium*"),

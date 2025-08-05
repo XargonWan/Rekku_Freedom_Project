@@ -18,6 +18,7 @@ import time
 import json
 import re
 import platform
+import traceback
 from typing import Dict, Optional
 from collections import defaultdict
 import threading
@@ -37,7 +38,14 @@ class NodriverSeleniumWrapper:
     """Wrapper class to make nodriver compatible with Selenium API patterns used in the code"""
     
     def __init__(self, nodriver_instance):
-        self._nodriver = nodriver_instance
+        log_debug("[selenium] 🔧 Creating NodriverSeleniumWrapper...")
+        log_debug(f"[selenium] 📋 nodriver_instance type: {type(nodriver_instance)}")
+        try:
+            self._nodriver = nodriver_instance
+            log_debug("[selenium] ✅ NodriverSeleniumWrapper created successfully")
+        except Exception as e:
+            log_error(f"[selenium] ❌ Failed to create NodriverSeleniumWrapper: {e}")
+            raise
         
     async def get(self, url):
         """Navigate to URL"""
@@ -698,13 +706,25 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     chat_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
     def __init__(self, notify_fn=None):
         """Initialize the plugin without starting Selenium yet."""
-        self.driver = None
-        self._queue: asyncio.Queue = asyncio.Queue()
-        self._worker_task = None
-        self._notify_fn = notify_fn or notify_trainer
-        log_debug(f"[selenium] notify_fn passed: {bool(notify_fn)}")
-        log_debug(f"[selenium] Using nodriver (supports all architectures)")
-        set_notifier(self._notify_fn)
+        log_debug("[selenium] 🚀 Starting plugin initialization...")
+        
+        try:
+            log_debug("[selenium] 🔧 Setting up basic attributes...")
+            self.driver = None
+            self._queue: asyncio.Queue = asyncio.Queue()
+            self._worker_task = None
+            self._notify_fn = notify_fn or notify_trainer
+            log_debug(f"[selenium] ✅ Basic attributes set. notify_fn passed: {bool(notify_fn)}")
+            
+            log_debug(f"[selenium] 🎯 Using nodriver (supports all architectures)")
+            set_notifier(self._notify_fn)
+            log_debug("[selenium] ✅ Plugin initialization completed successfully")
+            
+        except Exception as e:
+            log_error(f"[selenium] ❌ Plugin initialization failed: {e}")
+            import traceback
+            log_error(f"[selenium] 📜 Traceback: {traceback.format_exc()}")
+            raise
 
     async def cleanup(self):
         """Clean up resources when the plugin is stopped."""
@@ -744,17 +764,21 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
     async def start(self):
         """Start the background worker loop."""
-        log_debug("[selenium] \U0001F7E2 start() called")
+        log_debug("[selenium] 🟢 start() called - beginning plugin startup")
+        
         if self.is_worker_running():
-            log_debug("[selenium] Worker already running")
+            log_debug("[selenium] ⚠️ Worker already running, skipping start")
             return
+            
         if self._worker_task is not None and self._worker_task.done():
-            log_warning("[selenium] Previous worker task ended, restarting")
+            log_warning("[selenium] 🔄 Previous worker task ended, restarting")
+            
+        log_debug("[selenium] 🚀 Creating new worker task...")
         self._worker_task = asyncio.create_task(
             self._worker_loop(), name="selenium_worker"
         )
         self._worker_task.add_done_callback(self._handle_worker_done)
-        log_debug("[selenium] Worker task created")
+        log_debug("[selenium] ✅ Worker task created successfully")
 
     def is_worker_running(self) -> bool:
         return self._worker_task is not None and not self._worker_task.done()
@@ -777,23 +801,28 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     async def _init_driver(self):
         """Initialize nodriver browser (supports all architectures including ARM64)"""
         if self.driver is None:
-            log_debug("[selenium] [STEP] Initializing browser with nodriver (multi-architecture support)")
+            log_debug("[selenium] 🚀 [STEP] Initializing browser with nodriver (multi-architecture support)")
 
             # Clean up any leftover processes and files from previous runs
+            log_debug("[selenium] 🧹 Cleaning up previous browser remnants...")
             self._cleanup_chrome_remnants()
+            log_debug("[selenium] ✅ Cleanup completed")
 
             # Ensure DISPLAY is set
-            if not os.environ.get("DISPLAY"):
+            display = os.environ.get("DISPLAY")
+            log_debug(f"[selenium] 🖥️ Current DISPLAY: {display}")
+            if not display:
                 os.environ["DISPLAY"] = ":1"
-                log_debug("[selenium] DISPLAY not set, defaulting to :1")
+                log_debug("[selenium] 📺 DISPLAY not set, defaulting to :1")
 
             # Try multiple times with increasing delays
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    log_debug(f"[selenium] Initialization attempt {attempt + 1}/{max_retries}")
+                    log_debug(f"[selenium] 🎯 Initialization attempt {attempt + 1}/{max_retries}")
                     
                     # Configure nodriver options
+                    log_debug("[selenium] ⚙️ Configuring browser arguments...")
                     browser_args = [
                         "--no-sandbox",
                         "--disable-dev-shm-usage",
@@ -827,67 +856,90 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     ]
                     
                     # Use persistent profile directory to maintain login sessions
-                    # Support both Chrome and Chromium
-                    if os.path.exists("/usr/bin/google-chrome") or os.path.exists("/usr/bin/google-chrome-stable"):
-                        profile_dir = os.path.expanduser("~/.config/google-chrome-rekku")
-                    else:
-                        profile_dir = os.path.expanduser("~/.config/chromium-rekku")
+                    # Always use Chromium (google-chrome is symlinked to chromium)
+                    log_debug("[selenium] 🔍 Using Chromium browser...")
+                    profile_dir = os.path.expanduser("~/.config/chromium-rekku")
+                    log_debug("[selenium] 🔧 Using Chromium profile directory")
+                    
+                    log_debug(f"[selenium] 📁 Profile directory: {profile_dir}")
                     os.makedirs(profile_dir, exist_ok=True)
                     browser_args.append(f"--user-data-dir={profile_dir}")
                     
                     # Initialize nodriver with configuration
+                    log_debug("[selenium] 🚀 Starting nodriver instance...")
                     nodriver_instance = await uc.start(
                         headless=False,
                         browser_args=browser_args,
                         user_data_dir=profile_dir
                     )
+                    log_debug("[selenium] ✅ nodriver instance created successfully")
                     
                     # Wrap nodriver instance to maintain Selenium API compatibility
+                    log_debug("[selenium] 🔄 Creating Selenium API wrapper...")
                     self.driver = NodriverSeleniumWrapper(nodriver_instance)
+                    log_debug("[selenium] ✅ Wrapper created successfully")
                     
-                    log_debug("[selenium] ✅ Browser successfully initialized with nodriver")
+                    log_debug("[selenium] 🎉 Browser successfully initialized with nodriver")
                     return  # Success, exit retry loop
                     
                 except Exception as e:
-                    log_warning(f"[selenium] Attempt {attempt + 1} failed: {e}")
+                    log_warning(f"[selenium] ⚠️ Attempt {attempt + 1} failed: {e}")
+                    log_debug(f"[selenium] 📜 Exception details: {type(e).__name__}: {str(e)}")
                     
                     # Handle specific Python shutdown error
                     if "sys.meta_path is None" in str(e) or "Python is likely shutting down" in str(e):
-                        log_warning("[selenium] Python shutdown detected, skipping browser initialization")
+                        log_warning("[selenium] 🔚 Python shutdown detected, skipping browser initialization")
                         return None
                     
                     # Clean up before next attempt
+                    log_debug("[selenium] 🧹 Cleaning up failed attempt...")
                     if self.driver:
                         try:
                             await self.driver.stop()
-                        except:
-                            pass
+                            log_debug("[selenium] ✅ Driver stopped")
+                        except Exception as cleanup_error:
+                            log_debug(f"[selenium] ⚠️ Driver cleanup failed: {cleanup_error}")
                         self.driver = None
                     
                     self._cleanup_chrome_remnants()
                     
                     if attempt < max_retries - 1:
                         delay = (attempt + 1) * 2  # 2, 4, 6 seconds
-                        log_debug(f"[selenium] Waiting {delay}s before next attempt...")
+                        log_debug(f"[selenium] ⏱️ Waiting {delay}s before next attempt...")
                         await asyncio.sleep(delay)
                     else:
                         log_error(f"[selenium] ❌ All initialization attempts failed: {e}")
                         _notify_gui(f"❌ Browser error: {e}. Check graphics environment.")
+                        log_error("[selenium] 💥 Raising SystemExit due to browser initialization failure")
                         raise SystemExit(1)
 
     def _cleanup_chrome_remnants(self):
-        """Clean up Chrome/Chromium processes and leftover lock files."""
+        """Clean up Chromium processes and leftover lock files.
+        Note: google-chrome is symlinked to chromium."""
+        log_debug("[selenium] 🧹 Starting Chrome cleanup process...")
+        
         try:
-            # Kill both Chrome and Chromium processes
-            subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
-            subprocess.run(["pkill", "-f", "chromium"], capture_output=True, text=True)
-            subprocess.run(["pkill", "chromedriver"], capture_output=True, text=True)
+            # Kill Chromium processes (google-chrome is symlinked to chromium)
+            log_debug("[selenium] 🔪 Killing chrome processes...")
+            result_chrome = subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
+            log_debug(f"[selenium] 📊 pkill chrome result: returncode={result_chrome.returncode}, stdout='{result_chrome.stdout.strip()}', stderr='{result_chrome.stderr.strip()}'")
+            
+            log_debug("[selenium] 🔪 Killing chromium processes...")
+            result_chromium = subprocess.run(["pkill", "-f", "chromium"], capture_output=True, text=True)
+            log_debug(f"[selenium] 📊 pkill chromium result: returncode={result_chromium.returncode}, stdout='{result_chromium.stdout.strip()}', stderr='{result_chromium.stderr.strip()}'")
+            
+            log_debug("[selenium] 🔪 Killing chromedriver processes...")
+            result_chromedriver = subprocess.run(["pkill", "chromedriver"], capture_output=True, text=True)
+            log_debug(f"[selenium] 📊 pkill chromedriver result: returncode={result_chromedriver.returncode}, stdout='{result_chromedriver.stdout.strip()}', stderr='{result_chromedriver.stderr.strip()}'")
+            
+            log_debug("[selenium] ⏱️ Sleeping 1 second after process kills...")
             time.sleep(1)
-            log_debug("[selenium] Issued pkill for chrome, chromium and chromedriver")
+            log_debug("[selenium] ✅ Process killing completed")
         except Exception as e:
-            log_debug(f"[selenium] Failed to kill browser processes: {e}")
+            log_error(f"[selenium] ❌ Failed to kill browser processes: {e}")
 
         try:
+            log_debug("[selenium] 🔍 Starting lock file cleanup...")
             import glob
             patterns = [
                 os.path.expanduser("~/.config/google-chrome*"),
@@ -895,10 +947,19 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 "/tmp/.org.chromium.*",
                 "/tmp/chrome_*",
             ]
+            log_debug(f"[selenium] 📋 Cleanup patterns: {patterns}")
 
-            for pattern in patterns:
-                log_debug(f"[selenium] Scanning {pattern}")
-                for prof_dir in glob.glob(pattern):
+            for i, pattern in enumerate(patterns, 1):
+                log_debug(f"[selenium] 🔍 Scanning pattern {i}/{len(patterns)}: {pattern}")
+                matching_dirs = glob.glob(pattern)
+                log_debug(f"[selenium] 📁 Found {len(matching_dirs)} directories matching pattern: {matching_dirs}")
+                
+                for prof_dir in matching_dirs:
+                    log_debug(f"[selenium] 🗂️ Processing directory: {prof_dir}")
+                    if not os.path.exists(prof_dir):
+                        log_debug(f"[selenium] ⚠️ Directory no longer exists: {prof_dir}")
+                        continue
+                        
                     for name in [
                         "SingletonLock",
                         "lockfile",
@@ -906,16 +967,22 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "SingletonCookie",
                     ]:
                         path = os.path.join(prof_dir, name)
+                        log_debug(f"[selenium] 🔎 Checking lock file: {path}")
                         if os.path.exists(path):
                             try:
+                                log_debug(f"[selenium] 🗑️ Removing lock file: {path}")
                                 os.remove(path)
-                                log_debug(f"[selenium] Removed lock file: {path}")
+                                log_debug(f"[selenium] ✅ Successfully removed: {path}")
                             except Exception as e:
-                                log_debug(f"[selenium] Failed to remove {path}: {e}")
+                                log_warning(f"[selenium] ⚠️ Failed to remove {path}: {e}")
+                        else:
+                            log_debug(f"[selenium] ℹ️ Lock file not found: {path}")
         except Exception as e:
-            log_debug(f"[selenium] Lock file cleanup failed: {e}")
+            log_error(f"[selenium] ❌ Lock file cleanup failed: {e}")
+            import traceback
+            log_error(f"[selenium] 📜 Cleanup traceback: {traceback.format_exc()}")
 
-        log_debug("[selenium] Chrome lock cleanup complete")
+        log_debug("[selenium] 🎉 Chrome cleanup process completed")
 
     # [FIX] ensure the WebDriver session is alive before use
     async def _get_driver(self):
@@ -975,32 +1042,41 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             )
 
     async def _worker_loop(self):
-        log_debug("[selenium] Worker loop started")
+        log_debug("[selenium] 🔄 Worker loop started - entering main processing loop")
         try:
             while True:
+                log_debug("[selenium] 📥 Waiting for new tasks in queue...")
                 bot, message, prompt = await self._queue.get()
+                log_debug(f"[selenium] 📨 New task received: chat_id={message.chat_id}")
+                
                 while queue_paused:
+                    log_debug("[selenium] ⏸️ Queue is paused, waiting...")
                     await asyncio.sleep(1)
+                    
                 log_debug(
-                    f"[selenium] [WORKER] Processing chat_id={message.chat_id} message_id={message.message_id}"
+                    f"[selenium] 🔧 [WORKER] Processing chat_id={message.chat_id} message_id={message.message_id}"
                 )
                 try:
                     lock = SeleniumChatGPTPlugin.chat_locks[message.chat_id]  # [FIX]
+                    log_debug(f"[selenium] 🔒 Acquiring lock for chat {message.chat_id}")
                     async with lock:
-                        log_debug(f"[selenium] Lock acquired for chat {message.chat_id}")
+                        log_debug(f"[selenium] ✅ Lock acquired for chat {message.chat_id}")
                         await self._process_message(bot, message, prompt)
-                        log_debug(f"[selenium] Lock released for chat {message.chat_id}")
+                        log_debug(f"[selenium] 🔓 Lock released for chat {message.chat_id}")
                 except Exception as e:
-                    log_error("[selenium] Worker error", e)
+                    log_error(f"[selenium] ❌ Worker error: {e}", e)
                     _notify_gui(f"❌ Selenium error: {e}. Open UI")
                 finally:
                     self._queue.task_done()
-                    log_debug("[selenium] [WORKER] Task completed")
+                    log_debug("[selenium] ✅ [WORKER] Task completed")
         except asyncio.CancelledError:  # [FIX]
-            log_warning("Worker was cancelled")
+            log_warning("[selenium] ⚠️ Worker was cancelled")
+            raise
+        except Exception as e:
+            log_error(f"[selenium] 💥 Worker loop crashed: {e}", e)
             raise
         finally:
-            log_info("Worker loop cleaned up")
+            log_info("[selenium] 🧹 Worker loop cleaned up")
 
     async def _process_message(self, bot, message, prompt):
         """Send the prompt to ChatGPT and forward the response."""

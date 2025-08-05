@@ -1,12 +1,13 @@
 #!/bin/bash
-# Script to clean up Chrome/Chromium processes and lock files
+# Script to clean up Chromium processes and lock files
+# Note: google-chrome is symlinked to chromium for compatibility
 # Useful for resolving issues after abrupt Ctrl+C termination
 # Can be used both manually and as container init script
 
-echo "🧹 Cleaning Chrome/Chromium processes and lock files..."
+echo "🧹 Cleaning Chromium processes and lock files..."
 
-# Terminate all Chrome and Chromium processes
-echo "🔪 Terminating Chrome/Chromium processes..."
+# Terminate all Chromium processes (chrome and chromium commands)
+echo "🔪 Terminating Chromium processes..."
 pkill -f chrome 2>/dev/null || echo "No Chrome processes found"
 pkill -f chromium 2>/dev/null || echo "No Chromium processes found"
 pkill -f chromedriver 2>/dev/null || echo "No chromedriver processes found"
@@ -21,7 +22,8 @@ pkill -9 -f chromedriver 2>/dev/null || true
 
 echo "🗑️  Removing lock files and temporary cache (preserving login sessions)..."
 
-# Remove Chrome lock files (these cause "cannot connect" errors)
+# Remove Chromium lock files (these cause "cannot connect" errors)
+# Note: We clean both google-chrome and chromium paths for compatibility
 # Note: We only remove lock files, NOT the actual profile data to preserve logins
 rm -f ~/.config/google-chrome*/SingletonLock 2>/dev/null || true
 rm -f ~/.config/google-chrome*/Default/SingletonLock 2>/dev/null || true
@@ -38,9 +40,6 @@ rm -f /home/rekku/.config/chromium*/SingletonLock 2>/dev/null || true
 rm -f /home/rekku/.config/chromium*/Default/SingletonLock 2>/dev/null || true
 rm -f /home/rekku/.config/chromium*/lockfile 2>/dev/null || true
 
-# Remove undetected-chromedriver cache (this can be safely regenerated)
-rm -rf /tmp/undetected_chromedriver 2>/dev/null || true
-
 # Remove ONLY temporary profile directories (those with timestamp suffix)
 # This preserves the main persistent profiles but removes temporary ones
 rm -rf ~/.config/google-chrome-[0-9]* 2>/dev/null || true
@@ -48,7 +47,7 @@ rm -rf /home/rekku/.config/google-chrome-[0-9]* 2>/dev/null || true
 rm -rf ~/.config/chromium-[0-9]* 2>/dev/null || true
 rm -rf /home/rekku/.config/chromium-[0-9]* 2>/dev/null || true
 
-# Note: We specifically preserve ~/.config/google-chrome-rekku and ~/.config/chromium-rekku
+# Note: We specifically preserve ~/.config/chromium-rekku (and google-chrome-rekku for compatibility)
 # This keeps ChatGPT login sessions and other site data intact
 
 # Remove browser temporary files and crash reports (safe to remove)
