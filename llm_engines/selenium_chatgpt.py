@@ -1,4 +1,4 @@
-import undetected_chromedriver as uc
+import nodriver as uc
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -31,6 +31,53 @@ import subprocess
 from core import recent_chats
 from core.db import get_conn
 import aiomysql
+
+
+class NodriverSeleniumWrapper:
+    """Wrapper class to make nodriver compatible with Selenium API patterns used in the code"""
+    
+    def __init__(self, nodriver_instance):
+        self._nodriver = nodriver_instance
+        
+    async def get(self, url):
+        """Navigate to URL"""
+        await self._nodriver.get(url)
+        
+    async def find_elements(self, by_type, selector):
+        """Find elements by CSS selector (most common case)"""
+        if by_type == By.CSS_SELECTOR:
+            elements = await self._nodriver.select_all(selector)
+            return elements if elements else []
+        else:
+            # For other selector types, we'd need to convert
+            log_warning(f"[selenium] Unsupported selector type: {by_type}")
+            return []
+            
+    async def find_element(self, by_type, selector):
+        """Find single element by CSS selector"""
+        if by_type == By.CSS_SELECTOR:
+            element = await self._nodriver.select(selector)
+            return element
+        else:
+            log_warning(f"[selenium] Unsupported selector type: {by_type}")
+            return None
+            
+    @property
+    def current_url(self):
+        """Get current URL - note: this should be awaited in nodriver"""
+        return self._nodriver.current_url
+        
+    async def execute_script(self, script):
+        """Execute JavaScript"""
+        return await self._nodriver.evaluate(script)
+        
+    async def quit(self):
+        """Close browser"""
+        await self._nodriver.stop()
+        
+    async def stop(self):
+        """Alias for quit"""
+        await self._nodriver.stop()
 
 
 class ChatLinkStore:
@@ -651,27 +698,15 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     chat_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
     def __init__(self, notify_fn=None):
         """Initialize the plugin without starting Selenium yet."""
-        # Check if we're on ARM64 architecture - ChromeDriver doesn't support ARM64
-        machine = platform.machine().lower()
-        if machine in ['aarch64', 'arm64']:
-            error_msg = (
-                "❌ selenium_chatgpt plugin is not supported on ARM64 architecture.\n"
-                f"Current machine type: {machine}\n"
-                "ChromeDriver does not officially support ARM64.\n"
-                "Please use a different LLM engine (openai_chatgpt, manual, etc.)."
-            )
-            log_error(f"[selenium] {error_msg}")
-            raise RuntimeError(error_msg)
-        
         self.driver = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task = None
         self._notify_fn = notify_fn or notify_trainer
         log_debug(f"[selenium] notify_fn passed: {bool(notify_fn)}")
-        log_debug(f"[selenium] Architecture: {machine} (compatible)")
+        log_debug(f"[selenium] Using nodriver (supports all architectures)")
         set_notifier(self._notify_fn)
 
-    def cleanup(self):
+    async def cleanup(self):
         """Clean up resources when the plugin is stopped."""
         log_debug("[selenium] Starting cleanup...")
         
@@ -683,18 +718,18 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         # Close the driver
         if self.driver:
             try:
-                self.driver.quit()
-                log_debug("[selenium] Chrome driver closed")
+                await self.driver.stop()
+                log_debug("[selenium] nodriver browser closed")
             except Exception as e:
                 log_warning(f"[selenium] Failed to close driver: {e}")
             finally:
                 self.driver = None
         
-        # Kill any remaining Chrome processes
+        # Kill any remaining browser processes
         try:
             subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
-            subprocess.run(["pkill", "-f", "chromedriver"], capture_output=True, text=True)
-            log_debug("[selenium] Killed remaining Chrome processes")
+            subprocess.run(["pkill", "-f", "chromium"], capture_output=True, text=True)
+            log_debug("[selenium] Killed remaining browser processes")
         except Exception as e:
             log_debug(f"[selenium] Failed to kill processes: {e}")
         
@@ -705,7 +740,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         if self._worker_task:
             self._worker_task.cancel()
             await asyncio.gather(self._worker_task, return_exceptions=True)
-        self.cleanup()
+        await self.cleanup()
 
     async def start(self):
         """Start the background worker loop."""
@@ -739,9 +774,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except RuntimeError:
             pass
 
-    def _init_driver(self):
+    async def _init_driver(self):
+        """Initialize nodriver browser (supports all architectures including ARM64)"""
         if self.driver is None:
-            log_debug("[selenium] [STEP] Initializing Chrome driver with undetected-chromedriver")
+            log_debug("[selenium] [STEP] Initializing browser with nodriver (multi-architecture support)")
 
             # Clean up any leftover processes and files from previous runs
             self._cleanup_chrome_remnants()
@@ -757,11 +793,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 try:
                     log_debug(f"[selenium] Initialization attempt {attempt + 1}/{max_retries}")
                     
-                    # Create Chrome options optimized for container environments
-                    options = uc.ChromeOptions()
-                    
-                    # Essential options for Docker containers
-                    essential_args = [
+                    # Configure nodriver options
+                    browser_args = [
                         "--no-sandbox",
                         "--disable-dev-shm-usage",
                         "--disable-setuid-sandbox",
@@ -781,7 +814,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "--disable-features=VizDisplayCompositor",
                         "--log-level=3",
                         "--disable-logging",
-                        "--remote-debugging-port=0",  # Let Chrome choose port
+                        "--remote-debugging-port=0",
                         "--disable-background-mode",
                         "--disable-default-browser-check",
                         "--disable-hang-monitor",
@@ -793,48 +826,26 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "--disable-client-side-phishing-detection"
                     ]
                     
-                    for arg in essential_args:
-                        options.add_argument(arg)
-                    
                     # Use persistent profile directory to maintain login sessions
-                    # This preserves ChatGPT login and other site sessions across restarts
                     # Support both Chrome and Chromium
                     if os.path.exists("/usr/bin/google-chrome") or os.path.exists("/usr/bin/google-chrome-stable"):
                         profile_dir = os.path.expanduser("~/.config/google-chrome-rekku")
                     else:
                         profile_dir = os.path.expanduser("~/.config/chromium-rekku")
                     os.makedirs(profile_dir, exist_ok=True)
-                    options.add_argument(f"--user-data-dir={profile_dir}")
+                    browser_args.append(f"--user-data-dir={profile_dir}")
                     
-                    # Clear any existing driver cache
-                    import tempfile
-                    import shutil
-                    uc_cache_dir = os.path.join(tempfile.gettempdir(), 'undetected_chromedriver')
-                    if os.path.exists(uc_cache_dir):
-                        shutil.rmtree(uc_cache_dir, ignore_errors=True)
-                        log_debug("[selenium] Cleared undetected-chromedriver cache")
-                    
-                    # Find system-installed chromedriver to avoid architecture issues
-                    chromedriver_path = None
-                    for candidate in ["/usr/local/bin/chromedriver", "/usr/bin/chromedriver"]:
-                        if os.path.exists(candidate):
-                            chromedriver_path = candidate
-                            log_debug(f"[selenium] Found system chromedriver: {chromedriver_path}")
-                            break
-                    
-                    # Try with automatic configuration first
-                    self.driver = uc.Chrome(
-                        options=options,
+                    # Initialize nodriver with configuration
+                    nodriver_instance = await uc.start(
                         headless=False,
-                        use_subprocess=False,
-                        version_main=None,  # Auto-detect Chrome version
-                        suppress_welcome=True,
-                        log_level=3,
-                        driver_executable_path=chromedriver_path,  # Use system chromedriver if found
-                        browser_executable_path=None,  # Let UC find Chrome
+                        browser_args=browser_args,
                         user_data_dir=profile_dir
                     )
-                    log_debug("[selenium] ✅ Chrome successfully initialized with undetected-chromedriver")
+                    
+                    # Wrap nodriver instance to maintain Selenium API compatibility
+                    self.driver = NodriverSeleniumWrapper(nodriver_instance)
+                    
+                    log_debug("[selenium] ✅ Browser successfully initialized with nodriver")
                     return  # Success, exit retry loop
                     
                 except Exception as e:
@@ -842,13 +853,13 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     
                     # Handle specific Python shutdown error
                     if "sys.meta_path is None" in str(e) or "Python is likely shutting down" in str(e):
-                        log_warning("[selenium] Python shutdown detected, skipping Chrome initialization")
+                        log_warning("[selenium] Python shutdown detected, skipping browser initialization")
                         return None
                     
                     # Clean up before next attempt
                     if self.driver:
                         try:
-                            self.driver.quit()
+                            await self.driver.stop()
                         except:
                             pass
                         self.driver = None
@@ -858,76 +869,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     if attempt < max_retries - 1:
                         delay = (attempt + 1) * 2  # 2, 4, 6 seconds
                         log_debug(f"[selenium] Waiting {delay}s before next attempt...")
-                        time.sleep(delay)
+                        await asyncio.sleep(delay)
                     else:
-                        # Final attempt with explicit Chrome binary
-                        log_debug("[selenium] Final attempt with explicit Chrome/Chromium binary path...")
-                        try:
-                            # Try to find available browser binary
-                            chrome_binary = None
-                            for candidate in [
-                                "/usr/bin/google-chrome-stable",
-                                "/usr/bin/google-chrome", 
-                                "/usr/bin/chromium",
-                                "/usr/bin/chromium-browser"
-                            ]:
-                                if os.path.exists(candidate):
-                                    chrome_binary = candidate
-                                    break
-                            
-                            if chrome_binary:
-                                log_debug(f"[selenium] Using browser binary: {chrome_binary}")
-                                # Create fresh ChromeOptions for fallback attempt
-                                fallback_options = uc.ChromeOptions()
-                                for arg in essential_args:
-                                    fallback_options.add_argument(arg)
-                                fallback_options.add_argument(f"--user-data-dir={profile_dir}")
-                                
-                                self.driver = uc.Chrome(
-                                    options=fallback_options,
-                                    headless=False,
-                                    use_subprocess=False,
-                                    version_main=None,
-                                    suppress_welcome=True,
-                                    log_level=3,
-                                    driver_executable_path=chromedriver_path,  # Use system chromedriver
-                                    browser_executable_path=chrome_binary,
-                                    user_data_dir=profile_dir
-                                )
-                                log_debug(f"[selenium] ✅ Browser initialized with explicit binary path: {chrome_binary}")
-                                return
-                            else:
-                                raise Exception("No compatible browser binary found (Chrome/Chromium)")
-                                
-                        except Exception as e2:
-                            log_warning("[selenium] Browser lock suspected - attempting forced lock cleanup...")
-                            self._cleanup_chrome_remnants()
-                            try:
-                                if chrome_binary:
-                                    fallback_options = uc.ChromeOptions()
-                                    for arg in essential_args:
-                                        fallback_options.add_argument(arg)
-                                    fallback_options.add_argument(f"--user-data-dir={profile_dir}")
-
-                                    self.driver = uc.Chrome(
-                                        options=fallback_options,
-                                        headless=False,
-                                        use_subprocess=False,
-                                        version_main=None,
-                                        suppress_welcome=True,
-                                        log_level=3,
-                                        driver_executable_path=chromedriver_path,  # Use system chromedriver
-                                        browser_executable_path=chrome_binary,
-                                        user_data_dir=profile_dir
-                                    )
-                                    log_debug(f"[selenium] ✅ Browser initialized after forced lock cleanup: {chrome_binary}")
-                                    return
-                                else:
-                                    raise Exception("No compatible browser binary found (Chrome/Chromium)")
-                            except Exception as e3:
-                                log_error(f"[selenium] ❌ All initialization attempts failed: {e3}")
-                                _notify_gui(f"❌ Selenium error: {e3}. Check graphics environment.")
-                                raise SystemExit(1)
+                        log_error(f"[selenium] ❌ All initialization attempts failed: {e}")
+                        _notify_gui(f"❌ Browser error: {e}. Check graphics environment.")
+                        raise SystemExit(1)
 
     def _cleanup_chrome_remnants(self):
         """Clean up Chrome/Chromium processes and leftover lock files."""
@@ -972,27 +918,27 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         log_debug("[selenium] Chrome lock cleanup complete")
 
     # [FIX] ensure the WebDriver session is alive before use
-    def _get_driver(self):
+    async def _get_driver(self):
         """Return a valid WebDriver, recreating it if the session is dead."""
         if self.driver is None:
             try:
-                self._init_driver()
+                await self._init_driver()
             except Exception as e:
                 log_error(f"[selenium] Failed to initialize driver: {e}")
                 return None
         else:
             try:
-                # simple command to verify the session is still alive
-                self.driver.execute_script("return 1")
+                # simple command to verify the session is still alive (for nodriver)
+                await self.driver.get("javascript:void(0)")
             except Exception as e:
                 log_warning(f"[selenium] WebDriver session error: {e}. Restarting")
                 try:
-                    self.driver.quit()
+                    await self.driver.stop()
                 except Exception:
                     pass
                 self.driver = None
                 try:
-                    self._init_driver()
+                    await self._init_driver()
                 except Exception as e2:
                     log_error(f"[selenium] Failed to reinitialize driver: {e2}")
                     return None
@@ -1223,12 +1169,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     def set_notify_fn(self, fn):
         self._notify_fn = fn
         set_notifier(fn)
-        if self.driver is None:
-            try:
-                self._init_driver()
-            except Exception as e:
-                log_error("[selenium] set_notify_fn initialization error", e)
-                _notify_gui(f"❌ Selenium error: {e}. Open UI")
+        # Driver initialization will happen automatically when needed
 
     async def clean_chat_link(chat_id: int) -> str:
         """Disassociates the Telegram chat ID from the ChatGPT chat ID in the database.

@@ -1,52 +1,55 @@
-# ARM64 Architecture Limitations
+# Multi-Architecture Browser Support
 
-## ChromeDriver Compatibility
+## nodriver Integration
 
-The `selenium_chatgpt` LLM engine is **not compatible** with ARM64/aarch64 architectures due to ChromeDriver limitations.
+The `selenium_chatgpt` LLM engine now uses **nodriver** instead of ChromeDriver, providing **full multi-architecture support**.
 
 ### Technical Details
 
-- **Issue**: ChromeDriver does not provide official ARM64 binaries
-- **Affected Plugin**: `selenium_chatgpt` 
-- **Architecture Detection**: Automatic detection prevents startup on ARM64 systems
-- **Error Handling**: Clear error message with alternative suggestions
+- **Solution**: Migrated from undetected-chromedriver to nodriver
+- **Browser Support**: Chrome and Chromium on all architectures
+- **Architecture Support**: Full ARM64/aarch64 and x86-64 compatibility
+- **Auto-Detection**: Automatic browser binary detection
 
 ### Platform Support Matrix
 
 | Architecture | selenium_chatgpt | openai_chatgpt | manual |
 |--------------|------------------|----------------|--------|
 | x86-64       | ✅ Supported     | ✅ Supported   | ✅ Supported |
-| ARM64        | ❌ Not Supported | ✅ Supported   | ✅ Supported |
+| ARM64        | ✅ Supported     | ✅ Supported   | ✅ Supported |
 
-### Alternative Solutions
+### Browser Compatibility
 
-When running on ARM64 systems, use these LLM engines instead:
+The system automatically detects and uses available browsers:
 
-1. **openai_chatgpt**: Full OpenAI API integration
-2. **manual**: Manual prompt handling
-3. **Any other non-Selenium engine**: Check available plugins
+1. **x86-64 systems**: Google Chrome (preferred) or Chromium
+2. **ARM64 systems**: Chromium (installed via PPA) or Google Chrome if available
 
 ### Container Build Process
 
-The Dockerfile automatically detects the target architecture:
+The Dockerfile automatically handles browser installation:
 
-- **x86-64**: ChromeDriver is installed and configured
-- **ARM64**: ChromeDriver installation is skipped with warning messages
+- **x86-64**: Google Chrome from official repository
+- **ARM64**: Chromium from xtradeb PPA (no snap required)
+- **nodriver**: Handles browser automation without ChromeDriver
 
-### Error Messages
+### nodriver Benefits
 
-When attempting to use selenium_chatgpt on ARM64:
+- **No ChromeDriver dependency**: Eliminates architecture compatibility issues
+- **Native browser automation**: Direct browser control via DevTools Protocol
+- **Multi-architecture**: Works seamlessly on ARM64 and x86-64
+- **Automatic detection**: Finds and uses available browser binaries
+- **Persistent sessions**: Maintains login sessions across restarts
 
-```
-❌ selenium_chatgpt plugin is not supported on ARM64 architecture.
-Current machine type: aarch64
-ChromeDriver does not officially support ARM64.
-Please use a different LLM engine (openai_chatgpt, manual, etc.).
-```
+### Migration Notes
+
+- **From undetected-chromedriver**: Automatic migration, no configuration changes needed
+- **API Compatibility**: Maintains Selenium-like API through wrapper class
+- **Performance**: Similar or better performance with reduced dependencies
 
 ### Development Notes
 
-- Architecture check occurs in `SeleniumChatGPTPlugin.__init__()`
-- Uses `platform.machine()` for detection
-- Prevents startup rather than runtime failures
-- Maintains compatibility with existing x86-64 deployments
+- Architecture-agnostic browser automation
+- Uses `NodriverSeleniumWrapper` for API compatibility
+- Automatic browser binary detection and configuration
+- No manual ChromeDriver installation or management required

@@ -3,7 +3,7 @@ python-dotenv
 openai
 selenium
 telethon
-undetected-chromedriver>=3.5.5
+nodriver
 webdriver-manager
 setuptools
 pytz
