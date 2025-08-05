@@ -240,7 +240,19 @@ class NodriverSeleniumWrapper:
         self._tab = tab
 
     async def get(self, url: str) -> None:
-        await self._tab.get(url)
+        """Navigate the underlying tab to ``url``.
+
+        ``nodriver`` has changed navigation APIs a few times.  Some versions
+        expose ``tab.get`` while others use ``tab.goto``.  To remain compatible
+        across releases we try both.
+        """
+        if hasattr(self._tab, "get"):
+            await self._tab.get(url)
+            return
+        if hasattr(self._tab, "goto"):
+            await self._tab.goto(url)
+            return
+        raise AttributeError("tab has neither 'get' nor 'goto' method")
 
     async def find_element(self, by: str, selector: str):
         css = self._to_css(by, selector)
@@ -287,12 +299,23 @@ class SeleniumChatGPTClient(AIPluginBase):
         profile_dir = "/home/rekku/.config/chromium-rekku"
         os.makedirs(profile_dir, exist_ok=True)
         log_info("[selenium] launching Chromium via nodriver")
-        browser = await uc.start(
-            headless=False,
-            user_data_dir=profile_dir,
-            browser_args=["--no-sandbox", "--disable-dev-shm-usage"],
-        )
-        tab = await browser.get("about:blank")
+        try:
+            browser = await uc.start(
+                headless=False,
+                user_data_dir=profile_dir,
+                browser_args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+        except Exception as e:  # pragma: no cover - launch problems
+            log_error(f"[selenium] failed to start Chromium: {e}")
+            raise
+
+        try:
+            tab = await browser.get("https://chat.openai.com")
+        except Exception as e:  # pragma: no cover - navigation problems
+            log_error(f"[selenium] initial navigation failed: {e}")
+            raise
+
+        log_debug("[selenium] Chromium session ready")
         self._browser = browser
         self._driver = NodriverSeleniumWrapper(tab)
         return self._driver
