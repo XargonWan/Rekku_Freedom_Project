@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+import json
 import inspect
 from dataclasses import dataclass
 from typing import Optional
@@ -362,33 +363,29 @@ class SeleniumChatGPTClient(AIPluginBase):
         thread_id = getattr(message, "message_thread_id", None)
 
         if isinstance(prompt, dict):
+            json_prompt = json.dumps(prompt, ensure_ascii=False)
             input_payload = prompt.get("input", {}).get("payload", {})
-            user_prompt = input_payload.get("text", "")
             if chat_id is None:
-                chat_id = (
-                    input_payload.get("source", {}).get("chat_id")
-                )
+                chat_id = input_payload.get("source", {}).get("chat_id")
             if thread_id is None:
-                thread_id = (
-                    input_payload.get("source", {}).get("message_thread_id")
-                )
+                thread_id = input_payload.get("source", {}).get("message_thread_id")
         else:
-            user_prompt = str(prompt)
+            json_prompt = str(prompt)
 
-        if not user_prompt or chat_id is None:
+        if not json_prompt or chat_id is None:
             log_warning("[selenium] Missing prompt or chat_id")
             return ""
 
         conv = await chat_link_store.get_link(chat_id, thread_id)
         url = f"https://chat.openai.com/c/{conv}" if conv else "https://chat.openai.com"
         try:
-            reply, final_url = await self.ask(user_prompt, url)
+            reply, final_url = await self.ask(json_prompt, url)
         except Exception as e:  # pragma: no cover - best effort
             if conv:
                 log_warning(
                     f"[selenium] stored chat {conv} failed ({e}), using new chat"
                 )
-                reply, final_url = await self.ask(user_prompt, "https://chat.openai.com")
+                reply, final_url = await self.ask(json_prompt, "https://chat.openai.com")
                 conv = None
             else:
                 log_error(f"[selenium] error handling message: {e}")
