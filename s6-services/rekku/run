@@ -1,0 +1,15 @@
+#!/command/with-contenv bash
+set -e
+
+echo "[S6 Rekku] Pulizia processi precedenti..."
+/usr/local/bin/cleanup_chromium.sh || true
+
+echo "[S6 Rekku] Attendo /tmp/.X11-unix/X1..."
+while [ ! -e /tmp/.X11-unix/X1 ]; do
+    sleep 2
+    echo "[S6 Rekku] Still waiting for /tmp/.X11-unix/X1..."
+done
+
+echo "[S6 Rekku] Avvio Rekku Freedom Project..."
+cd /app
+exec s6-setuidgid abc /usr/local/bin/rekku.sh run
