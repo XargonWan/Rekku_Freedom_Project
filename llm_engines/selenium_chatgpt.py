@@ -123,15 +123,13 @@ def _extract_chat_id(url: str) -> Optional[str]:
 class NodriverElementWrapper:
     """Minimal wrapper to provide a selenium-like API."""
 
-    def __init__(self, element, tab):
+    def __init__(self, element):
         self._el = element
-        self._tab = tab
 
     async def clear(self) -> None:
         try:
-            await self._tab.evaluate(
-                "el => { el.value=''; el.dispatchEvent(new Event('input',{bubbles:true})); }",
-                self._el,
+            await self._el.evaluate(
+                "el => { el.value=''; el.dispatchEvent(new Event('input',{bubbles:true})); }"
             )
         except Exception as e:  # pragma: no cover - best effort
             log_error(f"[selenium] failed to clear textarea: {e}")
@@ -139,10 +137,9 @@ class NodriverElementWrapper:
     async def send_keys(self, text: str) -> None:
         try:
             if text == Keys.ENTER:
-                await self._tab.evaluate(
+                await self._el.evaluate(
                     "el => { el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',bubbles:true}));"
-                    "el.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',bubbles:true})); }",
-                    self._el,
+                    "el.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',bubbles:true})); }"
                 )
             else:
                 escaped = (
@@ -150,29 +147,12 @@ class NodriverElementWrapper:
                     .replace("'", "\\'")
                     .replace("\n", "\\n")
                 )
-                await self._tab.evaluate(
-                    "el => { el.value='" + escaped + "'; el.dispatchEvent(new Event('input',{bubbles:true})); }",
-                    self._el,
+                await self._el.evaluate(
+                    "el => { el.value='" + escaped + "'; el.dispatchEvent(new Event('input',{bubbles:true})); }"
                 )
         except Exception as e:  # pragma: no cover - best effort
             log_error(f"[selenium] failed to send keys: {e}")
-
-    async def get_attribute(self, name: str):
-        try:
-            return await self._el.get_attribute(name)
-        except Exception as e:
-            log_warning(f"[selenium] get_attribute({name}) failed: {e}")
-            return None
-
-    @property
-    def text(self) -> str:
-        try:
-            return self._el.text
-        except Exception as e:
-            log_warning(f"[selenium] text property failed: {e}")
-            return ""
-
-
+ 
 class NodriverSeleniumWrapper:
     """Expose a very small selenium-like surface over nodriver."""
 
@@ -187,14 +167,14 @@ class NodriverSeleniumWrapper:
         if not css:
             return None
         el = await self._tab.select(css, timeout=20)
-        return NodriverElementWrapper(el, self._tab) if el else None
+        return NodriverElementWrapper(el) if el else None
 
     async def find_elements(self, by: str, selector: str):
         css = self._to_css(by, selector)
         if not css:
             return []
         els = await self._tab.select_all(css, timeout=1)
-        return [NodriverElementWrapper(e, self._tab) for e in els]
+        return [NodriverElementWrapper(e) for e in els]
 
     def _to_css(self, by: str, selector: str) -> str | None:
         if by == By.ID:
