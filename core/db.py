@@ -38,28 +38,46 @@ async def get_root_conn() -> aiomysql.Connection:
     return conn
 
 async def ensure_database_and_user() -> bool:
-    """Ensure the database and user exist with proper permissions."""
+    """Ensure the database and user exist with proper permissions (remote-safe)."""
     try:
-        log_info("[db] Ensuring database and user exist...")
+        log_info("[db] Ensuring database and user exist (including remote access)...")
         conn = await get_root_conn()
         try:
             async with conn.cursor() as cur:
-                # Create database if it doesn't exist
+                # Crea database se non esiste
                 await cur.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}`")
                 log_info(f"[db] Database '{DB_NAME}' ensured")
-                
-                # Create user if it doesn't exist and grant permissions
-                await cur.execute(f"CREATE USER IF NOT EXISTS '{DB_USER}'@'%' IDENTIFIED BY '{DB_PASS}'")
-                await cur.execute(f"GRANT ALL PRIVILEGES ON `{DB_NAME}`.* TO '{DB_USER}'@'%'")
+
+                # Crea l'utente per accesso remoto ('rekku'@'%')
+                await cur.execute(
+                    f"CREATE USER IF NOT EXISTS '{DB_USER}'@'%' IDENTIFIED BY '{DB_PASS}'"
+                )
+                await cur.execute(
+                    f"GRANT ALL PRIVILEGES ON `{DB_NAME}`.* TO '{DB_USER}'@'%'"
+                )
+
+                # Crea l'utente locale ('rekku'@'localhost') se necessario
+                await cur.execute(
+                    f"CREATE USER IF NOT EXISTS '{DB_USER}'@'localhost' IDENTIFIED BY '{DB_PASS}'"
+                )
+                await cur.execute(
+                    f"GRANT ALL PRIVILEGES ON `{DB_NAME}`.* TO '{DB_USER}'@'localhost'"
+                )
+
+                # Stesso trattamento per root (opzionale ma utile in debug)
+                await cur.execute(
+                    f"GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY '{DB_ROOT_PASS}' WITH GRANT OPTION"
+                )
+
                 await cur.execute("FLUSH PRIVILEGES")
-                log_info(f"[db] User '{DB_USER}' ensured with privileges on '{DB_NAME}'")
-                
+                log_info("[db] Users and privileges ensured successfully")
         finally:
             conn.close()
         return True
     except Exception as e:
         log_error(f"[db] Error ensuring database and user: {e}")
         return False
+
 
 async def get_conn() -> aiomysql.Connection:
     """Return an async MariaDB connection using aiomysql."""
