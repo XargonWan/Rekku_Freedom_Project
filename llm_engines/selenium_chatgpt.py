@@ -274,7 +274,20 @@ class SeleniumChatGPTClient(AIPluginBase):
         """Process an incoming message using the ChatGPT web UI."""
         chat_id = getattr(message, "chat_id", None)
         thread_id = getattr(message, "message_thread_id", None)
-        user_prompt = prompt.get("message", {}).get("text", "") if isinstance(prompt, dict) else str(prompt)
+
+        if isinstance(prompt, dict):
+            input_payload = prompt.get("input", {}).get("payload", {})
+            user_prompt = input_payload.get("text", "")
+            if chat_id is None:
+                chat_id = (
+                    input_payload.get("source", {}).get("chat_id")
+                )
+            if thread_id is None:
+                thread_id = (
+                    input_payload.get("source", {}).get("message_thread_id")
+                )
+        else:
+            user_prompt = str(prompt)
 
         if not user_prompt or chat_id is None:
             log_warning("[selenium] Missing prompt or chat_id")
