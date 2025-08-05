@@ -44,11 +44,11 @@ async def ensure_database_and_user() -> bool:
         conn = await get_root_conn()
         try:
             async with conn.cursor() as cur:
-                # Crea database se non esiste
+                # Ensure database
                 await cur.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}`")
-                log_info(f"[db] Database '{DB_NAME}' ensured")
+                log_info(f"[db] Database `{DB_NAME}` ensured")
 
-                # Crea l'utente per accesso remoto ('rekku'@'%')
+                # Ensure user at '%' (remote access)
                 await cur.execute(
                     f"CREATE USER IF NOT EXISTS '{DB_USER}'@'%' IDENTIFIED BY '{DB_PASS}'"
                 )
@@ -56,7 +56,15 @@ async def ensure_database_and_user() -> bool:
                     f"GRANT ALL PRIVILEGES ON `{DB_NAME}`.* TO '{DB_USER}'@'%'"
                 )
 
-                # Crea l'utente locale ('rekku'@'localhost') se necessario
+                # Ensure user at common Docker subnet (172.*)
+                await cur.execute(
+                    f"CREATE USER IF NOT EXISTS '{DB_USER}'@'172.%%.%%.%%' IDENTIFIED BY '{DB_PASS}'"
+                )
+                await cur.execute(
+                    f"GRANT ALL PRIVILEGES ON `{DB_NAME}`.* TO '{DB_USER}'@'172.%%.%%.%%'"
+                )
+
+                # Localhost access (optional)
                 await cur.execute(
                     f"CREATE USER IF NOT EXISTS '{DB_USER}'@'localhost' IDENTIFIED BY '{DB_PASS}'"
                 )
@@ -64,20 +72,41 @@ async def ensure_database_and_user() -> bool:
                     f"GRANT ALL PRIVILEGES ON `{DB_NAME}`.* TO '{DB_USER}'@'localhost'"
                 )
 
-                # Stesso trattamento per root (opzionale ma utile in debug)
+                # Access from loopback variants
+                await cur.execute(
+                    f"CREATE USER IF NOT EXISTS '{DB_USER}'@'127.0.0.1' IDENTIFIED BY '{DB_PASS}'"
+                )
+                await cur.execute(
+                    f"GRANT ALL PRIVILEGES ON `{DB_NAME}`.* TO '{DB_USER}'@'127.0.0.1'"
+                )
+
+                await cur.execute(
+                    f"CREATE USER IF NOT EXISTS '{DB_USER}'@'::1' IDENTIFIED BY '{DB_PASS}'"
+                )
+                await cur.execute(
+                    f"GRANT ALL PRIVILEGES ON `{DB_NAME}`.* TO '{DB_USER}'@'::1'"
+                )
+
+                # Same for root (useful for testing or debug)
                 await cur.execute(
                     f"GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY '{DB_ROOT_PASS}' WITH GRANT OPTION"
+                )
+                await cur.execute(
+                    f"GRANT ALL PRIVILEGES ON *.* TO 'root'@'172.%%.%%.%%' IDENTIFIED BY '{DB_ROOT_PASS}' WITH GRANT OPTION"
+                )
+                await cur.execute(
+                    f"GRANT ALL PRIVILEGES ON *.* TO 'root'@'192.168.%%.%%' IDENTIFIED BY '{DB_ROOT_PASS}' WITH GRANT OPTION"
                 )
 
                 await cur.execute("FLUSH PRIVILEGES")
                 log_info("[db] Users and privileges ensured successfully")
+
         finally:
             conn.close()
         return True
     except Exception as e:
         log_error(f"[db] Error ensuring database and user: {e}")
         return False
-
 
 async def get_conn() -> aiomysql.Connection:
     """Return an async MariaDB connection using aiomysql."""
