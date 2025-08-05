@@ -92,26 +92,12 @@ RUN echo "$GITVERSION_TAG" > /app/version.txt && \
     echo "Building with tag: $GITVERSION_TAG"
 
 # Create S6 service for Rekku
-RUN mkdir -p /etc/s6-overlay/s6-rc.d/rekku && \
-    echo '#!/command/with-contenv bash' > /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'set -e' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '# Wait for X server to be ready' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'echo "Waiting for X server to be ready..."' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'while ! su abc -c "DISPLAY=:1 xset q >/dev/null 2>&1"; do' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '    sleep 2' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '    echo "Still waiting for X server..."' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'done' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'echo "X server is ready"' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '# Clean up any Chrome processes from previous sessions' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '/usr/local/bin/cleanup_chromium.sh' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '# Start Rekku application' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'cd /app' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'echo "Starting Rekku Freedom Project..."' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'exec s6-setuidgid abc /usr/local/bin/rekku.sh run' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    chmod +x /etc/s6-overlay/s6-rc.d/rekku/run
+# Copy S6 service files (rekku)
+COPY s6-services/rekku /etc/s6-overlay/s6-rc.d/rekku
+RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
+    mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
+    echo rekku > /etc/s6-overlay/s6-rc.d/user/contents.d/rekku && \
+    chown -R abc:abc /etc/s6-overlay/s6-rc.d/rekku
 
 # Create S6 service dependencies
 RUN echo 'longrun' > /etc/s6-overlay/s6-rc.d/rekku/type && \
