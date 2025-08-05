@@ -305,10 +305,13 @@ class SeleniumChatGPTClient(AIPluginBase):
             )
             if len(elems) > prev_count:
                 last = elems[-1]
-                text = await last.get_attribute("innerText")
-                if not text:
-                    text = await last.text()
-                return text.strip()
+                text = await last.text()
+                if text and text.strip():
+                    return text.strip()
+                html = await last.get_attribute("innerHTML")
+                if html and html.strip():
+                    text_only = re.sub(r"<[^>]+>", "", html)
+                    return text_only.strip() if text_only.strip() else html.strip()
             await asyncio.sleep(1)
         raise TimeoutError("assistant reply not found")
 
@@ -318,14 +321,14 @@ class SeleniumChatGPTClient(AIPluginBase):
         textarea = await driver.find_element(By.ID, "prompt-textarea")
         if textarea is None:
             raise RuntimeError("prompt textarea not found")
-        await textarea.clear()
-        await textarea.send_keys(prompt)
-        await textarea.send_keys(Keys.ENTER)
         prev = len(
             await driver.find_elements(
                 By.CSS_SELECTOR, "div[data-message-author-role='assistant']"
             )
         )
+        await textarea.clear()
+        await textarea.send_keys(prompt)
+        await textarea.send_keys(Keys.ENTER)
         reply = await self._wait_for_response(driver, prev)
         log_debug("[selenium] received reply of %d chars" % len(reply))
         return reply, driver.current_url
