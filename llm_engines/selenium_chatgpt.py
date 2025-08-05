@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+import inspect
 from dataclasses import dataclass
 from typing import Optional
 
@@ -127,43 +128,45 @@ class NodriverElementWrapper:
         self._el = element
         self._tab = tab
 
+    async def _call(self, name: str, *args) -> bool:
+        """Call an element method if present and await the result if needed."""
+        fn = getattr(self._el, name, None)
+        if not callable(fn):
+            return False
+        try:
+            result = fn(*args)
+            if inspect.isawaitable(result):
+                await result
+            return True
+        except Exception as e:  # pragma: no cover - best effort
+            log_error(f"[selenium] {name} failed: {e}")
+            return False
+
     async def clear(self) -> None:
         """Attempt to empty the element's value using available nodriver APIs."""
-        try:
-            if hasattr(self._el, "clear"):
-                await self._el.clear()
-                return
-            if hasattr(self._el, "set_value"):
-                await self._el.set_value("")
-                return
-            if hasattr(self._el, "type"):
-                await self._el.type("")
-                return
-        except Exception as e:  # pragma: no cover - best effort
-            log_error(f"[selenium] failed to clear textarea: {e}")
+        if await self._call("clear"):
+            return
+        if await self._call("set_value", ""):
+            return
+        if await self._call("type", ""):
+            return
+        log_error("[selenium] failed to clear textarea: no supported method")
 
     async def send_keys(self, text: str) -> None:
         """Send text or special keys to the wrapped element."""
-        try:
-            if text == Keys.ENTER:
-                if hasattr(self._el, "press"):
-                    await self._el.press("Enter")
-                    return
-                if hasattr(self._el, "type"):
-                    await self._el.type("\n")
-                    return
-            else:
-                if hasattr(self._el, "type"):
-                    await self._el.type(text)
-                    return
-                if hasattr(self._el, "send_keys"):
-                    await self._el.send_keys(text)
-                    return
-                if hasattr(self._el, "set_value"):
-                    await self._el.set_value(text)
-                    return
-        except Exception as e:  # pragma: no cover - best effort
-            log_error(f"[selenium] failed to send keys: {e}")
+        if text == Keys.ENTER:
+            if await self._call("press", "Enter"):
+                return
+            if await self._call("type", "\n"):
+                return
+        else:
+            if await self._call("type", text):
+                return
+            if await self._call("send_keys", text):
+                return
+            if await self._call("set_value", text):
+                return
+        log_error("[selenium] failed to send keys: no supported method")
 
     async def get_attribute(self, name: str) -> Optional[str]:
         try:
