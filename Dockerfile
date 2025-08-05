@@ -78,9 +78,9 @@ RUN python3 -m venv /app/venv && \
     /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # Copy essential automation scripts
-COPY automation_tools/cleanup_chrome.sh /usr/local/bin/cleanup_chrome.sh
+COPY automation_tools/cleanup_chromium.sh /usr/local/bin/cleanup_chromium.sh
 COPY automation_tools/container_rekku.sh /usr/local/bin/rekku.sh
-RUN chmod +x /usr/local/bin/cleanup_chrome.sh /usr/local/bin/rekku.sh
+RUN chmod +x /usr/local/bin/cleanup_chromium.sh /usr/local/bin/rekku.sh
 
 # Copy project code last to leverage layer caching
 COPY . /app
@@ -105,7 +105,7 @@ RUN mkdir -p /etc/s6-overlay/s6-rc.d/rekku && \
     echo 'echo "X server is ready"' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
     echo '' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
     echo '# Clean up any Chrome processes from previous sessions' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo '/usr/local/bin/cleanup_chrome.sh' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
+    echo '/usr/local/bin/cleanup_chromium.sh' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
     echo '' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
     echo '# Start Rekku application' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
     echo 'cd /app' >> /etc/s6-overlay/s6-rc.d/rekku/run && \
