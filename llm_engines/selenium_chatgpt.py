@@ -668,8 +668,14 @@ class SeleniumChatGPTClient(AIPluginBase):
             log_debug(f"[selenium] Waiting for prompt-textarea... ({attempt + 1}/10)")
             await asyncio.sleep(0.5)
 
-        if not textarea:
+        if textarea is None:
             log_error("[selenium] Prompt textarea not found after retries")
+            url = await tab.url() if tab else "unknown"
+            return None, url
+
+        # ✅ Safety check: textarea must be interactable
+        if not hasattr(textarea, "clear") or not hasattr(textarea, "send_keys"):
+            log_error("[selenium] Textarea element is invalid or not interactable")
             return None, await tab.url()
 
         log_debug(f"[selenium] Typing {len(prompt)} characters…")
@@ -704,7 +710,7 @@ class SeleniumChatGPTClient(AIPluginBase):
                 stable += 1
 
             if stable >= 4:
-                # Validazione finale solo se definita
+                # Optional validation
                 if callable(self._is_valid_response):
                     try:
                         if not self._is_valid_response(reply):
