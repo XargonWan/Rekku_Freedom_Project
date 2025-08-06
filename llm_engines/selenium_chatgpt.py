@@ -310,23 +310,23 @@ class NodriverElementWrapper:
         if text == Keys.ENTER:
             try:
                 result = await self._tab.evaluate("""
-                    // Focus and trigger input/change events to ensure internal state is synced
-                    const textarea = document.getElementById('prompt-textarea');
-                    if (textarea) {
-                        textarea.dispatchEvent(new InputEvent('input', { bubbles: true }));
-                        textarea.dispatchEvent(new Event('change', { bubbles: true }));
-                        textarea.focus();
-                        textarea.blur();
-                    }
+                    (() => {
+                        const textarea = document.getElementById('prompt-textarea');
+                        if (textarea) {
+                            textarea.dispatchEvent(new InputEvent('input', { bubbles: true }));
+                            textarea.dispatchEvent(new Event('change', { bubbles: true }));
+                            textarea.focus();
+                            textarea.blur();
+                        }
 
-                    // 🛠️ Click the actual send button by ID
-                    const btn = document.getElementById('composer-submit-button');
-                    if (btn && !btn.disabled) {
-                        btn.click();
-                        return 'clicked #composer-submit-button';
-                    }
+                        const btn = document.getElementById('composer-submit-button');
+                        if (btn && !btn.disabled) {
+                            btn.click();
+                            return 'clicked #composer-submit-button';
+                        }
 
-                    return 'button not found or disabled';
+                        return 'button not found or disabled';
+                    })()
                 """)
                 log_debug(f"[selenium] ENTER result: {result}")
             except Exception as e:
@@ -639,47 +639,85 @@ class SeleniumChatGPTClient(AIPluginBase):
         self._driver = NodriverSeleniumWrapper(tab)
         return self._driver
 
-    async def ask(self, prompt: str, chat_url: str) -> tuple[str, str]:
+    async def _get_tab(self):
+        """Return the current browser tab."""
         driver = await self._ensure_driver()
-        try:
-            # Naviga direttamente al link fornito (che arriva dal DB)
-            log_debug(f"[selenium] [STEP 1] Navigating to chat URL: {chat_url}")
-            await driver.get(chat_url)
-            await asyncio.sleep(3)
-            current_url = await driver.current_url()
-            log_debug(f"[selenium] [STEP 2] Current URL: {current_url}")
+        return driver._tab
 
-            log_debug("[selenium] [STEP 3] Counting existing messages with fallback selectors")
-            prev_count = await count_response_elements(driver)
+    async def ask(self, prompt: str, url: str | None = None) -> tuple[str | None, str | None]:
+        """
+        Sends a prompt to the web, waits for the ChatGPT response until it stabilizes, and returns
+        the final text and the current chat URL.
+        """
+        log_info("[selenium] Sending prompt to ChatGPT…")
+        driver = await self._ensure_driver()
 
-            log_debug("[selenium] [STEP 4] Looking for prompt textarea")
-            textarea = await driver.find_element(By.ID, "prompt-textarea")
-            if not textarea:
-                log_error("[selenium] Could not find prompt textarea with ID 'prompt-textarea'")
-                raise RuntimeError("Textarea not found")
+        if url:
+            log_debug(f"[selenium] Navigating to {url}")
+            await driver.get(url)
+            await asyncio.sleep(2)  # ⏳ Allow page to fully load
 
-            log_debug("[selenium] [STEP 5] Sending prompt")
-            log_debug(f"[selenium] Prompt being sent ({len(prompt)} chars): {prompt[:200]}...")
-            success = await send_prompt_to_chatgpt(driver, prompt)
-            if not success:
-                raise RuntimeError("Failed to send prompt")
+        tab = driver._tab
 
-            log_debug("[selenium] [STEP 6] Waiting for response using data-message-author-role selector")
-            reply = await wait_for_response(driver, prev_count, timeout=180)
-            if not reply:
-                raise RuntimeError("No response received from ChatGPT")
+        # 🔁 Retry until prompt-textarea appears
+        textarea = None
+        for attempt in range(10):
+            textarea = await tab.query_selector("#prompt-textarea")
+            if textarea:
+                break
+            log_debug(f"[selenium] Waiting for prompt-textarea... ({attempt + 1}/10)")
+            await asyncio.sleep(0.5)
 
-            final_url = await driver.current_url()
-            log_debug(f"[selenium] Received reply of {len(reply)} chars")
-            return reply, final_url
-        except Exception as e:
-            log_error(f"[selenium] Error in ask method: {e}")
-            try:
-                final_url = await driver.current_url()
-            except:
-                final_url = chat_url
-            raise RuntimeError(f"ChatGPT interaction failed: {e}")
+        if not textarea:
+            log_error("[selenium] Prompt textarea not found after retries")
+            return None, await tab.url()
 
+        log_debug(f"[selenium] Typing {len(prompt)} characters…")
+        await textarea.clear()
+        await textarea.send_keys(prompt)
+        await textarea.send_keys(Keys.ENTER)
+
+        prev = ""
+        stable = 0
+        max_iter = 60
+
+        for i in range(max_iter):
+            await asyncio.sleep(1.0)
+            nodes = await tab.query_selector_all(
+                'div[data-message-author-role="assistant"] div.markdown'
+            )
+            if not nodes:
+                log_debug("[selenium] No message yet, waiting…")
+                continue
+
+            reply = await nodes[-1].inner_text() or ""
+            has_changed = reply != prev
+            log_debug(f"[DEBUG] len={len(reply)} changed={has_changed}")
+
+            if not reply.strip():
+                continue
+
+            if has_changed:
+                stable = 0
+                prev = reply
+            else:
+                stable += 1
+
+            if stable >= 4:
+                # Validazione finale solo se definita
+                if callable(self._is_valid_response):
+                    try:
+                        if not self._is_valid_response(reply):
+                            log_warning("[selenium] Response rejected by validation check.")
+                            return None, await tab.url()
+                    except Exception as e:
+                        log_error(f"[selenium] Error checking response: {e}")
+                        return None, await tab.url()
+
+                return prev.strip(), await tab.url()
+
+        log_warning("[selenium] Timeout waiting for assistant response.")
+        return None, await tab.url()
 
 async def clean_chat_link(chat_id: int) -> bool:
     """Remove stored link for given Telegram chat."""
