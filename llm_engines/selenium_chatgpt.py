@@ -674,14 +674,52 @@ class SeleniumChatGPTClient(AIPluginBase):
             return None, url
 
         # ✅ Safety check: textarea must be interactable
-        if not hasattr(textarea, "clear") or not hasattr(textarea, "send_keys"):
-            log_error("[selenium] Textarea element is invalid or not interactable")
-            return None, await tab.url()
-
         log_debug(f"[selenium] Typing {len(prompt)} characters…")
-        await textarea.clear()
-        await textarea.send_keys(prompt)
-        await textarea.send_keys(Keys.ENTER)
+        
+        # Clear textarea using JavaScript
+        await tab.evaluate("""
+            const textarea = document.getElementById('prompt-textarea');
+            if (textarea) {
+                textarea.value = '';
+                textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                textarea.focus();
+            }
+        """)
+        
+        # Type the prompt using JavaScript
+        escaped_prompt = prompt.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "")
+        result = await tab.evaluate(f"""
+            (() => {{
+                const textarea = document.getElementById('prompt-textarea');
+                if (!textarea) return '❌ textarea missing';
+
+                const text = `{escaped_prompt}`;
+                textarea.value = text;
+                textarea.innerText = text;
+                textarea.textContent = text;
+
+                textarea.dispatchEvent(new InputEvent('input', {{ bubbles: true }}));
+                textarea.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                textarea.focus();
+
+                return '✅ prompt injected';
+            }})()
+        """)
+        log_debug(f"[selenium] Prompt injection result: {result}")
+
+        # Submit the prompt by clicking the send button
+        submit_result = await tab.evaluate("""
+            (() => {
+                const btn = document.getElementById('composer-submit-button');
+                if (btn && !btn.disabled) {
+                    btn.click();
+                    return 'clicked submit button';
+                }
+                return 'submit button not found or disabled';
+            })()
+        """)
+        
+        log_debug(f"[selenium] Submit result: {submit_result}")
 
         prev = ""
         stable = 0
@@ -689,21 +727,18 @@ class SeleniumChatGPTClient(AIPluginBase):
 
         for i in range(max_iter):
             await asyncio.sleep(1.0)
-            nodes = await tab.query_selector_all(
-                'div[data-message-author-role="assistant"] div.markdown'
-            )
-            if not nodes:
-                log_debug("[selenium] No message yet, waiting…")
+            reply = await get_latest_reply_text(tab)
+            if not reply:
+                log_debug("[selenium] No reply yet or failed to read assistant response")
                 continue
 
-            reply = await nodes[-1].inner_text() or ""
             has_changed = reply != prev
             log_debug(f"[DEBUG] len={len(reply)} changed={has_changed}")
 
             if not reply.strip():
                 continue
 
-            if has_changed:
+            if has_changed:"""  """
                 stable = 0
                 prev = reply
             else:
@@ -711,9 +746,10 @@ class SeleniumChatGPTClient(AIPluginBase):
 
             if stable >= 4:
                 # Optional validation
-                if callable(self._is_valid_response):
+                is_valid_fn = getattr(self, "_is_valid_response", None)
+                if callable(is_valid_fn):
                     try:
-                        if not self._is_valid_response(reply):
+                        if not is_valid_fn(reply):
                             log_warning("[selenium] Response rejected by validation check.")
                             return None, await tab.url()
                     except Exception as e:
