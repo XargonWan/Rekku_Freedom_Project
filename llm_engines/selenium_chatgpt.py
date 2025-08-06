@@ -59,6 +59,7 @@ class ChatLinkStore:
     async def get_link(self, chat_id: int | str, message_thread_id: Optional[int | str]) -> Optional[str]:
         await self._ensure_table()
         norm = self._normalize_thread_id(message_thread_id)
+        log_debug(f"[ChatLinkStore] Searching for chat_id={chat_id}, normalized_thread_id={norm}")
         conn = await get_conn()
         try:
             async with conn.cursor(aiomysql.DictCursor) as cur:
@@ -67,6 +68,7 @@ class ChatLinkStore:
                     (str(chat_id), norm),
                 )
                 row = await cur.fetchone()
+                log_debug(f"[ChatLinkStore] Query result: {row}")
                 return row["link"] if row else None
         finally:
             conn.close()
@@ -107,42 +109,38 @@ chat_link_store = ChatLinkStore()
 
 
 async def is_chat_archived(driver, chat_id: str) -> bool:
-    """Check if a ChatGPT chat is archived based on the current page content."""
+    """Check if a ChatGPT chat is archived (adapted from original version)."""
     if not chat_id:
         return False
     
     try:
-        # DON'T navigate again - we're already on the chat page
-        log_debug(f"[selenium] Checking if current chat {chat_id} is archived (not navigating)")
+        # Navigate to the chat to check its status (like the original version)
+        chat_url = f"https://chatgpt.com/c/{chat_id}"
+        log_debug(f"[selenium] Checking if chat {chat_id} is archived by navigating to {chat_url}")
+        await driver.get(chat_url)
         
-        await asyncio.sleep(2)  # Give time for page to load
+        # Wait a moment for page to load
+        await asyncio.sleep(3)
         
-        # Check for archived message using text content
+        # Check for archived message (adapted from original)
         try:
-            page_text = await driver._tab.evaluate("document.body.innerText")
-            if any(phrase in page_text.lower() for phrase in [
-                "this conversation is archived",
-                "conversation is archived", 
-                "archived conversation",
-                "no longer available", 
-                "not found", 
-                "deleted", 
-                "unavailable"
-            ]):
-                log_warning(f"[selenium] Chat {chat_id} appears to be archived")
+            # Look for archived indicator in page content
+            page_text = await driver._tab.evaluate("document.body.innerText || ''")
+            if "this conversation is archived" in page_text.lower():
+                log_warning(f"[selenium] Chat {chat_id} is archived")
                 return True
-                
-            # Also check if we can find the textarea (indicates chat is accessible)
+            
+            # Check if textarea is present (indicates chat is accessible)
             has_textarea = await driver._tab.evaluate("!!document.getElementById('prompt-textarea')")
             if has_textarea:
-                log_debug(f"[selenium] Chat {chat_id} is accessible - found textarea")
+                log_debug(f"[selenium] Chat {chat_id} is accessible")
                 return False
             else:
-                log_warning(f"[selenium] Chat {chat_id} may not be accessible - no textarea found")
+                log_warning(f"[selenium] Chat {chat_id} may be archived - no textarea found")
                 return True
                 
         except Exception as e:
-            log_warning(f"[selenium] Could not check page content: {e}")
+            log_warning(f"[selenium] Could not check archived status: {e}")
             return True
             
     except Exception as e:
@@ -150,66 +148,87 @@ async def is_chat_archived(driver, chat_id: str) -> bool:
         return True
 
 
+async def get_latest_reply_text(tab) -> str | None:
+    """
+    Estrae l'ultima risposta dell'assistente da ChatGPT Web DOM usando nodriver.
+
+    Args:
+        tab: nodriver.core.Tab — la tab corrente
+
+    Returns:
+        str | None: testo markdown dell'ultima risposta dell'LLM, o None se non trovato
+    """
+    log_debug("[selenium] 🔍 Looking for assistant messages...")
+    nodes = await tab.query_selector_all('div[data-message-author-role="assistant"] div.markdown')
+    if not nodes:
+        log_warning("[selenium] No assistant messages found in DOM.")
+        return None
+
+    last = nodes[-1]
+    log_debug("[selenium] ✅ Assistant message found. Extracting inner text...")
+    text = await last.inner_text()
+    return text.strip() if text else None
+
+
+async def count_response_elements(driver) -> int:
+    """Count existing assistant response elements using data-message-author-role attribute."""
+    try:
+        nodes = await driver._tab.query_selector_all('div[data-message-author-role="assistant"]')
+        count = len(nodes)
+        log_debug(f"[selenium] Counted {count} existing assistant messages")
+        return count
+    except Exception as e:
+        log_warning(f"[selenium] Failed to count assistant messages: {e}")
+        return 0
+
+
 async def wait_for_response(driver, prev_count: int, timeout: int = 120) -> str:
     """Wait for ChatGPT response and return the text once it stabilizes."""
     start_time = time.time()
     last_text = ""
-    same_count = 0
-    required_stability = 3  # Number of consecutive checks with same text
+    last_change_time = time.time()
+    stability_threshold = 3.5  # Use original stability threshold
     
     log_debug(f"[selenium] Waiting for response (prev_count={prev_count})")
     
     while time.time() - start_time < timeout:
         try:
-            # Debug: Let's see what elements are actually on the page
-            all_markdown = await driver.find_elements(By.CSS_SELECTOR, "div.markdown")
-            all_prose = await driver.find_elements(By.CSS_SELECTOR, "div.prose")
-            all_markdown_prose = await driver.find_elements(By.CSS_SELECTOR, "div.markdown.prose")
+            # Count current assistant messages
+            current_nodes = await driver._tab.query_selector_all('div[data-message-author-role="assistant"]')
+            current_count = len(current_nodes)
             
-            log_debug(f"[selenium] Found elements: markdown={len(all_markdown)}, prose={len(all_prose)}, markdown.prose={len(all_markdown_prose)}")
+            log_debug(f"[selenium] Found {current_count} assistant messages (need > {prev_count})")
             
-            # Try multiple selectors to find response content
-            response_elements = []
-            selectors_to_try = [
-                "div.markdown.prose",  # Original selector
-                "div[data-message-author-role='assistant']", # From HTML file
-                ".prose", # Just prose
-                "[data-testid*='conversation-turn']", # Alternative
-                ".text-base" # Common ChatGPT text class
-            ]
-            
-            for selector in selectors_to_try:
-                try:
-                    elements = await driver.find_elements(By.CSS_SELECTOR, selector)
-                    if len(elements) > prev_count:
-                        response_elements = elements
-                        log_debug(f"[selenium] Found {len(elements)} elements with selector '{selector}' (prev_count={prev_count})")
-                        break
-                except Exception:
-                    continue
-            
-            if len(response_elements) > prev_count:
-                # Get the latest response (last element)
-                latest_element = response_elements[-1]
-                text_content = await latest_element.text()
+            if current_count > prev_count:
+                # Get the latest response text
+                latest_text = await get_latest_reply_text(driver._tab)
                 
-                if text_content and text_content.strip() != last_text:
-                    last_text = text_content.strip()
-                    same_count = 0
-                    log_debug(f"[selenium] Response updated: {len(last_text)} chars - '{last_text[:100]}...'")
-                elif text_content and text_content.strip() == last_text and last_text:
-                    same_count += 1
-                    log_debug(f"[selenium] Response stable #{same_count}/{required_stability}: {len(last_text)} chars")
-                    if same_count >= required_stability:
-                        log_debug(f"[selenium] Response stabilized: {len(last_text)} chars")
-                        return last_text
+                if latest_text and latest_text.strip():
+                    current_text = latest_text.strip()
+                    
+                    # Check if text has changed (original logic)
+                    if current_text != last_text:
+                        last_text = current_text
+                        last_change_time = time.time()
+                        log_debug(f"[selenium] Response updated: {len(last_text)} chars")
+                    else:
+                        # Text hasn't changed, check if enough time has passed
+                        time_since_change = time.time() - last_change_time
+                        if time_since_change >= stability_threshold and last_text:
+                            log_debug(f"[selenium] *** RESPONSE STABLE FOR {time_since_change:.1f}s *** ({len(last_text)} chars)")
+                            return last_text
+                        elif last_text:
+                            log_debug(f"[selenium] Response stable for {time_since_change:.1f}s/{stability_threshold}s")
+                        
+                else:
+                    log_debug("[selenium] Found assistant message but text is empty, waiting...")
             else:
-                log_debug(f"[selenium] Still waiting for response... ({len(response_elements)} elements, need > {prev_count})")
+                log_debug(f"[selenium] Still waiting for response... ({current_count} messages, need > {prev_count})")
                         
         except Exception as e:
             log_warning(f"[selenium] Error checking response: {e}")
             
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)  # Check frequently but not too frequently
     
     log_warning(f"[selenium] Timeout waiting for response after {timeout}s, last_text: '{last_text[:100] if last_text else 'None'}...'")
     return last_text if last_text else ""
@@ -224,69 +243,16 @@ async def send_prompt_to_chatgpt(driver, prompt_text: str) -> bool:
             log_error("[selenium] Prompt textarea not found")
             return False
             
-        # Clear and send the prompt
+        # Clear and send the prompt using the original method
         await textarea.clear()
         await asyncio.sleep(0.5)
         await textarea.send_keys(prompt_text)
-        await asyncio.sleep(1)  # Give more time for text to be processed
+        await asyncio.sleep(1)  # Give time for text to be processed
         
-        # Now try to send the message using multiple strategies
-        log_debug("[selenium] Attempting to send message...")
-        
-        # Strategy 1: Click the send button by ID (most reliable from original version)
-        try:
-            send_button = await driver.find_element(By.ID, "composer-submit-button")
-            if send_button:
-                await send_button._el.click()
-                log_debug("[selenium] Message sent via composer-submit-button ID")
-                return True
-        except Exception as e:
-            log_warning(f"[selenium] composer-submit-button click failed: {e}")
-        
-        # Strategy 2: Click the send button by data-testid
-        try:
-            send_button = await driver.find_element(By.CSS_SELECTOR, '[data-testid="send-button"]')
-            if send_button:
-                await send_button._el.click()
-                log_debug("[selenium] Message sent via data-testid send-button")
-                return True
-        except Exception as e:
-            log_warning(f"[selenium] data-testid send-button click failed: {e}")
-        
-        # Strategy 3: Click the send button directly via JavaScript
-        try:
-            result = await driver._tab.evaluate(
-                """
-                // Look for the specific button selectors from ChatGPT
-                const selectors = [
-                    '#composer-submit-button',
-                    '[data-testid="send-button"]',
-                    'button[type="submit"]',
-                    'form button:last-child'
-                ];
-                
-                for (const selector of selectors) {
-                    const btn = document.querySelector(selector);
-                    if (btn && !btn.disabled && btn.offsetParent !== null) {
-                        btn.click();
-                        console.log('Clicked send button with selector:', selector);
-                        return 'success';
-                    }
-                }
-                
-                return 'failed';
-                """,
-            )
-            
-            if result == 'success':
-                log_debug("[selenium] Message sent via JavaScript button click")
-                return True
-                
-        except Exception as e:
-            log_warning(f"[selenium] JavaScript send failed: {e}")
-        
-        log_error("[selenium] All send strategies failed")
-        return False
+        # Send Enter key to submit (like original version)
+        await textarea.send_keys(Keys.ENTER)
+        log_debug("[selenium] Message sent via Enter key")
+        return True
         
     except Exception as e:
         log_error(f"[selenium] Failed to send prompt: {e}")
@@ -343,57 +309,30 @@ class NodriverElementWrapper:
         """Send text or special keys to the wrapped element."""
         if text == Keys.ENTER:
             try:
-                # Use JavaScript to find and click the send button directly
-                result = await self._tab.evaluate(
-                    """
-                    // First try to find the send button by common selectors
-                    let sendBtn = document.querySelector('[data-testid="send-button"]') ||
-                                  document.querySelector('button[type="submit"]') ||
-                                  document.querySelector('button:has(svg)') ||
-                                  document.querySelector('form button:last-child') ||
-                                  document.querySelector('[aria-label*="Send"], [title*="Send"]');
-                    
-                    if (sendBtn && !sendBtn.disabled) {
-                        sendBtn.click();
-                        console.log('Clicked send button');
-                        return 'button_clicked';
-                    }
-                    
-                    // If no button found, try Enter key on the textarea
+                result = await self._tab.evaluate("""
+                    // Focus and trigger input/change events to ensure internal state is synced
                     const textarea = document.getElementById('prompt-textarea');
                     if (textarea) {
+                        textarea.dispatchEvent(new InputEvent('input', { bubbles: true }));
+                        textarea.dispatchEvent(new Event('change', { bubbles: true }));
                         textarea.focus();
-                        // Simulate Ctrl+Enter which is often used to send
-                        textarea.dispatchEvent(new KeyboardEvent('keydown', {
-                            key: 'Enter',
-                            code: 'Enter',
-                            ctrlKey: true,
-                            bubbles: true
-                        }));
-                        textarea.dispatchEvent(new KeyboardEvent('keyup', {
-                            key: 'Enter', 
-                            code: 'Enter',
-                            ctrlKey: true,
-                            bubbles: true
-                        }));
-                        console.log('Sent Ctrl+Enter to textarea');
-                        return 'ctrl_enter_sent';
+                        textarea.blur();
                     }
-                    
-                    return 'failed';
-                    """,
-                )
+
+                    // 🛠️ Click the actual send button by ID
+                    const btn = document.getElementById('composer-submit-button');
+                    if (btn && !btn.disabled) {
+                        btn.click();
+                        return 'clicked #composer-submit-button';
+                    }
+
+                    return 'button not found or disabled';
+                """)
                 log_debug(f"[selenium] ENTER result: {result}")
-                
-                # If JavaScript didn't work, try nodriver methods
-                if result == 'failed':
-                    await self._call("press", "Enter")
-                    
-            except Exception as e:  # pragma: no cover - best effort
-                log_error(f"[selenium] Failed to send ENTER: {e}")
+            except Exception as e:
+                log_error(f"[selenium] Failed to send ENTER via button click: {e}")
         else:
             try:
-                # Try setting the value directly via JavaScript for better reliability
                 escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "")
                 await self._tab.evaluate(
                     f"""
@@ -402,16 +341,15 @@ class NodriverElementWrapper:
                         el.value = '{escaped}';
                         el.innerText = '{escaped}';
                         el.textContent = '{escaped}';
-                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        el.dispatchEvent(new InputEvent('input', {{ bubbles: true }}));
                         el.dispatchEvent(new Event('change', {{ bubbles: true }}));
                         el.focus();
                     }}
                     """,
                 )
                 log_debug(f"[selenium] Successfully sent {len(text)} characters via JavaScript")
-            except Exception as e:  # pragma: no cover - best effort
+            except Exception as e:
                 log_error(f"[selenium] Failed to send keys: {e}")
-                # Try the nodriver methods as fallback
                 if not await self._call("type", text):
                     await self._call("send_keys", text)
 
@@ -427,16 +365,66 @@ class NodriverElementWrapper:
 
     async def text(self) -> str:
         try:
+            # Method 1: Try nodriver's text methods with proper checks
             if hasattr(self._el, "text"):
-                return await self._el.text()
+                text_method = getattr(self._el, "text")
+                if callable(text_method):
+                    try:
+                        result = await text_method()
+                        if result and isinstance(result, str):
+                            log_debug(f"[selenium] Got text via text() method: '{result[:50]}...'")
+                            return result
+                    except Exception as e:
+                        log_debug(f"[selenium] text() method failed: {e}")
+            
+            # Method 2: Try inner_text property
             if hasattr(self._el, "inner_text"):
-                return await self._el.inner_text()
+                inner_text_attr = getattr(self._el, "inner_text")
+                if callable(inner_text_attr):
+                    try:
+                        result = await inner_text_attr()
+                        if result and isinstance(result, str):
+                            log_debug(f"[selenium] Got text via inner_text() method: '{result[:50]}...'")
+                            return result
+                    except Exception as e:
+                        log_debug(f"[selenium] inner_text() method failed: {e}")
+                elif isinstance(inner_text_attr, str) and inner_text_attr:
+                    log_debug(f"[selenium] Got text via inner_text property: '{inner_text_attr[:50]}...'")
+                    return inner_text_attr
+            
+            # Method 3: Use JavaScript evaluation directly
+            try:
+                result = await self._tab.evaluate(
+                    """
+                    (element) => {
+                        if (!element) return '';
+                        return element.innerText || element.textContent || element.innerHTML || '';
+                    }
+                    """, self._el
+                )
+                if result and isinstance(result, str):
+                    log_debug(f"[selenium] Got text via JavaScript: '{result[:50]}...'")
+                    return result
+            except Exception as e:
+                log_debug(f"[selenium] JavaScript text extraction failed: {e}")
+            
+            # Method 4: Fallback to attributes
             attr = await self.get_attribute("innerText")
-            if attr:
+            if attr and isinstance(attr, str):
+                log_debug(f"[selenium] Got text via innerText attribute: '{attr[:50]}...'")
                 return attr
-        except Exception:
+            
+            attr = await self.get_attribute("textContent")
+            if attr and isinstance(attr, str):
+                log_debug(f"[selenium] Got text via textContent attribute: '{attr[:50]}...'")
+                return attr
+                
+            log_debug("[selenium] No text content found in element")
             return ""
-        return ""
+                
+        except Exception as e:
+            log_debug(f"[selenium] Error getting text: {e}")
+            return ""
  
 class NodriverSeleniumWrapper:
     """Expose a very small selenium-like surface over nodriver."""
@@ -490,14 +478,136 @@ class NodriverSeleniumWrapper:
 class SeleniumChatGPTClient(AIPluginBase):
     """Minimal ChatGPT browser client powered by nodriver."""
 
+    # Class-level storage for chat locks and queue
+    chat_locks = {}
+    
     def __init__(self, notify_fn=None):
         self._browser = None
         self._driver: NodriverSeleniumWrapper | None = None
+        self._queue = asyncio.Queue()
+        self._worker_started = False
         if notify_fn:
             from core.notifier import set_notifier
 
             log_debug("[selenium] Using custom notifier function")
             set_notifier(notify_fn)
+
+    async def handle_incoming_message(self, bot, message, prompt):
+        """Queue the message to be processed sequentially."""
+        user_id = message.from_user.id if message.from_user else "unknown"
+        text = message.text or ""
+        log_debug(
+            f"[selenium] [ENTRY] chat_id={message.chat_id} user_id={user_id} text={text!r}"
+        )
+        
+        # Ensure worker is started
+        if not self._worker_started:
+            asyncio.create_task(self._queue_worker())
+            self._worker_started = True
+        
+        # Check if this chat is busy
+        lock = SeleniumChatGPTClient.chat_locks.get(message.chat_id)
+        if lock and lock.locked():
+            log_debug(f"[selenium] Chat {message.chat_id} busy, waiting")
+        
+        await self._queue.put((bot, message, prompt))
+        log_debug("[selenium] Message queued for processing")
+        if self._queue.qsize() > 10:
+            log_warning(
+                f"[selenium] Queue size high ({self._queue.qsize()}). Worker might be stalled"
+            )
+
+    async def _queue_worker(self):
+        """Process messages from queue sequentially."""
+        log_debug("[selenium] Queue worker started")
+        while True:
+            try:
+                bot, message, prompt = await self._queue.get()
+                await self.process_prompt_in_chat(bot, message, prompt)
+                self._queue.task_done()
+            except Exception as e:
+                log_error(f"[selenium] Queue worker error: {e}")
+                await asyncio.sleep(1)  # Avoid tight error loops
+                
+    async def process_prompt_in_chat(self, bot, message, prompt):
+        """Process a prompt in the appropriate ChatGPT chat."""
+        from core.notifier import notify_trainer
+        from core.config import TRAINER_ID
+
+        chat_id = message.chat_id
+        message_thread_id = getattr(message, "message_thread_id", None)
+
+        # ✅ CORRETTO: invia tutto il JSON formattato
+        user_text = json.dumps(prompt, ensure_ascii=False, indent=2)
+        log_debug(f"[selenium] Using full JSON prompt: {user_text[:200]}...")
+
+        # Acquire chat lock
+        if chat_id not in SeleniumChatGPTClient.chat_locks:
+            SeleniumChatGPTClient.chat_locks[chat_id] = asyncio.Lock()
+
+        async with SeleniumChatGPTClient.chat_locks[chat_id]:
+            log_debug(f"[selenium] Processing prompt for chat {chat_id}")
+            try:
+                chat_url = await self._get_chat_url(chat_id, message_thread_id)
+                reply, final_url = await self.ask(user_text, chat_url)
+                await chat_link_store.save_link(chat_id, message_thread_id, final_url)
+
+                if bot and message and reply:
+                    log_debug(f"[selenium] Sending reply to chat_id={message.chat_id}")
+                    await bot.send_message(
+                        chat_id=message.chat_id,
+                        text=reply,
+                        reply_to_message_id=message.message_id
+                    )
+                return reply
+
+            except Exception as e:
+                log_error(f"[selenium] Error processing prompt: {e}")
+                notify_trainer(TRAINER_ID, f"❌ Selenium ChatGPT error:\n```\n{e}\n```")
+                if bot and message:
+                    await bot.send_message(
+                        chat_id=message.chat_id,
+                        text="⚠️ ChatGPT response error."
+                    )
+                return "⚠️ Error during response generation."
+
+
+    async def _get_chat_url(self, chat_id: int, message_thread_id: Optional[int | str]) -> str:
+        """Get or create ChatGPT conversation URL for this chat."""
+        log_debug(f"[selenium] Looking for chat URL: chat_id={chat_id}, thread_id={message_thread_id}")
+        
+        # Try to get existing link from database
+        stored_link = await chat_link_store.get_link(chat_id, message_thread_id)
+        log_debug(f"[selenium] Database returned link: {stored_link}")
+        
+        if stored_link:
+            # Extract chat ID from stored link and check if archived
+            extracted_chat_id = self._extract_chat_id(stored_link)
+            log_debug(f"[selenium] Extracted chat ID from URL: {extracted_chat_id}")
+            if extracted_chat_id:
+                driver = await self._ensure_driver()
+                is_archived = await is_chat_archived(driver, extracted_chat_id)
+                if not is_archived:
+                    log_debug(f"[selenium] Using existing chat URL: {stored_link}")
+                    return stored_link
+                else:
+                    log_warning(f"[selenium] Chat {extracted_chat_id} is archived, creating new chat")
+                    # Remove archived link
+                    await chat_link_store.remove(chat_id, message_thread_id)
+            else:
+                log_warning(f"[selenium] Could not extract chat ID from {stored_link}, creating new chat")
+        
+        # Create new chat - just return ChatGPT home URL
+        log_debug(f"[selenium] No valid chat found for {chat_id}, will start new conversation")
+        return "https://chatgpt.com"
+    
+    def _extract_chat_id(self, chat_url: str) -> Optional[str]:
+        """Extract ChatGPT chat ID from URL."""
+        # Match pattern like https://chatgpt.com/c/abcd1234-5678-9abc-def0-123456789abc
+        match = re.search(r"/c/([a-f0-9\-]+)", chat_url)
+        if match:
+            return match.group(1)
+        return None
 
     async def _ensure_driver(self) -> NodriverSeleniumWrapper:
         if self._driver:
@@ -518,7 +628,7 @@ class SeleniumChatGPTClient(AIPluginBase):
             raise
 
         try:
-            tab = await browser.get("https://chat.openai.com")
+            tab = await browser.get("https://chatgpt.com")
             await asyncio.sleep(3)  # Give time for page to load
         except Exception as e:  # pragma: no cover - navigation problems
             log_error(f"[selenium] initial navigation failed: {e}")
@@ -530,191 +640,45 @@ class SeleniumChatGPTClient(AIPluginBase):
         return self._driver
 
     async def ask(self, prompt: str, chat_url: str) -> tuple[str, str]:
-        """Send a prompt to ChatGPT and return the response and final URL."""
         driver = await self._ensure_driver()
-        
         try:
-            log_debug(f"[selenium] [STEP 1] Navigating to: {chat_url}")
-            # Navigate to the chat URL
+            # Naviga direttamente al link fornito (che arriva dal DB)
+            log_debug(f"[selenium] [STEP 1] Navigating to chat URL: {chat_url}")
             await driver.get(chat_url)
-            await asyncio.sleep(3)  # Wait for page to load
-            
-            # Verify we actually navigated to the right place
+            await asyncio.sleep(3)
             current_url = await driver.current_url()
-            log_debug(f"[selenium] [STEP 2] Actually navigated to: {current_url}")
-            
-            # Extract chat ID from URL for validation
-            chat_id = None
-            if "chat.openai.com" in chat_url:
-                # Try both URL formats: /chat/id and /c/id
-                for pattern in [r'/chat/([^/?]+)', r'/c/([^/?]+)']:
-                    match = re.search(pattern, chat_url)
-                    if match:
-                        chat_id = match.group(1)
-                        break
-                        
-            if chat_id:
-                log_debug(f"[selenium] [STEP 3] Checking if chat {chat_id} is archived")
-                if await is_chat_archived(driver, chat_id):
-                    log_warning(f"[selenium] Chat {chat_id} is archived, creating new chat")
-                    await driver.get("https://chat.openai.com")
-                    await asyncio.sleep(3)
-                    # Update current URL after fallback
-                    current_url = await driver.current_url()
-                    log_debug(f"[selenium] [STEP 3b] Fallback navigation to: {current_url}")
-            
-            log_debug("[selenium] [STEP 4] Counting existing messages using correct selector")
-            # Count existing assistant messages using the correct selector from original
-            prev_count = 0
-            try:
-                # Use the exact CSS selector from the original version
-                message_elements = await driver.find_elements(By.CSS_SELECTOR, "div.markdown.prose")
-                prev_count = len(message_elements)
-                log_debug(f"[selenium] Found {prev_count} existing markdown blocks (messages)")
-            except Exception as e:
-                log_warning(f"[selenium] Could not count existing messages: {e}")
-            
-            log_debug("[selenium] [STEP 5] Looking for prompt textarea using correct ID")
-            # Find the textarea using the correct ID from original version
+            log_debug(f"[selenium] [STEP 2] Current URL: {current_url}")
+
+            log_debug("[selenium] [STEP 3] Counting existing messages with fallback selectors")
+            prev_count = await count_response_elements(driver)
+
+            log_debug("[selenium] [STEP 4] Looking for prompt textarea")
             textarea = await driver.find_element(By.ID, "prompt-textarea")
             if not textarea:
                 log_error("[selenium] Could not find prompt textarea with ID 'prompt-textarea'")
                 raise RuntimeError("Textarea not found")
-                
-            log_debug("[selenium] [STEP 6] Sending prompt to textarea")
-            # Send the prompt text to the textarea
-            await textarea.send_keys(prompt)
-            
-            log_debug("[selenium] [STEP 7] Looking for send button")
-            # Find the send button using the correct ID and data-testid from the original version
-            send_button = None
-            try:
-                # Try by ID first
-                send_button = await driver.find_element(By.ID, "composer-submit-button")
-                log_debug("[selenium] Found send button by ID: composer-submit-button")
-            except Exception:
-                try:
-                    # Try by data-testid
-                    send_button = await driver.find_element(By.CSS_SELECTOR, '[data-testid="send-button"]')
-                    log_debug("[selenium] Found send button by data-testid: send-button")
-                except Exception:
-                    log_error("[selenium] Could not find send button")
-                    raise RuntimeError("Send button not found")
-            
-            log_debug("[selenium] [STEP 8] Clicking send button")
-            # Click the send button
-            await send_button._el.click()
-            
-            log_debug("[selenium] [STEP 8] Waiting for response with timeout")
-            # Wait for response with proper timeout
+
+            log_debug("[selenium] [STEP 5] Sending prompt")
+            log_debug(f"[selenium] Prompt being sent ({len(prompt)} chars): {prompt[:200]}...")
+            success = await send_prompt_to_chatgpt(driver, prompt)
+            if not success:
+                raise RuntimeError("Failed to send prompt")
+
+            log_debug("[selenium] [STEP 6] Waiting for response using data-message-author-role selector")
             reply = await wait_for_response(driver, prev_count, timeout=180)
             if not reply:
                 raise RuntimeError("No response received from ChatGPT")
-                
-            # Get final URL
+
             final_url = await driver.current_url()
-            
             log_debug(f"[selenium] Received reply of {len(reply)} chars")
             return reply, final_url
-            
         except Exception as e:
             log_error(f"[selenium] Error in ask method: {e}")
-            # Try to get current URL even if there was an error
             try:
                 final_url = await driver.current_url()
             except:
                 final_url = chat_url
             raise RuntimeError(f"ChatGPT interaction failed: {e}")
-
-    async def handle_incoming_message(self, bot, message, prompt: dict) -> str:
-        """Process an incoming message using the ChatGPT web UI."""
-        chat_id = getattr(message, "chat_id", None)
-        thread_id = getattr(message, "message_thread_id", None)
-
-        try:
-            # Convert prompt to JSON string
-            if isinstance(prompt, dict):
-                json_prompt = json.dumps(prompt, ensure_ascii=False)
-                input_payload = prompt.get("input", {}).get("payload", {})
-                if chat_id is None:
-                    chat_id = input_payload.get("source", {}).get("chat_id")
-                if thread_id is None:
-                    thread_id = input_payload.get("source", {}).get("message_thread_id")
-            else:
-                json_prompt = str(prompt)
-
-            if not json_prompt or chat_id is None:
-                log_warning("[selenium] Missing prompt or chat_id")
-                return ""
-
-            # Get existing conversation link
-            conv = await chat_link_store.get_link(chat_id, thread_id)
-            log_debug(f"[selenium] Retrieved conversation link from DB: {conv}")
-            if conv:
-                if conv.startswith("http"):
-                    url = conv
-                    log_debug(f"[selenium] Using full URL from DB: {url}")
-                else:
-                    # If it's just an ID, construct the URL properly
-                    url = f"https://chat.openai.com/c/{conv}"
-                    log_debug(f"[selenium] Constructed URL from chat ID '{conv}': {url}")
-            else:
-                url = "https://chat.openai.com"
-                log_debug("[selenium] No existing chat found, creating new chat")
-
-            log_debug(f"[selenium] Final URL to navigate to: {url}")
-
-            # Send prompt and get response
-            try:
-                reply, final_url = await self.ask(json_prompt, url)
-                log_debug(f"[selenium] Ask completed successfully, final URL: {final_url}")
-            except Exception as e:
-                log_error(f"[selenium] Ask failed with error: {e}")
-                if conv:
-                    log_warning(f"[selenium] Stored chat failed ({e}), trying new chat")
-                    reply, final_url = await self.ask(json_prompt, "https://chat.openai.com")
-                else:
-                    raise
-
-            # Save the conversation link
-            if final_url and final_url != url:
-                log_debug(f"[selenium] Saving new chat link: original_url='{url}', final_url='{final_url}'")
-                await chat_link_store.save_link(chat_id, thread_id, final_url)
-                log_debug(f"[selenium] Saved new chat link: {final_url}")
-            else:
-                log_debug(f"[selenium] No need to save chat link: final_url='{final_url}', original_url='{url}'")
-
-            # Send response via bot
-            if bot and reply:
-                try:
-                    await bot.send_message(
-                        chat_id=chat_id,
-                        text=reply,
-                        reply_to_message_id=getattr(message, "message_id", None),
-                    )
-                    log_debug(f"[selenium] Response sent to chat {chat_id}")
-                except Exception as e:  # pragma: no cover - network issues
-                    log_error(f"[selenium] Failed to send message via bot: {e}")
-
-            return reply
-
-        except Exception as e:
-            log_error(f"[selenium] Error handling message: {e}")
-            # Let's add more debug info to understand what's happening
-            if self._driver:
-                try:
-                    current_url = await self._driver._tab.evaluate("window.location.href")
-                    log_debug(f"[selenium] Current URL when error occurred: {current_url}")
-                    page_title = await self._driver._tab.evaluate("document.title")
-                    log_debug(f"[selenium] Page title when error occurred: {page_title}")
-                    # Check if ChatGPT is loaded properly
-                    has_textarea = await self._driver._tab.evaluate("!!document.getElementById('prompt-textarea')")
-                    log_debug(f"[selenium] Has prompt textarea: {has_textarea}")
-                    has_send_button = await self._driver._tab.evaluate("!!document.querySelector('[data-testid=\"send-button\"]')")
-                    log_debug(f"[selenium] Has send button: {has_send_button}")
-                except Exception as debug_e:
-                    log_debug(f"[selenium] Could not get debug info: {debug_e}")
-            return ""
 
 
 async def clean_chat_link(chat_id: int) -> bool:
