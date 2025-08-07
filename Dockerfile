@@ -106,7 +106,5 @@ RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
     chown -R abc:abc /etc/s6-overlay/s6-rc.d/rekku
 
 # Set permissions for abc user
+# Note: abc user home is /config
 RUN chown -R abc:abc /app
-
-# Expose Selkies port
-EXPOSE 3000
