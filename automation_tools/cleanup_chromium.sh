@@ -28,24 +28,24 @@ echo "🗑️  Removing lock files and temporary cache (preserving login session
 rm -f ~/.config/google-chrome*/SingletonLock 2>/dev/null || true
 rm -f ~/.config/google-chrome*/Default/SingletonLock 2>/dev/null || true
 rm -f ~/.config/google-chrome*/lockfile 2>/dev/null || true
-rm -f /home/rekku/.config/google-chrome*/SingletonLock 2>/dev/null || true
-rm -f /home/rekku/.config/google-chrome*/Default/SingletonLock 2>/dev/null || true
-rm -f /home/rekku/.config/google-chrome*/lockfile 2>/dev/null || true
+rm -f ~/.config/google-chrome*/SingletonLock 2>/dev/null || true
+rm -f ~/.config/google-chrome*/Default/SingletonLock 2>/dev/null || true
+rm -f ~/.config/google-chrome*/lockfile 2>/dev/null || true
 
 # Remove Chromium lock files
 rm -f ~/.config/chromium*/SingletonLock 2>/dev/null || true
 rm -f ~/.config/chromium*/Default/SingletonLock 2>/dev/null || true
 rm -f ~/.config/chromium*/lockfile 2>/dev/null || true
-rm -f /home/rekku/.config/chromium*/SingletonLock 2>/dev/null || true
-rm -f /home/rekku/.config/chromium*/Default/SingletonLock 2>/dev/null || true
-rm -f /home/rekku/.config/chromium*/lockfile 2>/dev/null || true
+rm -f ~/.config/chromium*/SingletonLock 2>/dev/null || true
+rm -f ~/.config/chromium*/Default/SingletonLock 2>/dev/null || true
+rm -f ~/.config/chromium*/lockfile 2>/dev/null || true
 
 # Remove ONLY temporary profile directories (those with timestamp suffix)
 # This preserves the main persistent profiles but removes temporary ones
 rm -rf ~/.config/google-chrome-[0-9]* 2>/dev/null || true
-rm -rf /home/rekku/.config/google-chrome-[0-9]* 2>/dev/null || true
+rm -rf ~/.config/google-chrome-[0-9]* 2>/dev/null || true
 rm -rf ~/.config/chromium-[0-9]* 2>/dev/null || true
-rm -rf /home/rekku/.config/chromium-[0-9]* 2>/dev/null || true
+rm -rf ~/.config/chromium-[0-9]* 2>/dev/null || true
 
 # Note: We specifically preserve ~/.config/chromium-rekku (and google-chrome-rekku for compatibility)
 # This keeps ChatGPT login sessions and other site data intact
@@ -58,9 +58,9 @@ rm -rf /tmp/chromium_* 2>/dev/null || true
 
 # Remove browser process crash dumps and temp directories
 rm -rf ~/.config/google-chrome*/Crash\ Reports/pending/* 2>/dev/null || true
-rm -rf /home/rekku/.config/google-chrome*/Crash\ Reports/pending/* 2>/dev/null || true
+rm -rf ~/.config/google-chrome*/Crash\ Reports/pending/* 2>/dev/null || true
 rm -rf ~/.config/chromium*/Crash\ Reports/pending/* 2>/dev/null || true
-rm -rf /home/rekku/.config/chromium*/Crash\ Reports/pending/* 2>/dev/null || true
+rm -rf ~/.config/chromium*/Crash\ Reports/pending/* 2>/dev/null || true
 
 echo "✅ Cleanup completed!"
 
