@@ -55,6 +55,7 @@ jobs:
             platform: linux/arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
+    continue-on-error: true
     permissions:
       contents: read
       packages: write
@@ -121,14 +122,31 @@ jobs:
       - name: Read digests
         id: digests
         run: |
-          if [ ! -f digest-amd64 ] || [ ! -f digest-arm64 ]; then
-            echo "::error::One or more digest files are missing"
+          missing=""
+          have_one="false"
+          if [ -f digest-amd64 ]; then
+            echo "amd64=$(cat digest-amd64)" >> "$GITHUB_OUTPUT"
+            echo "AMD64 digest: $(cat digest-amd64)"
+            have_one="true"
+          else
+            echo "::warning::digest-amd64 missing, will skip amd64 in manifest"
+            missing="amd64"
+          fi
+          if [ -f digest-arm64 ]; then
+            echo "arm64=$(cat digest-arm64)" >> "$GITHUB_OUTPUT"
+            echo "ARM64 digest: $(cat digest-arm64)"
+            have_one="true"
+          else
+            echo "::warning::digest-arm64 missing, will skip arm64 in manifest"
+            missing="$missing arm64"
+          fi
+          if [ "$have_one" = "false" ]; then
+            echo "::error::No digests available, cannot create any manifest. Failing job."
             exit 1
           fi
-          echo "amd64=$(cat digest-amd64)" >> "$GITHUB_OUTPUT"
-          echo "arm64=$(cat digest-arm64)" >> "$GITHUB_OUTPUT"
-          echo "AMD64 digest: $(cat digest-amd64)"
-          echo "ARM64 digest: $(cat digest-arm64)"
+          if [ -n "$missing" ]; then
+            echo "::warning::Some digests are missing: $missing"
+          fi
       - name: Compute image tags
         id: meta
         env:
@@ -156,16 +174,20 @@ jobs:
           ARM64_DIGEST: ${{ steps.digests.outputs.arm64 }}
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          if [ -z "$AMD64_DIGEST" ] || [ -z "$ARM64_DIGEST" ]; then
-            echo "::error::Missing digest values"
-            exit 1
-          fi
-          
           for tag in $(echo "$TAGS" | tr ',' ' '); do
-            echo "Creating manifest for tag: $tag"
-            docker buildx imagetools create -t "$tag" \
-              "$IMAGE_NAME@$AMD64_DIGEST" \
-              "$IMAGE_NAME@$ARM64_DIGEST"
+            args=""
+            if [ -n "$AMD64_DIGEST" ]; then
+              args="$args $IMAGE_NAME@$AMD64_DIGEST"
+            fi
+            if [ -n "$ARM64_DIGEST" ]; then
+              args="$args $IMAGE_NAME@$ARM64_DIGEST"
+            fi
+            if [ -z "$args" ]; then
+              echo "::error::No digests available for manifest $tag, skipping."
+              continue
+            fi
+            echo "Creating manifest for tag: $tag with: $args"
+            docker buildx imagetools create -t "$tag" $args
             echo "✅ Created manifest for $tag"
           done
 
