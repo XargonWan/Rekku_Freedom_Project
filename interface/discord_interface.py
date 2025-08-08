@@ -22,20 +22,25 @@ class DiscordInterface:
 
     @staticmethod
     def get_supported_actions() -> dict:
-        """Return a compact description of supported actions."""
+        """Return schema information for supported actions."""
         return {
             "message_discord_bot": {
                 "description": "Send a text message to a Discord channel.",
-                "usage": {
-                    "type": "message_discord_bot",
-                    "interface": "discord_bot",
-                    "payload": {
-                        "text": "...",
-                        "target": "<channel_id>"
-                    }
-                }
+                "required_fields": ["text", "target"],
+                "optional_fields": [],
             }
         }
+
+    def get_prompt_instructions(action_name: str) -> dict:
+        if action_name == "message_discord_bot":
+            return {
+                "description": "Send a message to a Discord channel.",
+                "payload": {
+                    "text": {"type": "string", "example": "Hello Discord!", "description": "The message text to send."},
+                    "target": {"type": "string", "example": "1234567890", "description": "The channel_id of the recipient."},
+                },
+            }
+        return {}
 
     async def send_message(self, channel_id, text):
         """Send a message to a Discord channel."""

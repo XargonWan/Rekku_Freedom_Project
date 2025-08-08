@@ -60,13 +60,22 @@ class RedditInterface:
         return {
             "message_reddit": {
                 "description": "Send a message or reply on Reddit.",
-                "usage": {
-                    "type": "message_reddit",
-                    "interface": "reddit",
-                    "payload": {"text": "...", "target": "<username>", "reply_to": "<comment_or_message_id>"},
-                },
+                "required_fields": ["text", "target"],
+                "optional_fields": ["reply_to"],
             }
         }
+
+    def get_prompt_instructions(action_name: str) -> dict:
+        if action_name == "message_reddit":
+            return {
+                "description": "Send a message or reply on Reddit.",
+                "payload": {
+                    "text": {"type": "string", "example": "Hello Reddit!", "description": "The message text to send."},
+                    "target": {"type": "string", "example": "example_user", "description": "The username or subreddit."},
+                    "reply_to": {"type": "string", "example": "t1_abcdef", "description": "Optional comment/message id to reply to.", "optional": True},
+                },
+            }
+        return {}
 
     # --- public API ---------------------------------------------------------
     async def start(self):
