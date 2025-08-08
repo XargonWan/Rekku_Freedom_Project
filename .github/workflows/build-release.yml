@@ -119,6 +119,7 @@ jobs:
         with:
           name: digest-arm64
           path: .
+        continue-on-error: true
       - name: Read digests
         id: digests
         run: |
