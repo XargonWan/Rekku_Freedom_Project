@@ -50,9 +50,7 @@ def _notify_trainer(message: str) -> None:
     """Send a message to the trainer if possible."""
     try:
         from core.notifier import notify_trainer
-        from core.config import TRAINER_ID
-
-        notify_trainer(TRAINER_ID, message)
+        notify_trainer(message)
     except Exception as e:  # pragma: no cover - notification best effort
         logger = setup_logging()
         logger.error("Failed to notify trainer: %s", e, stacklevel=2)
