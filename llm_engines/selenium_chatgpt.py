@@ -13,6 +13,8 @@ import asyncio
 import textwrap
 from collections import defaultdict
 from typing import Optional, Dict
+import aiomysql
+import subprocess
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -31,13 +33,165 @@ from selenium.webdriver.support import expected_conditions as EC
 # undetected-chromedriver
 import undetected_chromedriver as uc
 
+
 # Funzioni e classi locali
 from core.logging_utils import log_debug, log_error, log_warning, log_info
-from core.config import notify_trainer, set_notifier
-from core.recent_chats import recent_chats
+from core.notifier import set_notifier
+import core.recent_chats as recent_chats
 from core.ai_plugin_base import AIPluginBase
-from core.context import ChatLinkStore
-from core.message_sender import safe_send
+
+# ChatLinkStore: gestisce la mappatura tra chat Telegram e chat ChatGPT
+from typing import Optional
+from core.db import get_conn
+from core.logging_utils import log_debug, log_warning
+
+class ChatLinkStore:
+    def __init__(self):
+        self._ensure_table()
+
+    async def _ensure_table(self) -> None:
+        conn = await get_conn()
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chatgpt_links (
+                    telegram_chat_id INTEGER NOT NULL,
+                    thread_id INTEGER,
+                    chatgpt_chat_id TEXT NOT NULL,
+                    is_full INTEGER DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (telegram_chat_id, thread_id)
+                )
+                """
+            )
+            await conn.commit()
+        conn.close()
+
+    async def get_link(self, telegram_chat_id: int, thread_id: Optional[int]) -> Optional[str]:
+        log_debug(f"[chatlink] Searching for link: telegram_chat_id={telegram_chat_id}, thread_id={thread_id}")
+        conn = await get_conn()
+        async with conn.cursor(aiomysql.DictCursor) as cursor:
+            if thread_id is None:
+                await cursor.execute(
+                    """
+                    SELECT chatgpt_chat_id, is_full
+                    FROM chatgpt_links
+                    WHERE telegram_chat_id = %s AND thread_id IS NULL
+                    """,
+                    (telegram_chat_id,)
+                )
+            else:
+                await cursor.execute(
+                    """
+                    SELECT chatgpt_chat_id, is_full
+                    FROM chatgpt_links
+                    WHERE telegram_chat_id = %s AND thread_id = %s
+                    """,
+                    (telegram_chat_id, thread_id)
+                )
+            row = await cursor.fetchone()
+        conn.close()
+        if row:
+            log_debug(f"[chatlink] Found row: chatgpt_chat_id={row['chatgpt_chat_id']}, is_full={row['is_full']}")
+            if not row["is_full"]:
+                log_debug(
+                    f"[chatlink] Found mapping {telegram_chat_id}/{thread_id} -> {row['chatgpt_chat_id']}"
+                )
+                return row["chatgpt_chat_id"]
+            else:
+                log_debug(f"[chatlink] Found mapping but chat is marked as full")
+        else:
+            log_debug(f"[chatlink] No row found for {telegram_chat_id}/{thread_id}")
+        log_debug(f"[chatlink] No usable mapping for {telegram_chat_id}/{thread_id}")
+        return None
+
+    async def save_link(self, telegram_chat_id: int, thread_id: Optional[int], chatgpt_chat_id: str) -> None:
+        conn = await get_conn()
+        async with conn.cursor() as cursor:
+            if thread_id is None:
+                await cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO chatgpt_links
+                        (telegram_chat_id, thread_id, chatgpt_chat_id, is_full, updated_at)
+                    VALUES (%s, NULL, %s, 0, CURRENT_TIMESTAMP)
+                    """,
+                    (telegram_chat_id, chatgpt_chat_id),
+                )
+            else:
+                await cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO chatgpt_links
+                        (telegram_chat_id, thread_id, chatgpt_chat_id, is_full, updated_at)
+                    VALUES (%s, %s, %s, 0, CURRENT_TIMESTAMP)
+                    """,
+                    (telegram_chat_id, thread_id, chatgpt_chat_id),
+                )
+            await conn.commit()
+        conn.close()
+        log_debug(
+            f"[chatlink] Saved mapping {telegram_chat_id}/{thread_id} -> {chatgpt_chat_id}"
+        )
+
+    async def mark_full(self, chatgpt_chat_id: str) -> None:
+        conn = await get_conn()
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                "UPDATE chatgpt_links SET is_full=1, updated_at=CURRENT_TIMESTAMP WHERE chatgpt_chat_id=%s",
+                (chatgpt_chat_id,),
+            )
+            await conn.commit()
+        conn.close()
+        log_debug(f"[chatlink] Marked chat {chatgpt_chat_id} as full")
+
+    async def is_full(self, chatgpt_chat_id: str) -> bool:
+        conn = await get_conn()
+        async with conn.cursor(aiomysql.DictCursor) as cursor:
+            await cursor.execute(
+                "SELECT is_full FROM chatgpt_links WHERE chatgpt_chat_id=%s",
+                (chatgpt_chat_id,),
+            )
+            row = await cursor.fetchone()
+        conn.close()
+        result = bool(row and row["is_full"])
+        log_debug(f"[chatlink] is_full({chatgpt_chat_id}) -> {result}")
+        return result
+
+    async def remove(self, telegram_chat_id: int, thread_id: Optional[int]) -> bool:
+        """
+        Rimuove il collegamento ChatGPT per un dato telegram_chat_id e thread_id.
+        Restituisce True se una riga è stata eliminata, altrimenti False.
+        """
+        conn = await get_conn()
+        async with conn.cursor() as cursor:
+            if thread_id is None:
+                result = await cursor.execute(
+                    """
+                    DELETE FROM chatgpt_links
+                    WHERE telegram_chat_id = %s AND thread_id IS NULL
+                    """,
+                    (telegram_chat_id,),
+                )
+            else:
+                result = await cursor.execute(
+                    """
+                    DELETE FROM chatgpt_links
+                    WHERE telegram_chat_id = %s AND thread_id = %s
+                    """,
+                    (telegram_chat_id, thread_id),
+                )
+            await conn.commit()
+        conn.close()
+        rows_deleted = cursor.rowcount > 0
+        if rows_deleted:
+            log_debug(f"[chatlink] Rimosso il collegamento per telegram_chat_id={telegram_chat_id}, thread_id={thread_id}")
+        else:
+            log_debug(f"[chatlink] Nessun collegamento trovato per telegram_chat_id={telegram_chat_id}, thread_id={thread_id}")
+        return rows_deleted
+from core.message_sender import send_content
+
+# Fallback per notify_trainer se non disponibile
+def notify_trainer(trainer_id, text):
+    log_warning(f"[notify_trainer fallback] trainer_id={trainer_id}: {text}")
 
 async def _process_message(self, bot, message, prompt):
         """
@@ -159,14 +313,15 @@ async def _process_message(self, bot, message, prompt):
                 if not response_text:
                     pass
 
-                await safe_send(
+                # Adattamento: send_content richiede content_type e message
+                message.text = response_text
+                await send_content(
                     bot,
                     chat_id=message.chat_id,
-                    text=response_text,
-                    reply_to_message_id=message.message_id,
-                    event_id=getattr(message, "event_id", None),
-                    message_thread_id=getattr(message, "message_thread_id", None),
-                )  # [FIX][telegram retry]
+                    message=message,
+                    content_type="text",
+                    reply_to_message_id=message.message_id
+                )
                 log_debug(f"[selenium][STEP] response forwarded to {message.chat_id}")
                 return
 
@@ -492,9 +647,8 @@ def _safe_notify(text: str) -> None:
         chunk = text[i : i + 4000]
         log_debug(f"[selenium] Notifying chunk length {len(chunk)}")
         try:
-            from core.config import TRAINER_ID
-
-            notify_trainer(TRAINER_ID, chunk)
+            from core.notifier import notify_trainer
+            notify_trainer(chunk)
         except Exception as e:  # pragma: no cover - best effort
             log_error(f"[selenium] notify_trainer failed: {repr(e)}", e)
 
@@ -1235,13 +1389,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 if not response_text:
                     response_text = "⚠️ No response received"
 
-                await safe_send(
+                message.text = response_text
+                await send_content(
                     bot,
                     chat_id=message.chat_id,
-                    text=response_text,
-                    reply_to_message_id=message.message_id,
-                    event_id=getattr(message, "event_id", None),
-                )  # [FIX][telegram retry]
+                    message=message,
+                    content_type="text",
+                    reply_to_message_id=message.message_id
+                )
                 log_debug(f"[selenium][STEP] response forwarded to {message.chat_id}")
                 return
 
