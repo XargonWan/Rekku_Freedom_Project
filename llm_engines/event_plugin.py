@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from core.ai_plugin_base import AIPluginBase
-from core.db import insert_scheduled_event, get_db
+from core.db import insert_scheduled_event, get_conn
 
 VALID_REPEATS = {"none", "daily", "weekly", "monthly", "always"}
 
@@ -35,16 +35,19 @@ class EventPlugin(AIPluginBase):
             if not date or not desc:
                 continue
 
-            with get_db() as db:
-                row = db.execute(
-                    "SELECT 1 FROM scheduled_events WHERE date=? AND time=? AND description=?",
+            conn = await get_conn()
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    "SELECT 1 FROM scheduled_events WHERE date=%s AND time=%s AND description=%s",
                     (date, time_, desc),
-                ).fetchone()
+                )
+                row = await cursor.fetchone()
                 if row:
                     await bot.send_message(message.chat_id, "⚠️ Event already exists")
                     return
-                insert_scheduled_event(date=date, time_=time_, repeat=repeat, description=desc, created_by="test")
+                await insert_scheduled_event(date=date, time_=time_, repeat=repeat, description=desc, created_by="test")
                 saved = True
+            conn.close()
 
         if saved:
             await bot.send_message(message.chat_id, "📅 Event(s) saved")

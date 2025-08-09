@@ -4,7 +4,8 @@ import json
 from datetime import datetime
 from typing import Any, Callable
 
-from core.db import get_db
+import asyncio
+from core.db import get_conn
 from core.logging_utils import log_error
 
 
@@ -22,15 +23,17 @@ DEFAULTS = {
 }
 
 
-def _ensure_user_exists(user_id: str) -> None:
+async def _ensure_user_exists(user_id: str) -> None:
     """Create an empty bio entry if the user is missing."""
-    with get_db() as db:
-        row = db.execute("SELECT 1 FROM bio WHERE id=?", (user_id,)).fetchone()
+    conn = await get_conn()
+    async with conn.cursor(aiomysql.DictCursor) as cursor:
+        await cursor.execute("SELECT 1 FROM bio WHERE id=%s", (user_id,))
+        row = await cursor.fetchone()
         if not row:
-            db.execute(
+            await cursor.execute(
                 """
                 INSERT INTO bio (id, known_as, likes, not_likes, information, past_events, feelings, contacts)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     user_id,
@@ -43,6 +46,8 @@ def _ensure_user_exists(user_id: str) -> None:
                     json.dumps({}),
                 ),
             )
+            await conn.commit()
+    conn.close()
 
 
 def _load_json_field(value: str | None, key: str, default: Any) -> Any:
@@ -56,32 +61,40 @@ def _load_json_field(value: str | None, key: str, default: Any) -> Any:
         return default
 
 
-def _save_json_field(user_id: str, key: str, value: Any) -> None:
+async def _save_json_field(user_id: str, key: str, value: Any) -> None:
     """Serialize and store a JSON field."""
-    with get_db() as db:
-        db.execute(f"UPDATE bio SET {key}=? WHERE id=?", (json.dumps(value), user_id))
+    conn = await get_conn()
+    async with conn.cursor() as cursor:
+        await cursor.execute(f"UPDATE bio SET {key}=%s WHERE id=%s", (json.dumps(value), user_id))
+        await conn.commit()
+    conn.close()
 
 
-def _update_json_field(user_id: str, key: str, update_fn: Callable[[Any], Any]) -> None:
-    _ensure_user_exists(user_id)
-    with get_db() as db:
-        row = db.execute(f"SELECT {key} FROM bio WHERE id=?", (user_id,)).fetchone()
+async def _update_json_field(user_id: str, key: str, update_fn: Callable[[Any], Any]) -> None:
+    await _ensure_user_exists(user_id)
+    conn = await get_conn()
+    async with conn.cursor(aiomysql.DictCursor) as cursor:
+        await cursor.execute(f"SELECT {key} FROM bio WHERE id=%s", (user_id,))
+        row = await cursor.fetchone()
         current = _load_json_field(row[key], key, DEFAULTS.get(key))
         try:
             updated = update_fn(current)
         except Exception as e:  # pragma: no cover - logic error
             log_error(f"[bio_manager] Error updating {key}: {e}")
             return
-        _save_json_field(user_id, key, updated)
+        await _save_json_field(user_id, key, updated)
+    conn.close()
 
 
-def get_bio_light(user_id: str) -> dict:
+async def get_bio_light(user_id: str) -> dict:
     """Return a lightweight bio for the user."""
-    with get_db() as db:
-        row = db.execute(
-            "SELECT known_as, likes, not_likes, feelings, information FROM bio WHERE id=?",
+    conn = await get_conn()
+    async with conn.cursor(aiomysql.DictCursor) as cursor:
+        await cursor.execute(
+            "SELECT known_as, likes, not_likes, feelings, information FROM bio WHERE id=%s",
             (user_id,),
-        ).fetchone()
+        )
+        row = await cursor.fetchone()
         if not row:
             return {}
         return {
@@ -91,28 +104,32 @@ def get_bio_light(user_id: str) -> dict:
             "feelings": _load_json_field(row["feelings"], "feelings", DEFAULTS["feelings"]),
             "information": row["information"] or "",
         }
+    conn.close()
 
 
-def get_bio_full(user_id: str) -> dict:
+async def get_bio_full(user_id: str) -> dict:
     """Return the full bio for the user."""
-    with get_db() as db:
-        row = db.execute("SELECT * FROM bio WHERE id=?", (user_id,)).fetchone()
+    conn = await get_conn()
+    async with conn.cursor(aiomysql.DictCursor) as cursor:
+        await cursor.execute("SELECT * FROM bio WHERE id=%s", (user_id,))
+        row = await cursor.fetchone()
         if not row:
             return {}
         result = {"id": row["id"], "information": row["information"] or ""}
         for key in JSON_LIST_FIELDS | JSON_DICT_FIELDS:
             result[key] = _load_json_field(row[key], key, DEFAULTS[key])
         return result
+    conn.close()
 
 
-def update_bio_fields(user_id: str, updates: dict) -> None:
+async def update_bio_fields(user_id: str, updates: dict) -> None:
     """Safely update multiple fields in the user's bio, preserving existing values."""
 
     if not updates:
         return
 
-    _ensure_user_exists(user_id)
-    current = get_bio_full(user_id)
+    await _ensure_user_exists(user_id)
+    current = await get_bio_full(user_id)
 
     merged: dict[str, Any] = {}
 
@@ -149,13 +166,14 @@ def update_bio_fields(user_id: str, updates: dict) -> None:
         else:
             merged[field] = new_val
 
-    with get_db() as db:
-        db.execute(
+    conn = await get_conn()
+    async with conn.cursor() as cursor:
+        await cursor.execute(
             """
             REPLACE INTO bio (
                 id, known_as, likes, not_likes, information,
                 past_events, feelings, contacts
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 user_id,
@@ -168,6 +186,8 @@ def update_bio_fields(user_id: str, updates: dict) -> None:
                 json.dumps(merged.get("contacts", {})),
             ),
         )
+        await conn.commit()
+    conn.close()
 
 
 def append_to_bio_list(user_id: str, field: str, value: Any) -> None:
