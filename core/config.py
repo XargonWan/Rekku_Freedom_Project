@@ -10,6 +10,10 @@ except Exception:  # pragma: no cover - fallback when dotenv not installed
 from core.db import get_conn
 import aiomysql
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+"""
+notify_trainer(chat_id: int, message: str) -> None
+Invia una notifica al trainer (Telegram) tramite la logica centralizzata in core/notifier.py.
+"""
 
 # ✅ Load all environment variables from .env
 load_dotenv(dotenv_path="/app/.env", override=False)
@@ -18,6 +22,7 @@ TRAINER_ID = int(os.getenv("TRAINER_ID", "123456789"))
 BOT_TOKEN = os.getenv("BOTFATHER_TOKEN") or os.getenv("TELEGRAM_TOKEN")
 BOT_USERNAME = "rekku_freedom_project"
 LLM_MODE = os.getenv("LLM_MODE", "manual")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_API_KEY")
 
 if not BOT_TOKEN:
     raise RuntimeError("❌ BOTFATHER_TOKEN missing. Set it in .env or as an environment variable.")
