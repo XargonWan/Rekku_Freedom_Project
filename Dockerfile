@@ -30,6 +30,9 @@ RUN apt-get update && \
       htop net-tools iputils-ping && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Install gemini-cli
+RUN pip3 install --no-cache-dir gemini-cli
+
 # Install browser based on architecture
 RUN ARCH="$TARGETARCH" && \
     if [ -z "$ARCH" ]; then \
