@@ -25,9 +25,14 @@ fi
 echo "📦 Checking and installing aiomysql..."
 pip show aiomysql > /dev/null 2>&1 || pip install aiomysql
 
-# Run test scripts
-echo "🧪 Running all test scripts in tests/ directory..."
-python3 -m unittest discover -s tests -p "test_*.py"
+
+# Assicurati che pytest sia installato
+echo "📦 Checking and installing pytest..."
+pip show pytest > /dev/null 2>&1 || pip install pytest
+
+# Esegui i test con pytest
+echo "🧪 Running all test scripts in tests/ directory with pytest..."
+pytest --maxfail=1 --disable-warnings --tb=short
 
 # Check if tests were found and executed successfully
 if [ $? -ne 0 ]; then
