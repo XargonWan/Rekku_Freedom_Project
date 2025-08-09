@@ -676,10 +676,16 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
     from telegram.error import TelegramError
     from telegram.constants import ParseMode
 
-    log_debug(f"[telegram_notify] → CALLED with chat_id={chat_id}")
+    # Forza la notifica solo al TRAINER_ID in privato
+    log_debug(f"[telegram_notify] → CALLED con chat_id={chat_id}")
     log_debug(f"[telegram_notify] → MESSAGE:\n{message}")
 
     bot = Bot(token=BOT_TOKEN)
+
+    # Se il destinatario non è il TRAINER_ID, non inviare nulla
+    if chat_id != TRAINER_ID:
+        log_debug(f"[telegram_notify] Ignorato: chat_id {chat_id} != TRAINER_ID {TRAINER_ID}")
+        return
 
     # Make URLs clickable
     url_pattern = re.compile(r"https?://\S+")
@@ -697,13 +703,13 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
             text = truncate_message(formatted_message or message)
             await safe_send(
                 bot,
-                chat_id=chat_id,
+                chat_id=TRAINER_ID,
                 text=text,
                 reply_to_message_id=reply_to_message_id,
                 parse_mode=ParseMode.HTML if formatted_message else None,
                 disable_web_page_preview=True,
             )  # [FIX][telegram retry]
-            log_debug(f"[notify] ✅ Telegram message sent to {chat_id}")
+            log_debug(f"[notify] ✅ Telegram message sent to {TRAINER_ID}")
         except TelegramError as e:
             log_error(f"[notify] ❌ Telegram error: {repr(e)}", e)
         except Exception as e:
