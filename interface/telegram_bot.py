@@ -60,8 +60,8 @@ async def ensure_plugin_loaded(update: Update):
     """
     if plugin_instance.plugin is None:
         log_error("No LLM plugin loaded.")
-        if update and update.message:
-            await update.message.reply_text("⚠️ No LLM plugin active. Use /llm to select one.")
+        from core.notifier import notify_trainer
+        notify_trainer("⚠️ No LLM plugin active. Use /llm to select one.")
         return False
     return True
 
