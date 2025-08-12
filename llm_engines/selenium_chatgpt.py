@@ -325,18 +325,7 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
                 log_debug("[selenium][STEP] Clicked send button")
             except Exception as e:
                 log_warning(f"[selenium] Failed to click send button: {e}")
-              try:
-                  send_btn = WebDriverWait(driver, 3).until(
-                      EC.element_to_be_clickable(
-                          (By.CSS_SELECTOR, "button[data-testid='send-button']")
-                      )
-                  )
-                  driver.execute_script("arguments[0].click();", send_btn)
-                  log_debug("[selenium][STEP] Clicked send button")
-              except Exception as e:
-                  log_warning(f"[selenium] Failed to click send button: {e}")
-                  textarea.send_keys(Keys.ENTER)
-                  log_debug("[selenium][STEP] Sent ENTER key as fallback")
+                textarea.send_keys(Keys.ENTER)
                 log_debug("[selenium][STEP] Sent ENTER key as fallback")
             log_debug(f"[selenium][STEP] Prompt sent, waiting for response")
             if wait_for_markdown_block_to_appear(driver, prev_blocks):
