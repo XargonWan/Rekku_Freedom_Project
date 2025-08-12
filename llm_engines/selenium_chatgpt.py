@@ -194,8 +194,41 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
 
 
 def paste_and_send(textarea, prompt_text: str) -> None:
-    """Insert ``prompt_text`` into ``textarea`` using JavaScript injection."""
-    _send_text_to_textarea(textarea._parent, textarea, prompt_text)
+    """Insert ``prompt_text`` into ``textarea`` ensuring full content is present.
+
+    Tries JavaScript injection first (for performance and reliability), then
+    verifies the length.  If the content does not match, falls back to a
+    chunked ``send_keys`` approach which mimics manual typing.
+    """
+    driver = textarea._parent
+    clean = strip_non_bmp(prompt_text)
+
+    _send_text_to_textarea(driver, textarea, clean)
+    actual = driver.execute_script("return arguments[0].value;", textarea) or ""
+    if actual == clean:
+        return
+
+    log_warning(
+        f"[selenium] JS paste mismatch: expected {len(clean)} chars, got {len(actual)}. Falling back to send_keys"
+    )
+
+    import textwrap
+    textarea.clear()
+    for attempt in range(3):
+        if attempt:
+            log_warning(f"[selenium] send_keys retry {attempt}/3")
+        try:
+            textarea.send_keys(Keys.CONTROL, "a")
+            textarea.send_keys(Keys.DELETE)
+            for chunk in textwrap.wrap(clean, 200):
+                textarea.send_keys(chunk)
+                time.sleep(0.05)
+            final_val = textarea.get_attribute("value") or ""
+            if final_val == clean:
+                return
+        except Exception as e:
+            log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
+    log_warning("[selenium] Failed to insert full prompt")
 
 
 # ---------------------------------------------------------------------------
@@ -477,9 +510,9 @@ def process_prompt_in_chat(
 
     for attempt in range(1, 4):  # Retry up to 3 times
         try:
-            _send_text_to_textarea(driver, textarea, prompt_text)
+            paste_and_send(textarea, prompt_text)
             final_value = driver.execute_script("return arguments[0].value;", textarea) or ""
-            if final_value != prompt_text:
+            if final_value != strip_non_bmp(prompt_text):
                 log_warning(
                     f"[selenium] Prompt mismatch after paste: expected {len(prompt_text)} chars, got {len(final_value)}"
                 )
@@ -518,8 +551,8 @@ def process_prompt_in_chat(
         log_warning(f"[selenium][retry] Empty response attempt {attempt}")
         time.sleep(2)
 
-    os.makedirs("screenshots", exist_ok=True)
-    fname = f"screenshots/chat_{chat_id or 'unknown'}_no_response.png"
+    os.makedirs("logs/screenshots", exist_ok=True)
+    fname = f"logs/screenshots/chat_{chat_id or 'unknown'}_no_response.png"
     try:
         driver.save_screenshot(fname)
         log_warning(f"[selenium] Saved screenshot to {fname}")
@@ -614,7 +647,7 @@ def ensure_chatgpt_model(driver):
     log_info(f"[chatgpt_model] Verifying active model matches {CHATGPT_MODEL}")
     try:
         switcher_btn = WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located(
+            EC.element_to_be_clickable(
                 (By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
             )
         )
@@ -627,8 +660,11 @@ def ensure_chatgpt_model(driver):
             log_info(f"[chatgpt_model] Desired model {CHATGPT_MODEL} already active")
             return True
 
-        switcher_btn.click()
+        driver.execute_script("arguments[0].click();", switcher_btn)
         log_info("[chatgpt_model] Dropdown opened")
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div[role='menu']"))
+        )
 
         try:
             model_elem = WebDriverWait(driver, 3).until(
@@ -641,14 +677,14 @@ def ensure_chatgpt_model(driver):
             try:
                 legacy_btn = WebDriverWait(driver, 3).until(
                     EC.element_to_be_clickable(
-                        (By.XPATH, "//div[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'legacy models')]")
+                        (By.CSS_SELECTOR, "div[data-testid='Legacy models-submenu']")
                     )
                 )
-                legacy_btn.click()
+                driver.execute_script("arguments[0].click();", legacy_btn)
                 log_info("[chatgpt_model] Opened legacy models section")
                 model_elem = WebDriverWait(driver, 3).until(
                     EC.element_to_be_clickable(
-                        (By.CSS_SELECTOR, f"[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
+                        (By.CSS_SELECTOR, f"div[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
                     )
                 )
                 log_info(f"[chatgpt_model] Found desired model under legacy: {CHATGPT_MODEL}")
@@ -662,21 +698,27 @@ def ensure_chatgpt_model(driver):
                     pass
                 return False
 
-        model_elem.click()
+        driver.execute_script("arguments[0].scrollIntoView(true);", model_elem)
+        driver.execute_script("arguments[0].click();", model_elem)
         log_info(f"[chatgpt_model] Clicked on model {CHATGPT_MODEL}")
-        # Wait for the switcher button to reflect the new model
-        switcher_btn = WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
+        try:
+            WebDriverWait(driver, 5).until(
+                lambda d: CHATGPT_MODEL in (
+                    d.find_element(By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
+                    .get_attribute("aria-label")
+                    or ""
+                )
             )
-        )
-        new_label = switcher_btn.get_attribute("aria-label") or ""
-        log_info(f"[chatgpt_model] New aria-label after selection: {new_label}")
-        if CHATGPT_MODEL in new_label:
             log_info(f"[chatgpt_model] Modello selezionato: {CHATGPT_MODEL}")
             return True
-        log_warning(f"[chatgpt_model] Verifica modello fallita: {new_label}")
-        return False
+        except TimeoutException:
+            new_label = (
+                driver.find_element(By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
+                .get_attribute("aria-label")
+                or ""
+            )
+            log_warning(f"[chatgpt_model] Verifica modello fallita: {new_label}")
+            return False
     except Exception as e:
         log_warning(f"[chatgpt_model] Errore selezione modello: {e}")
         return False
