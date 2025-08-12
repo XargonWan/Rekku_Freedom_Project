@@ -9,7 +9,6 @@ import shutil
 import tempfile
 import threading
 import asyncio
-import textwrap
 from collections import defaultdict
 from typing import Optional, Dict
 import aiomysql
@@ -181,52 +180,22 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
 
     script = (
         "arguments[0].focus();"
-        "arguments[0].innerText = arguments[1];"
+        "arguments[0].value = arguments[1];"
         "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
-        "arguments[0].dispatchEvent(new KeyboardEvent('keydown', {bubbles: true}));"
-        "arguments[0].dispatchEvent(new KeyboardEvent('keyup', {bubbles: true}));"
         )
     driver.execute_script(script, textarea, clean_text)
 
-    actual = driver.execute_script("return arguments[0].innerText;", textarea) or ""
+    actual = driver.execute_script("return arguments[0].value;", textarea) or ""
     log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
     if actual != clean_text:
-        log_debug(
-            f"[selenium][DEBUG] textarea mismatch: expected {len(clean_text)} chars, found {len(actual)}"
+        log_warning(
+            f"[selenium] textarea mismatch: expected {len(clean_text)} chars, found {len(actual)}"
         )
 
 
 def paste_and_send(textarea, prompt_text: str) -> None:
-    """Robustly send ``prompt_text`` to ``textarea`` in chunks with retries."""
-    clean = strip_non_bmp(prompt_text)
-    chunks = textwrap.wrap(clean, 200)
-    log_debug(f"[selenium] Sending prompt in {len(chunks)} chunks")
-
-    for attempt in range(1, 4):
-        if attempt > 1:
-            log_warning(f"[selenium] send_keys retry {attempt}/3")
-        try:
-            textarea.send_keys(Keys.CONTROL + "a")
-            textarea.send_keys(Keys.DELETE)
-            time.sleep(0.2)
-            for idx, chunk in enumerate(chunks, start=1):
-                log_debug(f"[selenium] -> chunk {idx}/{len(chunks)} ({len(chunk)} chars)")
-                textarea.send_keys(chunk)
-                time.sleep(0.05)
-            final_value = textarea.get_attribute("value") or ""
-            if final_value != clean:
-                log_debug(
-                    f"[selenium] Textarea content mismatch: expected {len(clean)} chars, got {len(final_value)} chars"
-                )
-            return
-        except Exception as e:
-            log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
-
-    log_warning("[selenium] Falling back to ActionChains")
-    try:
-        ActionChains(textarea._parent).click(textarea).send_keys(clean).perform()
-    except Exception as e:
-        log_warning(f"[selenium] Fallback send failed: {e}")
+    """Insert ``prompt_text`` into ``textarea`` using JavaScript injection."""
+    _send_text_to_textarea(textarea._parent, textarea, prompt_text)
 
 
 # ---------------------------------------------------------------------------
@@ -481,8 +450,9 @@ def process_prompt_in_chat(
     # Some UI experiments may block the textarea with a "I prefer this response"
     # dialog. Dismiss it if present before looking for the textarea.
 
-    # Assicura che il modello selezionato sia quello desiderato
-    ensure_chatgpt_model(driver)
+    log_info(f"[chatgpt_model] Ensuring model {CHATGPT_MODEL} is active")
+    if not ensure_chatgpt_model(driver):
+        log_warning(f"[chatgpt_model] Failed to ensure model {CHATGPT_MODEL}")
 
     try:
         prefer_btn = WebDriverWait(driver, 2).until(
@@ -507,12 +477,14 @@ def process_prompt_in_chat(
 
     for attempt in range(1, 4):  # Retry up to 3 times
         try:
-            paste_and_send(textarea, prompt_text)
-            final_value = textarea.get_attribute("value") or ""
+            _send_text_to_textarea(driver, textarea, prompt_text)
+            final_value = driver.execute_script("return arguments[0].value;", textarea) or ""
             if final_value != prompt_text:
                 log_warning(
                     f"[selenium] Prompt mismatch after paste: expected {len(prompt_text)} chars, got {len(final_value)}"
                 )
+                time.sleep(1)
+                continue
             try:
                 json.loads(final_value)
             except Exception:
@@ -639,6 +611,7 @@ CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "4o")
 
 def ensure_chatgpt_model(driver):
     """Ensure the desired ChatGPT model is active before sending a prompt."""
+    log_info(f"[chatgpt_model] Verifying active model matches {CHATGPT_MODEL}")
     try:
         switcher_btn = WebDriverWait(driver, 5).until(
             EC.presence_of_element_located(
@@ -649,12 +622,13 @@ def ensure_chatgpt_model(driver):
         log_debug(f"[chatgpt_model] switcher aria-label: {aria_label}")
         match = re.search(r"current model is\s*(.*)", aria_label)
         active_model = match.group(1).strip() if match else ""
-        log_debug(f"[chatgpt_model] Modello attivo: {active_model}")
+        log_info(f"[chatgpt_model] Active model is {active_model}")
         if active_model == CHATGPT_MODEL:
+            log_info(f"[chatgpt_model] Desired model {CHATGPT_MODEL} already active")
             return True
 
         switcher_btn.click()
-        log_debug("[chatgpt_model] Dropdown opened")
+        log_info("[chatgpt_model] Dropdown opened")
 
         try:
             model_elem = WebDriverWait(driver, 3).until(
@@ -662,7 +636,7 @@ def ensure_chatgpt_model(driver):
                     (By.CSS_SELECTOR, f"[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
                 )
             )
-            log_debug(f"[chatgpt_model] Found desired model in main list: {CHATGPT_MODEL}")
+            log_info(f"[chatgpt_model] Found desired model in main list: {CHATGPT_MODEL}")
         except TimeoutException:
             try:
                 legacy_btn = WebDriverWait(driver, 3).until(
@@ -671,13 +645,13 @@ def ensure_chatgpt_model(driver):
                     )
                 )
                 legacy_btn.click()
-                log_debug("[chatgpt_model] Opened legacy models section")
+                log_info("[chatgpt_model] Opened legacy models section")
                 model_elem = WebDriverWait(driver, 3).until(
                     EC.element_to_be_clickable(
                         (By.CSS_SELECTOR, f"[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
                     )
                 )
-                log_debug(f"[chatgpt_model] Found desired model under legacy: {CHATGPT_MODEL}")
+                log_info(f"[chatgpt_model] Found desired model under legacy: {CHATGPT_MODEL}")
             except Exception as e:
                 log_warning(f"[chatgpt_model] Desired model {CHATGPT_MODEL} not found: {e}")
                 try:
@@ -689,7 +663,7 @@ def ensure_chatgpt_model(driver):
                 return False
 
         model_elem.click()
-        log_debug(f"[chatgpt_model] Clicked on model {CHATGPT_MODEL}")
+        log_info(f"[chatgpt_model] Clicked on model {CHATGPT_MODEL}")
         # Wait for the switcher button to reflect the new model
         switcher_btn = WebDriverWait(driver, 5).until(
             EC.presence_of_element_located(
@@ -697,9 +671,9 @@ def ensure_chatgpt_model(driver):
             )
         )
         new_label = switcher_btn.get_attribute("aria-label") or ""
-        log_debug(f"[chatgpt_model] New aria-label after selection: {new_label}")
+        log_info(f"[chatgpt_model] New aria-label after selection: {new_label}")
         if CHATGPT_MODEL in new_label:
-            log_debug(f"[chatgpt_model] Modello selezionato: {CHATGPT_MODEL}")
+            log_info(f"[chatgpt_model] Modello selezionato: {CHATGPT_MODEL}")
             return True
         log_warning(f"[chatgpt_model] Verifica modello fallita: {new_label}")
         return False
@@ -1146,7 +1120,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 if not response_text:
                     response_text = "\u26a0\ufe0f No response received"
 
-                message.text = response_text
                 await safe_send(
                     bot,
                     chat_id=message.chat_id,
