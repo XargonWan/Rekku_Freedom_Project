@@ -5,7 +5,6 @@ import threading
 import queue
 from core.logging_utils import log_debug, log_info
 from core.plugin_base import PluginBase
-from core.context import RekkuContext
 from core.message_queue import MessageQueue
 
 # Register event_type for CLI
