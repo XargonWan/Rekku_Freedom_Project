@@ -274,6 +274,27 @@ def wait_until_response_stabilizes(
     final_text = ""
 
     while True:
+        # Some UI experiments may display a "Which response do you prefer?" dialog
+        # that blocks further interaction. If present, automatically click the first
+        # "I prefer this response" button so ChatGPT can finalize the output.
+        try:
+            buttons = driver.find_elements(
+                By.CSS_SELECTOR, "[data-testid='paragen-prefer-response-button']"
+            )
+            if buttons:
+                try:
+                    buttons[0].click()
+                    time.sleep(1)
+                    log_debug(
+                        "[selenium] Dismissed prefer-response dialog"
+                    )
+                except Exception as e:  # pragma: no cover - best effort
+                    log_warning(
+                        f"[selenium] Failed to click prefer-response button: {e}"
+                    )
+        except Exception:
+            pass
+
         if time.time() - start >= max_total_wait:
             log_warning("[WARNING] Timeout while waiting for new response")
             return final_text
