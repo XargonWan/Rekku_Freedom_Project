@@ -693,16 +693,37 @@ def process_prompt_in_chat(
 CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "4o")
 
 
+def _locate_model_switcher(driver, timeout: int = 5):
+    """Return the model switcher button using current DOM selectors.
+
+    The ChatGPT interface recently switched to Radix-generated element IDs,
+    so we try the previous ``data-testid`` selector first and fall back to
+    a more generic XPath search based on the ``radix-`` prefix.
+    """
+    try:
+        return WebDriverWait(driver, timeout).until(
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
+            )
+        )
+    except TimeoutException:
+        log_debug("[chatgpt_model] Falling back to Radix model switcher selector")
+        return WebDriverWait(driver, timeout).until(
+            EC.element_to_be_clickable(
+                (
+                    By.XPATH,
+                    "//button[starts-with(@id,'radix-') and contains(@aria-label,'model')]",
+                )
+            )
+        )
+
+
 def ensure_chatgpt_model(driver):
     """Ensure the desired ChatGPT model is active before sending a prompt."""
     log_info(f"[chatgpt_model] Verifying active model matches {CHATGPT_MODEL}")
     try:
         log_debug("[chatgpt_model] Locating model switcher button")
-        switcher_btn = WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
-            )
-        )
+        switcher_btn = _locate_model_switcher(driver)
         aria_label = switcher_btn.get_attribute("aria-label") or ""
         log_debug(f"[chatgpt_model] switcher aria-label: {aria_label}")
         match = re.search(r"current model is\s*(.*)", aria_label)
@@ -729,20 +750,16 @@ def ensure_chatgpt_model(driver):
             log_info(f"[chatgpt_model] Found desired model in main list: {CHATGPT_MODEL}")
         except TimeoutException:
             try:
-                log_debug("[chatgpt_model] Model not in main list, opening legacy submenu")
-                legacy_btn = WebDriverWait(driver, 3).until(
+                log_debug("[chatgpt_model] Falling back to Radix selector for model option")
+                model_elem = WebDriverWait(driver, 5).until(
                     EC.element_to_be_clickable(
-                        (By.CSS_SELECTOR, "div[data-testid='Legacy models-submenu']")
+                        (
+                            By.XPATH,
+                            f"//div[starts-with(@id,'radix-')]/div/div/span[contains(., '{CHATGPT_MODEL}')]",
+                        )
                     )
                 )
-                driver.execute_script("arguments[0].click();", legacy_btn)
-                log_debug("[chatgpt_model] Legacy models opened")
-                model_elem = WebDriverWait(driver, 3).until(
-                    EC.element_to_be_clickable(
-                        (By.CSS_SELECTOR, f"div[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
-                    )
-                )
-                log_info(f"[chatgpt_model] Found desired model under legacy: {CHATGPT_MODEL}")
+                log_info(f"[chatgpt_model] Found desired model via fallback: {CHATGPT_MODEL}")
             except Exception as e:
                 log_warning(f"[chatgpt_model] Desired model {CHATGPT_MODEL} not found: {e}")
                 try:
@@ -760,19 +777,13 @@ def ensure_chatgpt_model(driver):
         try:
             WebDriverWait(driver, 5).until(
                 lambda d: CHATGPT_MODEL in (
-                    d.find_element(By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
-                    .get_attribute("aria-label")
-                    or ""
+                    _locate_model_switcher(d).get_attribute("aria-label") or ""
                 )
             )
             log_info(f"[chatgpt_model] Modello selezionato: {CHATGPT_MODEL}")
             return True
         except TimeoutException:
-            new_label = (
-                driver.find_element(By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
-                .get_attribute("aria-label")
-                or ""
-            )
+            new_label = _locate_model_switcher(driver).get_attribute("aria-label") or ""
             log_warning(f"[chatgpt_model] Verifica modello fallita: {new_label}")
             return False
     except Exception as e:
