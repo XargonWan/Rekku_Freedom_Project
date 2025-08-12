@@ -178,14 +178,16 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
     preview = clean_text[:120] + ("..." if len(clean_text) > 120 else "")
     log_debug(f"[DEBUG] Text preview: {preview}")
 
+    tag = (textarea.tag_name or "").lower()
+    prop = "value" if tag in {"textarea", "input"} else "textContent"
     script = (
         "arguments[0].focus();"
-        "arguments[0].value = arguments[1];"
+        f"arguments[0].{prop} = arguments[1];"
         "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
-        )
+    )
     driver.execute_script(script, textarea, clean_text)
 
-    actual = driver.execute_script("return arguments[0].value;", textarea) or ""
+    actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
     log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
     if actual != clean_text:
         log_warning(
@@ -204,7 +206,9 @@ def paste_and_send(textarea, prompt_text: str) -> None:
     clean = strip_non_bmp(prompt_text)
 
     _send_text_to_textarea(driver, textarea, clean)
-    actual = driver.execute_script("return arguments[0].value;", textarea) or ""
+    tag = (textarea.tag_name or "").lower()
+    prop = "value" if tag in {"textarea", "input"} else "textContent"
+    actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
     if actual == clean:
         return
 
@@ -311,7 +315,29 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
         try:
             log_debug(f"[selenium][STEP] Attempt {attempt} to send prompt")
             paste_and_send(textarea, prompt_text)
-            textarea.send_keys(Keys.ENTER)
+            try:
+                send_btn = WebDriverWait(driver, 3).until(
+                    EC.element_to_be_clickable(
+                        (By.CSS_SELECTOR, "button[data-testid='send-button']")
+                    )
+                )
+                driver.execute_script("arguments[0].click();", send_btn)
+                log_debug("[selenium][STEP] Clicked send button")
+            except Exception as e:
+                log_warning(f"[selenium] Failed to click send button: {e}")
+              try:
+                  send_btn = WebDriverWait(driver, 3).until(
+                      EC.element_to_be_clickable(
+                          (By.CSS_SELECTOR, "button[data-testid='send-button']")
+                      )
+                  )
+                  driver.execute_script("arguments[0].click();", send_btn)
+                  log_debug("[selenium][STEP] Clicked send button")
+              except Exception as e:
+                  log_warning(f"[selenium] Failed to click send button: {e}")
+                  textarea.send_keys(Keys.ENTER)
+                  log_debug("[selenium][STEP] Sent ENTER key as fallback")
+                log_debug("[selenium][STEP] Sent ENTER key as fallback")
             log_debug(f"[selenium][STEP] Prompt sent, waiting for response")
             if wait_for_markdown_block_to_appear(driver, prev_blocks):
                 log_debug(f"[selenium][STEP] New markdown block detected")
@@ -511,7 +537,9 @@ def process_prompt_in_chat(
     for attempt in range(1, 4):  # Retry up to 3 times
         try:
             paste_and_send(textarea, prompt_text)
-            final_value = driver.execute_script("return arguments[0].value;", textarea) or ""
+            tag = (textarea.tag_name or "").lower()
+            prop = "value" if tag in {"textarea", "input"} else "textContent"
+            final_value = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
             if final_value != strip_non_bmp(prompt_text):
                 log_warning(
                     f"[selenium] Prompt mismatch after paste: expected {len(prompt_text)} chars, got {len(final_value)}"
@@ -524,7 +552,18 @@ def process_prompt_in_chat(
                 log_warning("[selenium] JSON invalid after paste; retrying")
                 time.sleep(1)
                 continue
-            textarea.send_keys(Keys.ENTER)
+            try:
+                send_btn = WebDriverWait(driver, 3).until(
+                    EC.element_to_be_clickable(
+                        (By.CSS_SELECTOR, "button[data-testid='send-button']")
+                    )
+                )
+                driver.execute_script("arguments[0].click();", send_btn)
+                log_debug("[selenium][STEP] Clicked send button")
+            except Exception as e:
+                log_warning(f"[selenium] Failed to click send button: {e}")
+                textarea.send_keys(Keys.ENTER)
+                log_debug("[selenium][STEP] Sent ENTER key as fallback")
         except ElementNotInteractableException as e:
             log_warning(f"[selenium][retry] Element not interactable: {e}")
             time.sleep(2)
@@ -646,6 +685,7 @@ def ensure_chatgpt_model(driver):
     """Ensure the desired ChatGPT model is active before sending a prompt."""
     log_info(f"[chatgpt_model] Verifying active model matches {CHATGPT_MODEL}")
     try:
+        log_debug("[chatgpt_model] Locating model switcher button")
         switcher_btn = WebDriverWait(driver, 5).until(
             EC.element_to_be_clickable(
                 (By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
@@ -660,13 +700,15 @@ def ensure_chatgpt_model(driver):
             log_info(f"[chatgpt_model] Desired model {CHATGPT_MODEL} already active")
             return True
 
+        log_debug("[chatgpt_model] Opening dropdown")
         driver.execute_script("arguments[0].click();", switcher_btn)
-        log_info("[chatgpt_model] Dropdown opened")
         WebDriverWait(driver, 5).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "div[role='menu']"))
         )
+        log_debug("[chatgpt_model] Dropdown opened")
 
         try:
+            log_debug("[chatgpt_model] Searching main list for model")
             model_elem = WebDriverWait(driver, 3).until(
                 EC.element_to_be_clickable(
                     (By.CSS_SELECTOR, f"[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
@@ -675,13 +717,14 @@ def ensure_chatgpt_model(driver):
             log_info(f"[chatgpt_model] Found desired model in main list: {CHATGPT_MODEL}")
         except TimeoutException:
             try:
+                log_debug("[chatgpt_model] Model not in main list, opening legacy submenu")
                 legacy_btn = WebDriverWait(driver, 3).until(
                     EC.element_to_be_clickable(
                         (By.CSS_SELECTOR, "div[data-testid='Legacy models-submenu']")
                     )
                 )
                 driver.execute_script("arguments[0].click();", legacy_btn)
-                log_info("[chatgpt_model] Opened legacy models section")
+                log_debug("[chatgpt_model] Legacy models opened")
                 model_elem = WebDriverWait(driver, 3).until(
                     EC.element_to_be_clickable(
                         (By.CSS_SELECTOR, f"div[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
@@ -698,6 +741,7 @@ def ensure_chatgpt_model(driver):
                     pass
                 return False
 
+        log_debug("[chatgpt_model] Clicking desired model")
         driver.execute_script("arguments[0].scrollIntoView(true);", model_elem)
         driver.execute_script("arguments[0].click();", model_elem)
         log_info(f"[chatgpt_model] Clicked on model {CHATGPT_MODEL}")
@@ -720,7 +764,13 @@ def ensure_chatgpt_model(driver):
             log_warning(f"[chatgpt_model] Verifica modello fallita: {new_label}")
             return False
     except Exception as e:
-        log_warning(f"[chatgpt_model] Errore selezione modello: {e}")
+        log_warning(f"[chatgpt_model] Errore selezione modello: {repr(e)}")
+        try:
+            os.makedirs("logs/screenshots", exist_ok=True)
+            driver.save_screenshot("logs/screenshots/model_switch_error.png")
+            log_warning("[chatgpt_model] Saved screenshot model_switch_error.png")
+        except Exception as ss:
+            log_warning(f"[chatgpt_model] Screenshot failed: {ss}")
         return False
 
 class SeleniumChatGPTPlugin(AIPluginBase):
