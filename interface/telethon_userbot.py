@@ -21,10 +21,11 @@ import traceback
 
 load_dotenv()
 
-API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
+# Provide safe defaults so this module can be imported even when env vars are missing
+API_ID = int(os.getenv("API_ID", "0") or "0")
+API_HASH = os.getenv("API_HASH", "")
 SESSION = os.getenv("SESSION", "rekku_userbot")
-TRAINER_ID = int(os.getenv("TRAINER_ID"))
+TRAINER_ID = int(os.getenv("TRAINER_ID", "0") or "0")
 
 say_sessions = {}
 context_memory = {}

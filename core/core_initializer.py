@@ -27,7 +27,7 @@ class CoreInitializer:
         
         # 2. Load generic plugins
         self._load_plugins()
-        self._build_actions_block()
+        await self._build_actions_block()
         
         # 3. Auto-discover active interfaces
         self._discover_interfaces()
@@ -167,7 +167,7 @@ class CoreInitializer:
             self._pending_async_plugins.clear()
             log_info("[core_initializer] All pending async plugins processed")
 
-    def _build_actions_block(self):
+    async def _build_actions_block(self):
         """Collect and validate action schemas from all plugins and interfaces."""
         from core.action_parser import _load_action_plugins
 
@@ -266,6 +266,8 @@ class CoreInitializer:
             if hasattr(plugin, "get_static_injection"):
                 try:
                     data = plugin.get_static_injection()
+                    if inspect.isawaitable(data):
+                        data = await data
                     if data:
                         static_context.update(data)
                 except Exception as e:
@@ -284,6 +286,8 @@ class CoreInitializer:
                 if hasattr(obj, "get_static_injection"):
                     try:
                         data = obj.get_static_injection()
+                        if inspect.isawaitable(data):
+                            data = await data
                         if data:
                             static_context.update(data)
                     except Exception as e:

@@ -9,15 +9,24 @@ import shutil
 import tempfile
 import threading
 import asyncio
-import textwrap
 from collections import defaultdict
 from typing import Optional, Dict
 import aiomysql
 import subprocess
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-# undetected-chromedriver
-import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    TimeoutException,
+    ElementNotInteractableException,
+    SessionNotCreatedException,
+    WebDriverException,
+)
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 
 # Funzioni e classi locali
@@ -27,34 +36,40 @@ import core.recent_chats as recent_chats
 from core.ai_plugin_base import AIPluginBase
 
 # ChatLinkStore: gestisce la mappatura tra chat Telegram e chat ChatGPT
-from typing import Optional
 from core.db import get_conn
-from core.logging_utils import log_debug, log_warning
 
 class ChatLinkStore:
     def __init__(self):
-        self._ensure_table()
+        self._table_ensured = False
+
+    def _normalize_thread_id(self, message_thread_id: Optional[int | str]) -> str:
+        """Return ``message_thread_id`` as a non-null string."""
+        return str(message_thread_id) if message_thread_id is not None else "0"
 
     async def _ensure_table(self) -> None:
+        if self._table_ensured:
+            return
         conn = await get_conn()
         async with conn.cursor() as cursor:
             await cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chatgpt_links (
-                    telegram_chat_id INTEGER NOT NULL,
-                    thread_id INTEGER,
-                    link TEXT NOT NULL,
-                    is_full INTEGER DEFAULT 0,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (telegram_chat_id, thread_id)
+                    chat_id TEXT NOT NULL,
+                    message_thread_id TEXT,
+                    link VARCHAR(2048),
+                    PRIMARY KEY (chat_id(255), message_thread_id(255))
                 )
                 """
             )
             await conn.commit()
         conn.close()
+        self._table_ensured = True
 
-    async def get_link(self, chat_id: str, message_thread_id: str) -> Optional[str]:
-        log_debug(f"[chatlink] Searching for link: chat_id={chat_id}, message_thread_id={message_thread_id}")
+    async def get_link(self, chat_id: int | str, message_thread_id: Optional[int | str]) -> Optional[str]:
+        await self._ensure_table()
+        normalized = self._normalize_thread_id(message_thread_id)
+        chat_id_str = str(chat_id)
+        log_debug(f"[chatlink] Searching for link: chat_id={chat_id_str}, message_thread_id={normalized}")
         conn = await get_conn()
         async with conn.cursor(aiomysql.DictCursor) as cursor:
             await cursor.execute(
@@ -63,53 +78,39 @@ class ChatLinkStore:
                 FROM chatgpt_links
                 WHERE chat_id = %s AND message_thread_id = %s
                 """,
-                (chat_id, message_thread_id)
+                (chat_id_str, normalized),
             )
             row = await cursor.fetchone()
         conn.close()
         if row:
             link_value = row.get("link")
-            log_debug(f"[chatlink] Found mapping {chat_id}/{message_thread_id} -> {link_value}")
+            log_debug(f"[chatlink] Found mapping {chat_id_str}/{normalized} -> {link_value}")
             return link_value
-        else:
-            log_debug(f"[chatlink] No row found for {chat_id}/{message_thread_id}")
-            return None
+        log_debug(f"[chatlink] No row found for {chat_id_str}/{normalized}")
+        return None
 
-    async def save_link(self, chat_id: str, message_thread_id: str, link: str) -> None:
+    async def save_link(self, chat_id: int | str, message_thread_id: Optional[int | str], link: str) -> None:
+        await self._ensure_table()
+        normalized = self._normalize_thread_id(message_thread_id)
+        chat_id_str = str(chat_id)
         conn = await get_conn()
         async with conn.cursor() as cursor:
             await cursor.execute(
                 """
-                INSERT OR REPLACE INTO chatgpt_links
-                    (chat_id, message_thread_id, link)
+                INSERT INTO chatgpt_links (chat_id, message_thread_id, link)
                 VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE link=VALUES(link)
                 """,
-                (chat_id, message_thread_id, link),
+                (chat_id_str, normalized, link),
             )
             await conn.commit()
         conn.close()
-        log_debug(
-            f"[chatlink] Saved mapping {chat_id}/{message_thread_id} -> {link}"
-        )
+        log_debug(f"[chatlink] Saved mapping {chat_id_str}/{normalized} -> {link}")
 
-    async def is_full(self, link: str) -> bool:
-        conn = await get_conn()
-        async with conn.cursor(aiomysql.DictCursor) as cursor:
-            await cursor.execute(
-                "SELECT is_full FROM chatgpt_links WHERE link=%s",
-                (link,),
-            )
-            row = await cursor.fetchone()
-        conn.close()
-        result = bool(row and row["is_full"])
-        log_debug(f"[chatlink] is_full({link}) -> {result}")
-        return result
-
-    async def remove(self, chat_id: str, message_thread_id: str) -> bool:
-        """
-        Rimuove il collegamento ChatGPT per un dato chat_id e message_thread_id.
-        Restituisce True se una riga è stata eliminata, altrimenti False.
-        """
+    async def remove(self, chat_id: int | str, message_thread_id: Optional[int | str]) -> bool:
+        await self._ensure_table()
+        normalized = self._normalize_thread_id(message_thread_id)
+        chat_id_str = str(chat_id)
         conn = await get_conn()
         async with conn.cursor() as cursor:
             result = await cursor.execute(
@@ -117,249 +118,21 @@ class ChatLinkStore:
                 DELETE FROM chatgpt_links
                 WHERE chat_id = %s AND message_thread_id = %s
                 """,
-                (chat_id, message_thread_id),
+                (chat_id_str, normalized),
             )
             await conn.commit()
         conn.close()
         rows_deleted = cursor.rowcount > 0
         if rows_deleted:
-            log_debug(f"[chatlink] Rimosso il collegamento per chat_id={chat_id}, message_thread_id={message_thread_id}")
+            log_debug(f"[chatlink] Removed link for chat_id={chat_id_str}, message_thread_id={normalized}")
         else:
-            log_debug(f"[chatlink] Nessun collegamento trovato per chat_id={chat_id}, message_thread_id={message_thread_id}")
+            log_debug(f"[chatlink] No link found for chat_id={chat_id_str}, message_thread_id={normalized}")
         return rows_deleted
-from core.message_sender import send_content
+from core.telegram_utils import safe_send
 
 # Fallback per notify_trainer se non disponibile
 def notify_trainer(trainer_id, text):
     log_warning(f"[notify_trainer fallback] trainer_id={trainer_id}: {text}")
-
-class SeleniumChatGPTPlugin(AIPluginBase):
-    # [FIX] shared locks per Telegram chat
-    chat_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
-    def __init__(self, notify_fn=None):
-        """Initialize the plugin without starting Selenium yet."""
-        self.driver = None
-        self._queue: asyncio.Queue = asyncio.Queue()
-        self._worker_task = None
-        self._notify_fn = notify_fn or notify_trainer
-        log_debug(f"[selenium] notify_fn passed: {bool(notify_fn)}")
-        set_notifier(self._notify_fn)
-
-    async def _process_message(self, bot, message, prompt):
-        """
-        Invia il prompt a ChatGPT e inoltra la risposta.
-        Tutti i plugin e le interface devono usare SOLO il campo message_thread_id (mai thread_id).
-        """
-        log_debug(f"[selenium][STEP] processing prompt: {prompt}")
-
-        for attempt in range(2):
-            driver = self._get_driver()
-            if not driver:
-                log_error("[selenium] WebDriver unavailable, aborting")
-                _notify_gui("❌ Selenium driver not available. Open UI")
-                return
-            # [FIX] verifica che il processo Chrome sottostante sia vivo
-            if (
-                not driver.service
-                or not getattr(driver.service, "process", None)
-                or driver.service.process.poll() is not None
-            ):
-                log_warning("[selenium] Driver process not running, restarting")
-                driver = self._get_driver()
-                if not driver:
-                    log_error("[selenium] Failed to restart WebDriver")
-                    _notify_gui("❌ Selenium driver not available. Open UI")
-                    return
-            if not self._ensure_logged_in():
-                return
-
-            log_debug("[selenium][STEP] ensuring ChatGPT is accessible")
-
-            message_thread_id = getattr(message, "message_thread_id", None)
-            chat_id = await chat_link_store.get_link(message.chat_id, message_thread_id)
-            prompt_text = json.dumps(prompt, ensure_ascii=False)
-            if not chat_id:
-                path = recent_chats.get_chat_path(message.chat_id)
-                if path and go_to_chat_by_path_with_retries(driver, path):
-                    chat_id = _extract_chat_id(driver.current_url)
-                    if chat_id:
-                        await chat_link_store.save_link(message.chat_id, message_thread_id, chat_id)
-                        _safe_notify(
-                            f"⚠️ Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, message_thread_id={message_thread_id}.\n"
-                            f"A new ChatGPT chat has been created: {chat_id}"
-                        )
-                else:
-                    if path:
-                        log_warning(f"[selenium] Chat path {path} no longer accessible (archived/deleted), creating new chat")
-                        recent_chats.clear_chat_path(message.chat_id)
-                    _open_new_chat(driver)
-            else:
-                chat_url = f"https://chat.openai.com/c/{chat_id}"
-                try:
-                    driver.get(chat_url)
-                    from selenium.webdriver.support.ui import WebDriverWait
-                    from selenium.webdriver.support import expected_conditions as EC
-                    from selenium.webdriver.common.by import By
-                    WebDriverWait(driver, 5).until(
-                        EC.presence_of_element_located((By.ID, "prompt-textarea"))
-                    )
-                    log_debug(f"[selenium] Successfully accessed existing chat: {chat_id}")
-                except Exception as e:
-                    log_warning(f"[selenium] Existing chat {chat_id} no longer accessible: {e}")
-                    log_info(f"[selenium] Creating new chat to replace inaccessible chat {chat_id}")
-                    await chat_link_store.remove(message.chat_id, message_thread_id)
-                    recent_chats.clear_chat_path(message.chat_id)
-                    _open_new_chat(driver)
-                    chat_id = None
-
-            log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
-            log_debug(f"[selenium][DEBUG] Telegram chat_id: {message.chat_id}, message_thread_id: {message_thread_id}")
-
-            if not chat_id:
-                try:
-                    driver.get("https://chat.openai.com")
-                    from selenium.webdriver.support.ui import WebDriverWait
-                    from selenium.webdriver.support import expected_conditions as EC
-                    from selenium.webdriver.common.by import By
-                    WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.TAG_NAME, "main"))
-                    )
-                except Exception:
-                    log_warning("[selenium][ERROR] ChatGPT UI failed to load")
-                    _notify_gui("❌ Selenium error: ChatGPT UI not ready. Open UI")
-                    return
-
-            try:
-                if chat_id:
-                    previous = get_previous_response(message.chat_id)
-                    response_text = process_prompt_in_chat(driver, chat_id, prompt_text, previous)
-                    if response_text:
-                        update_previous_response(message.chat_id, response_text)
-                else:
-                    previous = get_previous_response(message.chat_id)
-                    response_text = process_prompt_in_chat(driver, None, prompt_text, previous)
-                    if response_text:
-                        update_previous_response(message.chat_id, response_text)
-                        new_chat_id = _extract_chat_id(driver.current_url)
-                        log_debug(f"[selenium][DEBUG] New chat created, extracted ID: {new_chat_id}")
-                        log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
-                        if new_chat_id:
-                            await chat_link_store.save_link(message.chat_id, message_thread_id, new_chat_id)
-                            log_debug(f"[selenium][DEBUG] Saved link: {message.chat_id}/{message_thread_id} -> {new_chat_id}")
-                            _safe_notify(
-                                f"⚠️ Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, message_thread_id={message_thread_id}.\n"
-                                f"A new ChatGPT chat has been created: {new_chat_id}"
-                            )
-                        else:
-                            log_warning("[selenium][WARN] Failed to extract chat ID from URL")
-
-                if _check_conversation_full(driver):
-                    current_id = chat_id or _extract_chat_id(driver.current_url)
-                    global queue_paused
-                    queue_paused = True
-                    _open_new_chat(driver)
-                    response_text = process_prompt_in_chat(driver, None, prompt_text, "")
-                    new_chat_id = _extract_chat_id(driver.current_url)
-                    if new_chat_id:
-                        await chat_link_store.save_link(message.chat_id, message_thread_id, new_chat_id)
-                        log_debug(
-                            f"[selenium][SUCCESS] New chat created for full conversation. "
-                            f"Chat ID: {new_chat_id}"
-                        )
-                    queue_paused = False
-
-                if not response_text:
-                    response_text = "⚠️ No response received"
-
-                message.text = response_text
-                await send_content(
-                    bot,
-                    chat_id=message.chat_id,
-                    message=message,
-                    content_type="text",
-                    reply_to_message_id=message.message_id
-                )
-                log_debug(f"[selenium][STEP] response forwarded to {message.chat_id}")
-                return
-
-            except Exception as e:
-                log_error(f"[selenium][ERROR] failed to process message: {repr(e)}", e)
-                _notify_gui(f"❌ Selenium error: {e}. Open UI")
-                return
-    @staticmethod
-    async def clean_chat_link(chat_id: int) -> str:
-        """Disassocia il chat_id Telegram dal chat_id ChatGPT nel database.
-        Se non esiste alcun link per la chat corrente, ne crea uno nuovo."""
-        try:
-            if await chat_link_store.remove(chat_id, None):
-                log_debug(f"[clean_chat_link] Chat link removed for chat_id={chat_id}")
-                return f"✅ Link for chat_id={chat_id} successfully removed."
-            else:
-                new_chat_id = f"new_chat_{chat_id}"
-                await chat_link_store.save_link(chat_id, None, new_chat_id)
-                log_debug(f"[clean_chat_link] No link found. Created new link: {new_chat_id}")
-                return f"⚠️ No link found for chat_id={chat_id}. Created new link: {new_chat_id}."
-        except Exception as e:
-            log_error(f"[clean_chat_link] Error while removing or creating the link: {repr(e)}", e)
-            return f"❌ Error while removing or creating the link: {e}"
-    @staticmethod
-    async def handle_clear_chat_link_command(bot, message):
-        """Gestisce il comando /clear_chat_link."""
-        chat_id = message.chat_id
-        text = message.text.strip()
-
-        if text == "/clear_chat_link":
-            confirmation_message = (
-                f"⚠️ Vuoi davvero resettare il link per questa chat (ID: {chat_id})?\n"
-                "Rispondi 'yes' per confermare o usa /cancel per annullare."
-            )
-            await bot.send_message(chat_id=chat_id, text=confirmation_message)
-
-            def check_response(response):
-                return response.chat_id == chat_id and response.text.lower() in ["yes", "/cancel"]
-
-            try:
-                response = await bot.wait_for("message", timeout=60, check=check_response)
-                if response.text.lower() == "yes":
-                    result = await SeleniumChatGPTPlugin.clean_chat_link(chat_id)
-                    await bot.send_message(chat_id=chat_id, text=result)
-                else:
-                    await bot.send_message(chat_id=chat_id, text="❌ Operazione annullata.")
-            except asyncio.TimeoutError:
-                await bot.send_message(chat_id=chat_id, text="⏳ Timeout. Operazione annullata.")
-        else:
-            result = await SeleniumChatGPTPlugin.clean_chat_link(chat_id)
-            await bot.send_message(chat_id=chat_id, text=result)
-
-    @staticmethod
-    async def handle_clear_chat_link_command(bot, message):
-        """Gestisce il comando /clear_chat_link."""
-        chat_id = message.chat_id
-        text = message.text.strip()
-
-        if text == "/clear_chat_link":
-            confirmation_message = (
-                f"⚠️ Vuoi davvero resettare il link per questa chat (ID: {chat_id})?\n"
-                "Rispondi 'yes' per confermare o usa /cancel per annullare."
-            )
-            await bot.send_message(chat_id=chat_id, text=confirmation_message)
-
-            def check_response(response):
-                return response.chat_id == chat_id and response.text.lower() in ["yes", "/cancel"]
-
-            try:
-                response = await bot.wait_for("message", timeout=60, check=check_response)
-                if response.text.lower() == "yes":
-                    result = await SeleniumChatGPTPlugin.clean_chat_link(chat_id)
-                    await bot.send_message(chat_id=chat_id, text=result)
-                else:
-                    await bot.send_message(chat_id=chat_id, text="❌ Operazione annullata.")
-            except asyncio.TimeoutError:
-                await bot.send_message(chat_id=chat_id, text="⏳ Timeout. Operazione annullata.")
-        else:
-            result = await SeleniumChatGPTPlugin.clean_chat_link(chat_id)
-            await bot.send_message(chat_id=chat_id, text=result)
-
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -407,115 +180,61 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
     preview = clean_text[:120] + ("..." if len(clean_text) > 120 else "")
     log_debug(f"[DEBUG] Text preview: {preview}")
 
+    tag = (textarea.tag_name or "").lower()
+    prop = "value" if tag in {"textarea", "input"} else "textContent"
     script = (
         "arguments[0].focus();"
-        "arguments[0].innerText = arguments[1];"
+        f"arguments[0].{prop} = arguments[1];"
         "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
-        "arguments[0].dispatchEvent(new KeyboardEvent('keydown', {bubbles: true}));"
-        "arguments[0].dispatchEvent(new KeyboardEvent('keyup', {bubbles: true}));"
-        )
+    )
     driver.execute_script(script, textarea, clean_text)
 
-    actual = driver.execute_script("return arguments[0].innerText;", textarea) or ""
+    actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
     log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
     if actual != clean_text:
-        log_debug(
-            f"[selenium][DEBUG] textarea mismatch: expected {len(clean_text)} chars, found {len(actual)}"
+        log_warning(
+            f"[selenium] textarea mismatch: expected {len(clean_text)} chars, found {len(actual)}"
         )
 
 
 def paste_and_send(textarea, prompt_text: str) -> None:
-    """Robustly send ``prompt_text`` to ``textarea`` in chunks with retries."""
-    import textwrap
+    """Insert ``prompt_text`` into ``textarea`` ensuring full content is present.
 
-    import textwrap
-    import textwrap
+    Tries JavaScript injection first (for performance and reliability), then
+    verifies the length.  If the content does not match, falls back to a
+    chunked ``send_keys`` approach which mimics manual typing.
+    """
+    driver = textarea._parent
     clean = strip_non_bmp(prompt_text)
-    if len(clean) > 4000:
-        clean = clean[:4000]
 
-    # Se il testo è corto, incolla tutto in una volta
-    if len(clean) <= 4000:
-        for attempt in range(1, 4):
-            if attempt > 1:
-                log_warning(f"[selenium] send_keys retry {attempt}/3")
-            try:
-                textarea.send_keys(Keys.CONTROL + "a")
-                textarea.send_keys(Keys.DELETE)
-                time.sleep(0.2)
-                textarea.send_keys(clean)
-                time.sleep(0.05)
-                final_value = textarea.get_attribute("value") or ""
-                if final_value != clean and len(final_value) > 0 and abs(len(final_value) - len(clean)) > 10:
-                    log_debug(f"[selenium] Textarea content mismatch: expected {len(clean)} chars, got {len(final_value)} chars")
-                try:
-                    json.loads(final_value)
-                    is_json = True
-                except Exception:
-                    is_json = False
-                if is_json:
-                    textarea.send_keys(Keys.ENTER)
-                    log_debug("[selenium] ENTER inviato dopo incolla JSON valido (no chunk)")
-                else:
-                    log_warning("[selenium] JSON non valido, ENTER non inviato. Attendi incolla completo.")
-                return
-            except Exception as e:
-                log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
-        # Fallback se tutti i tentativi falliscono
-        log_warning("[selenium] Falling back to ActionChains (no chunk)")
-        try:
-            ActionChains(textarea._parent).click(textarea).send_keys(clean).perform()
-            try:
-                json.loads(clean)
-                textarea.send_keys(Keys.ENTER)
-                log_debug("[selenium] ENTER inviato dopo fallback ActionChains e JSON valido (no chunk)")
-            except Exception:
-                log_warning("[selenium] Fallback: JSON non valido, ENTER non inviato.")
-        except Exception as e:
-            log_warning(f"[selenium] Fallback send failed: {e}")
+    _send_text_to_textarea(driver, textarea, clean)
+    tag = (textarea.tag_name or "").lower()
+    prop = "value" if tag in {"textarea", "input"} else "textContent"
+    actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
+    if actual == clean:
         return
 
-    # Se il testo è lungo, usa i chunk
-    chunks = textwrap.wrap(clean, 200)
-    log_debug(f"[selenium] Sending prompt in {len(chunks)} chunks")
-    for attempt in range(1, 4):
-        if attempt > 1:
+    log_warning(
+        f"[selenium] JS paste mismatch: expected {len(clean)} chars, got {len(actual)}. Falling back to send_keys"
+    )
+
+    import textwrap
+    textarea.clear()
+    for attempt in range(3):
+        if attempt:
             log_warning(f"[selenium] send_keys retry {attempt}/3")
         try:
-            textarea.send_keys(Keys.CONTROL + "a")
+            textarea.send_keys(Keys.CONTROL, "a")
             textarea.send_keys(Keys.DELETE)
-            time.sleep(0.2)
-            for idx, chunk in enumerate(chunks, start=1):
-                log_debug(f"[selenium] -> chunk {idx}/{len(chunks)} ({len(chunk)} chars)")
+            for chunk in textwrap.wrap(clean, 200):
                 textarea.send_keys(chunk)
                 time.sleep(0.05)
-            final_value = textarea.get_attribute("value") or ""
-            if final_value != clean and len(final_value) > 0 and abs(len(final_value) - len(clean)) > 10:
-                log_debug(f"[selenium] Textarea content mismatch: expected {len(clean)} chars, got {len(final_value)} chars")
-            try:
-                json.loads(final_value)
-                is_json = True
-            except Exception:
-                is_json = False
-            if is_json:
-                textarea.send_keys(Keys.ENTER)
-                log_debug("[selenium] ENTER inviato dopo incolla JSON valido (chunk)")
-            else:
-                log_warning("[selenium] JSON non valido, ENTER non inviato. Attendi incolla completo.")
-            return
+            final_val = textarea.get_attribute("value") or ""
+            if final_val == clean:
+                return
         except Exception as e:
             log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
-    log_warning("[selenium] Falling back to ActionChains (chunk)")
-    try:
-        ActionChains(textarea._parent).click(textarea).send_keys(clean).perform()
-        try:
-            json.loads(clean)
-            textarea.send_keys(Keys.ENTER)
-            log_debug("[selenium] ENTER inviato dopo fallback ActionChains e JSON valido (chunk)")
-        except Exception:
-            log_warning("[selenium] Fallback: JSON non valido, ENTER non inviato.")
-    except Exception as e:
-        log_warning(f"[selenium] Fallback send failed: {e}")
+    log_warning("[selenium] Failed to insert full prompt")
 
 
 # ---------------------------------------------------------------------------
@@ -598,7 +317,18 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
         try:
             log_debug(f"[selenium][STEP] Attempt {attempt} to send prompt")
             paste_and_send(textarea, prompt_text)
-            textarea.send_keys(Keys.ENTER)
+            try:
+                send_btn = WebDriverWait(driver, 3).until(
+                    EC.element_to_be_clickable(
+                        (By.CSS_SELECTOR, "button[data-testid='send-button']")
+                    )
+                )
+                driver.execute_script("arguments[0].click();", send_btn)
+                log_debug("[selenium][STEP] Clicked send button")
+            except Exception as e:
+                log_warning(f"[selenium] Failed to click send button: {e}")
+                textarea.send_keys(Keys.ENTER)
+                log_debug("[selenium][STEP] Sent ENTER key as fallback")
             log_debug(f"[selenium][STEP] Prompt sent, waiting for response")
             if wait_for_markdown_block_to_appear(driver, prev_blocks):
                 log_debug(f"[selenium][STEP] New markdown block detected")
@@ -770,8 +500,9 @@ def process_prompt_in_chat(
     # Some UI experiments may block the textarea with a "I prefer this response"
     # dialog. Dismiss it if present before looking for the textarea.
 
-    # Assicura che il modello selezionato sia quello desiderato
-    ensure_chatgpt_model(driver)
+    log_info(f"[chatgpt_model] Ensuring model {CHATGPT_MODEL} is active")
+    if not ensure_chatgpt_model(driver):
+        log_warning(f"[chatgpt_model] Failed to ensure model {CHATGPT_MODEL}")
 
     try:
         prefer_btn = WebDriverWait(driver, 2).until(
@@ -797,7 +528,33 @@ def process_prompt_in_chat(
     for attempt in range(1, 4):  # Retry up to 3 times
         try:
             paste_and_send(textarea, prompt_text)
-            textarea.send_keys(Keys.ENTER)
+            tag = (textarea.tag_name or "").lower()
+            prop = "value" if tag in {"textarea", "input"} else "textContent"
+            final_value = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
+            if final_value != strip_non_bmp(prompt_text):
+                log_warning(
+                    f"[selenium] Prompt mismatch after paste: expected {len(prompt_text)} chars, got {len(final_value)}"
+                )
+                time.sleep(1)
+                continue
+            try:
+                json.loads(final_value)
+            except Exception:
+                log_warning("[selenium] JSON invalid after paste; retrying")
+                time.sleep(1)
+                continue
+            try:
+                send_btn = WebDriverWait(driver, 3).until(
+                    EC.element_to_be_clickable(
+                        (By.CSS_SELECTOR, "button[data-testid='send-button']")
+                    )
+                )
+                driver.execute_script("arguments[0].click();", send_btn)
+                log_debug("[selenium][STEP] Clicked send button")
+            except Exception as e:
+                log_warning(f"[selenium] Failed to click send button: {e}")
+                textarea.send_keys(Keys.ENTER)
+                log_debug("[selenium][STEP] Sent ENTER key as fallback")
         except ElementNotInteractableException as e:
             log_warning(f"[selenium][retry] Element not interactable: {e}")
             time.sleep(2)
@@ -824,8 +581,8 @@ def process_prompt_in_chat(
         log_warning(f"[selenium][retry] Empty response attempt {attempt}")
         time.sleep(2)
 
-    os.makedirs("screenshots", exist_ok=True)
-    fname = f"screenshots/chat_{chat_id or 'unknown'}_no_response.png"
+    os.makedirs("logs/screenshots", exist_ok=True)
+    fname = f"logs/screenshots/chat_{chat_id or 'unknown'}_no_response.png"
     try:
         driver.save_screenshot(fname)
         log_warning(f"[selenium] Saved screenshot to {fname}")
@@ -914,41 +671,97 @@ def process_prompt_in_chat(
 # Funzione di selezione modello ChatGPT
 CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "4o")
 
+
 def ensure_chatgpt_model(driver):
-    """
-    Assicura che il modello selezionato sia quello desiderato (CHATGPT_MODEL).
-    Se non lo è, seleziona il modello corretto tramite il menu.
-    """
+    """Ensure the desired ChatGPT model is active before sending a prompt."""
+    log_info(f"[chatgpt_model] Verifying active model matches {CHATGPT_MODEL}")
     try:
-        # Trova il modello attivo
-        active_model_elem = driver.find_element(By.CSS_SELECTOR, "span.text-token-text-tertiary")
-        active_model = active_model_elem.text.strip()
-        log_debug(f"[chatgpt_model] Modello attivo: {active_model}")
+        log_debug("[chatgpt_model] Locating model switcher button")
+        switcher_btn = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
+            )
+        )
+        aria_label = switcher_btn.get_attribute("aria-label") or ""
+        log_debug(f"[chatgpt_model] switcher aria-label: {aria_label}")
+        match = re.search(r"current model is\s*(.*)", aria_label)
+        active_model = match.group(1).strip() if match else ""
+        log_info(f"[chatgpt_model] Active model is {active_model}")
         if active_model == CHATGPT_MODEL:
+            log_info(f"[chatgpt_model] Desired model {CHATGPT_MODEL} already active")
             return True
-        # Apri il menu a tendina
-        switcher_btn = driver.find_element(By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
-        switcher_btn.click()
-        time.sleep(1)
-        # Se il modello desiderato non è visibile, clicca su 'legacy models'
+
+        log_debug("[chatgpt_model] Opening dropdown")
+        driver.execute_script("arguments[0].click();", switcher_btn)
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div[role='menu']"))
+        )
+        log_debug("[chatgpt_model] Dropdown opened")
+
         try:
-            model_elem = driver.find_element(By.CSS_SELECTOR, f"[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
-        except Exception:
-            # Prova a cliccare su 'legacy models'
+            log_debug("[chatgpt_model] Searching main list for model")
+            model_elem = WebDriverWait(driver, 3).until(
+                EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, f"[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
+                )
+            )
+            log_info(f"[chatgpt_model] Found desired model in main list: {CHATGPT_MODEL}")
+        except TimeoutException:
             try:
-                legacy_btn = driver.find_element(By.XPATH, "//div[contains(text(), 'legacy models')]")
-                legacy_btn.click()
-                time.sleep(1)
-                model_elem = driver.find_element(By.CSS_SELECTOR, f"[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
+                log_debug("[chatgpt_model] Model not in main list, opening legacy submenu")
+                legacy_btn = WebDriverWait(driver, 3).until(
+                    EC.element_to_be_clickable(
+                        (By.CSS_SELECTOR, "div[data-testid='Legacy models-submenu']")
+                    )
+                )
+                driver.execute_script("arguments[0].click();", legacy_btn)
+                log_debug("[chatgpt_model] Legacy models opened")
+                model_elem = WebDriverWait(driver, 3).until(
+                    EC.element_to_be_clickable(
+                        (By.CSS_SELECTOR, f"div[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
+                    )
+                )
+                log_info(f"[chatgpt_model] Found desired model under legacy: {CHATGPT_MODEL}")
             except Exception as e:
-                log_warning(f"[chatgpt_model] Legacy models non trovati: {e}")
+                log_warning(f"[chatgpt_model] Desired model {CHATGPT_MODEL} not found: {e}")
+                try:
+                    items = driver.find_elements(By.CSS_SELECTOR, "div[role='menuitem']")
+                    names = [i.text for i in items]
+                    log_debug(f"[chatgpt_model] Available models: {names}")
+                except Exception:
+                    pass
                 return False
-        model_elem.click()
-        time.sleep(1)
-        log_debug(f"[chatgpt_model] Modello selezionato: {CHATGPT_MODEL}")
-        return True
+
+        log_debug("[chatgpt_model] Clicking desired model")
+        driver.execute_script("arguments[0].scrollIntoView(true);", model_elem)
+        driver.execute_script("arguments[0].click();", model_elem)
+        log_info(f"[chatgpt_model] Clicked on model {CHATGPT_MODEL}")
+        try:
+            WebDriverWait(driver, 5).until(
+                lambda d: CHATGPT_MODEL in (
+                    d.find_element(By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
+                    .get_attribute("aria-label")
+                    or ""
+                )
+            )
+            log_info(f"[chatgpt_model] Modello selezionato: {CHATGPT_MODEL}")
+            return True
+        except TimeoutException:
+            new_label = (
+                driver.find_element(By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
+                .get_attribute("aria-label")
+                or ""
+            )
+            log_warning(f"[chatgpt_model] Verifica modello fallita: {new_label}")
+            return False
     except Exception as e:
-        log_warning(f"[chatgpt_model] Errore selezione modello: {e}")
+        log_warning(f"[chatgpt_model] Errore selezione modello: {repr(e)}")
+        try:
+            os.makedirs("logs/screenshots", exist_ok=True)
+            driver.save_screenshot("logs/screenshots/model_switch_error.png")
+            log_warning("[chatgpt_model] Saved screenshot model_switch_error.png")
+        except Exception as ss:
+            log_warning(f"[chatgpt_model] Screenshot failed: {ss}")
         return False
 
 class SeleniumChatGPTPlugin(AIPluginBase):
@@ -1262,6 +1075,198 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     return None
         return self.driver
 
+    def _ensure_logged_in(self):
+        try:
+            current_url = self.driver.current_url
+        except Exception:
+            current_url = ""
+        log_debug(f"[selenium] [STEP] Checking login state at {current_url}")
+        if current_url and ("login" in current_url or "auth0" in current_url):
+            log_debug("[selenium] Login required, notifying user")
+            _notify_gui("🔐 Login required. Open")
+            return False
+        log_debug("[selenium] Logged in and ready")
+        return True
+
+    async def _process_message(self, bot, message, prompt):
+        """Send the prompt to ChatGPT and forward the response."""
+        log_debug(f"[selenium][STEP] processing prompt: {prompt}")
+
+        for attempt in range(2):
+            driver = self._get_driver()
+            if not driver:
+                log_error("[selenium] WebDriver unavailable, aborting")
+                _notify_gui("\u274c Selenium driver not available. Open UI")
+                return
+            if (
+                not driver.service
+                or not getattr(driver.service, "process", None)
+                or driver.service.process.poll() is not None
+            ):
+                log_warning("[selenium] Driver process not running, restarting")
+                driver = self._get_driver()
+                if not driver:
+                    log_error("[selenium] Failed to restart WebDriver")
+                    _notify_gui("\u274c Selenium driver not available. Open UI")
+                    return
+            if not self._ensure_logged_in():
+                return
+
+            log_debug("[selenium][STEP] ensuring ChatGPT is accessible")
+
+            message_thread_id = getattr(message, "message_thread_id", None)
+            chat_id = await chat_link_store.get_link(message.chat_id, message_thread_id)
+            prompt_text = json.dumps(prompt, ensure_ascii=False)
+            if not chat_id:
+                path = recent_chats.get_chat_path(message.chat_id)
+                if path and go_to_chat_by_path_with_retries(driver, path):
+                    chat_id = _extract_chat_id(driver.current_url)
+                    if chat_id:
+                        await chat_link_store.save_link(message.chat_id, message_thread_id, chat_id)
+                        _safe_notify(
+                            f"\u26a0\ufe0f Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, message_thread_id={message_thread_id}.\n"
+                            f"A new ChatGPT chat has been created: {chat_id}"
+                        )
+                else:
+                    if path:
+                        log_warning(f"[selenium] Chat path {path} no longer accessible (archived/deleted), creating new chat")
+                        recent_chats.clear_chat_path(message.chat_id)
+                    _open_new_chat(driver)
+            else:
+                chat_url = f"https://chat.openai.com/c/{chat_id}"
+                try:
+                    driver.get(chat_url)
+                    WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.ID, "prompt-textarea"))
+                    )
+                    log_debug(f"[selenium] Successfully accessed existing chat: {chat_id}")
+                except Exception as e:
+                    log_warning(f"[selenium] Existing chat {chat_id} no longer accessible: {e}")
+                    log_info(f"[selenium] Creating new chat to replace inaccessible chat {chat_id}")
+                    await chat_link_store.remove(message.chat_id, message_thread_id)
+                    recent_chats.clear_chat_path(message.chat_id)
+                    _open_new_chat(driver)
+                    chat_id = None
+
+            log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
+            log_debug(f"[selenium][DEBUG] Telegram chat_id: {message.chat_id}, message_thread_id: {message_thread_id}")
+
+            if not chat_id:
+                try:
+                    driver.get("https://chat.openai.com")
+                    WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.TAG_NAME, "main"))
+                    )
+                except Exception:
+                    log_warning("[selenium][ERROR] ChatGPT UI failed to load")
+                    _notify_gui("\u274c Selenium error: ChatGPT UI not ready. Open UI")
+                    return
+
+            try:
+                if chat_id:
+                    previous = get_previous_response(message.chat_id)
+                    response_text = process_prompt_in_chat(driver, chat_id, prompt_text, previous)
+                    if response_text:
+                        update_previous_response(message.chat_id, response_text)
+                else:
+                    previous = get_previous_response(message.chat_id)
+                    response_text = process_prompt_in_chat(driver, None, prompt_text, previous)
+                    if response_text:
+                        update_previous_response(message.chat_id, response_text)
+                        new_chat_id = _extract_chat_id(driver.current_url)
+                        log_debug(f"[selenium][DEBUG] New chat created, extracted ID: {new_chat_id}")
+                        log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
+                        if new_chat_id:
+                            await chat_link_store.save_link(message.chat_id, message_thread_id, new_chat_id)
+                            log_debug(f"[selenium][DEBUG] Saved link: {message.chat_id}/{message_thread_id} -> {new_chat_id}")
+                            _safe_notify(
+                                f"\u26a0\ufe0f Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, message_thread_id={message_thread_id}.\n"
+                                f"A new ChatGPT chat has been created: {new_chat_id}"
+                            )
+                        else:
+                            log_warning("[selenium][WARN] Failed to extract chat ID from URL")
+
+                if _check_conversation_full(driver):
+                    current_id = chat_id or _extract_chat_id(driver.current_url)
+                    global queue_paused
+                    queue_paused = True
+                    _open_new_chat(driver)
+                    response_text = process_prompt_in_chat(driver, None, prompt_text, "")
+                    new_chat_id = _extract_chat_id(driver.current_url)
+                    if new_chat_id:
+                        await chat_link_store.save_link(message.chat_id, message_thread_id, new_chat_id)
+                        log_debug(
+                            f"[selenium][SUCCESS] New chat created for full conversation. Chat ID: {new_chat_id}"
+                        )
+                    queue_paused = False
+
+                if not response_text:
+                    response_text = "\u26a0\ufe0f No response received"
+
+                await safe_send(
+                    bot,
+                    chat_id=message.chat_id,
+                    text=response_text,
+                    reply_to_message_id=message.message_id,
+                    message_thread_id=message_thread_id,
+                    event_id=getattr(message, "event_id", None),
+                )
+                log_debug(
+                    f"[selenium][STEP] response forwarded to {message.chat_id}"
+                )
+                return
+
+            except Exception as e:
+                log_error(f"[selenium][ERROR] failed to process message: {repr(e)}", e)
+                _notify_gui(f"\u274c Selenium error: {e}. Open UI")
+                return
+
+    @staticmethod
+    async def clean_chat_link(chat_id: int) -> str:
+        """Disassociates the Telegram chat ID from the ChatGPT chat ID in the database.
+        If no link exists for the current chat, creates a new one."""
+        try:
+            if await chat_link_store.remove(chat_id, None):
+                log_debug(f"[clean_chat_link] Chat link removed for chat_id={chat_id}")
+                return f"✅ Link for chat_id={chat_id} successfully removed."
+            else:
+                new_chat_id = f"new_chat_{chat_id}"
+                await chat_link_store.save_link(chat_id, None, new_chat_id)
+                log_debug(f"[clean_chat_link] No link found. Created new link: {new_chat_id}")
+                return f"⚠️ No link found for chat_id={chat_id}. Created new link: {new_chat_id}."
+        except Exception as e:
+            log_error(f"[clean_chat_link] Error while removing or creating the link: {repr(e)}", e)
+            return f"❌ Error while removing or creating the link: {e}"
+
+    @staticmethod
+    async def handle_clear_chat_link_command(bot, message):
+        """Handles the /clear_chat_link command."""
+        chat_id = message.chat_id
+        text = message.text.strip()
+
+        if text == "/clear_chat_link":
+            confirmation_message = (
+                f"⚠️ Do you really want to reset the link for this chat (ID: {chat_id})?\n"
+                "Reply with 'yes' to confirm or use /cancel to cancel."
+            )
+            await bot.send_message(chat_id=chat_id, text=confirmation_message)
+
+            def check_response(response):
+                return response.chat_id == chat_id and response.text.lower() in ["yes", "/cancel"]
+
+            try:
+                response = await bot.wait_for("message", timeout=60, check=check_response)
+                if response.text.lower() == "yes":
+                    result = await SeleniumChatGPTPlugin.clean_chat_link(chat_id)
+                    await bot.send_message(chat_id=chat_id, text=result)
+                else:
+                    await bot.send_message(chat_id=chat_id, text="❌ Operation canceled.")
+            except asyncio.TimeoutError:
+                await bot.send_message(chat_id=chat_id, text="⏳ Timeout. Operation canceled.")
+        else:
+            result = await SeleniumChatGPTPlugin.clean_chat_link(chat_id)
+            await bot.send_message(chat_id=chat_id, text=result)
+
     async def handle_incoming_message(self, bot, message, prompt):
         """Queue the message to be processed sequentially."""
         user_id = message.from_user.id if message.from_user else "unknown"
@@ -1306,5 +1311,40 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             raise
         finally:
             log_info("Worker loop cleaned up")
-
+ 
 PLUGIN_CLASS = SeleniumChatGPTPlugin
+
+def go_to_chat_by_path(driver, path: str) -> bool:
+    """Navigate to a specific chat using its path."""
+    try:
+        chat_url = f"https://chat.openai.com{path}"
+        driver.get(chat_url)
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.ID, "prompt-textarea"))
+        )
+        log_debug(f"[selenium] Successfully navigated to chat path: {path}")
+        return True
+    except TimeoutException:
+        log_warning(f"[selenium] Timeout while navigating to chat path: {path}")
+        return False
+    except Exception as e:
+        log_error(f"[selenium] Error navigating to chat path: {repr(e)}")
+        return False
+
+def go_to_chat_by_path_with_retries(driver, path: str, retries: int = 3) -> bool:
+    """Navigate to a specific chat using its path with retries."""
+    for attempt in range(1, retries + 1):
+        try:
+            chat_url = f"https://chat.openai.com{path}"
+            driver.get(chat_url)
+            WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.ID, "prompt-textarea"))
+            )
+            log_debug(f"[selenium] Successfully navigated to chat path: {path} on attempt {attempt}")
+            return True
+        except TimeoutException:
+            log_warning(f"[selenium] Timeout while navigating to chat path: {path} on attempt {attempt}")
+        except Exception as e:
+            log_error(f"[selenium] Error navigating to chat path on attempt {attempt}: {repr(e)}")
+    log_warning(f"[selenium] Failed to navigate to chat path: {path} after {retries} attempts")
+    return False

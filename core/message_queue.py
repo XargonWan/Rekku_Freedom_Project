@@ -1,5 +1,6 @@
 import asyncio
 import time
+import queue as _thread_queue
 from datetime import datetime
 import traceback
 from types import SimpleNamespace
@@ -15,6 +16,19 @@ NORMAL_PRIORITY = 1
 _queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
 _lock = asyncio.Lock()
 _consumer_task: asyncio.Task | None = None
+
+
+class MessageQueue:
+    """Minimal thread-safe queue for interfaces expecting blocking semantics."""
+
+    def __init__(self):
+        self._q = _thread_queue.Queue()
+
+    def put(self, item):
+        self._q.put(item)
+
+    def get(self, timeout=None):
+        return self._q.get(timeout=timeout)
 
 
 async def _delayed_put(item: dict, delay: float) -> None:
