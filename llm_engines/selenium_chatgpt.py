@@ -16,8 +16,18 @@ import aiomysql
 import subprocess
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-# undetected-chromedriver
-import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    TimeoutException,
+    ElementNotInteractableException,
+    SessionNotCreatedException,
+    WebDriverException,
+)
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 
 # Funzioni e classi locali
@@ -27,7 +37,6 @@ import core.recent_chats as recent_chats
 from core.ai_plugin_base import AIPluginBase
 
 # ChatLinkStore: gestisce la mappatura tra chat Telegram e chat ChatGPT
-from typing import Optional
 from core.db import get_conn
 from core.logging_utils import log_debug, log_warning
 
@@ -686,39 +695,60 @@ def process_prompt_in_chat(
 # Funzione di selezione modello ChatGPT
 CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "4o")
 
+
 def ensure_chatgpt_model(driver):
-    """
-    Assicura che il modello selezionato sia quello desiderato (CHATGPT_MODEL).
-    Se non lo è, seleziona il modello corretto tramite il menu.
-    """
+    """Ensure the desired ChatGPT model is active before sending a prompt."""
     try:
-        # Trova il modello attivo
-        active_model_elem = driver.find_element(By.CSS_SELECTOR, "span.text-token-text-tertiary")
-        active_model = active_model_elem.text.strip()
+        switcher_btn = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
+            )
+        )
+        aria_label = switcher_btn.get_attribute("aria-label") or ""
+        match = re.search(r"current model is\s*(.*)", aria_label)
+        active_model = match.group(1).strip() if match else ""
         log_debug(f"[chatgpt_model] Modello attivo: {active_model}")
         if active_model == CHATGPT_MODEL:
             return True
-        # Apri il menu a tendina
-        switcher_btn = driver.find_element(By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
+
         switcher_btn.click()
-        time.sleep(1)
-        # Se il modello desiderato non è visibile, clicca su 'legacy models'
+
         try:
-            model_elem = driver.find_element(By.CSS_SELECTOR, f"[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
-        except Exception:
-            # Prova a cliccare su 'legacy models'
+            model_elem = WebDriverWait(driver, 3).until(
+                EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, f"[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
+                )
+            )
+        except TimeoutException:
             try:
-                legacy_btn = driver.find_element(By.XPATH, "//div[contains(text(), 'legacy models')]")
+                legacy_btn = WebDriverWait(driver, 3).until(
+                    EC.element_to_be_clickable(
+                        (By.XPATH, "//div[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'legacy models')]")
+                    )
+                )
                 legacy_btn.click()
-                time.sleep(1)
-                model_elem = driver.find_element(By.CSS_SELECTOR, f"[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
+                model_elem = WebDriverWait(driver, 3).until(
+                    EC.element_to_be_clickable(
+                        (By.CSS_SELECTOR, f"[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
+                    )
+                )
             except Exception as e:
-                log_warning(f"[chatgpt_model] Legacy models non trovati: {e}")
+                log_warning(f"[chatgpt_model] Desired model {CHATGPT_MODEL} not found: {e}")
                 return False
+
         model_elem.click()
-        time.sleep(1)
-        log_debug(f"[chatgpt_model] Modello selezionato: {CHATGPT_MODEL}")
-        return True
+        # Wait for the switcher button to reflect the new model
+        switcher_btn = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
+            )
+        )
+        new_label = switcher_btn.get_attribute("aria-label") or ""
+        if CHATGPT_MODEL in new_label:
+            log_debug(f"[chatgpt_model] Modello selezionato: {CHATGPT_MODEL}")
+            return True
+        log_warning(f"[chatgpt_model] Verifica modello fallita: {new_label}")
+        return False
     except Exception as e:
         log_warning(f"[chatgpt_model] Errore selezione modello: {e}")
         return False
