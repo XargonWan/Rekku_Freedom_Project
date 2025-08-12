@@ -42,27 +42,29 @@ from core.logging_utils import log_debug, log_warning
 
 class ChatLinkStore:
     def __init__(self):
-        self._ensure_table()
+        self._table_ensured = False
 
     async def _ensure_table(self) -> None:
+        if self._table_ensured:
+            return
         conn = await get_conn()
         async with conn.cursor() as cursor:
             await cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chatgpt_links (
-                    telegram_chat_id INTEGER NOT NULL,
-                    thread_id INTEGER,
-                    link TEXT NOT NULL,
-                    is_full INTEGER DEFAULT 0,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (telegram_chat_id, thread_id)
+                    chat_id TEXT NOT NULL,
+                    message_thread_id TEXT,
+                    link VARCHAR(2048),
+                    PRIMARY KEY (chat_id(255), message_thread_id(255))
                 )
                 """
             )
             await conn.commit()
         conn.close()
+        self._table_ensured = True
 
     async def get_link(self, chat_id: str, message_thread_id: str) -> Optional[str]:
+        await self._ensure_table()
         log_debug(f"[chatlink] Searching for link: chat_id={chat_id}, message_thread_id={message_thread_id}")
         conn = await get_conn()
         async with conn.cursor(aiomysql.DictCursor) as cursor:
@@ -85,13 +87,14 @@ class ChatLinkStore:
             return None
 
     async def save_link(self, chat_id: str, message_thread_id: str, link: str) -> None:
+        await self._ensure_table()
         conn = await get_conn()
         async with conn.cursor() as cursor:
             await cursor.execute(
                 """
-                INSERT OR REPLACE INTO chatgpt_links
-                    (chat_id, message_thread_id, link)
+                INSERT INTO chatgpt_links (chat_id, message_thread_id, link)
                 VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE link=VALUES(link)
                 """,
                 (chat_id, message_thread_id, link),
             )
@@ -101,24 +104,12 @@ class ChatLinkStore:
             f"[chatlink] Saved mapping {chat_id}/{message_thread_id} -> {link}"
         )
 
-    async def is_full(self, link: str) -> bool:
-        conn = await get_conn()
-        async with conn.cursor(aiomysql.DictCursor) as cursor:
-            await cursor.execute(
-                "SELECT is_full FROM chatgpt_links WHERE link=%s",
-                (link,),
-            )
-            row = await cursor.fetchone()
-        conn.close()
-        result = bool(row and row["is_full"])
-        log_debug(f"[chatlink] is_full({link}) -> {result}")
-        return result
-
     async def remove(self, chat_id: str, message_thread_id: str) -> bool:
         """
         Rimuove il collegamento ChatGPT per un dato chat_id e message_thread_id.
         Restituisce True se una riga è stata eliminata, altrimenti False.
         """
+        await self._ensure_table()
         conn = await get_conn()
         async with conn.cursor() as cursor:
             result = await cursor.execute(
@@ -136,7 +127,7 @@ class ChatLinkStore:
         else:
             log_debug(f"[chatlink] Nessun collegamento trovato per chat_id={chat_id}, message_thread_id={message_thread_id}")
         return rows_deleted
-from core.message_sender import send_content
+from core.telegram_utils import safe_send
 
 # Fallback per notify_trainer se non disponibile
 def notify_trainer(trainer_id, text):
@@ -207,58 +198,10 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
 
 def paste_and_send(textarea, prompt_text: str) -> None:
     """Robustly send ``prompt_text`` to ``textarea`` in chunks with retries."""
-    import textwrap
-
-    import textwrap
-    import textwrap
     clean = strip_non_bmp(prompt_text)
-    if len(clean) > 4000:
-        clean = clean[:4000]
-
-    # Se il testo è corto, incolla tutto in una volta
-    if len(clean) <= 4000:
-        for attempt in range(1, 4):
-            if attempt > 1:
-                log_warning(f"[selenium] send_keys retry {attempt}/3")
-            try:
-                textarea.send_keys(Keys.CONTROL + "a")
-                textarea.send_keys(Keys.DELETE)
-                time.sleep(0.2)
-                textarea.send_keys(clean)
-                time.sleep(0.05)
-                final_value = textarea.get_attribute("value") or ""
-                if final_value != clean and len(final_value) > 0 and abs(len(final_value) - len(clean)) > 10:
-                    log_debug(f"[selenium] Textarea content mismatch: expected {len(clean)} chars, got {len(final_value)} chars")
-                try:
-                    json.loads(final_value)
-                    is_json = True
-                except Exception:
-                    is_json = False
-                if is_json:
-                    textarea.send_keys(Keys.ENTER)
-                    log_debug("[selenium] ENTER inviato dopo incolla JSON valido (no chunk)")
-                else:
-                    log_warning("[selenium] JSON non valido, ENTER non inviato. Attendi incolla completo.")
-                return
-            except Exception as e:
-                log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
-        # Fallback se tutti i tentativi falliscono
-        log_warning("[selenium] Falling back to ActionChains (no chunk)")
-        try:
-            ActionChains(textarea._parent).click(textarea).send_keys(clean).perform()
-            try:
-                json.loads(clean)
-                textarea.send_keys(Keys.ENTER)
-                log_debug("[selenium] ENTER inviato dopo fallback ActionChains e JSON valido (no chunk)")
-            except Exception:
-                log_warning("[selenium] Fallback: JSON non valido, ENTER non inviato.")
-        except Exception as e:
-            log_warning(f"[selenium] Fallback send failed: {e}")
-        return
-
-    # Se il testo è lungo, usa i chunk
     chunks = textwrap.wrap(clean, 200)
     log_debug(f"[selenium] Sending prompt in {len(chunks)} chunks")
+
     for attempt in range(1, 4):
         if attempt > 1:
             log_warning(f"[selenium] send_keys retry {attempt}/3")
@@ -271,30 +214,17 @@ def paste_and_send(textarea, prompt_text: str) -> None:
                 textarea.send_keys(chunk)
                 time.sleep(0.05)
             final_value = textarea.get_attribute("value") or ""
-            if final_value != clean and len(final_value) > 0 and abs(len(final_value) - len(clean)) > 10:
-                log_debug(f"[selenium] Textarea content mismatch: expected {len(clean)} chars, got {len(final_value)} chars")
-            try:
-                json.loads(final_value)
-                is_json = True
-            except Exception:
-                is_json = False
-            if is_json:
-                textarea.send_keys(Keys.ENTER)
-                log_debug("[selenium] ENTER inviato dopo incolla JSON valido (chunk)")
-            else:
-                log_warning("[selenium] JSON non valido, ENTER non inviato. Attendi incolla completo.")
+            if final_value != clean:
+                log_debug(
+                    f"[selenium] Textarea content mismatch: expected {len(clean)} chars, got {len(final_value)} chars"
+                )
             return
         except Exception as e:
             log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
-    log_warning("[selenium] Falling back to ActionChains (chunk)")
+
+    log_warning("[selenium] Falling back to ActionChains")
     try:
         ActionChains(textarea._parent).click(textarea).send_keys(clean).perform()
-        try:
-            json.loads(clean)
-            textarea.send_keys(Keys.ENTER)
-            log_debug("[selenium] ENTER inviato dopo fallback ActionChains e JSON valido (chunk)")
-        except Exception:
-            log_warning("[selenium] Fallback: JSON non valido, ENTER non inviato.")
     except Exception as e:
         log_warning(f"[selenium] Fallback send failed: {e}")
 
@@ -578,6 +508,17 @@ def process_prompt_in_chat(
     for attempt in range(1, 4):  # Retry up to 3 times
         try:
             paste_and_send(textarea, prompt_text)
+            final_value = textarea.get_attribute("value") or ""
+            if final_value != prompt_text:
+                log_warning(
+                    f"[selenium] Prompt mismatch after paste: expected {len(prompt_text)} chars, got {len(final_value)}"
+                )
+            try:
+                json.loads(final_value)
+            except Exception:
+                log_warning("[selenium] JSON invalid after paste; retrying")
+                time.sleep(1)
+                continue
             textarea.send_keys(Keys.ENTER)
         except ElementNotInteractableException as e:
             log_warning(f"[selenium][retry] Element not interactable: {e}")
@@ -705,6 +646,7 @@ def ensure_chatgpt_model(driver):
             )
         )
         aria_label = switcher_btn.get_attribute("aria-label") or ""
+        log_debug(f"[chatgpt_model] switcher aria-label: {aria_label}")
         match = re.search(r"current model is\s*(.*)", aria_label)
         active_model = match.group(1).strip() if match else ""
         log_debug(f"[chatgpt_model] Modello attivo: {active_model}")
@@ -712,6 +654,7 @@ def ensure_chatgpt_model(driver):
             return True
 
         switcher_btn.click()
+        log_debug("[chatgpt_model] Dropdown opened")
 
         try:
             model_elem = WebDriverWait(driver, 3).until(
@@ -719,6 +662,7 @@ def ensure_chatgpt_model(driver):
                     (By.CSS_SELECTOR, f"[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
                 )
             )
+            log_debug(f"[chatgpt_model] Found desired model in main list: {CHATGPT_MODEL}")
         except TimeoutException:
             try:
                 legacy_btn = WebDriverWait(driver, 3).until(
@@ -727,16 +671,25 @@ def ensure_chatgpt_model(driver):
                     )
                 )
                 legacy_btn.click()
+                log_debug("[chatgpt_model] Opened legacy models section")
                 model_elem = WebDriverWait(driver, 3).until(
                     EC.element_to_be_clickable(
                         (By.CSS_SELECTOR, f"[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
                     )
                 )
+                log_debug(f"[chatgpt_model] Found desired model under legacy: {CHATGPT_MODEL}")
             except Exception as e:
                 log_warning(f"[chatgpt_model] Desired model {CHATGPT_MODEL} not found: {e}")
+                try:
+                    items = driver.find_elements(By.CSS_SELECTOR, "div[role='menuitem']")
+                    names = [i.text for i in items]
+                    log_debug(f"[chatgpt_model] Available models: {names}")
+                except Exception:
+                    pass
                 return False
 
         model_elem.click()
+        log_debug(f"[chatgpt_model] Clicked on model {CHATGPT_MODEL}")
         # Wait for the switcher button to reflect the new model
         switcher_btn = WebDriverWait(driver, 5).until(
             EC.presence_of_element_located(
@@ -744,6 +697,7 @@ def ensure_chatgpt_model(driver):
             )
         )
         new_label = switcher_btn.get_attribute("aria-label") or ""
+        log_debug(f"[chatgpt_model] New aria-label after selection: {new_label}")
         if CHATGPT_MODEL in new_label:
             log_debug(f"[chatgpt_model] Modello selezionato: {CHATGPT_MODEL}")
             return True
@@ -1193,14 +1147,17 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     response_text = "\u26a0\ufe0f No response received"
 
                 message.text = response_text
-                await send_content(
+                await safe_send(
                     bot,
                     chat_id=message.chat_id,
-                    message=message,
-                    content_type="text",
-                    reply_to_message_id=message.message_id
+                    text=response_text,
+                    reply_to_message_id=message.message_id,
+                    message_thread_id=message_thread_id,
+                    event_id=getattr(message, "event_id", None),
                 )
-                log_debug(f"[selenium][STEP] response forwarded to {message.chat_id}")
+                log_debug(
+                    f"[selenium][STEP] response forwarded to {message.chat_id}"
+                )
                 return
 
             except Exception as e:
