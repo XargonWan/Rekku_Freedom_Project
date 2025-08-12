@@ -37,11 +37,14 @@ from core.ai_plugin_base import AIPluginBase
 
 # ChatLinkStore: gestisce la mappatura tra chat Telegram e chat ChatGPT
 from core.db import get_conn
-from core.logging_utils import log_debug, log_warning
 
 class ChatLinkStore:
     def __init__(self):
         self._table_ensured = False
+
+    def _normalize_thread_id(self, message_thread_id: Optional[int | str]) -> str:
+        """Return ``message_thread_id`` as a non-null string."""
+        return str(message_thread_id) if message_thread_id is not None else "0"
 
     async def _ensure_table(self) -> None:
         if self._table_ensured:
@@ -62,9 +65,11 @@ class ChatLinkStore:
         conn.close()
         self._table_ensured = True
 
-    async def get_link(self, chat_id: str, message_thread_id: str) -> Optional[str]:
+    async def get_link(self, chat_id: int | str, message_thread_id: Optional[int | str]) -> Optional[str]:
         await self._ensure_table()
-        log_debug(f"[chatlink] Searching for link: chat_id={chat_id}, message_thread_id={message_thread_id}")
+        normalized = self._normalize_thread_id(message_thread_id)
+        chat_id_str = str(chat_id)
+        log_debug(f"[chatlink] Searching for link: chat_id={chat_id_str}, message_thread_id={normalized}")
         conn = await get_conn()
         async with conn.cursor(aiomysql.DictCursor) as cursor:
             await cursor.execute(
@@ -73,20 +78,21 @@ class ChatLinkStore:
                 FROM chatgpt_links
                 WHERE chat_id = %s AND message_thread_id = %s
                 """,
-                (chat_id, message_thread_id)
+                (chat_id_str, normalized),
             )
             row = await cursor.fetchone()
         conn.close()
         if row:
             link_value = row.get("link")
-            log_debug(f"[chatlink] Found mapping {chat_id}/{message_thread_id} -> {link_value}")
+            log_debug(f"[chatlink] Found mapping {chat_id_str}/{normalized} -> {link_value}")
             return link_value
-        else:
-            log_debug(f"[chatlink] No row found for {chat_id}/{message_thread_id}")
-            return None
+        log_debug(f"[chatlink] No row found for {chat_id_str}/{normalized}")
+        return None
 
-    async def save_link(self, chat_id: str, message_thread_id: str, link: str) -> None:
+    async def save_link(self, chat_id: int | str, message_thread_id: Optional[int | str], link: str) -> None:
         await self._ensure_table()
+        normalized = self._normalize_thread_id(message_thread_id)
+        chat_id_str = str(chat_id)
         conn = await get_conn()
         async with conn.cursor() as cursor:
             await cursor.execute(
@@ -95,20 +101,16 @@ class ChatLinkStore:
                 VALUES (%s, %s, %s)
                 ON DUPLICATE KEY UPDATE link=VALUES(link)
                 """,
-                (chat_id, message_thread_id, link),
+                (chat_id_str, normalized, link),
             )
             await conn.commit()
         conn.close()
-        log_debug(
-            f"[chatlink] Saved mapping {chat_id}/{message_thread_id} -> {link}"
-        )
+        log_debug(f"[chatlink] Saved mapping {chat_id_str}/{normalized} -> {link}")
 
-    async def remove(self, chat_id: str, message_thread_id: str) -> bool:
-        """
-        Rimuove il collegamento ChatGPT per un dato chat_id e message_thread_id.
-        Restituisce True se una riga è stata eliminata, altrimenti False.
-        """
+    async def remove(self, chat_id: int | str, message_thread_id: Optional[int | str]) -> bool:
         await self._ensure_table()
+        normalized = self._normalize_thread_id(message_thread_id)
+        chat_id_str = str(chat_id)
         conn = await get_conn()
         async with conn.cursor() as cursor:
             result = await cursor.execute(
@@ -116,15 +118,15 @@ class ChatLinkStore:
                 DELETE FROM chatgpt_links
                 WHERE chat_id = %s AND message_thread_id = %s
                 """,
-                (chat_id, message_thread_id),
+                (chat_id_str, normalized),
             )
             await conn.commit()
         conn.close()
         rows_deleted = cursor.rowcount > 0
         if rows_deleted:
-            log_debug(f"[chatlink] Rimosso il collegamento per chat_id={chat_id}, message_thread_id={message_thread_id}")
+            log_debug(f"[chatlink] Removed link for chat_id={chat_id_str}, message_thread_id={normalized}")
         else:
-            log_debug(f"[chatlink] Nessun collegamento trovato per chat_id={chat_id}, message_thread_id={message_thread_id}")
+            log_debug(f"[chatlink] No link found for chat_id={chat_id_str}, message_thread_id={normalized}")
         return rows_deleted
 from core.telegram_utils import safe_send
 
