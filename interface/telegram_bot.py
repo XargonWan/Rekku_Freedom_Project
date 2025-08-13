@@ -330,6 +330,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )  # [FIX]
             await message.reply_text("✅ Reply sent.")
         else:
+            log_warning("⚠️ No target found for reply. Ensure plugin mapping is correct.")
             await message.reply_text("⚠️ No message found to reply to.")
         return
 
@@ -886,6 +887,21 @@ class TelegramInterface:
         }
 
     @staticmethod
+    def get_prompt_instructions(action_name: str) -> dict:
+        """Prompt instructions for supported actions."""
+        if action_name == "message_telegram_bot":
+            return {
+                "description": "Send a message via Telegram bot",
+                "payload": {
+                    "text": {"type": "string", "example": "Hello!", "description": "The message text to send"},
+                    "target": {"type": "string", "example": "-123456789", "description": "The chat_id of the recipient (can be string or integer)"},
+                    "message_thread_id": {"type": "integer", "example": 456, "description": "Optional thread ID for group chats", "optional": True},
+                    "reply_to_message_id": {"type": "integer", "example": 12345, "description": "Optional ID of the message to reply to", "optional": True},
+                },
+            }
+        return None
+
+    @staticmethod
     def validate_payload(action_type: str, payload: dict) -> list:
         """Validate payload for telegram actions."""
         if action_type != "message_telegram_bot":
@@ -923,23 +939,6 @@ class TelegramInterface:
         return errors
 
     @staticmethod  
-    def get_prompt_instructions(action_name: str) -> dict:
-        """Prompt instructions for supported actions."""
-        if action_name == "message_telegram_bot":
-            return {
-                "description": "Send a message via Telegram bot",
-                "payload": {
-                    "text": {"type": "string", "example": "Hello!", "description": "The message text to send"},
-                    "target": {"type": "string", "example": "-123456789", "description": "The chat_id of the recipient (can be string or integer)"},
-                    "message_thread_id": {"type": "integer", "example": 456, "description": "Optional thread ID for group chats", "optional": True},
-                    "reply_to_message_id": {"type": "integer", "example": 12345, "description": "Optional ID of the message to reply to", "optional": True},
-                },
-            }
-        return None
-
-    # RESTORED: get_supported_actions() and get_prompt_instructions() to handle message actions
-
-    @staticmethod
     def get_interface_instructions() -> str:
         """Get instructions for this interface."""
         return (

@@ -4,6 +4,7 @@ import os
 import importlib
 import inspect
 from pathlib import Path
+from typing import Optional
 from core.logging_utils import log_info, log_error, log_warning, log_debug
 from core.config import get_active_llm
 
@@ -139,12 +140,22 @@ class CoreInitializer:
     
     def register_interface(self, interface_name: str):
         """Register an active interface."""
+        log_info(f"[core_initializer] 🔍 Attempting to register interface: {interface_name}")
         if interface_name not in self.active_interfaces:
             self.active_interfaces.append(interface_name)
             log_info(f"[core_initializer] ✅ Interface registered: {interface_name}")
-            
+
+            # Verifica se l'interfaccia registra azioni
+            interface_instance = globals().get(interface_name)
+            if interface_instance and hasattr(interface_instance, 'register_actions'):
+                log_info(f"[core_initializer] 🔌 Interface {interface_name} supports action registration")
+            else:
+                log_warning(f"[core_initializer] ⚠️ Interface {interface_name} does not support action registration")
+
             # Show updated status after interface registration
             self._show_interface_status()
+        else:
+            log_info(f"[core_initializer] 🔄 Interface {interface_name} is already registered")
     
     def _show_interface_status(self):
         """Show current interface status."""

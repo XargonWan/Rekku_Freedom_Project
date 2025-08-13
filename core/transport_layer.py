@@ -164,7 +164,19 @@ def extract_json_from_text(text: str, processed_messages: set = None):
             except json.JSONDecodeError:
                 pass
 
-        return None
+        # Handle additional cases where JSON is embedded in text
+        if 'json' in text.lower():
+            start_index = text.lower().find('{')
+            end_index = text.rfind('}')
+            if start_index != -1 and end_index != -1:
+                potential_json = text[start_index:end_index + 1]
+                try:
+                    return json.loads(potential_json)
+                except json.JSONDecodeError:
+                    log_warning("[extract_json_from_text] Failed to parse embedded JSON")
+
+        # Log a warning if no JSON is found
+        log_warning("[extract_json_from_text] No valid JSON found in text")
     except Exception as e:
         log_warning(f"[extract_json_from_text] Unexpected error: {e}")
         return None
@@ -356,6 +368,10 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
 
     if text is None:
         text = ""
+
+    if 'reply_to_message_id' in kwargs and not kwargs['reply_to_message_id']:
+        log_warning("[telegram_transport] reply_to_message_id not found. Sending without replying.")
+        kwargs.pop('reply_to_message_id')
 
     # Validate chat_id first
     if chat_id is None or not isinstance(chat_id, int):

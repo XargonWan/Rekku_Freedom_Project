@@ -8,7 +8,7 @@ import os
 from collections import deque
 from types import SimpleNamespace
 from datetime import datetime
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
@@ -591,6 +591,62 @@ async def gather_static_injections() -> dict:
     except Exception as e:
         log_error(f"[action_parser] Error collecting static injections: {e}")
     return injections
+
+
+# Global registry for interface objects
+INTERFACE_REGISTRY: dict[str, Any] = {}
+
+
+def register_interface(name: str, interface_obj: Any) -> None:
+    """Register an interface instance for later retrieval."""
+    INTERFACE_REGISTRY[name] = interface_obj
+    log_debug(f"[action_parser] Registered interface: {name}")
+
+    # Log detailed information about the interface loading
+    log_debug(f"[action_parser] Loading interface: {name}")
+
+    # Check if the interface supports action registration
+    if hasattr(interface_obj, 'register_actions'):
+        log_debug(f"[action_parser] Interface '{name}' supports action registration")
+    else:
+        log_warning(f"[action_parser] Interface '{name}' does not support action registration")
+
+    log_debug(f"[action_parser] Interface '{name}' loaded successfully")
+
+
+def get_interface_by_name(name: str) -> Optional[Any]:
+    """Return a previously registered interface by name."""
+    iface = INTERFACE_REGISTRY.get(name)
+    if iface is None:
+        log_warning(f"[action_parser] Interface not found: {name}")
+    return iface
+
+
+async def register_all_interface_actions():
+    """Automatically register actions from all active interfaces."""
+    global ACTIVE_INTERFACES
+
+    if not ACTIVE_INTERFACES:
+        log_warning("[action_parser] No active interfaces to register actions from.")
+        return
+
+    from core.action_parser import set_available_plugins
+
+    for interface_name in ACTIVE_INTERFACES:
+        try:
+            # Dynamically import the interface module
+            module = __import__(f"interface.{interface_name}", fromlist=["*"])
+            interface_class = getattr(module, "TelegramInterface", None)  # Adjust class name as needed
+
+            if interface_class and hasattr(interface_class, "get_supported_actions"):
+                actions = interface_class.get_supported_actions()
+                for action_name, schema in actions.items():
+                    set_available_plugins([interface_name], None, [action_name])
+                log_info(f"[action_parser] Registered actions for interface '{interface_name}': {list(actions.keys())}")
+            else:
+                log_warning(f"[action_parser] Interface '{interface_name}' does not have 'get_supported_actions' method.")
+        except Exception as e:
+            log_error(f"[action_parser] Error registering actions for interface '{interface_name}': {repr(e)}")
 
 
 __all__ = [
