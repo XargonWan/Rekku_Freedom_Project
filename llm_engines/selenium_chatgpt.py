@@ -690,7 +690,7 @@ def process_prompt_in_chat(
 
 
 # Funzione di selezione modello ChatGPT
-CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "4o")
+CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "GPT-4o")
 
 
 def _locate_model_switcher(driver, timeout: int = 5):
