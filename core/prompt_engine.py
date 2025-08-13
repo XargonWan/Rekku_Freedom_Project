@@ -68,7 +68,7 @@ async def build_json_prompt(message, context_memory) -> dict:
         reply_text = reply.text or getattr(reply, "caption", None)
         if not reply_text:
             reply_text = "[Non-text content]"
-        input_payload["reply_to"] = {
+        input_payload["reply_message_id"] = {
             "text": reply_text,
             "timestamp": reply.date.isoformat(),
             "from": {
@@ -210,6 +210,7 @@ def load_json_instructions() -> str:
 All rules:
 - Use 'input.payload.source.chat_id' as message target when applicable
 - Include 'thread_id' if present in the context
+- Use 'reply_message_id' to reply to specific messages and maintain conversation context.
 - Always return syntactically valid JSON
 - Use the 'actions' array, even for single actions
 

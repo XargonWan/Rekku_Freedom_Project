@@ -66,5 +66,6 @@ class DiscordInterface:
             "- Use channel_id for targets.\n"
             "- Markdown is supported, but avoid advanced features not supported by Discord.\n"
             "- Messages sent to the same channel as the source will appear as replies when possible.\n"
+            "- Use 'reply_message_id' to reply to specific messages.\n"
             "- Provide plain text or Markdown in the 'text' field."
         )

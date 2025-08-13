@@ -218,7 +218,7 @@ async def handle_message(event):
             await client.send_message(
                 original["chat_id"],
                 text,
-                reply_to=original["message_id"]
+                reply_message_id=original["message_id"]
             )
             await event.reply("✅ Reply sent.")
         else:
@@ -245,7 +245,7 @@ async def main():
                 await client.send_message(
                     chat_id,
                     message,
-                    reply_to=reply_to_message_id
+                    reply_message_id=reply_to_message_id
                 )
                 log_debug(f"[notify] Telegram message sent to {chat_id}")
             except Exception as e:

@@ -144,7 +144,7 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
         return
 
     media_type = detect_media_type(message)
-    log_debug(f"✅ handle_incoming_response: media_type = {media_type}; reply_to = {bool(message.reply_to_message)}")
+    log_debug(f"✅ handle_incoming_response: media_type = {media_type}; reply_message_id = {bool(message.reply_to_message)}")
 
     # === 1. Prova target da response_proxy (es. /say)
     target = response_proxy.get_target(TRAINER_ID)
@@ -194,11 +194,11 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
 
     # === 5. Send content
     chat_id = target["chat_id"]
-    reply_to = target["message_id"]
+    reply_message_id = target["message_id"]
     content_type = target["type"]
 
-    log_debug(f"Sending media_type={content_type} to chat_id={chat_id}, reply_to={reply_to}")
-    success, feedback = await send_content(context.bot, chat_id, message, content_type, reply_to)
+    log_debug(f"Sending media_type={content_type} to chat_id={chat_id}, reply_message_id={reply_message_id}")
+    success, feedback = await send_content(context.bot, chat_id, message, content_type, reply_message_id)
 
     await message.reply_text(feedback)
 
@@ -336,7 +336,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # === FILTER: Only respond if mentioned or in reply
     log_debug(f"[telegram_bot] Checking if message is for bot: chat_type={message.chat.type}, "
               f"text='{text[:50]}{'...' if len(text) > 50 else ''}', "
-              f"reply_to={message.reply_to_message is not None}")
+              f"reply_message_id={message.reply_to_message is not None}")
     
     if message.reply_to_message:
         log_debug(f"[telegram_bot] Reply to message from user ID: {message.reply_to_message.from_user.id if message.reply_to_message.from_user else 'None'}, "
@@ -942,7 +942,11 @@ class TelegramInterface:
     @staticmethod
     def get_interface_instructions() -> str:
         """Get instructions for this interface."""
-        return "Send messages via Telegram with proper chat_id and optional thread support."
+        return (
+            "Send messages via Telegram with proper chat_id and optional thread support.\n"
+            "- Use 'message_thread_id' to reply to specific messages in topics.\n"
+            "- Ensure the 'text' field contains the message content."
+        )
 
     async def send_message(self, payload: dict, original_message: object | None = None) -> None:
         """Send a message using the stored bot.
@@ -980,15 +984,15 @@ class TelegramInterface:
                 log_warning(f"[telegram_interface] Invalid target format: {target}")
                 return
 
-        reply_to = None
+        reply_message_id = None
         if (
             original_message
             and hasattr(original_message, "chat_id")
             and hasattr(original_message, "message_id")
             and target_for_comparison == getattr(original_message, "chat_id")
         ):
-            reply_to = original_message.message_id
-            log_debug(f"[telegram_interface] reply_to_message_id: {reply_to}")
+            reply_message_id = original_message.message_id
+            log_debug(f"[telegram_interface] reply_to_message_id: {reply_message_id}")
 
         fallback_chat_id = None
         fallback_message_thread_id = None
@@ -1008,7 +1012,7 @@ class TelegramInterface:
             target,
             text,
             message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
-            reply_to_message_id=reply_to,
+            reply_to_message_id=reply_message_id,
             fallback_chat_id=fallback_chat_id,
             fallback_message_thread_id=fallback_message_thread_id,
             fallback_reply_to_message_id=fallback_reply_to,
