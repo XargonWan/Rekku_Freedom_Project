@@ -27,7 +27,7 @@ class CoreInitializer:
         
         # 2. Load generic plugins
         self._load_plugins()
-        self._build_actions_block()
+        await self._build_actions_block()
         
         # 3. Auto-discover active interfaces
         self._discover_interfaces()
@@ -167,7 +167,7 @@ class CoreInitializer:
             self._pending_async_plugins.clear()
             log_info("[core_initializer] All pending async plugins processed")
 
-    def _build_actions_block(self):
+    async def _build_actions_block(self):
         """Collect and validate action schemas from all plugins and interfaces."""
         from core.action_parser import _load_action_plugins
 
@@ -260,11 +260,44 @@ class CoreInitializer:
                 except Exception as e:
                     log_error(f"[core_initializer] Error processing interface {iface}: {e}")
 
+        # --- Aggrega dati statici dai plugin/interfacce ---
+        static_context = {}
+        for plugin in _load_action_plugins():
+            if hasattr(plugin, "get_static_injection"):
+                try:
+                    data = plugin.get_static_injection()
+                    if inspect.isawaitable(data):
+                        data = await data
+                    if data:
+                        static_context.update(data)
+                except Exception as e:
+                    log_warning(f"[core_initializer] Errore static injection da plugin {plugin}: {e}")
+        # Interfacce
+        interface_dir = Path(__file__).parent.parent / "interface"
+        for file in interface_dir.glob("*.py"):
+            if file.name.startswith("_") or file.name.endswith(".disabled"):
+                continue
+            mod_name = f"interface.{file.stem}"
+            try:
+                module = importlib.import_module(mod_name)
+            except Exception:
+                continue
+            for _name, obj in inspect.getmembers(module, inspect.isclass):
+                if hasattr(obj, "get_static_injection"):
+                    try:
+                        data = obj.get_static_injection()
+                        if inspect.isawaitable(data):
+                            data = await data
+                        if data:
+                            static_context.update(data)
+                    except Exception as e:
+                        log_warning(f"[core_initializer] Errore static injection da interfaccia {obj}: {e}")
+
         self.actions_block = {
             "available_actions": available_actions,
+            "static_context": static_context,
         }
-        
-        log_debug(f"[core_initializer] Actions block built with {len(available_actions)} action types")
+        log_debug(f"[core_initializer] Actions block built with {len(available_actions)} action types, static_context: {list(static_context.keys())}")
     
     def _display_startup_summary(self):
         """Display a comprehensive startup summary."""

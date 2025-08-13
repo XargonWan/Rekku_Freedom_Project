@@ -60,13 +60,22 @@ class RedditInterface:
         return {
             "message_reddit": {
                 "description": "Send a message or reply on Reddit.",
-                "usage": {
-                    "type": "message_reddit",
-                    "interface": "reddit",
-                    "payload": {"text": "...", "target": "<username>", "reply_to": "<comment_or_message_id>"},
-                },
+                "required_fields": ["text", "target"],
+                "optional_fields": ["reply_message_id"],
             }
         }
+
+    def get_prompt_instructions(action_name: str) -> dict:
+        if action_name == "message_reddit":
+            return {
+                "description": "Send a message or reply on Reddit.",
+                "payload": {
+                    "text": {"type": "string", "example": "Hello Reddit!", "description": "The message text to send."},
+                    "target": {"type": "string", "example": "example_user", "description": "The username or subreddit."},
+                    "reply_message_id": {"type": "string", "example": "t1_abcdef", "description": "Optional comment/message id to reply to.", "optional": True},
+                },
+            }
+        return {}
 
     # --- public API ---------------------------------------------------------
     async def start(self):
@@ -134,18 +143,18 @@ class RedditInterface:
     async def send_message(self, payload: dict, original_message: object | None = None):
         text = payload.get("text", "")
         target = payload.get("target")
-        reply_to = payload.get("reply_to")
-        await universal_send(self._reddit_send, target, text=text, reply_to=reply_to)
+        reply_message_id = payload.get("reply_message_id")
+        await universal_send(self._reddit_send, target, text=text, reply_message_id=reply_message_id)
 
-    async def _reddit_send(self, target: str, text: str, reply_to: str | None = None):
-        if reply_to:
+    async def _reddit_send(self, target: str, text: str, reply_message_id: str | None = None):
+        if reply_message_id:
             try:
-                comment = await self.reddit.comment(reply_to)
+                comment = await self.reddit.comment(reply_message_id)
                 await comment.reply(text)
                 return
             except Exception:
                 try:
-                    message = await self.reddit.inbox.message(reply_to)
+                    message = await self.reddit.inbox.message(reply_message_id)
                     await message.reply(text)
                     return
                 except Exception as e:
@@ -205,7 +214,7 @@ class RedditInterface:
         return (
             "REDDIT INTERFACE INSTRUCTIONS:\n"
             "- Use usernames as targets when sending direct messages.\n"
-            "- Provide reply_to when replying to comments or messages.\n"
+            "- Provide 'reply_message_id' when replying to comments or messages to maintain context.\n"
             "- Text is plain Markdown.\n"
         )
 

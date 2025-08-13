@@ -159,7 +159,7 @@ async def send_with_thread_fallback(
         await bot.send_message(**send_kwargs)
         log_info(
             f"[telegram_utils] Message sent to {chat_id}"
-            f" (thread: {message_thread_id}, reply_to: {reply_to_message_id})"
+            f" (thread: {message_thread_id}, reply_message_id: {reply_to_message_id})"
         )
         return
     except Exception as e:

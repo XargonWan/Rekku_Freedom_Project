@@ -46,9 +46,7 @@ class ManualAIPlugin(AIPluginBase):
 
     async def handle_incoming_message(self, bot, message, prompt):
         from core.notifier import notify_trainer
-        from core.config import TRAINER_ID
-
-        notify_trainer(TRAINER_ID, "🚨 Generating the reply...")
+        notify_trainer("🚨 Generating the reply...")
 
         user_id = message.from_user.id
         text = message.text or ""

@@ -1,8 +1,10 @@
 # core/notifier.py
 
 from core.config import TRAINER_ID
-from typing import Callable, List, Tuple
+import time
+from typing import List, Tuple, Callable
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from collections import deque
 
 _in_notify = False
 
@@ -29,6 +31,12 @@ def set_notifier(fn: Callable[[int, str], None]):
 CHUNK_SIZE = 4000
 
 def notify(chat_id: int, message: str):
+    global _last_notify_times, _last_notify_messages
+    _last_notify_times = deque(maxlen=100)
+    _last_notify_messages = {}
+    _NOTIFY_CAP_PER_SEC = 5
+    _NOTIFY_IDENTICAL_BLOCK_SEC = 300  # 5 minuti
+
     """Send ``message`` to ``chat_id`` in chunks to avoid Telegram limits."""
     global _in_notify
     if _in_notify:
@@ -47,9 +55,22 @@ def notify(chat_id: int, message: str):
                 )
     finally:
         _in_notify = False
+    now = time.time()
+    # Flood control: non inviare più di X notify al secondo
+    _last_notify_times.append(now)
+    recent = [t for t in _last_notify_times if now - t < 1]
+    if len(recent) > _NOTIFY_CAP_PER_SEC:
+        log_warning(f"[notifier] Flood control: troppe notify in 1 secondo, bloccata: {message}")
+        return
+    # Blocca messaggi identici per 5 minuti
+    last_time, last_msg = _last_notify_messages.get(chat_id, (0, None))
+    if last_msg == message and now - last_time < _NOTIFY_IDENTICAL_BLOCK_SEC:
+        log_info(f"[notifier] Messaggio identico già inviato <5min, bloccato: {message}")
+        return
+    _last_notify_messages[chat_id] = (now, message)
 
-def notify_trainer(chat_id: int, message: str) -> None:
-    """Notify the trainer with ``message`` sent to ``chat_id``."""
-
-    log_debug(f"[notifier] Notification for TRAINER_ID={chat_id}: {message}")
-    notify(chat_id, message)
+def notify_trainer(message: str) -> None:
+    """Notify the trainer with ``message`` sent to ``TRAINER_ID`` only."""
+    from core.config import TRAINER_ID
+    log_debug(f"[notifier] Notification for TRAINER_ID={TRAINER_ID}: {message}")
+    notify(TRAINER_ID, message)

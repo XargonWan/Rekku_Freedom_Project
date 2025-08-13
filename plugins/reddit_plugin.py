@@ -37,7 +37,7 @@ class RedditPlugin:
         return {
             "message_reddit": {
                 "required_fields": ["text", "target", "title"],
-                "optional_fields": ["thread_id"],
+                "optional_fields": ["thread_id"],  # Solo per Reddit, Telegram usa message_thread_id
                 "description": "Post a submission or comment to Reddit",
             }
         }
@@ -51,7 +51,7 @@ class RedditPlugin:
                 "text": {"type": "string", "example": "Post content here", "description": "The content of the post or comment"},
                 "target": {"type": "string", "example": "r/example_subreddit", "description": "The subreddit to post to"},
                 "title": {"type": "string", "example": "Optional post title", "description": "Title for new posts", "optional": True},
-                "thread_id": {"type": "string", "example": "abc123", "description": "Optional comment thread ID for replies", "optional": True},
+                "thread_id": {"type": "string", "example": "abc123", "description": "Optional comment thread ID for replies (Reddit only)", "optional": True},
                 "interface": {"type": "string", "example": self.get_interface_id(), "description": "Interface identifier", "auto_filled": True},
             },
         }
@@ -59,7 +59,7 @@ class RedditPlugin:
     def execute_action(self, action: dict, context: dict, bot, original_message):
         """Execute a Reddit message action.
 
-        `thread_id` should be a Reddit post ID or comment ID as a string.
+        `thread_id` should be a Reddit post ID or comment ID as a string. Per Telegram usare sempre `message_thread_id`.
         If provided, `text` will be posted as a reply to that thread. If not,
         a new submission is created in the target subreddit using `title`.
         """

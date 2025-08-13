@@ -21,10 +21,11 @@ import traceback
 
 load_dotenv()
 
-API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
+# Provide safe defaults so this module can be imported even when env vars are missing
+API_ID = int(os.getenv("API_ID", "0") or "0")
+API_HASH = os.getenv("API_HASH", "")
 SESSION = os.getenv("SESSION", "rekku_userbot")
-TRAINER_ID = int(os.getenv("TRAINER_ID"))
+TRAINER_ID = int(os.getenv("TRAINER_ID", "0") or "0")
 
 say_sessions = {}
 context_memory = {}
@@ -217,7 +218,7 @@ async def handle_message(event):
             await client.send_message(
                 original["chat_id"],
                 text,
-                reply_to=original["message_id"]
+                reply_message_id=original["message_id"]
             )
             await event.reply("✅ Reply sent.")
         else:
@@ -244,7 +245,7 @@ async def main():
                 await client.send_message(
                     chat_id,
                     message,
-                    reply_to=reply_to_message_id
+                    reply_message_id=reply_to_message_id
                 )
                 log_debug(f"[notify] Telegram message sent to {chat_id}")
             except Exception as e:

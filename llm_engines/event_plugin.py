@@ -66,19 +66,19 @@ class EventPlugin(AIPluginBase):
                         (date, time_, desc),
                     )
                     row = await cur.fetchone()
+                    if row:
+                        await bot.notify(message.trainer_id, "⚠️ Event already exists")
+                        return
+                    await insert_scheduled_event(
+                        date=date,
+                        time=time_,
+                        recurrence_type=repeat,
+                        description=desc,
+                        created_by="test",
+                    )
+                    saved = True
             finally:
                 conn.close()
-            if row:
-                await bot.send_message(message.chat_id, "⚠️ Event already exists")
-                return
-            await insert_scheduled_event(
-                date=date,
-                time=time_,
-                recurrence_type=repeat,
-                description=desc,
-                created_by="test",
-            )
-            saved = True
 
         if saved:
             await bot.send_message(message.chat_id, "📅 Event(s) saved")
