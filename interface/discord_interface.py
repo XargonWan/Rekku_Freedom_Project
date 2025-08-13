@@ -38,6 +38,7 @@ class DiscordInterface:
                 "payload": {
                     "text": {"type": "string", "example": "Hello Discord!", "description": "The message text to send."},
                     "target": {"type": "string", "example": "1234567890", "description": "The channel_id of the recipient."},
+                    "reply_to_message_id": {"type": "integer", "example": 987654321, "description": "Optional ID of the message to reply to", "optional": True},
                 },
             }
         return {}

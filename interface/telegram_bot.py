@@ -932,6 +932,7 @@ class TelegramInterface:
                     "text": {"type": "string", "example": "Hello!", "description": "The message text to send"},
                     "target": {"type": "string", "example": "-123456789", "description": "The chat_id of the recipient (can be string or integer)"},
                     "message_thread_id": {"type": "integer", "example": 456, "description": "Optional thread ID for group chats", "optional": True},
+                    "reply_to_message_id": {"type": "integer", "example": 12345, "description": "Optional ID of the message to reply to", "optional": True},
                 },
             }
         return None
