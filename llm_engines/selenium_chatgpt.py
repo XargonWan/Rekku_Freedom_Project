@@ -690,7 +690,32 @@ def process_prompt_in_chat(
 
 
 # Funzione di selezione modello ChatGPT
-CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "4o")
+CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "GPT-4o")
+
+
+def _locate_model_switcher(driver, timeout: int = 5):
+    """Return the model switcher button using current DOM selectors.
+
+    The ChatGPT interface recently switched to Radix-generated element IDs,
+    so we try the previous ``data-testid`` selector first and fall back to
+    a more generic XPath search based on the ``radix-`` prefix.
+    """
+    try:
+        return WebDriverWait(driver, timeout).until(
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
+            )
+        )
+    except TimeoutException:
+        log_debug("[chatgpt_model] Falling back to Radix model switcher selector")
+        return WebDriverWait(driver, timeout).until(
+            EC.element_to_be_clickable(
+                (
+                    By.XPATH,
+                    "//button[starts-with(@id,'radix-') and contains(@aria-label,'model')]",
+                )
+            )
+        )
 
 
 def ensure_chatgpt_model(driver):
@@ -698,11 +723,7 @@ def ensure_chatgpt_model(driver):
     log_info(f"[chatgpt_model] Verifying active model matches {CHATGPT_MODEL}")
     try:
         log_debug("[chatgpt_model] Locating model switcher button")
-        switcher_btn = WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
-            )
-        )
+        switcher_btn = _locate_model_switcher(driver)
         aria_label = switcher_btn.get_attribute("aria-label") or ""
         log_debug(f"[chatgpt_model] switcher aria-label: {aria_label}")
         match = re.search(r"current model is\s*(.*)", aria_label)
@@ -713,7 +734,10 @@ def ensure_chatgpt_model(driver):
             return True
 
         log_debug("[chatgpt_model] Opening dropdown")
-        driver.execute_script("arguments[0].click();", switcher_btn)
+        try:
+            switcher_btn.find_element(By.XPATH, "./div").click()
+        except Exception:
+            switcher_btn.click()
         WebDriverWait(driver, 5).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "div[role='menu']"))
         )
@@ -729,50 +753,59 @@ def ensure_chatgpt_model(driver):
             log_info(f"[chatgpt_model] Found desired model in main list: {CHATGPT_MODEL}")
         except TimeoutException:
             try:
-                log_debug("[chatgpt_model] Model not in main list, opening legacy submenu")
-                legacy_btn = WebDriverWait(driver, 3).until(
+                log_debug("[chatgpt_model] Falling back to Radix selector for model option")
+                model_elem = WebDriverWait(driver, 5).until(
                     EC.element_to_be_clickable(
-                        (By.CSS_SELECTOR, "div[data-testid='Legacy models-submenu']")
+                        (
+                            By.XPATH,
+                            f"//div[starts-with(@id,'radix-')]/div//div[contains(., '{CHATGPT_MODEL}')]",
+                        )
                     )
                 )
-                driver.execute_script("arguments[0].click();", legacy_btn)
-                log_debug("[chatgpt_model] Legacy models opened")
-                model_elem = WebDriverWait(driver, 3).until(
-                    EC.element_to_be_clickable(
-                        (By.CSS_SELECTOR, f"div[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
-                    )
-                )
-                log_info(f"[chatgpt_model] Found desired model under legacy: {CHATGPT_MODEL}")
+                log_info(f"[chatgpt_model] Found desired model via fallback: {CHATGPT_MODEL}")
             except Exception as e:
-                log_warning(f"[chatgpt_model] Desired model {CHATGPT_MODEL} not found: {e}")
                 try:
-                    items = driver.find_elements(By.CSS_SELECTOR, "div[role='menuitem']")
-                    names = [i.text for i in items]
-                    log_debug(f"[chatgpt_model] Available models: {names}")
-                except Exception:
-                    pass
-                return False
+                    log_debug("[chatgpt_model] Trying nested provider list")
+                    provider_elem = WebDriverWait(driver, 2).until(
+                        EC.element_to_be_clickable((By.XPATH, "//div[@role='menu']//div[@role='menuitem'][1]"))
+                    )
+                    provider_elem.click()
+                    model_elem = WebDriverWait(driver, 5).until(
+                        EC.element_to_be_clickable(
+                            (
+                                By.XPATH,
+                                f"//div[@role='menu']//div[contains(., '{CHATGPT_MODEL}')]",
+                            )
+                        )
+                    )
+                    log_info(
+                        f"[chatgpt_model] Found desired model via nested fallback: {CHATGPT_MODEL}"
+                    )
+                except Exception as inner:
+                    log_warning(
+                        f"[chatgpt_model] Desired model {CHATGPT_MODEL} not found: {inner}"
+                    )
+                    try:
+                        items = driver.find_elements(By.CSS_SELECTOR, "div[role='menuitem']")
+                        names = [i.text for i in items]
+                        log_debug(f"[chatgpt_model] Available models: {names}")
+                    except Exception:
+                        pass
+                    return False
 
         log_debug("[chatgpt_model] Clicking desired model")
-        driver.execute_script("arguments[0].scrollIntoView(true);", model_elem)
-        driver.execute_script("arguments[0].click();", model_elem)
+        ActionChains(driver).move_to_element(model_elem).click().perform()
         log_info(f"[chatgpt_model] Clicked on model {CHATGPT_MODEL}")
         try:
             WebDriverWait(driver, 5).until(
                 lambda d: CHATGPT_MODEL in (
-                    d.find_element(By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
-                    .get_attribute("aria-label")
-                    or ""
+                    _locate_model_switcher(d).get_attribute("aria-label") or ""
                 )
             )
             log_info(f"[chatgpt_model] Modello selezionato: {CHATGPT_MODEL}")
             return True
         except TimeoutException:
-            new_label = (
-                driver.find_element(By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
-                .get_attribute("aria-label")
-                or ""
-            )
+            new_label = _locate_model_switcher(driver).get_attribute("aria-label") or ""
             log_warning(f"[chatgpt_model] Verifica modello fallita: {new_label}")
             return False
     except Exception as e:
