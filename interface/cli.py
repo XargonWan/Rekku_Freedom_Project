@@ -6,6 +6,7 @@ import queue
 from core.logging_utils import log_debug, log_info
 from core.plugin_base import PluginBase
 from core.message_queue import MessageQueue
+from core.core_initializer import register_interface, core_initializer
 
 # Register event_type for CLI
 EVENT_TYPE_CLI = "message_cli"
@@ -86,4 +87,12 @@ class CLIInterface(PluginBase):
         msg = {"type": EVENT_TYPE_CLI_EXEC, "command": command}
         self.queue.put(msg)
 
-PLUGIN_CLASS = CLIInterface
+INTERFACE_CLASS = CLIInterface
+
+
+def start_cli_interface():
+    """Instantiate and register the CLI interface with the core."""
+    cli = CLIInterface()
+    register_interface("cli", cli)
+    core_initializer.register_interface("cli")
+    return cli
