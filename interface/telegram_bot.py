@@ -1032,7 +1032,3 @@ class TelegramInterface:
 # Register TelegramInterface for discovery by the core
 PLUGIN_CLASS = TelegramInterface
 
-# Ensure the action type is registered globally
-from core.action_parser import set_available_plugins
-set_available_plugins([TelegramInterface])
-
