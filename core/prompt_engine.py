@@ -1,11 +1,10 @@
 # core/prompt_engine.py
 
 from core.rekku_tagging import extract_tags, expand_tags
-import os
-from datetime import datetime
-from core.db import get_db
+from core.db import get_conn
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+import aiomysql
 
 
 async def build_json_prompt(message, context_memory) -> dict:
@@ -19,9 +18,6 @@ async def build_json_prompt(message, context_memory) -> dict:
         Dictionary storing last messages per chat.
     """
 
-    import core.weather
-    import pytz
-
     chat_id = message.chat_id
     text = message.text or ""
 
@@ -33,30 +29,26 @@ async def build_json_prompt(message, context_memory) -> dict:
     expanded_tags = expand_tags(tags)
     memories = []
     if expanded_tags:
-        memories = search_memories(tags=expanded_tags, limit=5)
+        memories = await search_memories(tags=expanded_tags, limit=5)
 
-    # === 3. Temporal and weather info ===
-    location = os.getenv("WEATHER_LOCATION", "Kyoto")
-    try:
-        tz = pytz.timezone("Asia/Tokyo")
-    except Exception:
-        tz = pytz.utc
-    now_local = datetime.now(tz)
-    date = now_local.strftime("%Y-%m-%d")
-    time = now_local.strftime("%H:%M")
-    weather = core.weather.current_weather
-
+    # === 3. Context base ===
     context_section = {
         "messages": messages,
         "memories": memories,
-        "location": location,
-        "weather": weather if weather else "Unavailable",
-        "date": date,
-        "time": time,
     }
 
+    # === 3b. Static injections from plugins ===
+    try:
+        from core.action_parser import gather_static_injections
+
+        injections = await gather_static_injections()
+        if isinstance(injections, dict):
+            context_section.update(injections)
+    except Exception as e:
+        log_warning(f"[json_prompt] Failed to gather static injections: {e}")
+
     # === 4. Input payload ===
-    thread_id = getattr(message, "message_thread_id", None)
+    message_thread_id = getattr(message, "message_thread_id", None)
     input_payload = {
         "text": text,
         "source": {
@@ -64,7 +56,7 @@ async def build_json_prompt(message, context_memory) -> dict:
             "message_id": message.message_id,
             "username": message.from_user.full_name,
             "usertag": f"@{message.from_user.username}" if message.from_user.username else "(no tag)",
-            "thread_id": thread_id,
+            "message_thread_id": message_thread_id,
         },
         "timestamp": message.date.isoformat(),
         "privacy": "default",
@@ -94,15 +86,24 @@ async def build_json_prompt(message, context_memory) -> dict:
     # Add JSON instructions to the prompt
     json_instructions = load_json_instructions()
     
-    # Get interface-specific instructions
-    interface_instructions = get_interface_instructions("telegram")  # Default to telegram for now
-    
+    # Interface-specific instructions are provided via the available actions block
+    # No hardcoded interface references - plugins define their own instructions
+
     prompt_with_instructions = {
-        "context": context_section, 
+        "context": context_section,
         "input": input_section,
         "instructions": json_instructions,
-        "interface_instructions": interface_instructions
     }
+
+    # Include unified actions metadata from the initializer
+    try:
+        from core.core_initializer import core_initializer
+        prompt_with_instructions["actions"] = core_initializer.actions_block.get(
+            "available_actions", {}
+        )
+    except Exception as e:
+        log_warning(f"[prompt_engine] Failed to inject actions block: {e}")
+        prompt_with_instructions["actions"] = {}
 
     return prompt_with_instructions
 
@@ -114,11 +115,11 @@ def load_identity_prompt() -> str:
         log_warning("prompt.txt not found. Identity prompt not loaded.")
         return ""
 
-def search_memories(tags=None, scope=None, limit=5):
+async def search_memories(tags=None, scope=None, limit=5):
     if not tags:
         return []
 
-    placeholders = ",".join(["?"] * len(tags))
+    placeholders = ",".join(["%s"] * len(tags))
 
     query = f"""
         SELECT DISTINCT content
@@ -134,24 +135,29 @@ def search_memories(tags=None, scope=None, limit=5):
     params = tags.copy()
 
     if scope:
-        query += " AND scope = ?"
+        query += " AND scope = %s"
         params.append(scope)
 
-    query += " ORDER BY timestamp DESC LIMIT ?"
+    query += " ORDER BY timestamp DESC LIMIT %s"
     params.append(limit)
 
     log_debug("Query:")
     log_debug(query)
     log_debug(f"Parameters: {params}")
 
+    conn = await get_conn()
     try:
-        with get_db() as db:
-            return [row[0] for row in db.execute(query, params)]
+        async with conn.cursor() as cur:
+            await cur.execute(query, params)
+            rows = await cur.fetchall()
+            return [row[0] for row in rows]
     except Exception as e:
-        log_error(f"Query failed: {e}")
+        log_error(f"Query failed: {repr(e)}")
         return []
+    finally:
+        conn.close()
 
-def build_prompt(
+async def build_prompt(
     user_text: str,
     identity_prompt: str = "",
     extract_tags_fn=extract_tags,
@@ -161,7 +167,7 @@ def build_prompt(
 ) -> list:
     tags = extract_tags_fn(user_text) if extract_tags_fn else []
     expanded_tags = expand_tags(tags) if tags else []
-    memories = search_memories_fn(tags=expanded_tags, limit=limit) if search_memories_fn else []
+    memories = await search_memories_fn(tags=expanded_tags, limit=limit) if search_memories_fn else []
 
     memory_block = "\n".join(f"- {mem}" for mem in memories) if memories else "No relevant memory found."
 
@@ -198,47 +204,17 @@ def build_prompt(
     return messages
 
 def load_json_instructions() -> str:
-    """Load JSON response instructions for the AI."""
-    return """Rekku, be yourself, reply as usual but wrapped in JSON format, details:
+    return """
+- Check the available_actions section below for supported interfaces and their capabilities
 
-Format:
-{
-  "type": "message",
-  "interface": "telegram",
-  "payload": {
-    "text": "Your response message here",
-    "target": "USE input.payload.source.chat_id",
-    "thread_id": "USE input.payload.source.thread_id IF PRESENT"
-  }
-}
+All rules:
+- Use 'input.payload.source.chat_id' as message target when applicable
+- Include 'thread_id' if present in the context
+- Always return syntactically valid JSON
+- Use the 'actions' array, even for single actions
 
-JSON Response Rules:
-
-1. ALWAYS use input.payload.source.chat_id as payload.target
-2. If input.payload.source.thread_id exists and is not null, include it as payload.thread_id
-3. NEVER hardcode chat_id or thread_id values anywhere
-4. The response language MUST EXACTLY match the one used in input.payload.text
-   - No auto-detection
-   - No fallback
-   - No assumptions
-5. The reply MUST contain only the JSON structure, with no text before or after
-6. The JSON MUST be syntactically valid and parseable
-7. In group topics, both payload.target AND payload.thread_id MUST match the source exactly
-
-For the rest, be yourself, use your personality, and respond as usual. Do not change your style or tone based on the JSON format. The JSON is just a wrapper for your response.
+The JSON is just a wrapper — speak naturally as you always do.
 """
 
-def get_interface_instructions(interface_name: str) -> str:
-    """Get specific instructions for an interface."""
-    try:
-        # Try to import the interface and get its instructions
-        if interface_name == "telegram":
-            from interface.telegram_bot import TelegramInterface
-            return TelegramInterface.get_interface_instructions()
-        # Add other interfaces here as needed
-        else:
-            return f"Use {interface_name} format for responses."
-    except (ImportError, AttributeError) as e:
-        log_warning(f"Could not load interface instructions for {interface_name}: {e}")
-        return f"Respond in {interface_name} compatible format."
+
 

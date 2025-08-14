@@ -15,111 +15,229 @@ on:
       - "feat/**"
 
 jobs:
-  build-and-push:
+  prepare:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      semver: ${{ steps.gitversion.outputs.semVer }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install GitVersion
+        uses: gittools/actions/gitversion/setup@v0.9.14
+        with:
+          versionSpec: '5.x'
+      - name: Determine version with GitVersion
+        id: gitversion
+        run: |
+          output=$(dotnet-gitversion /config GitVersion.yml /output json 2>&1)
+          echo "$output"
+          json=$(echo "$output" | awk 'BEGIN{found=0} /^\s*{/ {found=1} {if (found) print} /^\s*}/ {exit}')
+          if echo "$json" | jq empty >/dev/null 2>&1; then
+            semver=$(echo "$json" | jq -r '.MajorMinorPatch')
+            echo "semVer=${semver}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::dotnet-gitversion did not produce valid JSON"
+            exit 1
+          fi
 
+  build-images:
+    needs: prepare
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: true
     permissions:
       contents: read
       packages: write
       id-token: write
-
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project
     steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build and push by digest (${{ matrix.arch }})
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            GITVERSION_TAG=${{ needs.prepare.outputs.semver }}
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,push=true
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Export digest
+        run: |
+          echo "${{ steps.build.outputs.digest }}" > digest-${{ matrix.arch }}
+          echo "Digest for ${{ matrix.arch }}: ${{ steps.build.outputs.digest }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digest-${{ matrix.arch }}
 
-    - name: Install GitVersion
-      uses: gittools/actions/gitversion/setup@v0.9.14
-      with:
-        versionSpec: '5.x'
-
-    - name: Determine version with GitVersion
-      id: gitversion_build
-      uses: gittools/actions/gitversion/execute@v0.9.14
-      with:
-        useConfigFile: true
-
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }}
-
-    - name: Tag image as latest (main branch only)
-      if: github.ref == 'refs/heads/main'
-      run: |
-        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:${{ steps.gitversion_build.outputs.semVer }} ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project:latest
-
-  run-tests:
+  manifest:
+    needs: [prepare, build-images]
     runs-on: ubuntu-latest
-    needs: build-and-push
-
-    continue-on-error: true
-
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/rekku_freedom_project
     steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - uses: actions/download-artifact@v4
+        with:
+          name: digest-amd64
+          path: .
+      - uses: actions/download-artifact@v4
+        with:
+          name: digest-arm64
+          path: .
+        continue-on-error: true
+      - name: Read digests
+        id: digests
+        run: |
+          missing=""
+          have_one="false"
+          if [ -f digest-amd64 ]; then
+            echo "amd64=$(cat digest-amd64)" >> "$GITHUB_OUTPUT"
+            echo "AMD64 digest: $(cat digest-amd64)"
+            have_one="true"
+          else
+            echo "::warning::digest-amd64 missing, will skip amd64 in manifest"
+            missing="amd64"
+          fi
+          if [ -f digest-arm64 ]; then
+            echo "arm64=$(cat digest-arm64)" >> "$GITHUB_OUTPUT"
+            echo "ARM64 digest: $(cat digest-arm64)"
+            have_one="true"
+          else
+            echo "::warning::digest-arm64 missing, will skip arm64 in manifest"
+            missing="$missing arm64"
+          fi
+          if [ "$have_one" = "false" ]; then
+            echo "::error::No digests available, cannot create any manifest. Failing job."
+            exit 1
+          fi
+          if [ -n "$missing" ]; then
+            echo "::warning::Some digests are missing: $missing"
+          fi
+      - name: Compute image tags
+        id: meta
+        env:
+          SEMVER: ${{ needs.prepare.outputs.semver }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          IMAGE_NAME="$IMAGE_NAME"
+          tags=""
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            tags="$IMAGE_NAME:pr$PR_NUMBER-$SEMVER"
+          elif [ "$REF_NAME" = "main" ]; then
+            tags="$IMAGE_NAME:$SEMVER,$IMAGE_NAME:latest"
+          elif [ "$REF_NAME" = "develop" ]; then
+            tags="$IMAGE_NAME:develop-$SEMVER,$IMAGE_NAME:latest-develop"
+          else
+            sanitized=$(echo "$REF_NAME" | tr '/' '-')
+            tags="$IMAGE_NAME:$sanitized-$SEMVER"
+          fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          echo "Generated tags: $tags"
+      - name: Create multi-arch manifest
+        env:
+          AMD64_DIGEST: ${{ steps.digests.outputs.amd64 }}
+          ARM64_DIGEST: ${{ steps.digests.outputs.arm64 }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in $(echo "$TAGS" | tr ',' ' '); do
+            args=""
+            if [ -n "$AMD64_DIGEST" ]; then
+              args="$args $IMAGE_NAME@$AMD64_DIGEST"
+            fi
+            if [ -n "$ARM64_DIGEST" ]; then
+              args="$args $IMAGE_NAME@$ARM64_DIGEST"
+            fi
+            if [ -z "$args" ]; then
+              echo "::error::No digests available for manifest $tag, skipping."
+              continue
+            fi
+            echo "Creating manifest for tag: $tag with: $args"
+            docker buildx imagetools create -t "$tag" $args
+            echo "✅ Created manifest for $tag"
+          done
 
-    - name: Install GitVersion
-      uses: gittools/actions/gitversion/setup@v0.9.14
-      with:
-        versionSpec: '5.x'
+  cleanup-images:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    needs: manifest
+    continue-on-error: true
+    steps:
+      - name: Remove dangling and old PR images from Docker Hub
+        env:
+          USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          repo="$USERNAME/rekku_freedom_project"
+          
+          # Get auth token
+          token_response=$(curl -s -H "Content-Type: application/json" -X POST \
+            -d "{\"username\": \"$USERNAME\", \"password\": \"$PASSWORD\"}" \
+            https://hub.docker.com/v2/users/login/)
+          
+          token=$(echo "$token_response" | jq -r '.token // empty')
+          if [ -z "$token" ] || [ "$token" = "null" ]; then
+            echo "::warning::Failed to authenticate with Docker Hub API"
+            exit 0
+          fi
 
-    - name: Determine version with GitVersion
-      id: gitversion_test
-      uses: gittools/actions/gitversion/execute@v0.9.14
-      with:
-        useConfigFile: true
+          # Delete untagged images
+          echo "🧹 Cleaning up untagged images..."
+          curl -s -H "Authorization: JWT $token" "https://hub.docker.com/v2/repositories/$repo/images?page_size=100" | \
+            jq -r '.results[]? | select((.digest != null) and (.tags | length == 0)) | .digest' | while read digest; do
+              if [ -n "$digest" ]; then
+                echo "Deleting dangling image $digest"
+                curl -s -H "Authorization: JWT $token" -X DELETE "https://hub.docker.com/v2/repositories/$repo/images/$digest/" || true
+              fi
+            done
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.x'
-
-    - name: Install dependencies
-      run: |
-        python -m venv venv
-        source venv/bin/activate
-        pip install --upgrade pip
-        pip install -r requirements.txt
-
-    - name: Run tests
-      run: |
-        source venv/bin/activate
-        pytest --maxfail=5 --disable-warnings
-
-    - name: Generate Changelog
-      id: changelog
-      run: |
-        PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ || echo "")
-        if [ -n "$PREV_TAG" ]; then
-          git log $PREV_TAG..HEAD --oneline > changelog.txt
-        else
-          git log --oneline > changelog.txt
-        fi
-        echo "changelog<<EOF" >> $GITHUB_OUTPUT
-        cat changelog.txt >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
-
-    - name: Create GitHub Release
-      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
-      uses: actions/create-release@v1
-      with:
-        tag_name: ${{ steps.gitversion_test.outputs.semVer }}
-        release_name: Release ${{ steps.gitversion_test.outputs.semVer }}
-        body: |
-          Changelog:
-          ${{ steps.changelog.outputs.changelog }}
-        draft: false
-        prerelease: ${{ github.ref != 'refs/heads/main' }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Delete PR tags older than two weeks
+          echo "🧹 Cleaning up old PR tags..."
+          cutoff=$(date -u -d '14 days ago' +%s)
+          curl -s -H "Authorization: JWT $token" "https://hub.docker.com/v2/repositories/$repo/tags?page_size=100" | \
+            jq -r '.results[]? | .name + " " + .last_updated' | while read name updated; do
+              if [[ "$name" == pr* ]] && [ -n "$updated" ]; then
+                ts=$(date -u -d "$updated" +%s 2>/dev/null || echo 0)
+                if [ $ts -lt $cutoff ] && [ $ts -gt 0 ]; then
+                  echo "Deleting tag $name (older than two weeks)"
+                  curl -s -H "Authorization: JWT $token" -X DELETE "https://hub.docker.com/v2/repositories/$repo/tags/$name/" || true
+                fi
+              fi
+            done
+          
+          echo "✅ Cleanup completed"

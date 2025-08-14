@@ -1,0 +1,37 @@
+#!/bin/bash
+# CLI tool to send messages to Rekku
+
+show_help() {
+    echo "Usage: rekku [-h|--help] [-e|--exec <cmd>] [message]"
+    echo "  -h, --help        Show this help"
+    echo "  -e, --exec <cmd>  Execute command as terminal"
+    echo "  message           Send plain message to Rekku"
+}
+
+SERVER_PORT=5555
+SERVER_HOST=127.0.0.1
+
+if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+    show_help
+    exit 0
+fi
+
+if [[ "$1" == "-e" || "$1" == "--exec" ]]; then
+    shift
+    CMD="$*"
+    if [[ -z "$CMD" ]]; then
+        echo "No command to execute."
+        exit 1
+    fi
+    echo "{\"type\": \"cli_exec\", \"command\": \"$CMD\"}" | nc $SERVER_HOST $SERVER_PORT
+    exit 0
+fi
+
+if [[ -n "$*" ]]; then
+    MSG="$*"
+    echo "{\"type\": \"message_cli\", \"text\": \"$MSG\"}" | nc $SERVER_HOST $SERVER_PORT
+    exit 0
+fi
+
+show_help
+exit 1

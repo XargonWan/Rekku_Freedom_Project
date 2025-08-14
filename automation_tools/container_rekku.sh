@@ -22,21 +22,21 @@ case "$MODE" in
         if [ "${1:-}" = "--as-service" ]; then
             shift
             log "Running main.py in service mode"
-            exec python3 /app/main.py --service "$@"
+            exec /app/venv/bin/python /app/main.py --service "$@"
         else
             log "Running main.py interactively"
-            exec python3 /app/main.py "$@"
+            exec /app/venv/bin/python /app/main.py "$@"
         fi
         ;;
     notify)
         log "Sending test notification"
-        python3 - <<'PY'
+        /app/venv/bin/python - <<'PY'
 import asyncio
 from telegram import Bot
-from core.config import BOT_TOKEN, OWNER_ID
+from core.config import BOT_TOKEN, TRAINER_ID
 async def main():
     bot = Bot(token=BOT_TOKEN)
-    await bot.send_message(chat_id=OWNER_ID, text="Test notification")
+    await bot.send_message(chat_id=TRAINER_ID, text="Test notification")
 asyncio.run(main())
 PY
         ;;

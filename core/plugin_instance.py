@@ -5,13 +5,16 @@ from core.prompt_engine import load_identity_prompt
 import json
 from core.prompt_engine import build_json_prompt
 import asyncio
+from types import SimpleNamespace
+from datetime import datetime
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.action_parser import parse_action
 
+# Plugin gestito centralmente in initialize_core_components
 plugin = None
 rekku_identity_prompt = None
 
-def load_plugin(name: str, notify_fn=None):
+async def load_plugin(name: str, notify_fn=None):
     global plugin, rekku_identity_prompt
 
     # 🔁 If already loaded but different, replace it or update notify_fn
@@ -100,23 +103,35 @@ def load_plugin(name: str, notify_fn=None):
         except Exception as e:
             log_warning(f"[plugin] Error during model setup: {e}")
 
-    set_active_llm(name)
+    await set_active_llm(name)
 
-async def handle_incoming_message(bot, message, context_memory):
-    """Process incoming messages and handle actions."""
-    log_debug(f"[plugin_instance] Received message: {message.text}")
-    log_debug(f"[plugin_instance] Context memory: {context_memory}")
+async def handle_incoming_message(bot, message, context_memory_or_prompt):
+    """Process incoming messages or pre-built prompts."""
 
     if plugin is None:
         raise RuntimeError("No LLM plugin loaded.")
 
-    user_id = message.from_user.id if message.from_user else "unknown"
-    text = message.text or ""
-    log_debug(
-        f"[plugin] Incoming for {plugin.__class__.__name__}: chat_id={message.chat_id}, user_id={user_id}, text={text!r}"
-    )
-
-    prompt = await build_json_prompt(message, context_memory)
+    if message is None and isinstance(context_memory_or_prompt, dict):
+        prompt = context_memory_or_prompt
+        message = SimpleNamespace(
+            chat_id="TARDIS / system / events",
+            message_id=int(datetime.utcnow().timestamp() * 1000) % 1_000_000,
+            text=prompt.get("input", {}).get("payload", {}).get("description", ""),
+            date=datetime.utcnow(),
+            from_user=SimpleNamespace(id=0, full_name="system", username="system"),
+            reply_to_message=None,
+            chat=SimpleNamespace(id="TARDIS / system / events", type="private"),
+        )
+        log_debug("[plugin_instance] Handling pre-built event prompt")
+    else:
+        message_text = getattr(message, "text", "")
+        log_debug(f"[plugin_instance] Received message: {message_text}")
+        log_debug(f"[plugin_instance] Context memory: {context_memory_or_prompt}")
+        user_id = message.from_user.id if message.from_user else "unknown"
+        log_debug(
+            f"[plugin] Incoming for {plugin.__class__.__name__}: chat_id={message.chat_id}, user_id={user_id}, text={message_text!r}"
+        )
+        prompt = await build_json_prompt(message, context_memory_or_prompt)
 
     log_debug("🌐 JSON PROMPT built for the plugin:")
     log_debug(json.dumps(prompt, indent=2, ensure_ascii=False))
@@ -138,6 +153,48 @@ def get_target(message_id):
 def get_plugin():
     return plugin
 
-def get_plugin():
-    return plugin
+def load_generic_plugin(name: str, notify_fn=None):
+    global plugin
+
+    # 🔁 Se il plugin è già caricato, verifica se è lo stesso
+    if plugin is not None:
+        current_plugin_name = plugin.__class__.__module__.split(".")[-1]
+        if current_plugin_name == name:
+            log_debug(f"[plugin] ⚠️ Plugin già caricato: {plugin.__class__.__name__}")
+            return
+
+    try:
+        import importlib
+        module = importlib.import_module(f"plugins.{name}_plugin")
+        log_debug(f"[plugin] Modulo plugins.{name}_plugin importato con successo.")
+    except ModuleNotFoundError as e:
+        log_error(f"[plugin] ❌ Impossibile importare plugins.{name}_plugin: {e}", e)
+        raise ValueError(f"Plugin non valido: {name}")
+
+    if not hasattr(module, "PLUGIN_CLASS"):
+        raise ValueError(f"Il plugin `{name}` non definisce `PLUGIN_CLASS`.")
+
+    plugin_class = getattr(module, "PLUGIN_CLASS")
+
+    try:
+        plugin = plugin_class(notify_fn=notify_fn) if notify_fn else plugin_class()
+        log_debug(f"[plugin] Plugin inizializzato: {plugin.__class__.__name__}")
+    except Exception as e:
+        log_error(f"[plugin] ❌ Errore durante l'inizializzazione del plugin: {e}", e)
+        raise
+
+    if hasattr(plugin, "start"):
+        try:
+            if asyncio.iscoroutinefunction(plugin.start):
+                loop = asyncio.get_running_loop()
+                if loop and loop.is_running():
+                    loop.create_task(plugin.start())
+                    log_debug("[plugin] Plugin avviato nel loop esistente.")
+                else:
+                    log_debug("[plugin] Nessun loop in esecuzione; il plugin sarà avviato successivamente.")
+            else:
+                plugin.start()
+                log_debug("[plugin] Plugin avviato.")
+        except Exception as e:
+            log_error(f"[plugin] ❌ Errore durante l'avvio del plugin: {e}", e)
 

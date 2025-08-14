@@ -7,3 +7,12 @@ undetected-chromedriver>=3.5.5
 webdriver-manager
 setuptools
 pytz
+fastapi
+uvicorn[standard]
+aiomysql
+asyncpraw
+praw
+requests
+snscrape
+sphinx
+sphinx_rtd_theme

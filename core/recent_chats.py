@@ -1,6 +1,8 @@
 from telegram import Update
 from telegram.ext import ContextTypes
-from core.db import get_db
+from core.db import get_conn
+from core.db import ensure_core_tables
+import aiomysql
 import time
 import os
 import re
@@ -8,7 +10,7 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 import json
 from pathlib import Path
 
-OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
+TRAINER_ID = int(os.getenv("TRAINER_ID", "123456789"))
 MAX_ENTRIES = 100
 _metadata = {}
 chat_path_map = {}
@@ -33,23 +35,35 @@ if _CHAT_MAP_PATH.exists():
     except Exception as e:  # pragma: no cover - best effort
         log_warning(f"[recent_chats] Failed to load chat path map: {e}")
 
-def track_chat(chat_id: int, metadata=None):
+async def track_chat(chat_id: int, metadata=None):
+    await ensure_core_tables()
     now = time.time()
-    with get_db() as db:
-        db.execute(
-            """
-            INSERT INTO recent_chats (chat_id, last_active)
-            VALUES (?, ?)
-            ON CONFLICT(chat_id) DO UPDATE SET last_active=excluded.last_active
-        """,
-            (chat_id, now),
-        )
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                INSERT INTO recent_chats (chat_id, last_active)
+                VALUES (%s, %s)
+                ON DUPLICATE KEY UPDATE last_active = VALUES(last_active)
+                """,
+                (chat_id, now),
+            )
+            await conn.commit()
+    finally:
+        conn.close()
     if metadata:
         _metadata[chat_id] = metadata
 
-def reset_chat(chat_id: int):
-    with get_db() as db:
-        db.execute("DELETE FROM recent_chats WHERE chat_id = ?", (chat_id,))
+async def reset_chat(chat_id: int):
+    await ensure_core_tables()
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute("DELETE FROM recent_chats WHERE chat_id = %s", (chat_id,))
+            await conn.commit()
+    finally:
+        conn.close()
     _metadata.pop(chat_id, None)
     if chat_path_map.pop(chat_id, None) is not None:
         _save_chat_paths()
@@ -61,14 +75,31 @@ def set_chat_path(chat_id: int, chat_path: str) -> None:
 def get_chat_path(chat_id: int) -> str | None:
     return chat_path_map.get(chat_id)
 
-def get_last_active_chats(n=10):
-    with get_db() as db:
-        rows = db.execute("""
-            SELECT chat_id FROM recent_chats
-            ORDER BY last_active DESC
-            LIMIT ?
-        """, (n,))
-        return [row[0] for row in rows]  # or row["chat_id"] if using row_factory
+def clear_chat_path(chat_id: int) -> None:
+    """Remove chat path mapping for the given chat_id."""
+    if chat_id in chat_path_map:
+        del chat_path_map[chat_id]
+        _save_chat_paths()
+        log_info(f"[recent_chats] Cleared chat path for chat_id: {chat_id}")
+    else:
+        log_debug(f"[recent_chats] No chat path found for chat_id: {chat_id}")
+
+async def get_last_active_chats(n=10):
+    conn = await get_conn()
+    try:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                """
+                SELECT chat_id FROM recent_chats
+                ORDER BY last_active DESC
+                LIMIT %s
+                """,
+                (n,),
+            )
+            rows = await cur.fetchall()
+            return [row["chat_id"] for row in rows]
+    finally:
+        conn.close()
 
 def format_chat_entry(chat):
     name = chat.title or chat.username or chat.first_name or str(chat.id)
@@ -82,13 +113,13 @@ def format_chat_entry(chat):
         return f"{safe_name} — `{chat.id}`"
 
 async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
+    if update.effective_user.id != TRAINER_ID:
         return
 
     bot = context.bot
     lines = ["\U0001f553 *Last active chats:*"]
 
-    for chat_id in get_last_active_chats():
+    for chat_id in await get_last_active_chats():
         try:
             chat = await bot.get_chat(chat_id)
             lines.append("- " + format_chat_entry(chat))
@@ -100,7 +131,7 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 async def get_last_active_chats_verbose(n=10, bot=None):
-    chat_ids = get_last_active_chats(n)
+    chat_ids = await get_last_active_chats(n)
     results = []
     for chat_id in chat_ids:
         name = _metadata.get(chat_id)

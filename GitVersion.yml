@@ -40,3 +40,10 @@ branches:
 
 ignore:
   sha: []
+
+commit-message-incrementing: Enabled
+
+major-version-bump-message: '\+semver:\s?(breaking|major)'
+minor-version-bump-message: '\+semver:\s?(feature|minor)|^(feat|feature)(\(.+\))?:'
+patch-version-bump-message: '\+semver:\s?(fix|patch|chore)|^(fix|docs?)(\(.+\))?:'
+no-bump-message: '\+semver:\s?(none|skip)'

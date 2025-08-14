@@ -1,44 +1,49 @@
 # core/trigger_processor.py
 
-from core.db import get_db
+from core.db import get_conn
 from datetime import datetime, timedelta, timezone
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+import aiomysql
 
-# Intervallo di osservazione per valutare se l\u2019emozione � rinforzata o attenuata
+# Observation interval to evaluate whether the emotion is reinforced or softened
 LOOKBACK_MINUTES = 30
 
-def process_triggers_for_emotion(emotion: dict) -> int:
+async def process_triggers_for_emotion(emotion: dict) -> int:
     """
-    Valuta gli eventi recenti per determinare se rafforzare, attenuare o ignorare l\u2019emozione.
-    Ritorna un delta (es. +1, -1, 0) da applicare all\u2019intensit�.
+    Evaluate recent events to determine whether to reinforce, soften, or ignore the emotion.
+    Returns a delta (e.g., +1, -1, 0) to apply to the intensity.
     """
     emotion_type = emotion["emotion"]
     now = datetime.now(timezone.utc)
     since = now - timedelta(minutes=LOOKBACK_MINUTES)
 
-    # Recupera eventi recenti legati allo stesso scope
-    scope = emotion.get("scope", "auto")  # fallback se non definito
+    # Retrieve recent events related to the same scope
+    scope = emotion.get("scope", "auto")  # fallback if not defined
     query = """
         SELECT content FROM memories
-        WHERE timestamp >= ? AND scope = ?
+        WHERE timestamp >= %s AND scope = %s
         ORDER BY timestamp DESC
     """
-    with get_db() as db:
-        rows = db.execute(query, (since.isoformat(), scope)).fetchall()
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(query, (since.isoformat(), scope))
+            rows = await cur.fetchall()
+            contents = [row[0] for row in rows]
+    finally:
+        conn.close()
 
-    contents = [row[0] for row in rows]
-
-    # Semplice euristica: cerca parole chiave rinforzanti o attenuanti
+    # Simple heuristic: look for reinforcing or softening keywords
     reinforce_keywords = {
-        "anger": ["odio", "mi hai deluso", "non vali niente", "idiota"],
-        "sadness": ["mi manchi", "sei lontana", "sono solo"],
-        "joy": ["ti voglio bene", "sei speciale", "grazie", "ce l\u2019abbiamo fatta"],
+        "anger": ["hate", "you disappointed me", "you're worthless", "idiot"],
+        "sadness": ["I miss you", "you're far away", "I'm alone"],
+        "joy": ["I care about you", "you're special", "thank you", "we did it"],
     }
 
     soften_keywords = {
-        "anger": ["scusa", "non volevo", "ti rispetto"],
-        "sadness": ["ci sono", "non sei sola", "ti abbraccio"],
-        "joy": ["che noia", "basta", "non importa"],
+        "anger": ["sorry", "I didn't mean to", "I respect you"],
+        "sadness": ["I'm here", "you're not alone", "I hug you"],
+        "joy": ["boring", "enough", "it doesn't matter"],
     }
 
     delta = 0
@@ -49,5 +54,5 @@ def process_triggers_for_emotion(emotion: dict) -> int:
         if any(k in text for k in soften_keywords.get(emotion_type, [])):
             delta -= 1
 
-    log_debug(f"[TriggerProcessor] Delta valutato per {emotion_type}: {delta}")
+    log_debug(f"[TriggerProcessor] Evaluated delta for {emotion_type}: {delta}")
     return delta

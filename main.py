@@ -2,16 +2,28 @@ import os
 import signal
 import sys
 import subprocess
-from core.db import init_db
+import asyncio
+from core.db import init_db, test_connection, get_conn
 from core.blocklist import init_blocklist_table
 from core.config import get_active_llm
-from core.plugin_instance import load_plugin
 from core.logging_utils import (
     log_debug,
     log_info,
     log_warning,
     setup_logging,
+    log_error,
 )
+
+# WORKAROUND, TODO: INVESTIGATE THIS
+# Ensure /usr/share/novnc exists
+novnc_path = "/usr/share/novnc"
+if not os.path.exists(novnc_path):
+    os.makedirs(novnc_path)
+    with open(os.path.join(novnc_path, "vnc.html"), "w") as f:
+        f.write("<!DOCTYPE html><html><head><title>noVNC</title></head><body><h1>noVNC placeholder</h1></body></html>")
+    with open(os.path.join(novnc_path, "index.html"), "w") as f:
+        f.write("index.html")
+    print("[main] Created /usr/share/novnc with placeholder files")
 
 def cleanup_chrome_processes():
     """Clean up any remaining Chrome processes and lock files while preserving login sessions."""
@@ -95,30 +107,159 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 
+async def initialize_core_components():
+    """Initialize and log all core components."""
+    log_info("[main] initialize_core_components() started")
+    
+    try:
+        # Load and log active interfaces
+        active_interfaces = ["telegram_bot", "telegram_userbot", "discord"]  # Example interfaces
+        log_info("[main] Active interfaces initialized.")
+        for interface in active_interfaces:
+            log_info(f"[main] Active interface: {interface}")
+
+        # Load and log plugins in ./plugins
+        log_info("[main] Loading action plugins...")
+        from core.action_parser import set_available_plugins, _load_action_plugins
+        plugins = _load_action_plugins()
+        if plugins:
+            for plugin in plugins:
+                log_info(f"[main] Loaded plugin: {plugin.__class__.__name__}")
+        else:
+            log_warning("[main] No plugins found in ./plugins.")
+
+        # Pass the information to the action parser
+        log_info("[main] Setting available plugins in action parser...")
+        active_llm = await get_active_llm()
+        log_info(f"[main] Active LLM: {active_llm}")
+        set_available_plugins(active_interfaces, active_llm, [plugin.__class__.__name__ for plugin in plugins])
+        log_info("[main] Core components initialization completed")
+    except Exception as e:
+        log_error(f"[main] Error in initialize_core_components(): {repr(e)}")
+        raise
+
+
+async def initialize_database():
+    """Initialize database with proper async handling."""
+    log_info("[main] initialize_database() started")
+    
+    # Verifica dei permessi dell'utente del database
+    async def check_permissions():
+        log_debug("[main] Checking database permissions...")
+        conn = None
+        try:
+            conn = await get_conn()
+            async with conn.cursor() as cur:
+                await cur.execute("SHOW GRANTS FOR CURRENT_USER()")
+                grants = await cur.fetchall()
+                log_debug("[main] Database permissions check completed")
+                return grants
+        except Exception as e:
+            log_error(f"[main] Error checking database permissions: {repr(e)}")
+            raise
+        finally:
+            if conn:
+                conn.close()
+
+    try:
+        grants = await check_permissions()
+        log_info(f"[main] Database user permissions: {grants}")
+
+        log_info("[main] Testing database connection...")
+        if not await test_connection():
+            log_error("[main] Database connection test failed")
+            return False
+        log_info("[main] Database connection test passed")
+        
+        log_info("[main] Initializing database schema...")
+        await init_db()
+        log_info("[main] Database schema initialized")
+        
+        log_info("[main] Initializing blocklist table...")
+        await init_blocklist_table()
+        log_info("[main] Blocklist table initialized")
+        
+        log_info("[main] Database initialization completed successfully!")
+        return True
+    except Exception as e:
+        log_error(f"[main] Error in initialize_database(): {repr(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 if __name__ == "__main__":
     # Set up signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
     signal.signal(signal.SIGTERM, signal_handler)  # Docker stop
     
     setup_logging()
+    log_info("[main] Starting Rekku application...")
     
     # Clean up any leftover Chrome processes from previous runs
     cleanup_chrome_processes()
     
-    # Initialize DB and tables
-    init_db()
-    init_blocklist_table()
-
-    # 🔄 Load the active LLM plugin from DB (without notify_fn, will be set later by the bot)
-    llm_name = get_active_llm()
-    log_debug(f"[main] Active plugin to load: {llm_name}")
-    load_plugin(llm_name)
+    # Test DB connectivity and initialize tables with retry mechanism
+    import time
+    max_retries = 30
+    retry_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            log_info(f"[main] Attempting database connection (attempt {attempt + 1}/{max_retries})...")
+            
+            # Initialize database async
+            if asyncio.run(initialize_database()):
+                break
+            else:
+                raise Exception("Database initialization failed")
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                log_warning(f"[main] Database connection attempt {attempt + 1} failed: {e}")
+                log_info(f"[main] Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                log_error(f"[main] Critical error during database initialization after {max_retries} attempts: {e}")
+                sys.exit(1)
 
     # 🌐 Show where the Webtop/VNC interface is available
     host = os.environ.get("WEBVIEW_HOST", "localhost")
     port = os.environ.get("WEBVIEW_PORT", "3000")
     log_info(f"[vnc] Webtop GUI available at: http://{host}:{port}")
 
-    # ✅ Start the bot
-    from interface.telegram_bot import start_bot
-    start_bot()
+    log_info("[main] Starting bot initialization...")
+    
+    async def start_application():
+        # Initialize core components BEFORE starting the bot
+        try:
+            log_info("[main] Initializing core components...")
+            from core.core_initializer import core_initializer
+            await core_initializer.initialize_all()
+            log_info("[main] Core components initialized successfully")
+            # Start message queue consumer
+            from core import message_queue
+            asyncio.create_task(message_queue.run())
+            log_info("[main] Message queue consumer started")
+        except Exception as e:
+            log_error(f"[main] Critical error initializing core components: {repr(e)}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+
+        # ✅ Start the bot
+        try:
+            from interface.telegram_bot import start_bot
+            log_info("[main] Starting Telegram bot...")
+            await start_bot()
+            log_info("[main] Telegram bot started successfully")
+        except Exception as e:
+            log_error(f"[main] Critical error starting Telegram bot: {repr(e)}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+
+    # Run the async application
+    asyncio.run(start_application())
+
+    log_info("[main] Application startup completed successfully")

@@ -6,7 +6,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 _logger: Optional[logging.Logger] = None
-_LOG_DIR = "/config/logs"
+_LOG_DIR = os.getenv("LOG_DIR", "/config/logs")
 _LOG_FILE = os.path.join(_LOG_DIR, "rekku.log")
 _LEVELS = {
     "DEBUG": logging.DEBUG,
@@ -46,14 +46,14 @@ def setup_logging() -> logging.Logger:
     return logger
 
 
-def _notify_owner(message: str) -> None:
-    """Send a message to the owner if possible."""
+def _notify_trainer(message: str) -> None:
+    """Send a message to the trainer if possible."""
     try:
-        from core.notifier import notify_owner
-        notify_owner(message)
+        from core.notifier import notify_trainer
+        notify_trainer(message)
     except Exception as e:  # pragma: no cover - notification best effort
         logger = setup_logging()
-        logger.error("Failed to notify owner: %s", e, stacklevel=2)
+        logger.error("Failed to notify trainer: %s", e, stacklevel=2)
 
 
 def _log(level: str, message: str, exc: Optional[Exception] = None) -> None:
@@ -63,7 +63,7 @@ def _log(level: str, message: str, exc: Optional[Exception] = None) -> None:
         message = f"{message}\n{''.join(traceback.format_exception(exc))}".rstrip()
     logger.log(_LEVELS.get(level, logging.INFO), message, stacklevel=3)
     if level == "ERROR":
-        _notify_owner(f"[ERROR] {message}")
+        _notify_trainer(f"[ERROR] {message}")
 
 
 def log_debug(msg: str) -> None:

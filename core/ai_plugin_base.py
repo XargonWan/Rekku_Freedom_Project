@@ -13,7 +13,7 @@ class AIPluginBase:
         raise NotImplementedError("handle_incoming_message not implemented")
 
     def get_target(self, trainer_message_id):
-        """Return the owner of a training message."""
+        """Return the trainer of a training message."""
         return None  # Default: does nothing
 
     def clear(self, trainer_message_id):
@@ -34,3 +34,20 @@ class AIPluginBase:
     def set_notify_fn(self, notify_fn):
         """Optional: dynamically update the notification function."""
         self.notify_fn = notify_fn
+
+    def get_supported_action_types(self) -> list[str]:
+        """Return custom action types handled by this plugin."""
+        return []
+
+    async def handle_custom_action(self, action_type: str, payload: dict):
+        """Handle a plugin-defined custom action."""
+        raise NotImplementedError("handle_custom_action not implemented")
+
+    @staticmethod
+    def get_supported_actions() -> dict:
+        """Return schema information for supported actions."""
+        return {}
+
+    def get_prompt_instructions(self, action_name: str) -> dict:
+        """Return prompt instructions for the given action."""
+        return {}

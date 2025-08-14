@@ -8,11 +8,150 @@ import os
 from collections import deque
 from types import SimpleNamespace
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
-from core.action_validator import validate_action
-import core.plugin_instance as plugin_instance
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+
+
+def get_supported_action_types() -> set[str]:
+    """Return all supported action types discovered from plugins."""
+    supported_types: set[str] = set()
+
+    try:
+        for plugin in _load_action_plugins():
+            if hasattr(plugin, "get_supported_action_types"):
+                plugin_types = plugin.get_supported_action_types()
+                if isinstance(plugin_types, (list, set)):
+                    supported_types.update(plugin_types)
+            elif hasattr(plugin, "get_supported_actions"):
+                plugin_actions = plugin.get_supported_actions()
+                if isinstance(plugin_actions, dict):
+                    supported_types.update(plugin_actions.keys())
+                elif isinstance(plugin_actions, (list, set, tuple)):
+                    supported_types.update(plugin_actions)
+    except Exception as e:
+        log_warning(f"[action_parser] Error discovering plugin action types: {e}")
+
+    return supported_types
+
+
+def _validate_payload_with_plugins(action_type: str, payload: dict, errors: List[str]) -> None:
+    """Validate payload using plugins that support the action type."""
+    try:
+        for plugin in _load_action_plugins():
+            # Check if this plugin supports the action type
+            supports_action = False
+            try:
+                if hasattr(plugin, "get_supported_action_types"):
+                    if action_type in plugin.get_supported_action_types():
+                        supports_action = True
+                elif hasattr(plugin, "get_supported_actions"):
+                    actions = plugin.get_supported_actions()
+                    if isinstance(actions, dict) and action_type in actions:
+                        supports_action = True
+                    elif isinstance(actions, (list, set, tuple)) and action_type in actions:
+                        supports_action = True
+            except Exception as e:
+                log_debug(f"[action_parser] Error checking plugin support for {action_type}: {e}")
+                continue
+            
+            if supports_action:
+                # Check if plugin has a validation method
+                if hasattr(plugin, "validate_payload"):
+                    try:
+                        plugin_errors = plugin.validate_payload(action_type, payload)
+                        if plugin_errors and isinstance(plugin_errors, list):
+                            errors.extend(plugin_errors)
+                            log_debug(f"[action_parser] Plugin {plugin.__class__.__name__} added {len(plugin_errors)} validation errors")
+                    except Exception as e:
+                        log_warning(f"[action_parser] Error validating payload with plugin {plugin.__class__.__name__}: {e}")
+                elif hasattr(plugin, "validate_action"):
+                    try:
+                        # If plugin has validate_action, use that
+                        action_dict = {"type": action_type, "payload": payload}
+                        plugin_errors = plugin.validate_action(action_dict)
+                        if plugin_errors and isinstance(plugin_errors, list):
+                            errors.extend(plugin_errors)
+                            log_debug(f"[action_parser] Plugin {plugin.__class__.__name__} added {len(plugin_errors)} validation errors")
+                    except Exception as e:
+                        log_warning(f"[action_parser] Error validating action with plugin {plugin.__class__.__name__}: {e}")
+                else:
+                    # Plugin doesn't have validation - that's OK, skip
+                    log_debug(f"[action_parser] Plugin {plugin.__class__.__name__} supports {action_type} but has no validation method")
+    except Exception as e:
+        log_error(f"[action_parser] Error during plugin validation: {e}")
+
+
+def validate_action(action: dict, context: dict = None, original_message=None) -> Tuple[bool, List[str]]:
+    """Validate an action dictionary.
+
+    Parameters
+    ----------
+    action : dict
+        Dictionary describing an action.
+    context : dict, optional
+        Context information for interface inference.
+    original_message : optional
+        Original message for interface inference.
+
+    Returns
+    -------
+    tuple[bool, list[str]]
+        A tuple containing a boolean validity flag and a list of error messages.
+    """
+
+    errors: List[str] = []
+
+    # Ignore optional description fields from the LLM
+    if isinstance(action, dict) and "description" in action:
+        action = {k: v for k, v in action.items() if k != "description"}
+
+    if not isinstance(action, dict):
+        return False, ["action must be a dict"]
+
+    # Validate action type - with specific action names, interface is implicit
+    action_type = action.get("type")
+    if not action_type:
+        errors.append("Missing 'type'")
+    else:
+        # Check if any plugin supports this action type
+        supported_by_plugin = False
+        for plugin in _load_action_plugins():
+            try:
+                if hasattr(plugin, "get_supported_action_types"):
+                    if action_type in plugin.get_supported_action_types():
+                        supported_by_plugin = True
+                        break
+                elif hasattr(plugin, "get_supported_actions"):
+                    actions = plugin.get_supported_actions()
+                    if isinstance(actions, dict) and action_type in actions:
+                        supported_by_plugin = True
+                        break
+                    elif isinstance(actions, (list, set, tuple)) and action_type in actions:
+                        supported_by_plugin = True
+                        break
+            except Exception as e:
+                log_debug(
+                    f"[action_parser] Error checking plugin support for {action_type}: {e}"
+                )
+                continue
+
+        if not supported_by_plugin:
+            errors.append(
+                f"Unsupported type '{action_type}' - no plugin found to handle it"
+            )
+
+    payload = action.get("payload")
+    if payload is None:
+        errors.append("Missing 'payload'")
+    elif not isinstance(payload, dict):
+        errors.append("'payload' must be a dict")
+
+    # Dynamic validation - delegate to plugins that support this action type
+    if isinstance(payload, dict) and action_type in get_supported_action_types():
+        _validate_payload_with_plugins(action_type, payload, errors)
+
+    return len(errors) == 0, errors
 
 
 # Cache for discovered action plugins
@@ -23,158 +162,308 @@ def _load_action_plugins() -> List[Any]:
     """Load classes under plugins/ that implement get_supported_actions."""
     global _ACTION_PLUGINS
     if _ACTION_PLUGINS is not None:
+        log_debug(f"[action_parser] 🔄 Returning cached plugins ({len(_ACTION_PLUGINS)})")
         return _ACTION_PLUGINS
 
+    log_info("[action_parser] 🔍 Loading action plugins...")
     _ACTION_PLUGINS = []
     base_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "plugins")
+    log_info(f"[action_parser] 📁 Scanning plugins directory: {base_path}")
+    
     for root, _dirs, files in os.walk(base_path):
         for file in files:
             if not file.endswith(".py") or file.startswith("__"):
                 continue
-            rel = os.path.relpath(os.path.join(root, file), os.path.dirname(os.path.dirname(__file__)))
+            rel = os.path.relpath(
+                os.path.join(root, file), os.path.dirname(os.path.dirname(__file__))
+            )
             module_name = rel[:-3].replace(os.sep, ".")
             try:
                 module = importlib.import_module(module_name)
             except Exception as e:
-                log_error(f"[action_parser] Failed to import {module_name}: {e}")
+                log_error(f"[action_parser] ❌ Failed to import {module_name}: {repr(e)}")
                 continue
+            log_debug(f"[action_parser] 📦 Checking module: {module_name}")
             for _name, obj in inspect.getmembers(module, inspect.isclass):
-                if hasattr(obj, "get_supported_actions"):
+                # Skip imported classes or alias constants like PLUGIN_CLASS
+                if obj.__module__ != module.__name__ or _name == "PLUGIN_CLASS":
+                    continue
+
+                # Support both method names for backward compatibility
+                if hasattr(obj, "get_supported_actions") or hasattr(
+                    obj, "get_supported_action_types"
+                ):
                     try:
                         instance = obj()
+                        log_info(f"[action_parser] 🔌 Loaded plugin: {obj.__name__}")
+
+                        # Start the plugin if it has a start method
+                        if hasattr(instance, "start"):
+                            try:
+                                if asyncio.iscoroutinefunction(instance.start):
+                                    # Try to get the running loop and schedule start
+                                    try:
+                                        loop = asyncio.get_running_loop()
+                                        if loop and loop.is_running():
+                                            loop.create_task(instance.start())
+                                            log_debug(
+                                                f"[action_parser] ⚡ Started async plugin: {obj.__name__}"
+                                            )
+                                        else:
+                                            log_debug(
+                                                f"[action_parser] ⏳ No running loop for plugin: {obj.__name__}"
+                                            )
+                                    except RuntimeError:
+                                        log_debug(
+                                            f"[action_parser] 🔄 No event loop for async start: {obj.__name__}"
+                                        )
+                                else:
+                                    instance.start()
+                                    log_debug(
+                                        f"[action_parser] ✅ Started sync plugin: {obj.__name__}"
+                                    )
+                            except Exception as e:
+                                log_error(
+                                    f"[action_parser] ❌ Error starting plugin {obj.__name__}: {repr(e)}"
+                                )
+
                     except Exception as e:
-                        log_error(f"[action_parser] Failed to init {obj}: {e}")
+                        log_error(f"[action_parser] ❌ Failed to init {obj}: {repr(e)}")
                         continue
-                    _ACTION_PLUGINS.append(instance)
+                    # Avoid duplicate plugin registration
+                    if any(isinstance(p, obj) for p in _ACTION_PLUGINS):
+                        log_warning(
+                            f"[action_parser] ⚠️ Duplicate plugin {obj.__name__} ignored"
+                        )
+                    else:
+                        _ACTION_PLUGINS.append(instance)
+                        
+    plugin_names = [p.__class__.__name__ for p in _ACTION_PLUGINS]
+    log_info(f"[action_parser] 🎉 Plugins loaded: {', '.join(plugin_names)}")
+    
     return _ACTION_PLUGINS
 
 
 def _plugins_for(action_type: str) -> List[Any]:
     plugins = []
-    for plugin in _load_action_plugins():
+    loaded_plugins = _load_action_plugins()
+    log_debug(f"[action_parser] _plugins_for({action_type}): Checking {len(loaded_plugins)} loaded plugins")
+    
+    for plugin in loaded_plugins:
         try:
-            supported = plugin.get_supported_actions()
-            if action_type in supported:
-                plugins.append(plugin)
+            supported = None
+            
+            # Try get_supported_action_types first
+            if hasattr(plugin, "get_supported_action_types"):
+                action_types = plugin.get_supported_action_types()
+                log_debug(f"[action_parser] Plugin {plugin.__class__.__name__}.get_supported_action_types(): {action_types}")
+                if action_types and action_type in action_types:
+                    plugins.append(plugin)
+                    log_debug(f"[action_parser] ✅ Plugin {plugin.__class__.__name__} supports {action_type} (via action_types)")
+                    continue
+            
+            # Fallback to get_supported_actions (check if action is a key in the dict)
+            if hasattr(plugin, "get_supported_actions"):
+                actions_dict = plugin.get_supported_actions()
+                log_debug(f"[action_parser] Plugin {plugin.__class__.__name__}.get_supported_actions(): {actions_dict}")
+                if isinstance(actions_dict, dict) and action_type in actions_dict:
+                    plugins.append(plugin)
+                    log_debug(f"[action_parser] ✅ Plugin {plugin.__class__.__name__} supports {action_type} (via actions_dict)")
+                    continue
+            
+            log_debug(f"[action_parser] ❌ Plugin {plugin.__class__.__name__} does not support {action_type}")
+            
         except Exception as e:
-            log_error(f"[action_parser] Error querying plugin {plugin}: {e}")
+            log_error(f"[action_parser] Error querying plugin {plugin}: {repr(e)}")
+    
+    log_debug(f"[action_parser] _plugins_for({action_type}): Found {len(plugins)} supporting plugins")
     return plugins
 
 
-# Update ACTIVE_INTERFACES to support multiple active interfaces
+def set_available_plugins(interfaces, llm_engine, plugins):
+    """Set available plugins and their details for the action parser."""
+    global ACTIVE_INTERFACES, ACTIVE_LLM_ENGINE, AVAILABLE_PLUGINS
+
+    # Set active interfaces
+    ACTIVE_INTERFACES = set(interfaces)
+    log_info("[action_parser] Active interfaces set.")
+
+    # Set active LLM engine
+    ACTIVE_LLM_ENGINE = llm_engine
+    log_info(f"[action_parser] Active LLM engine: {ACTIVE_LLM_ENGINE}")
+
+    # Set available plugins
+    AVAILABLE_PLUGINS = plugins
+    log_info("[action_parser] Available plugins set.")
+
+
+# Variables to store the state
 ACTIVE_INTERFACES = set()
+ACTIVE_LLM_ENGINE = None
+AVAILABLE_PLUGINS = []
 
 
-# Function to register an active interface
-def register_interface(interface_name):
-    ACTIVE_INTERFACES.add(interface_name)
-    log_info(f"[action_parser] Registered active interface: {interface_name}")
-
-
-# Function to get all active interfaces
-def get_active_interfaces():
-    if not ACTIVE_INTERFACES:
-        log_warning("[action_parser] No active interfaces found.")
-    return list(ACTIVE_INTERFACES)
-
-
-async def _handle_message_action(action: Dict[str, Any], context: Dict[str, Any], bot, original_message):
-    payload = action.get("payload", {})
-    text = payload.get("text", "")
-    log_debug(f"[action_parser] Handling message action: {text}")
-
-    # Get all active interfaces
-    active_interfaces = get_active_interfaces()
-    if not active_interfaces:
-        log_error("[action_parser] No active interfaces to handle the message.")
-        return
-
-    # Route the message to all active interfaces
-    for interface in active_interfaces:
-        if interface == "telegram_bot":
-            from interface.telegram_bot import TelegramInterface
-
-            telegram_bot = TelegramInterface(api_id=None, api_hash=None, bot_token=None)  # Replace with actual credentials
-            await telegram_bot.send_message(original_message.chat_id, text)
-        elif interface == "telegram_userbot":
-            from interface.telethon_userbot import client
-
-            await client.send_message(original_message.chat_id, text)
-        elif interface == "discord":
-            # Add Discord interface handling here if applicable
-            log_debug("[action_parser] Discord interface handling not implemented.")
-        else:
-            log_error(f"[action_parser] Unsupported interface: {interface}")
-
-
-async def _handle_event_action(action: Dict[str, Any], _context: Dict[str, Any], _bot, _original_message):
-    payload = action.get("payload", {})
-    log_debug(f"[action_parser] EVENT placeholder: {payload}")
-
-
-async def _handle_plugin_action(action: Dict[str, Any], context: Dict[str, Any], bot, original_message):
+async def _handle_plugin_action(
+    action: Dict[str, Any], context: Dict[str, Any], bot, original_message
+):
     action_type = action.get("type")
-    for plugin in _plugins_for(action_type):
+    iface_target = action.get("interface")
+    
+    log_info(f"[action_parser] 🎯 Handling action: type={action_type}, interface={iface_target}")
+    
+    plugins = _plugins_for(action_type)
+    log_info(f"[action_parser] 🔍 Found {len(plugins)} plugins for action type '{action_type}'")
+    
+    if not plugins:
+        log_error(f"[action_parser] ❌ No plugin supports action type '{action_type}'")
+        return
+    
+    for plugin in plugins:
+        plugin_iface = getattr(
+            plugin.__class__, "get_interface_id", lambda: plugin.__class__.__name__.lower()
+        )()
+        
+        log_info(f"[action_parser] 🔌 Checking plugin: {plugin.__class__.__name__} (plugin_interface: {plugin_iface})")
+        
+        # NEW LOGIC: If this is a generic plugin (like MessagePlugin), 
+        # it should work with any target interface
+        is_generic_plugin = plugin_iface in ["message", "event", "command", "terminal"]
+        
+        if is_generic_plugin:
+            # Generic plugins accept any interface - they delegate to the actual interface
+            log_info(f"[action_parser] 🌐 Generic plugin {plugin.__class__.__name__} accepts interface: {iface_target}")
+        else:
+            # Check if this plugin matches the target interface exactly
+            if iface_target and plugin_iface != iface_target:
+                log_info(f"[action_parser] ⏭️ Skipping plugin {plugin_iface} (target: {iface_target})")
+                continue
+            
         if hasattr(plugin, "execute_action"):
             try:
-                result = plugin.execute_action(action, context, bot, original_message)
+                payload = action.get("payload", {})
+                if not isinstance(payload, dict):
+                    payload = vars(payload)
+                new_action = {**action, "payload": payload}
+                log_info(
+                    f"[action_parser] 🚀 Delegating action to {plugin.__class__.__name__}: type={action_type} interface={plugin_iface}"
+                )
+                log_debug(f"[action_parser] 📦 Action payload: {payload}")
+                
+                result = plugin.execute_action(new_action, context, bot, original_message)
                 if inspect.iscoroutine(result):
                     await result
+                log_info(f"[action_parser] ✅ Successfully executed action via {plugin_iface}")
+                return None  # Success - no error to return
             except Exception as e:
-                log_error(f"[action_parser] Error executing {action_type} with {plugin}: {e}")
+                log_error(
+                    f"[action_parser] ❌ Error executing {action_type} with {plugin.__class__.__name__}: {repr(e)}"
+                )
+                import traceback
+                log_error(f"[action_parser] 📄 Full traceback: {traceback.format_exc()}")
         else:
-            log_warning(f"[action_parser] Plugin {plugin} has no execute_action()")
-    if not _plugins_for(action_type):
-        log_warning(f"[action_parser] No plugin supports action type '{action_type}'")
+            log_warning(f"[action_parser] ⚠️ Plugin {plugin.__class__.__name__} has no execute_action() method")
+
+    # No matching plugin found - collect error for auto-correction
+    available_interfaces = list(ACTIVE_INTERFACES) if ACTIVE_INTERFACES else ["No interfaces registered"]
+    error_msg = f"Interface '{iface_target}' not found for action '{action_type}'. Available interfaces: {', '.join(available_interfaces)}"
+    
+    log_error(f"[action_parser] 💥 No plugin matched interface '{iface_target}' for action '{action_type}'")
+    return {"error": error_msg, "action": action, "available_interfaces": available_interfaces}
 
 
 async def run_action(action: Any, context: Dict[str, Any], bot, original_message):
     """Validate and execute a single action or list of actions."""
+    log_info(f"[action_parser] 🎬 run_action called with action: {action}")
+    
     if isinstance(action, list):
-        for act in action:
-            await run_action(act, context, bot, original_message)
-        return
+        log_info(f"[action_parser] 📋 Processing action list with {len(action)} items")
+        return await run_actions(action, context, bot, original_message)
 
-    valid, errors = validate_action(action)
+    valid, errors = validate_action(action, context, original_message)
     if not valid:
-        log_warning(f"[action_parser] Invalid action: {errors}")
-        return
+        error_msg = f"Invalid action: {errors}"
+        log_error(f"[action_parser] ❌ {error_msg}")
+        return {"error": error_msg}
 
     action_type = action.get("type")
+    action_interface = action.get("interface")
+    log_info(f"[action_parser] 🚀 Executing action: type={action_type}, interface={action_interface}")
 
-    if action_type == "message":
-        await _handle_message_action(action, context, bot, original_message)
-    elif action_type == "event":
-        await _handle_event_action(action, context, bot, original_message)
-    else:
-        await _handle_plugin_action(action, context, bot, original_message)
+    # Use plugin system for all action types (including messages)
+    result = await _handle_plugin_action(action, context, bot, original_message)
+    return result
 
 
 async def run_actions(actions: Any, context: Dict[str, Any], bot, original_message):
     """Execute multiple actions in sequence.
 
     If ``actions`` is a single dict, it will be wrapped in a list.
-    Invalid actions are logged and skipped.
+    Invalid actions are logged and errors collected for auto-correction.
+    
+    Returns:
+        dict: {"processed": [successful_actions], "errors": [error_messages]}
     """
     if actions is None:
-        return
+        return {"processed": [], "errors": []}
 
     if isinstance(actions, dict):
         actions = [actions]
     elif not isinstance(actions, list):
-        log_error("[action_parser] run_actions expects a list or dict")
-        return
+        error_msg = "[action_parser] run_actions expects a list or dict"
+        log_error(error_msg)
+        return {"processed": [], "errors": [error_msg]}
+
+    log_debug(f"[action_parser] run_actions called with {len(actions)} actions")
+    log_debug(f"[action_parser] Actions: {actions}")
+
+    processed_actions = []
+    collected_errors = []
 
     for idx, action in enumerate(actions):
         try:
-            valid, errors = validate_action(action)
+            valid, errors = validate_action(action, context, original_message)
             if not valid:
-                log_warning(f"[action_parser] Skipping invalid action {idx}: {errors}")
+                error_msg = f"Invalid action {idx}: {errors}"
+                log_warning(f"[action_parser] Skipping {error_msg}")
+                collected_errors.append(error_msg)
                 continue
+            
             log_debug(f"[action_parser] Running action {idx}: {action.get('type')}")
-            await run_action(action, context, bot, original_message)
+            result = await run_action(action, context, bot, original_message)
+            
+            # Check if run_action returned error info
+            if isinstance(result, dict) and "error" in result:
+                collected_errors.append(result["error"])
+            else:
+                processed_actions.append(action)
+                
         except Exception as e:
-            log_error(f"[action_parser] Error executing action {idx}: {e}")
+            error_msg = f"Error executing action {idx}: {repr(e)}"
+            log_error(f"[action_parser] {error_msg}")
+            collected_errors.append(error_msg)
+
+    # After all actions processed, mark scheduled event as delivered if applicable
+    event_id = context.get("event_id") or getattr(original_message, "event_id", None)
+    if event_id:
+        try:
+            from core import db
+
+            if await db.mark_event_delivered(event_id):
+                log_info(f"[action_parser] Event {event_id} marked delivered")
+            else:
+                log_warning(f"[action_parser] Failed to mark event {event_id} delivered")
+        except Exception as e:
+            log_warning(f"[action_parser] Error marking event {event_id} delivered: {e}")
+        try:
+            from core import event_dispatcher
+
+            event_dispatcher.event_completed(event_id)
+        except Exception as e:
+            log_warning(
+                f"[action_parser] Failed to clear processing flag for event {event_id}: {e}"
+            )
+    
+    return {"processed": processed_actions, "errors": collected_errors}
 
 
 async def parse_action(action: dict, bot, message):
@@ -185,65 +474,131 @@ async def parse_action(action: dict, bot, message):
     interface = action.get("interface")
     payload = action.get("payload")
 
-    if not action_type or not interface or not payload:
-        log_warning("[action_parser] Invalid action structure: missing type, interface, or payload")
+    if not action_type or not payload:
+        log_warning("[action_parser] Invalid action structure: missing type or payload")
         return
 
-    log_debug(f"[action_parser] Action type: {action_type}, Interface: {interface}, Payload: {payload}")
+    log_debug(
+        "[action_parser] Action type: "
+        + str(action_type)
+        + ", Interface: "
+        + str(interface)
+        + ", Payload: "
+        + str(payload)
+    )
 
-    if action_type == "message":
-        target = payload.get("target")
-        text = payload.get("text")
-        thread_id = payload.get("thread_id")
-
-        if not text:
-            log_warning("[action_parser] Invalid message action: missing text")
-            return
-
-        # If target is missing or invalid, use the original message's chat_id as fallback
-        if not target:
-            target = getattr(message, "chat_id", None)
-            log_debug(f"[action_parser] No target specified, using original chat_id: {target}")
-
-        # If thread_id is missing but original message has one, use it as fallback
-        if not thread_id and hasattr(message, "chat_id"):
-            original_thread_id = getattr(message, "message_thread_id", None)
-            if original_thread_id:
-                thread_id = original_thread_id
-                log_debug(f"[action_parser] No thread_id specified, using original thread_id: {thread_id}")
-
-        # Additional validation for target
-        if not target:
-            log_warning("[action_parser] No valid target found, cannot send message")
-            return
-
+    # First allow the active LLM plugin to handle custom actions
+    import core.plugin_instance as plugin_instance
+    llm_plugin = getattr(plugin_instance, "plugin", None)
+    if llm_plugin:
         try:
-            log_debug(f"[action_parser] Sending message to {target} (thread_id: {thread_id}) with text: {text}")
+            supported = []
+            if hasattr(llm_plugin, "get_supported_action_types"):
+                supported = llm_plugin.get_supported_action_types()
+            elif hasattr(llm_plugin, "get_supported_actions"):
+                acts = llm_plugin.get_supported_actions()
+                if isinstance(acts, dict):
+                    supported = list(acts.keys())
+            if action_type in supported and hasattr(llm_plugin, "handle_custom_action"):
+                await llm_plugin.handle_custom_action(action_type, payload)
+                return
+        except Exception:
+            pass
 
-            # Prepare kwargs for send_message
-            send_kwargs = {"chat_id": target, "text": text}
-            if thread_id:
-                send_kwargs["message_thread_id"] = thread_id
+    # Use centralized action plugin system for all other action types
+    action_plugins = _plugins_for(action_type)
+    if action_plugins:
+        for plugin in action_plugins:
+            try:
+                if hasattr(plugin, "execute_action"):
+                    result = plugin.execute_action(action, {}, bot, message)
+                    if inspect.iscoroutine(result):
+                        await result
+                elif hasattr(plugin, "handle_custom_action"):
+                    await plugin.handle_custom_action(action_type, payload)
+                else:
+                    log_warning(
+                        f"[action_parser] Plugin {plugin.__class__.__name__} lacks execute_action/handle_custom_action methods"
+                    )
+            except Exception as e:
+                log_error(
+                    f"[action_parser] Error delegating {action_type} to plugin {plugin.__class__.__name__}: {repr(e)}"
+                )
+        return
 
-            await bot.send_message(**send_kwargs)
-            log_debug(f"[action_parser] Message successfully sent to {target} (thread: {thread_id})")
-        except Exception as e:
-            log_error(f"[action_parser] Failed to send message to {target} (thread: {thread_id}): {e}")
-            # Try fallback to original chat if target was different
-            if hasattr(message, "chat_id") and target != message.chat_id:
-                try:
-                    fallback_thread_id = getattr(message, "message_thread_id", None)
-                    fallback_kwargs = {"chat_id": message.chat_id, "text": text}
-                    if fallback_thread_id:
-                        fallback_kwargs["message_thread_id"] = fallback_thread_id
-
-                    log_debug(f"[action_parser] Retrying with original chat_id: {message.chat_id} (thread: {fallback_thread_id})")
-                    await bot.send_message(**fallback_kwargs)
-                    log_debug(f"[action_parser] Message successfully sent to fallback chat: {message.chat_id} (thread: {fallback_thread_id})")
-                except Exception as fallback_error:
-                    log_error(f"[action_parser] Fallback also failed: {fallback_error}")
-    else:
-        log_warning(f"[action_parser] Unsupported action type: {action_type}")
+    log_warning(
+        f"[action_parser] No plugin supports action type '{action_type}' — no plugin handler found"
+    )
 
 
-__all__ = ["run_action", "run_actions", "parse_action"]
+async def initialize_core(notify_fn=None):
+    """Initialize and log all core components."""
+    from core.core_initializer import core_initializer
+
+    return await core_initializer.initialize_all(notify_fn=notify_fn)
+
+
+def get_action_plugin_instructions() -> dict[str, dict]:
+    """Gather prompt instructions from all action plugins."""
+    instructions: dict[str, str] = {}
+    try:
+        for plugin in _load_action_plugins():
+            if hasattr(plugin, "get_supported_actions") and hasattr(plugin, "get_prompt_instructions"):
+                supported = plugin.get_supported_actions()
+                for action in supported:
+                    try:
+                        instr = plugin.get_prompt_instructions(action)
+                        if instr:
+                            instructions[action] = instr
+                    except Exception:
+                        log_warning(
+                            f"[action_parser] Plugin {plugin.__class__.__name__} missing prompt instructions for '{action}'"
+                        )
+    except Exception as e:
+        log_error(f"[action_parser] Error collecting plugin prompt instructions: {repr(e)}")
+
+    return instructions
+
+
+async def gather_static_injections() -> dict:
+    """Collect static injections from plugins supporting the static_inject action."""
+    injections: dict = {}
+    try:
+        for plugin in _load_action_plugins():
+            try:
+                supported = False
+                if hasattr(plugin, "get_supported_action_types"):
+                    types = plugin.get_supported_action_types()
+                    if types and "static_inject" in types:
+                        supported = True
+                elif hasattr(plugin, "get_supported_actions"):
+                    acts = plugin.get_supported_actions()
+                    if isinstance(acts, dict):
+                        supported = "static_inject" in acts
+                    elif isinstance(acts, (list, set, tuple)):
+                        supported = "static_inject" in acts
+                if not supported or not hasattr(plugin, "get_static_injection"):
+                    continue
+                result = plugin.get_static_injection()
+                if inspect.iscoroutine(result):
+                    result = await result
+                if isinstance(result, dict):
+                    injections.update(result)
+            except Exception as e:
+                log_warning(
+                    f"[action_parser] Error gathering static injection from {plugin.__class__.__name__}: {e}"
+                )
+    except Exception as e:
+        log_error(f"[action_parser] Error collecting static injections: {e}")
+    return injections
+
+
+__all__ = [
+    "run_action",
+    "run_actions",
+    "parse_action",
+    "validate_action",
+    "initialize_core",
+    "get_action_plugin_instructions",
+    "gather_static_injections",
+]

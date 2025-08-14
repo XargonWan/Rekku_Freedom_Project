@@ -39,7 +39,7 @@ def should_remember(user_text: str, response_text: str) -> bool:
     return False
 
 
-def silently_record_memory(
+async def silently_record_memory(
     user_text: str,
     response_text: str,
     tags: str = DEFAULT_TAGS,
@@ -55,7 +55,7 @@ def silently_record_memory(
     if isinstance(tags, list):
         tags = json.dumps(tags)
 
-    insert_memory(
+    await insert_memory(
         content=user_text,
         author="rekku",
         source=source,

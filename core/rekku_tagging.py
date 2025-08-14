@@ -1,6 +1,14 @@
 # core/rekku_tagging.py
 
-from core.db import get_db
+"""Tagging utilities.
+
+This module currently provides only simple tag extraction and a placeholder for
+`expand_tags`. The real database-backed expansion will be implemented later.
+"""
+
+from typing import List
+
+from core.logging_utils import log_warning
 
 def extract_tags(text: str) -> list[str]:
     text = text.lower()
@@ -13,26 +21,12 @@ def extract_tags(text: str) -> list[str]:
         tags.append("emozioni")
     return tags
 
-def expand_tags(tags: list[str]) -> list[str]:
+def expand_tags(tags: List[str]) -> List[str]:
+    """Return tags unchanged (placeholder implementation).
+
+    This fallback avoids database lookups when the ``tag_links`` table is not
+    available. The full implementation will expand tags based on stored
+    relationships in the future.
     """
-    Expand the provided tags based on relationships defined in the `tag_links` table.
-    Relationships are considered symmetrical (tag → related_tag and vice versa).
-    """
-    expanded = set(tags)
-
-    if not tags:
-        return list(expanded)
-
-    placeholders = ",".join("?" for _ in tags)
-    query = f"""
-        SELECT related_tag FROM tag_links WHERE tag IN ({placeholders})
-        UNION
-        SELECT tag FROM tag_links WHERE related_tag IN ({placeholders})
-    """
-
-    with get_db() as db:
-        rows = db.execute(query, tags * 2).fetchall()
-        for row in rows:
-            expanded.add(row[0])
-
-    return list(expanded)
+    log_warning("[rekku_tagging] expand_tags is not implemented yet (placeholder)")
+    return tags
