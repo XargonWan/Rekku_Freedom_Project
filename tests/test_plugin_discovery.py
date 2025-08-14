@@ -3,13 +3,45 @@
 
 import sys
 import os
+import types
+
 sys.path.insert(0, os.path.abspath('.'))
 
 # Mock environment to avoid config errors
 os.environ['BOTFATHER_TOKEN'] = 'test'
 os.environ['OPENAI_API_KEY'] = 'test'
 
+# Create a lightweight stub for core.core_initializer to avoid heavy imports
+core_initializer_stub = types.ModuleType("core.core_initializer")
+core_initializer_stub.INTERFACE_REGISTRY = {}
+
+
+def register_interface(name, obj):
+    core_initializer_stub.INTERFACE_REGISTRY[name] = obj
+
+
+core_initializer_stub.register_interface = register_interface
+sys.modules['core.core_initializer'] = core_initializer_stub
+
 from core.action_parser import _plugins_for, _load_action_plugins
+
+
+class DummyTelegramInterface:
+    @staticmethod
+    def get_supported_actions():
+        return {
+            "message_telegram_bot": {
+                "required_fields": ["text", "target"],
+                "optional_fields": [],
+            }
+        }
+
+    async def send_message(self, payload, original_message=None):
+        pass
+
+
+# Register dummy interface so MessagePlugin can discover actions
+register_interface("telegram_bot", DummyTelegramInterface())
 
 def main():
     print("🔍 Testing plugin discovery...")
