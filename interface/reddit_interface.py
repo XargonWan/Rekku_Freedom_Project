@@ -18,7 +18,7 @@ except Exception:  # pragma: no cover - library missing in env
 
 from core.logging_utils import log_debug, log_warning, log_error
 from core.transport_layer import universal_send
-from core.interfaces import register_interface
+from core.core_initializer import register_interface
 from core.auto_response import request_llm_delivery
 import core.plugin_instance as plugin_instance
 

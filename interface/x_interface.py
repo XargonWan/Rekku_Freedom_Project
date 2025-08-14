@@ -16,7 +16,7 @@ SNSCRAPE_AVAILABLE = False
 sntwitter = None
 
 from core.logging_utils import log_info, log_debug, log_warning
-from core.interfaces import register_interface
+from core.core_initializer import register_interface
 from core.auto_response import request_llm_delivery
 
 log_warning("[x_interface] snscrape disabled due to Python 3.12 compatibility issues")

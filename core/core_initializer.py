@@ -4,7 +4,7 @@ import os
 import importlib
 import inspect
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 from core.logging_utils import log_info, log_error, log_warning, log_debug
 from core.config import get_active_llm
 
@@ -349,3 +349,18 @@ class CoreInitializer:
 
 # Global instance
 core_initializer = CoreInitializer()
+
+# Global registry for interface objects
+INTERFACE_REGISTRY: dict[str, Any] = {}
+
+def register_interface(name: str, interface_obj: Any) -> None:
+    """Register an interface instance for later retrieval."""
+    INTERFACE_REGISTRY[name] = interface_obj
+    log_debug(f"[core_initializer] Registered interface: {name}")
+
+    # Log detailed information about the interface loading
+    log_debug(f"[core_initializer] Loading interface: {name}")
+
+    # Check if the interface supports action registration
+    if hasattr(interface_obj, 'register_actions'):
+        log_debug(f"[core_initializer] Interface '{name}' supports action registration")

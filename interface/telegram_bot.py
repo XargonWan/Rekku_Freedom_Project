@@ -41,7 +41,7 @@ from core.mention_utils import is_rekku_mentioned, is_message_for_bot
 import core.plugin_instance as plugin_instance
 import traceback
 from core.action_parser import initialize_core
-from core.interfaces import register_interface
+from core.core_initializer import register_interface
 
 # Load variables from .env
 load_dotenv()
@@ -127,7 +127,6 @@ async def purge_mappings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"\U0001f5d1 Removed {deleted} mappings older than {days} days."
     )
-
 
 async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -1029,4 +1028,11 @@ class TelegramInterface:
             "- Replying to a message in the same chat will automatically use that message as the reply target.\n"
             "- To send to another chat, specify a different chat_id; these will not appear as replies.\n"
         )
+
+# Register TelegramInterface for discovery by the core
+PLUGIN_CLASS = TelegramInterface
+
+# Ensure the action type is registered globally
+from core.action_parser import set_available_plugins
+set_available_plugins([TelegramInterface])
 
