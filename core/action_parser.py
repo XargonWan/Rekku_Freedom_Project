@@ -48,8 +48,8 @@ def get_supported_action_types() -> set[str]:
     return supported_types
 
 
-def _validate_payload_with_plugins(action_type: str, payload: dict, errors: List[str]) -> None:
-    """Validate payload using plugins and interfaces that support the action type."""
+def _validate_payload(action_type: str, payload: dict, errors: List[str]) -> None:
+    """Validate payload using plugins or interfaces that support the action type."""
     try:
         candidates = list(_load_action_plugins()) + list(INTERFACE_REGISTRY.values())
         for plugin in candidates:
@@ -169,7 +169,7 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
 
     # Dynamic validation - delegate to plugins that support this action type
     if isinstance(payload, dict) and action_type in get_supported_action_types():
-        _validate_payload_with_plugins(action_type, payload, errors)
+        _validate_payload(action_type, payload, errors)
 
     return len(errors) == 0, errors
 
