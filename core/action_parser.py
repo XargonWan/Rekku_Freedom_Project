@@ -13,6 +13,34 @@ from typing import Any, Dict, List, Tuple, Optional
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.core_initializer import INTERFACE_REGISTRY
 
+# Cache for interface actions discovered via the interface registry
+_INTERFACE_ACTIONS: Dict[str, str] | None = None
+
+
+def _load_interface_actions() -> Dict[str, str]:
+    """Return a mapping of action_type -> interface_name from registered interfaces."""
+    global _INTERFACE_ACTIONS
+
+    if _INTERFACE_ACTIONS is not None:
+        log_debug(
+            f"[action_parser] 🔄 Returning cached interface actions ({len(_INTERFACE_ACTIONS)})"
+        )
+        return _INTERFACE_ACTIONS
+
+    actions: Dict[str, str] = {}
+    for name, iface in INTERFACE_REGISTRY.items():
+        try:
+            if hasattr(iface, "get_supported_actions"):
+                supported = iface.get_supported_actions()
+                if isinstance(supported, dict):
+                    for act in supported.keys():
+                        actions[str(act)] = name
+        except Exception as e:  # pragma: no cover - defensive
+            log_debug(f"[action_parser] Error inspecting interface {name}: {e}")
+
+    _INTERFACE_ACTIONS = actions
+    return actions
+
 
 def get_supported_action_types() -> set[str]:
     """Return all supported action types discovered from plugins and interfaces."""
@@ -39,7 +67,7 @@ def get_supported_action_types() -> set[str]:
 
 
 def _validate_payload(action_type: str, payload: dict, errors: List[str]) -> None:
-    """Validate payload using plugins and interfaces that support the action type."""
+    """Validate payload using plugins or interfaces that support the action type."""
     try:
         for plugin in _load_action_plugins():
             supports_action = False
@@ -93,8 +121,6 @@ def _validate_payload(action_type: str, payload: dict, errors: List[str]) -> Non
         iface_name = _load_interface_actions().get(action_type)
         if iface_name:
             try:
-                from core.core_initializer import INTERFACE_REGISTRY
-
                 iface = INTERFACE_REGISTRY.get(iface_name)
                 if iface and hasattr(iface, "validate_payload"):
                     iface_errors = iface.validate_payload(action_type, payload)
@@ -164,9 +190,6 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
 
 # Cache for discovered action plugins
 _ACTION_PLUGINS: List[Any] | None = None
-
-# Cache for interface action mappings: action_type -> interface_name
-_INTERFACE_ACTIONS: dict[str, str] | None = None
 
 
 def _load_action_plugins() -> List[Any]:
@@ -253,32 +276,6 @@ def _load_action_plugins() -> List[Any]:
     log_info(f"[action_parser] 🎉 Plugins loaded: {', '.join(plugin_names)}")
 
     return _ACTION_PLUGINS
-
-
-def _load_interface_actions() -> dict[str, str]:
-    """Load mapping of action types to interface names."""
-    global _INTERFACE_ACTIONS
-    if _INTERFACE_ACTIONS is not None:
-        log_debug(
-            f"[action_parser] 🔄 Returning cached interface actions ({len(_INTERFACE_ACTIONS)})"
-        )
-        return _INTERFACE_ACTIONS
-
-    mapping: dict[str, str] = {}
-    try:
-        from core.core_initializer import core_initializer
-
-        for iface, actions in getattr(core_initializer, "interface_actions", {}).items():
-            for action in actions:
-                mapping[action] = iface
-        log_debug(
-            f"[action_parser] 📡 Loaded interface actions mapping for {len(mapping)} actions"
-        )
-    except Exception as e:
-        log_warning(f"[action_parser] Error loading interface actions: {e}")
-
-    _INTERFACE_ACTIONS = mapping
-    return _INTERFACE_ACTIONS
 
 
 def _plugins_for(action_type: str) -> List[Any]:
