@@ -816,8 +816,6 @@ async def start_bot():
         ))
         log_info("[telegram_bot] All handlers added successfully")
 
-        log_info("🧞‍♀️ Rekku is online.")
-        
         # Register this interface with the core
         log_info("[telegram_bot] Registering interface with core...")
         from core.core_initializer import core_initializer
@@ -1031,8 +1029,4 @@ class TelegramInterface:
 
 # Register TelegramInterface for discovery by the core
 PLUGIN_CLASS = TelegramInterface
-
-# Ensure the action type is registered globally
-from core.action_parser import set_available_plugins
-set_available_plugins([TelegramInterface])
 

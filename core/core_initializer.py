@@ -6,7 +6,7 @@ import inspect
 from pathlib import Path
 from typing import Optional, Any
 from core.logging_utils import log_info, log_error, log_warning, log_debug
-from core.config import get_active_llm
+from core.config import get_active_llm, list_available_llms
 
 
 class CoreInitializer:
@@ -18,24 +18,27 @@ class CoreInitializer:
         self.active_llm = None
         self.startup_errors = []
         self.actions_block = {"available_actions": {}}
+        self.interface_actions = {}
     
     async def initialize_all(self, notify_fn=None):
         """Initialize all Rekku components in the correct order."""
         log_info("🚀 Initializing Rekku core components...")
-        
+
+        # Reset state for fresh initialization
+        self.loaded_plugins = []
+        self.interface_actions = {}
+        self.actions_block = {"available_actions": {}}
+
         # 1. Load LLM engine
         await self._load_llm_engine(notify_fn)
-        
+
         # 2. Load generic plugins
         self._load_plugins()
         await self._build_actions_block()
-        
+
         # 3. Auto-discover active interfaces
         self._discover_interfaces()
-        
-        # 4. Final system status report
-        self._display_startup_summary()
-        
+
         return True
     
     async def _load_llm_engine(self, notify_fn=None):
@@ -145,15 +148,20 @@ class CoreInitializer:
             self.active_interfaces.append(interface_name)
             log_info(f"[core_initializer] ✅ Interface registered: {interface_name}")
 
-            # Verifica se l'interfaccia registra azioni
-            interface_instance = globals().get(interface_name)
-            if interface_instance and hasattr(interface_instance, 'register_actions'):
-                log_info(f"[core_initializer] 🔌 Interface {interface_name} supports action registration")
+            # Check if the interface exposes action schemas
+            interface_instance = INTERFACE_REGISTRY.get(interface_name)
+            if interface_instance and hasattr(interface_instance, 'get_supported_actions'):
+                log_info(
+                    f"[core_initializer] 🔌 Interface {interface_name} supports action registration"
+                )
             else:
-                log_warning(f"[core_initializer] ⚠️ Interface {interface_name} does not support action registration")
+                log_warning(
+                    f"[core_initializer] ⚠️ Interface {interface_name} does not support action registration"
+                )
 
             # Show updated status after interface registration
             self._show_interface_status()
+            self._display_startup_summary()
         else:
             log_info(f"[core_initializer] 🔄 Interface {interface_name} is already registered")
     
@@ -190,6 +198,9 @@ class CoreInitializer:
             if not isinstance(required, list) or not isinstance(optional, list):
                 raise ValueError(f"Invalid schema for {action_type} in {iface}")
 
+            # Track which interface declares each action
+            self.interface_actions.setdefault(iface, set()).add(action_type)
+
             # Simplified structure: no more nested interfaces
             if action_type in available_actions:
                 log_debug(f"[core_initializer] Updating existing declaration for {action_type}")
@@ -209,7 +220,9 @@ class CoreInitializer:
                     "required_fields": merged_required,
                     "optional_fields": merged_optional,
                 }
-                log_info(f"[core_initializer] Merged {action_type} fields: required={merged_required}, optional={merged_optional}")
+                log_info(
+                    f"[core_initializer] Merged {action_type} fields: required={merged_required}, optional={merged_optional}"
+                )
             else:
                 available_actions[action_type] = {
                     "description": schema.get("description", ""),
@@ -313,35 +326,41 @@ class CoreInitializer:
     def _display_startup_summary(self):
         """Display a comprehensive startup summary."""
         log_info("=" * 60)
-        log_info("🧞‍♀️ Rekku is online!")
+        log_info("🚀 Rekku startup summary")
         log_info("=" * 60)
-        
-        # Active LLM
+
+        # --- LLMs ---
+        available_llms = list_available_llms()
         if self.active_llm:
             log_info(f"Active LLM: {self.active_llm}")
         else:
             log_info("Active LLM: None")
-        
-        # Loaded Plugins
-        if self.loaded_plugins:
-            plugins_str = ", ".join(self.loaded_plugins)
-            log_info(f"Available Plugins: {plugins_str}")
-        else:
-            log_info("Available Plugins: None")
-        
-        # Active Interfaces (will be populated as interfaces start)
+        if available_llms:
+            log_info(f"Available LLMs: {', '.join(sorted(available_llms))}")
+
+        # --- Interfaces and their actions ---
         if self.active_interfaces:
-            interfaces_str = ", ".join(self.active_interfaces)
-            log_info(f"Loaded Interfaces: {interfaces_str}")
+            log_info("Interfaces and actions:")
+            for iface in self.active_interfaces:
+                actions = sorted(self.interface_actions.get(iface, set()))
+                actions_str = ", ".join(actions) if actions else "none"
+                log_info(f"  {iface}: {actions_str}")
         else:
-            log_info("Loaded Interfaces: Will be shown as interfaces start up")
-        
+            log_info("Interfaces: none")
+
+        # --- Plugins ---
+        if self.loaded_plugins:
+            plugins_str = ", ".join(sorted(set(self.loaded_plugins)))
+            log_info(f"Plugins: {plugins_str}")
+        else:
+            log_info("Plugins: none")
+
         # Startup errors
         if self.startup_errors:
             log_warning("⚠️ Startup warnings/errors:")
             for error in self.startup_errors:
                 log_warning(f"  - {error}")
-        
+
         log_info("=" * 60)
         log_info("🎯 System ready for operations")
         log_info("=" * 60)
@@ -361,6 +380,6 @@ def register_interface(name: str, interface_obj: Any) -> None:
     # Log detailed information about the interface loading
     log_debug(f"[core_initializer] Loading interface: {name}")
 
-    # Check if the interface supports action registration
-    if hasattr(interface_obj, 'register_actions'):
+    # Check if the interface provides action schemas
+    if hasattr(interface_obj, 'get_supported_actions'):
         log_debug(f"[core_initializer] Interface '{name}' supports action registration")

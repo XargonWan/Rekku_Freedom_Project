@@ -16,7 +16,7 @@ SNSCRAPE_AVAILABLE = False
 sntwitter = None
 
 from core.logging_utils import log_info, log_debug, log_warning
-from core.core_initializer import register_interface
+from core.core_initializer import register_interface, core_initializer
 from core.auto_response import request_llm_delivery
 
 log_warning("[x_interface] snscrape disabled due to Python 3.12 compatibility issues")
@@ -202,4 +202,6 @@ class XInterface:
 
 # Expose class for dynamic loading and register interface
 INTERFACE_CLASS = XInterface
-register_interface("x", XInterface())
+x_interface = XInterface()
+register_interface("x", x_interface)
+core_initializer.register_interface("x")
