@@ -161,7 +161,6 @@ class CoreInitializer:
 
             # Show updated status after interface registration
             self._show_interface_status()
-            self._display_startup_summary()
         else:
             log_info(f"[core_initializer] 🔄 Interface {interface_name} is already registered")
     
@@ -364,6 +363,10 @@ class CoreInitializer:
         log_info("=" * 60)
         log_info("🎯 System ready for operations")
         log_info("=" * 60)
+
+    def display_startup_summary(self):
+        """Public method to log the startup summary on demand."""
+        self._display_startup_summary()
 
 
 # Global instance

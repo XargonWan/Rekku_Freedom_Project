@@ -821,6 +821,7 @@ async def start_bot():
         from core.core_initializer import core_initializer
         core_initializer.register_interface("telegram_bot")
         log_info("[telegram_bot] Interface registered with core")
+        core_initializer.display_startup_summary()
     except Exception as e:
         log_error(f"[telegram_bot] Error building Telegram application: {repr(e)}")
         raise
