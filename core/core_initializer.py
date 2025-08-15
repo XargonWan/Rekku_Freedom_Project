@@ -386,3 +386,11 @@ def register_interface(name: str, interface_obj: Any) -> None:
     # Check if the interface provides action schemas
     if hasattr(interface_obj, 'get_supported_actions'):
         log_debug(f"[core_initializer] Interface '{name}' supports action registration")
+
+    # Reset cached interface-action mapping in action parser
+    try:
+        from core import action_parser
+
+        action_parser._INTERFACE_ACTIONS = None
+    except Exception:
+        pass
