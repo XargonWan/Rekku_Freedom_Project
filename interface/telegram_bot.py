@@ -42,6 +42,7 @@ import core.plugin_instance as plugin_instance
 import traceback
 from core.action_parser import initialize_core
 from core.core_initializer import register_interface
+from typing import Any
 
 # Load variables from .env
 load_dotenv()
@@ -1014,6 +1015,15 @@ class TelegramInterface:
             fallback_message_thread_id=fallback_message_thread_id,
             fallback_reply_to_message_id=fallback_reply_to,
         )
+
+    async def execute_action(
+        self, action: dict, context: dict, bot: Any, original_message: object | None = None
+    ) -> None:
+        """Execute actions for this interface."""
+        action_type = action.get("type")
+        if action_type == "message_telegram_bot":
+            payload = action.get("payload", {})
+            await self.send_message(payload, original_message)
 
     @staticmethod
     def get_interface_instructions():
