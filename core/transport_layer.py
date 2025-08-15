@@ -3,48 +3,11 @@
 
 import json
 import re
-import time
 from typing import Any, Dict, Optional
 from types import SimpleNamespace
 from core.logging_utils import log_debug, log_warning, log_error, log_info
-from core.action_parser import parse_action
 from core.telegram_utils import _send_with_retry
 
-# Global dictionary to track retry attempts per chat/message thread
-_retry_tracker = {}
-
-
-def _get_retry_key(message):
-    """Generate a unique key for tracking retries based on chat/thread."""
-    chat_id = getattr(message, 'chat_id', None)
-    thread_id = getattr(message, 'message_thread_id', None)
-    return f"{chat_id}_{thread_id}"
-
-
-def _should_retry(message, max_retries: int = 2) -> bool:
-    """Check if we should attempt retry for this message context."""
-    retry_key = _get_retry_key(message)
-    current_time = time.time()
-    
-    # Clean up old retry entries (older than 5 minutes)
-    cutoff_time = current_time - 300  # 5 minutes
-    keys_to_remove = [k for k, (count, timestamp) in _retry_tracker.items() 
-                      if timestamp < cutoff_time]
-    for key in keys_to_remove:
-        del _retry_tracker[key]
-    
-    # Check current retry count
-    retry_count, _ = _retry_tracker.get(retry_key, (0, current_time))
-    return retry_count < max_retries
-
-
-def _increment_retry(message):
-    """Increment retry count for this message context."""
-    retry_key = _get_retry_key(message)
-    current_time = time.time()
-    retry_count, _ = _retry_tracker.get(retry_key, (0, current_time))
-    _retry_tracker[retry_key] = (retry_count + 1, current_time)
-    return retry_count + 1
 
 
 def extract_json_from_text(text: str, processed_messages: set = None):
@@ -182,71 +145,6 @@ def extract_json_from_text(text: str, processed_messages: set = None):
         return None
 
 
-async def _handle_action_errors(errors: list, failed_actions: list, bot, message):
-    """Handle action parsing errors by requesting LLM to fix them."""
-    
-    # Check if we should retry based on the new tracking system
-    if not _should_retry(message, max_retries=2):
-        retry_key = _get_retry_key(message)
-        retry_count, _ = _retry_tracker.get(retry_key, (0, 0))
-        log_warning(f"[transport] Max retries ({retry_count}) reached for action correction. Giving up.")
-        return
-    
-    # Validate message has valid chat_id before proceeding
-    if not hasattr(message, 'chat_id') or message.chat_id is None:
-        log_warning(f"[transport] Cannot request correction: invalid chat_id in message: {getattr(message, 'chat_id', 'None')}")
-        return
-    
-    # Increment retry counter
-    retry_count = _increment_retry(message)
-    
-    # Create error summary for LLM
-    error_summary = "\n".join([f"- {error}" for error in errors[:5]])  # Limit to 5 errors
-    failed_actions_json = json.dumps(failed_actions, indent=2)
-    
-    correction_prompt = f"""
-🚨 ACTION PARSING ERRORS DETECTED 🚨
-
-The following actions failed to parse:
-{failed_actions_json}
-
-Errors encountered:
-{error_summary}
-
-Please fix these actions and provide ONLY the corrected JSON. Use the exact interface names and action formats that are available.
-
-Important:
-- Fix ONLY the interface field and other structural issues  
-- Do not change the intent or payload content
-- Return ONLY valid JSON, no explanations
-- Use the available interfaces shown in the error messages
-
-Attempt: {retry_count}/2
-"""
-    
-    log_info(f"[transport] Requesting action correction from LLM (attempt {retry_count}/2)")
-    
-    try:
-        # Send correction request back to LLM via the same message flow
-        from core import plugin_instance
-        
-        # Create a mock message for the correction request
-        correction_message = SimpleNamespace()
-        correction_message.chat_id = message.chat_id  
-        correction_message.text = correction_prompt
-        correction_message.message_thread_id = getattr(message, 'message_thread_id', None)
-        correction_message.date = message.date
-        correction_message.from_user = getattr(message, 'from_user', None)
-        
-        # Send to LLM for correction
-        llm_plugin = getattr(plugin_instance, "plugin", None)
-        if llm_plugin and hasattr(llm_plugin, 'handle_incoming_message'):
-            await llm_plugin.handle_incoming_message(bot, correction_message, correction_prompt)
-        else:
-            log_warning("[transport] No LLM plugin available for action correction")
-            
-    except Exception as e:
-        log_error(f"[transport] Failed to request action correction: {e}")
 
 
 async def universal_send(interface_send_func, *args, text: str = None, **kwargs):
@@ -313,8 +211,6 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
             from core.action_parser import run_actions
             context = {"interface": "telegram"}  # Add more context as needed
             
-            # Collect errors for auto-correction
-            errors = []
             processed_actions = []
             
             # Remove duplicate actions
@@ -326,26 +222,19 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
                     unique_actions.append(action)
                     seen_actions.add(action_id)
 
-            # Process actions and collect errors
+            # Process actions using centralized system
             try:
                 result = await run_actions(unique_actions, context, bot, message)
-                if isinstance(result, dict) and "errors" in result:
-                    errors.extend(result["errors"])
+                if isinstance(result, dict):
                     processed_actions.extend(result.get("processed", []))
                 else:
                     processed_actions = unique_actions
             except Exception as e:
-                errors.append(f"Processing error: {e}")
-            
-            # If there are errors, try auto-correction (max 2 attempts)
-            if errors and hasattr(message, 'chat_id'):
-                await _handle_action_errors(errors, unique_actions, bot, message)
-            elif errors:
-                log_warning(f"[transport] Action errors detected but no valid chat_id for correction: {errors[:3]}")
-            
+                log_warning(f"[transport] Failed to process actions: {e}")
+
             log_info(f"[transport] Processed {len(processed_actions)} unique JSON actions via plugin system")
             return
-            
+
         except Exception as e:
             log_warning(f"[transport] Failed to process JSON actions: {e}")
 

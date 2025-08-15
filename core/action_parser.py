@@ -5,12 +5,121 @@ import asyncio
 import importlib
 import inspect
 import os
+import json
+import time
 from collections import deque
 from types import SimpleNamespace
 from datetime import datetime
 from typing import Any, Dict, List, Tuple, Optional
 
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.prompt_engine import load_json_instructions
+
+# Global dictionary to track retry attempts per chat/message thread for the corrector
+CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
+_retry_tracker = {}
+
+
+def _get_retry_key(message):
+    """Generate a unique key for tracking retries based on chat/thread."""
+    chat_id = getattr(message, "chat_id", None)
+    thread_id = getattr(message, "message_thread_id", None)
+    return f"{chat_id}_{thread_id}"
+
+
+def _should_retry(message, max_retries: int = CORRECTOR_RETRIES) -> bool:
+    """Check if we should attempt retry for this message context."""
+    retry_key = _get_retry_key(message)
+    current_time = time.time()
+
+    # Clean up old retry entries (older than 5 minutes)
+    cutoff_time = current_time - 300  # 5 minutes
+    keys_to_remove = [k for k, (count, timestamp) in _retry_tracker.items() if timestamp < cutoff_time]
+    for key in keys_to_remove:
+        del _retry_tracker[key]
+
+    # Check current retry count
+    retry_count, _ = _retry_tracker.get(retry_key, (0, current_time))
+    return retry_count < max_retries
+
+
+def _increment_retry(message):
+    """Increment retry count for this message context."""
+    retry_key = _get_retry_key(message)
+    current_time = time.time()
+    retry_count, _ = _retry_tracker.get(retry_key, (0, current_time))
+    _retry_tracker[retry_key] = (retry_count + 1, current_time)
+    return retry_count + 1
+
+
+async def corrector(errors: list, failed_actions: list, bot, message):
+    """Handle action parsing errors by requesting LLM to fix them."""
+
+    if not _should_retry(message, max_retries=CORRECTOR_RETRIES):
+        retry_key = _get_retry_key(message)
+        retry_count, _ = _retry_tracker.get(retry_key, (0, 0))
+        log_warning(
+            f"[corrector] Max retries ({retry_count}) reached for action correction. Giving up."
+        )
+        return
+
+    if not hasattr(message, "chat_id") or message.chat_id is None:
+        log_warning(
+            f"[corrector] Cannot request correction: invalid chat_id in message: {getattr(message, 'chat_id', 'None')}"
+        )
+        return
+
+    retry_count = _increment_retry(message)
+
+    error_summary = "\n".join([f"- {err}" for err in errors[:5]])
+    failed_actions_json = json.dumps(failed_actions, indent=2, ensure_ascii=False)
+
+    # Build JSON structure reminder
+    try:
+        from core.core_initializer import core_initializer
+
+        actions_block = core_initializer.actions_block.get("available_actions", {})
+    except Exception as e:
+        log_warning(f"[corrector] Failed to load actions block: {e}")
+        actions_block = {}
+
+    instructions = load_json_instructions()
+    json_structure = json.dumps(
+        {"instructions": instructions, "actions": actions_block},
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    correction_prompt = (
+        f"Il tuo json è invalido l'errore è: {error_summary}\n"
+        "Per favore ripeti il messaggio precedente corretto.\n\n"
+        "Procedo a ricordarti la struttura del json:\n"
+        f"{json_structure}\n"
+    )
+
+    log_warning(f"[corrector] {error_summary}")
+    log_info(
+        f"[corrector] Requesting action correction from LLM (attempt {retry_count}/{CORRECTOR_RETRIES})"
+    )
+
+    try:
+        from core import plugin_instance
+
+        correction_message = SimpleNamespace()
+        correction_message.chat_id = message.chat_id
+        correction_message.text = correction_prompt
+        correction_message.message_thread_id = getattr(message, "message_thread_id", None)
+        correction_message.date = message.date
+        correction_message.from_user = getattr(message, "from_user", None)
+
+        llm_plugin = getattr(plugin_instance, "plugin", None)
+        if llm_plugin and hasattr(llm_plugin, "handle_incoming_message"):
+            await llm_plugin.handle_incoming_message(bot, correction_message, correction_prompt)
+        else:
+            log_warning("[corrector] No LLM plugin available for action correction")
+
+    except Exception as e:
+        log_error(f"[corrector] Failed to request action correction: {e}")
 
 
 def get_supported_action_types() -> set[str]:
@@ -462,7 +571,10 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             log_warning(
                 f"[action_parser] Failed to clear processing flag for event {event_id}: {e}"
             )
-    
+
+    if collected_errors:
+        await corrector(collected_errors, actions, bot, original_message)
+
     return {"processed": processed_actions, "errors": collected_errors}
 
 
