@@ -95,6 +95,7 @@ def _validate_payload(action_type: str, payload: dict, errors: List[str]) -> Non
                             f"[action_parser] Error validating action with plugin {plugin.__class__.__name__}: {e}"
                         )
                 else:
+                    # Plugin doesn't have validation - that's OK, skip
                     log_debug(
                         f"[action_parser] Plugin {plugin.__class__.__name__} supports {action_type} but has no validation method"
                     )
@@ -134,31 +135,10 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
     if not action_type:
         errors.append("Missing 'type'")
     else:
-        # Check if any plugin supports this action type
-        supported_by_plugin = False
-        for plugin in _load_action_plugins():
-            try:
-                if hasattr(plugin, "get_supported_action_types"):
-                    if action_type in plugin.get_supported_action_types():
-                        supported_by_plugin = True
-                        break
-                elif hasattr(plugin, "get_supported_actions"):
-                    actions = plugin.get_supported_actions()
-                    if isinstance(actions, dict) and action_type in actions:
-                        supported_by_plugin = True
-                        break
-                    elif isinstance(actions, (list, set, tuple)) and action_type in actions:
-                        supported_by_plugin = True
-                        break
-            except Exception as e:
-                log_debug(
-                    f"[action_parser] Error checking plugin support for {action_type}: {e}"
-                )
-                continue
-
-        if not supported_by_plugin:
+        # Check if any plugin or interface supports this action type
+        if action_type not in get_supported_action_types():
             errors.append(
-                f"Unsupported type '{action_type}' - no plugin found to handle it"
+                f"Unsupported type '{action_type}' - no plugin or interface found to handle it"
             )
 
     payload = action.get("payload")
