@@ -67,8 +67,11 @@ async def ensure_plugin_loaded(update: Update):
     return True
 
 def resolve_forwarded_target(message):
-    """Given a message (presumably a reply to a forwarded message),
-    try to reconstruct the original chat_id and message_id."""
+    """
+    Given a message (presumably a reply to a forwarded message), try to
+    reconstruct the original ``chat_id`` and ``message_id`` of the forwarded
+    message.
+    """
 
     if hasattr(message, "forward_from_chat") and hasattr(message, "forward_from_message_id"):
         if message.forward_from_chat and message.forward_from_message_id:
