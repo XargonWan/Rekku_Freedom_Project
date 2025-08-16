@@ -91,9 +91,9 @@ async def corrector(errors: list, failed_actions: list, bot, message):
     )
 
     correction_prompt = (
-        f"Il tuo json è invalido l'errore è: {error_summary}\n"
-        "Per favore ripeti il messaggio precedente corretto.\n\n"
-        "Procedo a ricordarti la struttura del json:\n"
+        f"Your JSON is invalid. The error is: {error_summary}\n"
+        "Please repeat the previous message, corrected.\n\n"
+        "Here is a reminder of the JSON structure:\n"
         f"{json_structure}\n"
     )
 
