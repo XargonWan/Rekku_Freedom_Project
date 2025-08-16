@@ -41,7 +41,8 @@ from core.mention_utils import is_rekku_mentioned, is_message_for_bot
 import core.plugin_instance as plugin_instance
 import traceback
 from core.action_parser import initialize_core
-from core.interfaces import register_interface
+from core.core_initializer import register_interface
+from typing import Any
 
 # Load variables from .env
 load_dotenv()
@@ -66,8 +67,11 @@ async def ensure_plugin_loaded(update: Update):
     return True
 
 def resolve_forwarded_target(message):
-    """Given a message (presumably a reply to a forwarded message),
-    try to reconstruct the original chat_id and message_id."""
+    """
+    Given a message (presumably a reply to a forwarded message), try to
+    reconstruct the original ``chat_id`` and ``message_id`` of the forwarded
+    message.
+    """
 
     if hasattr(message, "forward_from_chat") and hasattr(message, "forward_from_message_id"):
         if message.forward_from_chat and message.forward_from_message_id:
@@ -128,7 +132,6 @@ async def purge_mappings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"\U0001f5d1 Removed {deleted} mappings older than {days} days."
     )
 
-
 async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not await ensure_plugin_loaded(update):
@@ -144,7 +147,7 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
         return
 
     media_type = detect_media_type(message)
-    log_debug(f"✅ handle_incoming_response: media_type = {media_type}; reply_to = {bool(message.reply_to_message)}")
+    log_debug(f"✅ handle_incoming_response: media_type = {media_type}; reply_message_id = {bool(message.reply_to_message)}")
 
     # === 1. Prova target da response_proxy (es. /say)
     target = response_proxy.get_target(TRAINER_ID)
@@ -194,11 +197,11 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
 
     # === 5. Send content
     chat_id = target["chat_id"]
-    reply_to = target["message_id"]
+    reply_message_id = target["message_id"]
     content_type = target["type"]
 
-    log_debug(f"Sending media_type={content_type} to chat_id={chat_id}, reply_to={reply_to}")
-    success, feedback = await send_content(context.bot, chat_id, message, content_type, reply_to)
+    log_debug(f"Sending media_type={content_type} to chat_id={chat_id}, reply_message_id={reply_message_id}")
+    success, feedback = await send_content(context.bot, chat_id, message, content_type, reply_message_id)
 
     await message.reply_text(feedback)
 
@@ -330,13 +333,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )  # [FIX]
             await message.reply_text("✅ Reply sent.")
         else:
+            log_warning("⚠️ No target found for reply. Ensure plugin mapping is correct.")
             await message.reply_text("⚠️ No message found to reply to.")
         return
 
     # === FILTER: Only respond if mentioned or in reply
     log_debug(f"[telegram_bot] Checking if message is for bot: chat_type={message.chat.type}, "
               f"text='{text[:50]}{'...' if len(text) > 50 else ''}', "
-              f"reply_to={message.reply_to_message is not None}")
+              f"reply_message_id={message.reply_to_message is not None}")
     
     if message.reply_to_message:
         log_debug(f"[telegram_bot] Reply to message from user ID: {message.reply_to_message.from_user.id if message.reply_to_message.from_user else 'None'}, "
@@ -816,13 +820,12 @@ async def start_bot():
         ))
         log_info("[telegram_bot] All handlers added successfully")
 
-        log_info("🧞‍♀️ Rekku is online.")
-        
         # Register this interface with the core
         log_info("[telegram_bot] Registering interface with core...")
         from core.core_initializer import core_initializer
         core_initializer.register_interface("telegram_bot")
         log_info("[telegram_bot] Interface registered with core")
+        core_initializer.display_startup_summary()
     except Exception as e:
         log_error(f"[telegram_bot] Error building Telegram application: {repr(e)}")
         raise
@@ -886,6 +889,21 @@ class TelegramInterface:
         }
 
     @staticmethod
+    def get_prompt_instructions(action_name: str) -> dict:
+        """Prompt instructions for supported actions."""
+        if action_name == "message_telegram_bot":
+            return {
+                "description": "Send a message via Telegram bot",
+                "payload": {
+                    "text": {"type": "string", "example": "Hello!", "description": "The message text to send"},
+                    "target": {"type": "string", "example": "-123456789", "description": "The chat_id of the recipient (can be string or integer)"},
+                    "message_thread_id": {"type": "integer", "example": 456, "description": "Optional thread ID for group chats", "optional": True},
+                    "reply_to_message_id": {"type": "integer", "example": 12345, "description": "Optional ID of the message to reply to", "optional": True},
+                },
+            }
+        return None
+
+    @staticmethod
     def validate_payload(action_type: str, payload: dict) -> list:
         """Validate payload for telegram actions."""
         if action_type != "message_telegram_bot":
@@ -923,25 +941,13 @@ class TelegramInterface:
         return errors
 
     @staticmethod  
-    def get_prompt_instructions(action_name: str) -> dict:
-        """Prompt instructions for supported actions."""
-        if action_name == "message_telegram_bot":
-            return {
-                "description": "Send a message via Telegram bot",
-                "payload": {
-                    "text": {"type": "string", "example": "Hello!", "description": "The message text to send"},
-                    "target": {"type": "string", "example": "-123456789", "description": "The chat_id of the recipient (can be string or integer)"},
-                    "message_thread_id": {"type": "integer", "example": 456, "description": "Optional thread ID for group chats", "optional": True},
-                },
-            }
-        return None
-
-    # RESTORED: get_supported_actions() and get_prompt_instructions() to handle message actions
-
-    @staticmethod
     def get_interface_instructions() -> str:
         """Get instructions for this interface."""
-        return "Send messages via Telegram with proper chat_id and optional thread support."
+        return (
+            "Send messages via Telegram with proper chat_id and optional thread support.\n"
+            "- Use 'message_thread_id' to reply to specific messages in topics.\n"
+            "- Ensure the 'text' field contains the message content."
+        )
 
     async def send_message(self, payload: dict, original_message: object | None = None) -> None:
         """Send a message using the stored bot.
@@ -979,15 +985,15 @@ class TelegramInterface:
                 log_warning(f"[telegram_interface] Invalid target format: {target}")
                 return
 
-        reply_to = None
+        reply_message_id = None
         if (
             original_message
             and hasattr(original_message, "chat_id")
             and hasattr(original_message, "message_id")
             and target_for_comparison == getattr(original_message, "chat_id")
         ):
-            reply_to = original_message.message_id
-            log_debug(f"[telegram_interface] reply_to_message_id: {reply_to}")
+            reply_message_id = original_message.message_id
+            log_debug(f"[telegram_interface] reply_to_message_id: {reply_message_id}")
 
         fallback_chat_id = None
         fallback_message_thread_id = None
@@ -1007,11 +1013,20 @@ class TelegramInterface:
             target,
             text,
             message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
-            reply_to_message_id=reply_to,
+            reply_to_message_id=reply_message_id,
             fallback_chat_id=fallback_chat_id,
             fallback_message_thread_id=fallback_message_thread_id,
             fallback_reply_to_message_id=fallback_reply_to,
         )
+
+    async def execute_action(
+        self, action: dict, context: dict, bot: Any, original_message: object | None = None
+    ) -> None:
+        """Execute actions for this interface."""
+        action_type = action.get("type")
+        if action_type == "message_telegram_bot":
+            payload = action.get("payload", {})
+            await self.send_message(payload, original_message)
 
     @staticmethod
     def get_interface_instructions():
@@ -1025,4 +1040,7 @@ class TelegramInterface:
             "- Replying to a message in the same chat will automatically use that message as the reply target.\n"
             "- To send to another chat, specify a different chat_id; these will not appear as replies.\n"
         )
+
+# Register TelegramInterface for discovery by the core
+PLUGIN_CLASS = TelegramInterface
 

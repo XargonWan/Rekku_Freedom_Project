@@ -63,7 +63,7 @@ class AutoResponseSystem:
             log_info(f"[auto_response] Requesting LLM to deliver {action_type} output to chat {chat_id}")
             
             # Get bot instance from interfaces
-            from core.interfaces import INTERFACE_REGISTRY
+            from core.action_parser import INTERFACE_REGISTRY
             bot = INTERFACE_REGISTRY.get('telegram_bot')
             if not bot:
                 log_error("[auto_response] No telegram_bot interface available")

@@ -38,6 +38,7 @@ class DiscordInterface:
                 "payload": {
                     "text": {"type": "string", "example": "Hello Discord!", "description": "The message text to send."},
                     "target": {"type": "string", "example": "1234567890", "description": "The channel_id of the recipient."},
+                    "reply_to_message_id": {"type": "integer", "example": 987654321, "description": "Optional ID of the message to reply to", "optional": True},
                 },
             }
         return {}
@@ -65,5 +66,6 @@ class DiscordInterface:
             "- Use channel_id for targets.\n"
             "- Markdown is supported, but avoid advanced features not supported by Discord.\n"
             "- Messages sent to the same channel as the source will appear as replies when possible.\n"
+            "- Use 'reply_message_id' to reply to specific messages.\n"
             "- Provide plain text or Markdown in the 'text' field."
         )

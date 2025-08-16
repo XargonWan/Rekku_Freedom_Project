@@ -4,7 +4,7 @@ import traceback
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 async def send_content(bot, chat_id, message, content_type, reply_to_message_id=None):
-    log_debug(f"Sending content: {content_type}, reply_to={reply_to_message_id}")
+    log_debug(f"Sending content: {content_type}, reply_message_id={reply_to_message_id}")
 
     try:
         if content_type == "audio":

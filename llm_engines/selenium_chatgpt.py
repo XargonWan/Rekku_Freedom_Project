@@ -261,9 +261,12 @@ def wait_for_markdown_block_to_appear(driver, prev_count: int, timeout: int = 10
     return False
 
 
+AWAIT_RESPONSE_TIMEOUT = int(os.getenv("AWAIT_RESPONSE_TIMEOUT", "240"))
+
+
 def wait_until_response_stabilizes(
     driver: webdriver.Remote,
-    max_total_wait: int = 300,
+    max_total_wait: int = AWAIT_RESPONSE_TIMEOUT,
     no_change_grace: float = 3.5,
 ) -> str:
     """Return the last markdown text once its length stops growing."""
@@ -314,11 +317,11 @@ def wait_until_response_stabilizes(
         changed = current_len != last_len
         log_debug(f"[DEBUG] len={current_len} changed={changed}")
 
-        if changed:
+        if current_len > 0 and changed:
             last_len = current_len
             last_change = time.time()
             final_text = text
-        elif time.time() - last_change >= no_change_grace:
+        elif current_len > 0 and time.time() - last_change >= no_change_grace:
             elapsed = time.time() - start
             log_debug(
                 f"[DEBUG] Response stabilized with length {current_len} after {elapsed:.1f}s"
@@ -602,8 +605,8 @@ def process_prompt_in_chat(
         log_warning(f"[selenium][retry] Empty response attempt {attempt}")
         time.sleep(2)
 
-    os.makedirs("logs/screenshots", exist_ok=True)
-    fname = f"logs/screenshots/chat_{chat_id or 'unknown'}_no_response.png"
+    os.makedirs("/config/logs/screenshots", exist_ok=True)
+    fname = f"/config/logs/screenshots/chat_{chat_id or 'unknown'}_no_response.png"
     try:
         driver.save_screenshot(fname)
         log_warning(f"[selenium] Saved screenshot to {fname}")
@@ -811,9 +814,11 @@ def ensure_chatgpt_model(driver):
     except Exception as e:
         log_warning(f"[chatgpt_model] Errore selezione modello: {repr(e)}")
         try:
-            os.makedirs("logs/screenshots", exist_ok=True)
-            driver.save_screenshot("logs/screenshots/model_switch_error.png")
-            log_warning("[chatgpt_model] Saved screenshot model_switch_error.png")
+            os.makedirs("/config/logs/screenshots", exist_ok=True)
+            driver.save_screenshot("/config/logs/screenshots/model_switch_error.png")
+            log_warning(
+                "[chatgpt_model] Saved screenshot model_switch_error.png"
+            )
         except Exception as ss:
             log_warning(f"[chatgpt_model] Screenshot failed: {ss}")
         return False
@@ -1261,7 +1266,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     bot,
                     chat_id=message.chat_id,
                     text=response_text,
-                    reply_to_message_id=message.message_id,
+                    reply_to_message_id=getattr(message, "message_id", None),
                     message_thread_id=message_thread_id,
                     event_id=getattr(message, "event_id", None),
                 )
@@ -1346,7 +1351,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 while queue_paused:
                     await asyncio.sleep(1)
                 log_debug(
-                    f"[selenium] [WORKER] Processing chat_id={message.chat_id} message_id={message.message_id}"
+                    f"[selenium] [WORKER] Processing chat_id={message.chat_id} "
+                    f"message_id={getattr(message, 'message_id', 'unknown')}"
                 )
                 try:
                     lock = SeleniumChatGPTPlugin.chat_locks[message.chat_id]  # [FIX]

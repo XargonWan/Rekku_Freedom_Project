@@ -16,7 +16,7 @@ SNSCRAPE_AVAILABLE = False
 sntwitter = None
 
 from core.logging_utils import log_info, log_debug, log_warning
-from core.interfaces import register_interface
+from core.core_initializer import register_interface, core_initializer
 from core.auto_response import request_llm_delivery
 
 log_warning("[x_interface] snscrape disabled due to Python 3.12 compatibility issues")
@@ -175,12 +175,12 @@ class XInterface:
         """Return detailed instructions for each action type."""
         if action_name == "message_x":
             return {
-                "description": "Post a message on X (Twitter)",
+                "description": "Send a message or reply on X.",
                 "payload": {
-                    "text": "Hello X world!",
-                    "target_user": "username",  # optional
-                    "interface": "x"
-                }
+                    "text": {"type": "string", "example": "Hello X!", "description": "The message text to send."},
+                    "target_user": {"type": "string", "example": "@example", "description": "The username of the recipient."},
+                    "reply_to_message_id": {"type": "string", "example": "1234567890", "description": "Optional ID of the message to reply to", "optional": True},
+                },
             }
         elif action_name == "x_timeline_read":
             return {
@@ -202,4 +202,6 @@ class XInterface:
 
 # Expose class for dynamic loading and register interface
 INTERFACE_CLASS = XInterface
-register_interface("x", XInterface())
+x_interface = XInterface()
+register_interface("x", x_interface)
+core_initializer.register_interface("x")

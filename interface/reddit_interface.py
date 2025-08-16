@@ -18,7 +18,7 @@ except Exception:  # pragma: no cover - library missing in env
 
 from core.logging_utils import log_debug, log_warning, log_error
 from core.transport_layer import universal_send
-from core.interfaces import register_interface
+from core.core_initializer import register_interface
 from core.auto_response import request_llm_delivery
 import core.plugin_instance as plugin_instance
 
@@ -61,7 +61,7 @@ class RedditInterface:
             "message_reddit": {
                 "description": "Send a message or reply on Reddit.",
                 "required_fields": ["text", "target"],
-                "optional_fields": ["reply_to"],
+                "optional_fields": ["reply_message_id"],
             }
         }
 
@@ -72,7 +72,7 @@ class RedditInterface:
                 "payload": {
                     "text": {"type": "string", "example": "Hello Reddit!", "description": "The message text to send."},
                     "target": {"type": "string", "example": "example_user", "description": "The username or subreddit."},
-                    "reply_to": {"type": "string", "example": "t1_abcdef", "description": "Optional comment/message id to reply to.", "optional": True},
+                    "reply_message_id": {"type": "string", "example": "t1_abcdef", "description": "Optional comment/message id to reply to.", "optional": True},
                 },
             }
         return {}
@@ -143,18 +143,18 @@ class RedditInterface:
     async def send_message(self, payload: dict, original_message: object | None = None):
         text = payload.get("text", "")
         target = payload.get("target")
-        reply_to = payload.get("reply_to")
-        await universal_send(self._reddit_send, target, text=text, reply_to=reply_to)
+        reply_message_id = payload.get("reply_message_id")
+        await universal_send(self._reddit_send, target, text=text, reply_message_id=reply_message_id)
 
-    async def _reddit_send(self, target: str, text: str, reply_to: str | None = None):
-        if reply_to:
+    async def _reddit_send(self, target: str, text: str, reply_message_id: str | None = None):
+        if reply_message_id:
             try:
-                comment = await self.reddit.comment(reply_to)
+                comment = await self.reddit.comment(reply_message_id)
                 await comment.reply(text)
                 return
             except Exception:
                 try:
-                    message = await self.reddit.inbox.message(reply_to)
+                    message = await self.reddit.inbox.message(reply_message_id)
                     await message.reply(text)
                     return
                 except Exception as e:
@@ -214,7 +214,7 @@ class RedditInterface:
         return (
             "REDDIT INTERFACE INSTRUCTIONS:\n"
             "- Use usernames as targets when sending direct messages.\n"
-            "- Provide reply_to when replying to comments or messages.\n"
+            "- Provide 'reply_message_id' when replying to comments or messages to maintain context.\n"
             "- Text is plain Markdown.\n"
         )
 

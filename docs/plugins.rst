@@ -30,12 +30,6 @@ Event
 The ``event`` plugin stores scheduled reminders in a MariaDB table. A background
 scheduler checks for due events and sends them back to Rekku when the time comes.
 
-Message
--------
-
-``message_plugin`` handles text message actions across multiple interfaces. It is
-used internally by other plugins to send replies.
-
 Reddit Interface
 ----------------
 
@@ -61,14 +55,31 @@ Action Plugin
 
 Action plugins process the actions returned by an LLM.  Create a new file under
 ``plugins/`` and subclass ``PluginBase`` or ``AIPluginBase`` if the plugin needs
-to interact with language model prompts.  At minimum expose a ``PLUGIN_CLASS``
-variable so the loader can locate your class.
+to interact with language model prompts.  Each plugin is self-contained; removing
+the file removes the action from the system.  To participate in the action
+registry the plugin must expose a ``PLUGIN_CLASS`` variable and implement
+``get_supported_actions``.  Optional prompt guidance can be provided via
+``get_prompt_instructions``.
 
 .. code-block:: python
 
    from core.ai_plugin_base import AIPluginBase
 
    class MyActionPlugin(AIPluginBase):
+       def get_supported_actions(self):
+           return {
+               "my_action": {
+                   "required_fields": ["value"],
+                   "optional_fields": [],
+                   "description": "Do something with 'value'",
+               }
+           }
+
+       def get_prompt_instructions(self, action_type):
+           if action_type == "my_action":
+               return {"system": "Describe how to call my_action"}
+           return {}
+
        def handle_incoming_message(self, bot, message, prompt):
            ...  # perform work
 
@@ -114,18 +125,34 @@ or JSON actions.  After placing the module, select it at runtime using the
 Interface
 ~~~~~~~~~
 
-Interfaces provide ingress/egress channels for messages.  A minimal interface
-exposes ``start()`` to begin listening and registers itself using
-``register_interface`` from ``core.interfaces``.
+Interfaces provide ingress/egress channels for messages and can also expose
+their own actions.  A minimal interface defines action schemas, calls
+``register_interface`` to make itself discoverable and then notifies the core
+initializer that it is active.
 
 .. code-block:: python
 
-   from core.interfaces import register_interface
+   from core.core_initializer import register_interface, core_initializer
 
    class MyInterface:
-       async def start(self):
-           ...
-           register_interface("myiface", self)
+       @staticmethod
+       def get_interface_id():
+           return "myiface"
 
-Interfaces typically forward incoming messages to ``plugin_instance.handle_incoming_message``
-so that the active LLM engine can process them.
+       @staticmethod
+       def get_supported_actions():
+           return {
+               "message_myiface": {
+                   "required_fields": ["text"],
+                   "optional_fields": [],
+                   "description": "Send a message over MyInterface.",
+               }
+           }
+
+       async def start(self):
+           register_interface("myiface", self)
+           core_initializer.register_interface("myiface")
+
+Interfaces typically forward incoming messages to
+``plugin_instance.handle_incoming_message`` so that the active LLM engine can
+process them.

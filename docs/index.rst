@@ -26,6 +26,7 @@ getting started.
    auto_response
    llm_engines
    plugins
+   interfaces
    contributing
    faq
 

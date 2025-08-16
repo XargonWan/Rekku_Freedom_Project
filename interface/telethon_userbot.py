@@ -17,6 +17,7 @@ from core.config import TRAINER_ID
 from core import blocklist, response_proxy, say_proxy, recent_chats
 from core.context import context_command
 from core.auto_response import request_llm_delivery
+from core.core_initializer import register_interface, core_initializer
 import traceback
 
 load_dotenv()
@@ -33,6 +34,7 @@ last_selected_chat = {}
 message_id = None
 
 client = TelegramClient(SESSION, API_ID, API_HASH)
+register_interface("telegram_userbot", client)
 
 def escape_markdown(text):
     return re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', text)
@@ -218,7 +220,7 @@ async def handle_message(event):
             await client.send_message(
                 original["chat_id"],
                 text,
-                reply_to=original["message_id"]
+                reply_message_id=original["message_id"]
             )
             await event.reply("✅ Reply sent.")
         else:
@@ -245,7 +247,7 @@ async def main():
                 await client.send_message(
                     chat_id,
                     message,
-                    reply_to=reply_to_message_id
+                    reply_message_id=reply_to_message_id
                 )
                 log_debug(f"[notify] Telegram message sent to {chat_id}")
             except Exception as e:
@@ -254,7 +256,6 @@ async def main():
         asyncio.create_task(send())
     
     # Initialize core system with notify function
-    from core.core_initializer import core_initializer
     await core_initializer.initialize_all(notify_fn=telegram_notify)
     
     log_info("🧞‍♀️ Rekku Userbot (Telethon) is online.")
