@@ -11,7 +11,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Tuple, Optional
 
 from core.logging_utils import log_debug, log_info, log_warning, log_error
-from core.core_initializer import INTERFACE_REGISTRY
 
 # Cache for interface actions discovered via the interface registry
 _INTERFACE_ACTIONS: Dict[str, str] | None = None
@@ -26,29 +25,6 @@ def _load_interface_actions() -> Dict[str, str]:
             f"[action_parser] 🔄 Returning cached interface actions ({len(_INTERFACE_ACTIONS)})"
         )
         return _INTERFACE_ACTIONS
-
-    actions: Dict[str, str] = {}
-    for name, iface in INTERFACE_REGISTRY.items():
-        try:
-            if hasattr(iface, "get_supported_actions"):
-                supported = iface.get_supported_actions()
-                if isinstance(supported, dict):
-                    for act in supported.keys():
-                        actions[str(act)] = name
-        except Exception as e:  # pragma: no cover - defensive
-            log_debug(f"[action_parser] Error inspecting interface {name}: {e}")
-
-    _INTERFACE_ACTIONS = actions
-    return actions
-
-
-# Cache for interface actions discovered via the interface registry
-_INTERFACE_ACTIONS: Dict[str, str] | None = None
-
-
-def _load_interface_actions() -> Dict[str, str]:
-    """Return a mapping of action_type -> interface_name from registered interfaces."""
-    global _INTERFACE_ACTIONS
 
     try:
         from core.core_initializer import INTERFACE_REGISTRY
@@ -87,12 +63,9 @@ def get_supported_action_types() -> set[str]:
                     supported_types.update(plugin_actions.keys())
                 elif isinstance(plugin_actions, (list, set, tuple)):
                     supported_types.update(plugin_actions)
-
-        supported_types.update(_load_interface_actions().keys())
     except Exception as e:
         log_warning(f"[action_parser] Error discovering action types: {e}")
 
-    # Include actions exposed by registered interfaces
     try:
         supported_types.update(_load_interface_actions().keys())
     except Exception as e:  # pragma: no cover - defensive
@@ -156,11 +129,7 @@ def _validate_payload(action_type: str, payload: dict, errors: List[str]) -> Non
         iface_name = _load_interface_actions().get(action_type)
         if iface_name:
             try:
-<<<<<<< HEAD
-=======
                 from core.core_initializer import INTERFACE_REGISTRY
-
->>>>>>> develop
                 iface = INTERFACE_REGISTRY.get(iface_name)
                 if iface and hasattr(iface, "validate_payload"):
                     iface_errors = iface.validate_payload(action_type, payload)
@@ -205,45 +174,15 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
         return False, ["action must be a dict"]
 
     # Validate action type - with specific action names, interface is implicit
+    supported_types = get_supported_action_types()
     action_type = action.get("type")
     if not action_type:
         errors.append("Missing 'type'")
-    else:
+    elif action_type not in supported_types:
         # Check if any plugin or interface supports this action type
-<<<<<<< HEAD
-        if action_type not in get_supported_action_types():
-=======
-        supported = False
-        for plugin in _load_action_plugins():
-            try:
-                if hasattr(plugin, "get_supported_action_types"):
-                    if action_type in plugin.get_supported_action_types():
-                        supported = True
-                        break
-                elif hasattr(plugin, "get_supported_actions"):
-                    actions = plugin.get_supported_actions()
-                    if isinstance(actions, dict) and action_type in actions:
-                        supported = True
-                        break
-                    elif isinstance(actions, (list, set, tuple)) and action_type in actions:
-                        supported = True
-                        break
-            except Exception as e:
-                log_debug(
-                    f"[action_parser] Error checking plugin support for {action_type}: {e}"
-                )
-                continue
-
-        if not supported:
-            iface_actions = _load_interface_actions()
-            if action_type in iface_actions:
-                supported = True
-
-        if not supported:
->>>>>>> develop
-            errors.append(
-                f"Unsupported type '{action_type}' - no plugin or interface found to handle it"
-            )
+        errors.append(
+            f"Unsupported type '{action_type}' - no plugin or interface found to handle it"
+        )
 
     payload = action.get("payload")
     if payload is None:
@@ -252,7 +191,7 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
         errors.append("'payload' must be a dict")
 
     # Dynamic validation - delegate to plugins or interfaces that support this action type
-    if isinstance(payload, dict) and action_type in get_supported_action_types():
+    if isinstance(payload, dict) and action_type in supported_types:
         _validate_payload(action_type, payload, errors)
 
     return len(errors) == 0, errors
@@ -389,6 +328,12 @@ def _plugins_for(action_type: str) -> List[Any]:
 
         except Exception as e:
             log_error(f"[action_parser] Error querying plugin {plugin}: {repr(e)}")
+
+    try:
+        from core.core_initializer import INTERFACE_REGISTRY
+    except Exception as e:  # pragma: no cover - defensive
+        log_error(f"[action_parser] Error loading INTERFACE_REGISTRY: {e}")
+        INTERFACE_REGISTRY = {}
 
     for name, iface in INTERFACE_REGISTRY.items():
         try:
