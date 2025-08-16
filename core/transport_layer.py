@@ -364,10 +364,10 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
     
     For other interfaces, use universal_send which is more generic.
     """
-    log_debug(f"[telegram_transport] Called with text: {text[:100]}...")
-
     if text is None:
         text = ""
+
+    log_debug(f"[telegram_transport] Called with text: {text}")
 
     if 'reply_to_message_id' in kwargs and not kwargs['reply_to_message_id']:
         log_warning("[telegram_transport] reply_to_message_id not found. Sending without replying.")

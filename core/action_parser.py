@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Tuple, Optional
 
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
-
 # Cache for interface actions discovered via the interface registry
 _INTERFACE_ACTIONS: Dict[str, str] | None = None
 
@@ -20,6 +19,12 @@ _INTERFACE_ACTIONS: Dict[str, str] | None = None
 def _load_interface_actions() -> Dict[str, str]:
     """Return a mapping of action_type -> interface_name from registered interfaces."""
     global _INTERFACE_ACTIONS
+
+    if _INTERFACE_ACTIONS is not None:
+        log_debug(
+            f"[action_parser] 🔄 Returning cached interface actions ({len(_INTERFACE_ACTIONS)})"
+        )
+        return _INTERFACE_ACTIONS
 
     try:
         from core.core_initializer import INTERFACE_REGISTRY
@@ -59,9 +64,8 @@ def get_supported_action_types() -> set[str]:
                 elif isinstance(plugin_actions, (list, set, tuple)):
                     supported_types.update(plugin_actions)
     except Exception as e:
-        log_warning(f"[action_parser] Error discovering plugin action types: {e}")
+        log_warning(f"[action_parser] Error discovering action types: {e}")
 
-    # Include actions exposed by registered interfaces
     try:
         supported_types.update(_load_interface_actions().keys())
     except Exception as e:  # pragma: no cover - defensive
@@ -74,7 +78,6 @@ def _validate_payload(action_type: str, payload: dict, errors: List[str]) -> Non
     """Validate payload using plugins or interfaces that support the action type."""
     try:
         for plugin in _load_action_plugins():
-            # Check if this plugin supports the action type
             supports_action = False
             try:
                 if hasattr(plugin, "get_supported_action_types"):
@@ -91,7 +94,6 @@ def _validate_payload(action_type: str, payload: dict, errors: List[str]) -> Non
                 continue
 
             if supports_action:
-                # Check if plugin has a validation method
                 if hasattr(plugin, "validate_payload"):
                     try:
                         plugin_errors = plugin.validate_payload(action_type, payload)
@@ -106,7 +108,6 @@ def _validate_payload(action_type: str, payload: dict, errors: List[str]) -> Non
                         )
                 elif hasattr(plugin, "validate_action"):
                     try:
-                        # If plugin has validate_action, use that
                         action_dict = {"type": action_type, "payload": payload}
                         plugin_errors = plugin.validate_action(action_dict)
                         if plugin_errors and isinstance(plugin_errors, list):
@@ -129,7 +130,6 @@ def _validate_payload(action_type: str, payload: dict, errors: List[str]) -> Non
         if iface_name:
             try:
                 from core.core_initializer import INTERFACE_REGISTRY
-
                 iface = INTERFACE_REGISTRY.get(iface_name)
                 if iface and hasattr(iface, "validate_payload"):
                     iface_errors = iface.validate_payload(action_type, payload)
@@ -174,41 +174,15 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
         return False, ["action must be a dict"]
 
     # Validate action type - with specific action names, interface is implicit
+    supported_types = get_supported_action_types()
     action_type = action.get("type")
     if not action_type:
         errors.append("Missing 'type'")
-    else:
+    elif action_type not in supported_types:
         # Check if any plugin or interface supports this action type
-        supported = False
-        for plugin in _load_action_plugins():
-            try:
-                if hasattr(plugin, "get_supported_action_types"):
-                    if action_type in plugin.get_supported_action_types():
-                        supported = True
-                        break
-                elif hasattr(plugin, "get_supported_actions"):
-                    actions = plugin.get_supported_actions()
-                    if isinstance(actions, dict) and action_type in actions:
-                        supported = True
-                        break
-                    elif isinstance(actions, (list, set, tuple)) and action_type in actions:
-                        supported = True
-                        break
-            except Exception as e:
-                log_debug(
-                    f"[action_parser] Error checking plugin support for {action_type}: {e}"
-                )
-                continue
-
-        if not supported:
-            iface_actions = _load_interface_actions()
-            if action_type in iface_actions:
-                supported = True
-
-        if not supported:
-            errors.append(
-                f"Unsupported type '{action_type}' - no plugin or interface found to handle it"
-            )
+        errors.append(
+            f"Unsupported type '{action_type}' - no plugin or interface found to handle it"
+        )
 
     payload = action.get("payload")
     if payload is None:
@@ -217,7 +191,7 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
         errors.append("'payload' must be a dict")
 
     # Dynamic validation - delegate to plugins or interfaces that support this action type
-    if isinstance(payload, dict) and action_type in get_supported_action_types():
+    if isinstance(payload, dict) and action_type in supported_types:
         _validate_payload(action_type, payload, errors)
 
     return len(errors) == 0, errors
@@ -309,43 +283,94 @@ def _load_action_plugins() -> List[Any]:
                         
     plugin_names = [p.__class__.__name__ for p in _ACTION_PLUGINS]
     log_info(f"[action_parser] 🎉 Plugins loaded: {', '.join(plugin_names)}")
-    
+
     return _ACTION_PLUGINS
 
 
 def _plugins_for(action_type: str) -> List[Any]:
     plugins = []
     loaded_plugins = _load_action_plugins()
-    log_debug(f"[action_parser] _plugins_for({action_type}): Checking {len(loaded_plugins)} loaded plugins")
-    
+    log_debug(
+        f"[action_parser] _plugins_for({action_type}): Checking {len(loaded_plugins)} loaded plugins"
+    )
+
     for plugin in loaded_plugins:
         try:
             supported = None
-            
-            # Try get_supported_action_types first
+
             if hasattr(plugin, "get_supported_action_types"):
                 action_types = plugin.get_supported_action_types()
-                log_debug(f"[action_parser] Plugin {plugin.__class__.__name__}.get_supported_action_types(): {action_types}")
+                log_debug(
+                    f"[action_parser] Plugin {plugin.__class__.__name__}.get_supported_action_types(): {action_types}"
+                )
                 if action_types and action_type in action_types:
                     plugins.append(plugin)
-                    log_debug(f"[action_parser] ✅ Plugin {plugin.__class__.__name__} supports {action_type} (via action_types)")
+                    log_debug(
+                        f"[action_parser] ✅ Plugin {plugin.__class__.__name__} supports {action_type} (via action_types)"
+                    )
                     continue
-            
-            # Fallback to get_supported_actions (check if action is a key in the dict)
+
             if hasattr(plugin, "get_supported_actions"):
                 actions_dict = plugin.get_supported_actions()
-                log_debug(f"[action_parser] Plugin {plugin.__class__.__name__}.get_supported_actions(): {actions_dict}")
+                log_debug(
+                    f"[action_parser] Plugin {plugin.__class__.__name__}.get_supported_actions(): {actions_dict}"
+                )
                 if isinstance(actions_dict, dict) and action_type in actions_dict:
                     plugins.append(plugin)
-                    log_debug(f"[action_parser] ✅ Plugin {plugin.__class__.__name__} supports {action_type} (via actions_dict)")
+                    log_debug(
+                        f"[action_parser] ✅ Plugin {plugin.__class__.__name__} supports {action_type} (via actions_dict)"
+                    )
                     continue
-            
-            log_debug(f"[action_parser] ❌ Plugin {plugin.__class__.__name__} does not support {action_type}")
-            
+
+            log_debug(
+                f"[action_parser] ❌ Plugin {plugin.__class__.__name__} does not support {action_type}"
+            )
+
         except Exception as e:
             log_error(f"[action_parser] Error querying plugin {plugin}: {repr(e)}")
-    
-    log_debug(f"[action_parser] _plugins_for({action_type}): Found {len(plugins)} supporting plugins")
+
+    try:
+        from core.core_initializer import INTERFACE_REGISTRY
+    except Exception as e:  # pragma: no cover - defensive
+        log_error(f"[action_parser] Error loading INTERFACE_REGISTRY: {e}")
+        INTERFACE_REGISTRY = {}
+
+    for name, iface in INTERFACE_REGISTRY.items():
+        try:
+            supported = None
+            if hasattr(iface, "get_supported_action_types"):
+                action_types = iface.get_supported_action_types()
+                log_debug(
+                    f"[action_parser] Interface {name}.get_supported_action_types(): {action_types}"
+                )
+                if action_types and action_type in action_types:
+                    plugins.append(iface)
+                    log_debug(
+                        f"[action_parser] ✅ Interface {name} supports {action_type} (via action_types)"
+                    )
+                    continue
+
+            if hasattr(iface, "get_supported_actions"):
+                actions_dict = iface.get_supported_actions()
+                log_debug(
+                    f"[action_parser] Interface {name}.get_supported_actions(): {actions_dict}"
+                )
+                if isinstance(actions_dict, dict) and action_type in actions_dict:
+                    plugins.append(iface)
+                    log_debug(
+                        f"[action_parser] ✅ Interface {name} supports {action_type} (via actions_dict)"
+                    )
+                    continue
+
+            log_debug(
+                f"[action_parser] ❌ Interface {name} does not support {action_type}"
+            )
+        except Exception as e:
+            log_error(f"[action_parser] Error querying interface {name}: {repr(e)}")
+
+    log_debug(
+        f"[action_parser] _plugins_for({action_type}): Found {len(plugins)} supporting plugins"
+    )
     return plugins
 
 
@@ -419,22 +444,17 @@ async def _handle_plugin_action(
         plugin_iface = getattr(
             plugin.__class__, "get_interface_id", lambda: plugin.__class__.__name__.lower()
         )()
-        
-        log_info(f"[action_parser] 🔌 Checking plugin: {plugin.__class__.__name__} (plugin_interface: {plugin_iface})")
-        
-        # NEW LOGIC: If this is a generic plugin (like MessagePlugin), 
-        # it should work with any target interface
-        is_generic_plugin = plugin_iface in ["message", "event", "command", "terminal"]
-        
-        if is_generic_plugin:
-            # Generic plugins accept any interface - they delegate to the actual interface
-            log_info(f"[action_parser] 🌐 Generic plugin {plugin.__class__.__name__} accepts interface: {iface_target}")
-        else:
-            # Check if this plugin matches the target interface exactly
-            if iface_target and plugin_iface != iface_target:
-                log_info(f"[action_parser] ⏭️ Skipping plugin {plugin_iface} (target: {iface_target})")
-                continue
-            
+
+        log_info(
+            f"[action_parser] 🔌 Checking plugin: {plugin.__class__.__name__} (plugin_interface: {plugin_iface})"
+        )
+
+        if iface_target and plugin_iface != iface_target:
+            log_info(
+                f"[action_parser] ⏭️ Skipping plugin {plugin_iface} (target: {iface_target})"
+            )
+            continue
+
         if hasattr(plugin, "execute_action"):
             try:
                 payload = action.get("payload", {})
@@ -445,12 +465,16 @@ async def _handle_plugin_action(
                     f"[action_parser] 🚀 Delegating action to {plugin.__class__.__name__}: type={action_type} interface={plugin_iface}"
                 )
                 log_debug(f"[action_parser] 📦 Action payload: {payload}")
-                
-                result = plugin.execute_action(new_action, context, bot, original_message)
+
+                result = plugin.execute_action(
+                    new_action, context, bot, original_message
+                )
                 if inspect.iscoroutine(result):
                     await result
-                log_info(f"[action_parser] ✅ Successfully executed action via {plugin_iface}")
-                return None  # Success - no error to return
+                log_info(
+                    f"[action_parser] ✅ Successfully executed action via {plugin_iface}"
+                )
+                return None
             except Exception as e:
                 log_error(
                     f"[action_parser] ❌ Error executing {action_type} with {plugin.__class__.__name__}: {repr(e)}"
@@ -458,7 +482,9 @@ async def _handle_plugin_action(
                 import traceback
                 log_error(f"[action_parser] 📄 Full traceback: {traceback.format_exc()}")
         else:
-            log_warning(f"[action_parser] ⚠️ Plugin {plugin.__class__.__name__} has no execute_action() method")
+            log_warning(
+                f"[action_parser] ⚠️ Plugin {plugin.__class__.__name__} has no execute_action() method"
+            )
 
     # No matching plugin found - collect error for auto-correction
     available_interfaces = list(ACTIVE_INTERFACES) if ACTIVE_INTERFACES else ["No interfaces registered"]
