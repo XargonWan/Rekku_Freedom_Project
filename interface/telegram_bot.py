@@ -42,6 +42,7 @@ import core.plugin_instance as plugin_instance
 import traceback
 from core.action_parser import initialize_core
 from core.core_initializer import register_interface
+from typing import Any
 
 # Load variables from .env
 load_dotenv()
@@ -66,8 +67,11 @@ async def ensure_plugin_loaded(update: Update):
     return True
 
 def resolve_forwarded_target(message):
-    """Given a message (presumably a reply to a forwarded message),
-    try to reconstruct the original chat_id and message_id."""
+    """
+    Given a message (presumably a reply to a forwarded message), try to
+    reconstruct the original ``chat_id`` and ``message_id`` of the forwarded
+    message.
+    """
 
     if hasattr(message, "forward_from_chat") and hasattr(message, "forward_from_message_id"):
         if message.forward_from_chat and message.forward_from_message_id:
@@ -816,13 +820,12 @@ async def start_bot():
         ))
         log_info("[telegram_bot] All handlers added successfully")
 
-        log_info("🧞‍♀️ Rekku is online.")
-        
         # Register this interface with the core
         log_info("[telegram_bot] Registering interface with core...")
         from core.core_initializer import core_initializer
         core_initializer.register_interface("telegram_bot")
         log_info("[telegram_bot] Interface registered with core")
+        core_initializer.display_startup_summary()
     except Exception as e:
         log_error(f"[telegram_bot] Error building Telegram application: {repr(e)}")
         raise
@@ -1015,6 +1018,15 @@ class TelegramInterface:
             fallback_message_thread_id=fallback_message_thread_id,
             fallback_reply_to_message_id=fallback_reply_to,
         )
+
+    async def execute_action(
+        self, action: dict, context: dict, bot: Any, original_message: object | None = None
+    ) -> None:
+        """Execute actions for this interface."""
+        action_type = action.get("type")
+        if action_type == "message_telegram_bot":
+            payload = action.get("payload", {})
+            await self.send_message(payload, original_message)
 
     @staticmethod
     def get_interface_instructions():

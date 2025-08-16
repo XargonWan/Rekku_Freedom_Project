@@ -30,12 +30,6 @@ Event
 The ``event`` plugin stores scheduled reminders in a MariaDB table. A background
 scheduler checks for due events and sends them back to Rekku when the time comes.
 
-Message
--------
-
-``message_plugin`` handles text message actions across multiple interfaces. It is
-used internally by other plugins to send replies.
-
 Reddit Interface
 ----------------
 

@@ -16,9 +16,16 @@ DB_USER = os.getenv("DB_USER", "rekku")
 DB_PASS = os.getenv("DB_PASS", "rekku")
 DB_NAME = os.getenv("DB_NAME", "rekku")
 
-# Database configuration log for debugging
-log_info(f"[db] Configuration: HOST={DB_HOST}, PORT={DB_PORT}, USER={DB_USER}, DB_NAME={DB_NAME}")
-log_debug(f"[db] Password length: {len(DB_PASS)} characters")
+_db_logging_initialized = False
+
+def initialize_db_logging():
+    """Log database configuration for debugging purposes."""
+    global _db_logging_initialized
+    if _db_logging_initialized:
+        return
+    log_info(f"[db] Configuration: HOST={DB_HOST}, PORT={DB_PORT}, USER={DB_USER}, DB_NAME={DB_NAME}")
+    log_debug(f"[db] Password length: {len(DB_PASS)} characters")
+    _db_logging_initialized = True
 
 _db_initialized = False
 _db_init_lock = asyncio.Lock()
