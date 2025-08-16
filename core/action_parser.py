@@ -109,7 +109,7 @@ async def corrector(errors: list, failed_actions: list, bot, message):
         correction_message.chat_id = message.chat_id
         correction_message.text = correction_prompt
         correction_message.message_thread_id = getattr(message, "message_thread_id", None)
-        correction_message.date = message.date
+        correction_message.date = getattr(message, "date", datetime.utcnow())
         correction_message.from_user = getattr(message, "from_user", None)
 
         llm_plugin = getattr(plugin_instance, "plugin", None)

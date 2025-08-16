@@ -167,5 +167,21 @@ class TestCorrectorRetry(unittest.TestCase):
         self.assertEqual(result["type"], "bash")
 
 
+    @patch('core.action_parser.log_error')
+    @pytest.mark.asyncio
+    async def test_corrector_handles_missing_date(self, mock_log_error):
+        """Ensure corrector works even if message has no date attribute."""
+        message = SimpleNamespace()
+        message.chat_id = 42
+        message.message_thread_id = None
+
+        mock_bot = Mock()
+        errors = ["dummy error"]
+        failed_actions = [{"invalid": "action"}]
+
+        await corrector(errors, failed_actions, mock_bot, message)
+
+        mock_log_error.assert_not_called()
+
 if __name__ == '__main__':
     unittest.main()
