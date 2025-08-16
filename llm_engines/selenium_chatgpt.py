@@ -602,8 +602,8 @@ def process_prompt_in_chat(
         log_warning(f"[selenium][retry] Empty response attempt {attempt}")
         time.sleep(2)
 
-    os.makedirs("logs/screenshots", exist_ok=True)
-    fname = f"logs/screenshots/chat_{chat_id or 'unknown'}_no_response.png"
+    os.makedirs("/config/logs/screenshots", exist_ok=True)
+    fname = f"/config/logs/screenshots/chat_{chat_id or 'unknown'}_no_response.png"
     try:
         driver.save_screenshot(fname)
         log_warning(f"[selenium] Saved screenshot to {fname}")
@@ -811,9 +811,11 @@ def ensure_chatgpt_model(driver):
     except Exception as e:
         log_warning(f"[chatgpt_model] Errore selezione modello: {repr(e)}")
         try:
-            os.makedirs("logs/screenshots", exist_ok=True)
-            driver.save_screenshot("logs/screenshots/model_switch_error.png")
-            log_warning("[chatgpt_model] Saved screenshot model_switch_error.png")
+            os.makedirs("/config/logs/screenshots", exist_ok=True)
+            driver.save_screenshot("/config/logs/screenshots/model_switch_error.png")
+            log_warning(
+                "[chatgpt_model] Saved screenshot model_switch_error.png"
+            )
         except Exception as ss:
             log_warning(f"[chatgpt_model] Screenshot failed: {ss}")
         return False
