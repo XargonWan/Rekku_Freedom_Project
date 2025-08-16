@@ -37,11 +37,11 @@ async def build_json_prompt(message, context_memory) -> dict:
         "memories": memories,
     }
 
-    # === 3b. Static injections from plugins ===
+    # === 3a. Static injections from plugins ===
     try:
         from core.action_parser import gather_static_injections
 
-        injections = await gather_static_injections()
+        injections = await gather_static_injections(message, context_memory)
         if isinstance(injections, dict):
             context_section.update(injections)
     except Exception as e:
@@ -206,6 +206,7 @@ async def build_prompt(
 def load_json_instructions() -> str:
     return """
 - Check the available_actions section below for supported interfaces and their capabilities
+- Search memories when unsure about a detail
 
 All rules:
 - Use 'input.payload.source.chat_id' as message target when applicable
