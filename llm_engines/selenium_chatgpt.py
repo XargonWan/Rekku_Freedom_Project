@@ -1266,7 +1266,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     bot,
                     chat_id=message.chat_id,
                     text=response_text,
-                    reply_to_message_id=message.message_id,
+                    reply_to_message_id=getattr(message, "message_id", None),
                     message_thread_id=message_thread_id,
                     event_id=getattr(message, "event_id", None),
                 )
@@ -1351,7 +1351,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 while queue_paused:
                     await asyncio.sleep(1)
                 log_debug(
-                    f"[selenium] [WORKER] Processing chat_id={message.chat_id} message_id={message.message_id}"
+                    f"[selenium] [WORKER] Processing chat_id={message.chat_id} "
+                    f"message_id={getattr(message, 'message_id', 'unknown')}"
                 )
                 try:
                     lock = SeleniumChatGPTPlugin.chat_locks[message.chat_id]  # [FIX]
