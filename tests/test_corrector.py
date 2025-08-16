@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Test suite for the transport layer retry system.
+Test suite for the action parser corrector retry system.
 """
 
 import unittest
 import time
-from unittest.mock import Mock, AsyncMock, patch
+import pytest
+from unittest.mock import Mock, patch
 from types import SimpleNamespace
 
 # Import the transport layer module
@@ -13,18 +14,18 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from core.transport_layer import (
-    _get_retry_key, 
-    _should_retry, 
-    _increment_retry, 
+from core.action_parser import (
+    _get_retry_key,
+    _should_retry,
+    _increment_retry,
     _retry_tracker,
-    _handle_action_errors,
-    extract_json_from_text
+    corrector,
 )
+from core.transport_layer import extract_json_from_text
 
 
-class TestTransportLayerRetry(unittest.TestCase):
-    """Test the retry system in transport layer."""
+class TestCorrectorRetry(unittest.TestCase):
+    """Test the retry system in action parser corrector."""
     
     def setUp(self):
         """Clear retry tracker before each test."""
@@ -104,9 +105,10 @@ class TestTransportLayerRetry(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["type"], "message")
     
-    @patch('core.transport_layer.log_warning')
-    @patch('core.transport_layer.log_info')
-    async def test_handle_action_errors_max_retries(self, mock_log_info, mock_log_warning):
+    @patch('core.action_parser.log_warning')
+    @patch('core.action_parser.log_info')
+    @pytest.mark.asyncio
+    async def test_corrector_max_retries(self, mock_log_info, mock_log_warning):
         """Test that max retries are respected."""
         message = SimpleNamespace()
         message.chat_id = 12345
@@ -122,7 +124,7 @@ class TestTransportLayerRetry(unittest.TestCase):
         failed_actions = [{"invalid": "action"}]
         
         # Should not retry when max reached
-        await _handle_action_errors(errors, failed_actions, mock_bot, message)
+        await corrector(errors, failed_actions, mock_bot, message)
         
         # Verify warning was logged about max retries
         mock_log_warning.assert_called()
@@ -130,8 +132,9 @@ class TestTransportLayerRetry(unittest.TestCase):
         self.assertIn("Max retries", warning_call)
         self.assertIn("reached", warning_call)
     
-    @patch('core.transport_layer.log_warning')
-    async def test_handle_action_errors_invalid_chat_id(self, mock_log_warning):
+    @patch('core.action_parser.log_warning')
+    @pytest.mark.asyncio
+    async def test_corrector_invalid_chat_id(self, mock_log_warning):
         """Test that invalid chat_id is handled properly."""
         message = SimpleNamespace()
         message.chat_id = None  # Invalid chat_id
@@ -141,7 +144,7 @@ class TestTransportLayerRetry(unittest.TestCase):
         failed_actions = [{"invalid": "action"}]
         
         # Should not retry with invalid chat_id
-        await _handle_action_errors(errors, failed_actions, mock_bot, message)
+        await corrector(errors, failed_actions, mock_bot, message)
         
         # Verify warning was logged about invalid chat_id
         mock_log_warning.assert_called()
@@ -163,6 +166,22 @@ class TestTransportLayerRetry(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["type"], "bash")
 
+
+    @patch('core.action_parser.log_error')
+    @pytest.mark.asyncio
+    async def test_corrector_handles_missing_date(self, mock_log_error):
+        """Ensure corrector works even if message has no date attribute."""
+        message = SimpleNamespace()
+        message.chat_id = 42
+        message.message_thread_id = None
+
+        mock_bot = Mock()
+        errors = ["dummy error"]
+        failed_actions = [{"invalid": "action"}]
+
+        await corrector(errors, failed_actions, mock_bot, message)
+
+        mock_log_error.assert_not_called()
 
 if __name__ == '__main__':
     unittest.main()
