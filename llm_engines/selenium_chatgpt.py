@@ -261,9 +261,12 @@ def wait_for_markdown_block_to_appear(driver, prev_count: int, timeout: int = 10
     return False
 
 
+AWAIT_RESPONSE_TIMEOUT = int(os.getenv("AWAIT_RESPONSE_TIMEOUT", "240"))
+
+
 def wait_until_response_stabilizes(
     driver: webdriver.Remote,
-    max_total_wait: int = 300,
+    max_total_wait: int = AWAIT_RESPONSE_TIMEOUT,
     no_change_grace: float = 3.5,
 ) -> str:
     """Return the last markdown text once its length stops growing."""
@@ -314,11 +317,11 @@ def wait_until_response_stabilizes(
         changed = current_len != last_len
         log_debug(f"[DEBUG] len={current_len} changed={changed}")
 
-        if changed:
+        if current_len > 0 and changed:
             last_len = current_len
             last_change = time.time()
             final_text = text
-        elif time.time() - last_change >= no_change_grace:
+        elif current_len > 0 and time.time() - last_change >= no_change_grace:
             elapsed = time.time() - start
             log_debug(
                 f"[DEBUG] Response stabilized with length {current_len} after {elapsed:.1f}s"
