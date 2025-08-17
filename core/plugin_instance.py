@@ -14,6 +14,16 @@ from core.action_parser import parse_action
 plugin = None
 rekku_identity_prompt = None
 
+# Custom JSON encoder to handle non-serializable objects
+def custom_json_encoder(obj):
+    if hasattr(obj, '__dict__'):
+        return obj.__dict__
+    return str(obj)  # Fallback to string representation
+
+# Centralize JSON serialization with custom encoder
+def serialize_with_custom_encoder(data):
+    return json.dumps(data, ensure_ascii=False, default=custom_json_encoder)
+
 async def load_plugin(name: str, notify_fn=None):
     global plugin, rekku_identity_prompt
 
@@ -134,7 +144,10 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt):
         prompt = await build_json_prompt(message, context_memory_or_prompt)
 
     log_debug("🌐 JSON PROMPT built for the plugin:")
-    log_debug(json.dumps(prompt, indent=2, ensure_ascii=False))
+    try:
+        log_debug(serialize_with_custom_encoder(prompt))
+    except Exception as e:
+        log_error(f"Failed to serialize prompt: {e}")
 
     return await plugin.handle_incoming_message(bot, message, prompt)
 

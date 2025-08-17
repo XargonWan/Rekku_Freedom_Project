@@ -16,9 +16,9 @@ try:
 except Exception:  # pragma: no cover - library missing in env
     asyncpraw = None  # type: ignore
 
-from core.logging_utils import log_debug, log_warning, log_error
+from core.logging_utils import log_debug, log_warning, log_error, log_info
 from core.transport_layer import universal_send
-from core.core_initializer import register_interface
+from core.core_initializer import register_interface, core_initializer
 from core.auto_response import request_llm_delivery
 import core.plugin_instance as plugin_instance
 
@@ -40,6 +40,8 @@ class RedditInterface:
             refresh_token=token,
         )
         self._running = False
+        core_initializer.register_action("reddit", self)
+        log_info("[reddit_interface] Registered RedditInterface")
 
     # --- interface metadata -------------------------------------------------
     @staticmethod
@@ -79,15 +81,12 @@ class RedditInterface:
 
     # --- public API ---------------------------------------------------------
     async def start(self):
-        """Begin listening for inbox events."""
+        """Begin listening for inbox events and register the interface."""
         if self._running:
             return
         self._running = True
         asyncio.create_task(self._listen_inbox())
-        register_interface("reddit", self)
-        from core.core_initializer import core_initializer
-        core_initializer.register_interface("reddit")
-        log_debug("[reddit_interface] Listening started")
+        log_debug("[reddit_interface] Listening started and interface registered")
 
     async def read_feed(self, limit: int = 10):
         front = self.reddit.front
@@ -217,6 +216,23 @@ class RedditInterface:
             "- Provide 'reply_message_id' when replying to comments or messages to maintain context.\n"
             "- Text is plain Markdown.\n"
         )
+
+
+async def start_reddit_interface():
+    log_info("[reddit_interface] start_reddit_interface() function called")
+
+    try:
+        log_info("[reddit_interface] Importing core_initializer...")
+        from core.core_initializer import core_initializer
+        log_info("[reddit_interface] Initializing Reddit interface...")
+
+        reddit_interface = RedditInterface()
+        await reddit_interface.start()
+
+        log_info("[reddit_interface] Reddit interface initialized successfully")
+    except Exception as e:
+        log_error(f"[reddit_interface] Error in Reddit interface initialization: {repr(e)}")
+        raise
 
 
 __all__ = ["RedditInterface"]

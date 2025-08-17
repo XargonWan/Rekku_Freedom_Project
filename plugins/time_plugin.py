@@ -1,10 +1,14 @@
 from datetime import datetime, timezone
 
 from core.rekku_utils import get_local_timezone, format_dual_time, get_local_location
+from core.core_initializer import core_initializer
 
 
 class TimePlugin:
     """Plugin that injects current date, time, and location."""
+
+    def __init__(self):
+        core_initializer.register_action("time", self)
 
     def get_supported_action_types(self):
         return ["static_inject"]

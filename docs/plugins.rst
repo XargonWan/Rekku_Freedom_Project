@@ -17,18 +17,13 @@ Terminal
 sent to the bot are executed in a background ``/bin/bash`` process and the
 output is returned.
 
-Bash
-----
-
-``bash_plugin`` executes one-off shell commands and returns the output.
-Every command is also reported to the configured ``TRAINER_ID`` so that
-the trainer can audit activity.
-
 Event
 -----
 
 The ``event`` plugin stores scheduled reminders in a MariaDB table. A background
 scheduler checks for due events and sends them back to Rekku when the time comes.
+
+All plugins now use the `register_action` method to register themselves with the core system.
 
 Reddit Interface
 ----------------
@@ -132,7 +127,7 @@ initializer that it is active.
 
 .. code-block:: python
 
-   from core.core_initializer import register_interface, core_initializer
+   from core.core_initializer import register_interface
 
    class MyInterface:
        @staticmethod
@@ -151,7 +146,6 @@ initializer that it is active.
 
        async def start(self):
            register_interface("myiface", self)
-           core_initializer.register_interface("myiface")
 
 Interfaces typically forward incoming messages to
 ``plugin_instance.handle_incoming_message`` so that the active LLM engine can

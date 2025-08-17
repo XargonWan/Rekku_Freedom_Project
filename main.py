@@ -13,6 +13,7 @@ from core.logging_utils import (
     setup_logging,
     log_error,
 )
+from interface.reddit_interface import start_reddit_interface
 
 def cleanup_chrome_processes():
     """Clean up any remaining Chrome processes and lock files while preserving login sessions."""

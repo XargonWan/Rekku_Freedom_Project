@@ -1,14 +1,16 @@
 # interface/discord_interface.py (esempio)
 """Example Discord interface using the universal transport layer."""
 
-from core.logging_utils import log_debug, log_error
+from core.logging_utils import log_debug, log_error, log_info
 from core.transport_layer import universal_send
+from core.core_initializer import core_initializer
 
 
 class DiscordInterface:
     def __init__(self, bot_token):
         # Initialize Discord client
-        pass
+        core_initializer.register_action("discord_bot", self)
+        log_info("[discord_interface] Registered DiscordInterface")
 
     @staticmethod
     def get_interface_id() -> str:

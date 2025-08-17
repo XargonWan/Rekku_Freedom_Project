@@ -15,6 +15,7 @@ import asyncio
 import json
 import time
 import aiomysql
+from core.core_initializer import core_initializer
 
 
 class EventPlugin(AIPluginBase):
@@ -31,6 +32,8 @@ class EventPlugin(AIPluginBase):
         # Track events currently being processed to mark them as delivered after successful send
         self._pending_events: dict[str, dict] = {}  # message_id -> event_info
         log_info("[event_plugin] EventPlugin instance created")
+        core_initializer.register_action("event", self)
+        log_info("[event_plugin] Registered EventPlugin")
 
     def set_bot(self, bot):
         """Update the bot reference used for sending messages."""

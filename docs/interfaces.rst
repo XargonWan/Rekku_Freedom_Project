@@ -19,12 +19,12 @@ core system.
    snippets.
 
 4. **Register the interface**
-   When the interface starts, call ``register_interface`` to make the instance
+   When the interface starts, call ``register_action`` to make the instance
    discoverable and notify the core initializer that it is active.
 
 .. code-block:: python
 
-   from core.core_initializer import register_interface, core_initializer
+   from core.core_initializer import core_initializer
 
    class MyInterface:
        @staticmethod
@@ -42,7 +42,7 @@ core system.
            }
 
        async def start(self):
-           register_interface("myiface", self)
+           register_action("myiface", self)
            core_initializer.register_interface("myiface")
 
    INTERFACE_CLASS = MyInterface

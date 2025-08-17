@@ -368,6 +368,14 @@ class CoreInitializer:
         """Public method to log the startup summary on demand."""
         self._display_startup_summary()
 
+    def register_action(self, name: str, instance: Any):
+        """Register a plugin or interface action with the core system."""
+        if name in self.actions_block["available_actions"]:
+            log_warning(f"[core_initializer] Action '{name}' is already registered. Overwriting.")
+        
+        self.actions_block["available_actions"][name] = instance
+        log_info(f"[core_initializer] Registered action: {name}")
+
 
 # Global instance
 core_initializer = CoreInitializer()
