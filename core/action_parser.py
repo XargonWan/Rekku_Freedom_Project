@@ -148,7 +148,15 @@ def _load_interface_actions() -> Dict[str, str]:
                 supported = iface.get_supported_actions()
                 if isinstance(supported, dict):
                     for act in supported.keys():
-                        actions[str(act)] = name
+                        actions[act] = name
+
+            # Dynamic check for supported actions
+            if hasattr(iface, "get_supported_action_types"):
+                action_types = iface.get_supported_action_types()
+                if isinstance(action_types, (list, set)):
+                    for act in action_types:
+                        actions[act] = name
+
         except Exception as e:  # pragma: no cover - defensive
             log_debug(f"[action_parser] Error inspecting interface {name}: {e}")
 
