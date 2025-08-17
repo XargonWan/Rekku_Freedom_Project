@@ -2,27 +2,17 @@
 
 from core.config import get_active_llm, set_active_llm
 from core.prompt_engine import load_identity_prompt
-import json
 from core.prompt_engine import build_json_prompt
 import asyncio
 from types import SimpleNamespace
 from datetime import datetime
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.action_parser import parse_action
+from core.json_utils import dumps as json_dumps, sanitize_for_json
 
 # Plugin gestito centralmente in initialize_core_components
 plugin = None
 rekku_identity_prompt = None
-
-# Custom JSON encoder to handle non-serializable objects
-def custom_json_encoder(obj):
-    if hasattr(obj, '__dict__'):
-        return obj.__dict__
-    return str(obj)  # Fallback to string representation
-
-# Centralize JSON serialization with custom encoder
-def serialize_with_custom_encoder(data):
-    return json.dumps(data, ensure_ascii=False, default=custom_json_encoder)
 
 async def load_plugin(name: str, notify_fn=None):
     global plugin, rekku_identity_prompt
@@ -143,9 +133,10 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt):
         )
         prompt = await build_json_prompt(message, context_memory_or_prompt)
 
+    prompt = sanitize_for_json(prompt)
     log_debug("🌐 JSON PROMPT built for the plugin:")
     try:
-        log_debug(serialize_with_custom_encoder(prompt))
+        log_debug(json_dumps(prompt))
     except Exception as e:
         log_error(f"Failed to serialize prompt: {e}")
 
