@@ -28,8 +28,10 @@ Event
 The ``event`` plugin stores scheduled reminders in a MariaDB table. A background
 scheduler checks for due events and sends them back to Rekku when the time comes.
 
-All plugins register themselves using ``register_plugin`` and notify the core
-initializer with ``core_initializer.register_plugin``.
+All Python modules under ``plugins/``, ``llm_engines/`` and ``interface/`` are
+imported recursively on startup. Plugin files no longer need a special naming
+scheme. Each plugin registers itself using ``register_plugin`` and notifies the
+core initializer with ``core_initializer.register_plugin``.
 
 Reddit Interface
 ----------------

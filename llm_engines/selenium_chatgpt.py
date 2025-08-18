@@ -177,8 +177,10 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
     """Inject ``text`` into the ChatGPT prompt area via JavaScript."""
     clean_text = strip_non_bmp(text)
     log_debug(f"[DEBUG] Length before sending: {len(clean_text)}")
-    preview = clean_text[:120] + ("..." if len(clean_text) > 120 else "")
-    log_debug(f"[DEBUG] Text preview: {preview}")
+    # Log the full text to aid debugging and ensure the JSON is not truncated
+    # in logs. This may produce very long lines but provides complete
+    # visibility into the prompt content.
+    log_debug(f"[DEBUG] Text to send: {clean_text}")
 
     tag = (textarea.tag_name or "").lower()
     prop = "value" if tag in {"textarea", "input"} else "textContent"
