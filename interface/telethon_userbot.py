@@ -34,7 +34,7 @@ last_selected_chat = {}
 message_id = None
 
 client = TelegramClient(SESSION, API_ID, API_HASH)
-core_initializer.register_action("telegram_userbot", client)
+register_interface("telegram_userbot", client)
 log_info("[telethon_userbot] Registered TelethonUserbot")
 
 def escape_markdown(text):

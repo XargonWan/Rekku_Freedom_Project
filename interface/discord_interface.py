@@ -1,15 +1,18 @@
 # interface/discord_interface.py (esempio)
 """Example Discord interface using the universal transport layer."""
 
+import os
+
 from core.logging_utils import log_debug, log_error, log_info
 from core.transport_layer import universal_send
-from core.core_initializer import core_initializer
+from core.core_initializer import core_initializer, register_interface
 
 
 class DiscordInterface:
     def __init__(self, bot_token):
         # Initialize Discord client
-        core_initializer.register_action("discord_bot", self)
+        register_interface("discord_bot", self)
+        core_initializer.register_interface("discord_bot")
         log_info("[discord_interface] Registered DiscordInterface")
 
     @staticmethod
@@ -71,3 +74,7 @@ class DiscordInterface:
             "- Use 'reply_message_id' to reply to specific messages.\n"
             "- Provide plain text or Markdown in the 'text' field."
         )
+
+# Expose class for dynamic loading and register default instance
+INTERFACE_CLASS = DiscordInterface
+discord_interface = DiscordInterface(os.getenv("DISCORD_BOT_TOKEN", ""))

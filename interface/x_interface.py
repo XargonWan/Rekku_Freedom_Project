@@ -30,7 +30,6 @@ class XInterface:
             log_debug(f"[x_interface] Using username: {self.username}")
         else:
             log_debug("[x_interface] X_USERNAME not set; timeline features disabled")
-        core_initializer.register_action("x", self)
         log_info("[x_interface] Registered XInterface")
 
     @staticmethod
@@ -205,3 +204,4 @@ class XInterface:
 INTERFACE_CLASS = XInterface
 x_interface = XInterface()
 register_interface("x", x_interface)
+core_initializer.register_interface("x")

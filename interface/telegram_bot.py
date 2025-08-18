@@ -841,8 +841,9 @@ async def start_bot():
 
         # Register interface instance for plugins
         telegram_interface = TelegramInterface(app.bot)
-        core_initializer.register_action("telegram", telegram_interface)
-        core_initializer.register_action("telegram_bot", telegram_interface)
+        # Register interface globally so action parser can discover it
+        register_interface("telegram_bot", telegram_interface)
+        # Expose interface through the unified registration system
         log_debug("[telegram_bot] Interface instance registered")
         
         await app.start()

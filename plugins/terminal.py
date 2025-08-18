@@ -4,7 +4,7 @@ import asyncio
 from typing import Optional
 from core.ai_plugin_base import AIPluginBase
 from core.logging_utils import log_debug, log_info, log_warning, log_error
-from core.core_initializer import core_initializer
+from core.core_initializer import core_initializer, register_plugin
 
 # Import config safely - may fail in test environments
 try:
@@ -40,12 +40,8 @@ class TerminalPlugin(AIPluginBase):
     def __init__(self, notify_fn: Optional[callable] = None):
         self.process = None
         self.notify_fn = notify_fn
-
-    @staticmethod
-    def register():
-        """Register the TerminalPlugin with the core system."""
-        log_info("[terminal] Registering TerminalPlugin with core...")
-        core_initializer.register_action("terminal", TerminalPlugin)
+        register_plugin("terminal", self)
+        core_initializer.register_plugin("terminal")
         log_info("[terminal] TerminalPlugin registered successfully")
 
     async def _run_single_command(self, cmd: str) -> str:
@@ -248,10 +244,6 @@ class TerminalPlugin(AIPluginBase):
 
     def get_rate_limit(self):
         return (80, 10800, 0.5)
-
-
-# Register the plugin automatically when the module is imported
-TerminalPlugin.register()
 
 
 PLUGIN_CLASS = TerminalPlugin
