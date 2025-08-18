@@ -3,6 +3,7 @@
 import os
 import importlib
 import inspect
+import asyncio
 from pathlib import Path
 from typing import Optional, Any
 from core.logging_utils import log_info, log_error, log_warning, log_debug
@@ -119,8 +120,6 @@ class CoreInitializer:
                             else:
                                 log_debug(f"[core_initializer] Plugin {plugin_name} has no start method")
                                     
-                            self.loaded_plugins.append(plugin_name)
-                            log_info(f"[core_initializer] ✅ Plugin loaded and started: {plugin_name}")
                         except Exception as e:
                             log_error(f"[core_initializer] Failed to start plugin {plugin_name}: {repr(e)}")
                             self.startup_errors.append(f"Plugin {plugin_name}: {e}")
@@ -187,18 +186,18 @@ class CoreInitializer:
 
     async def _build_actions_block(self):
         """Collect and validate action schemas from all plugins and interfaces."""
-        from core.action_parser import _load_action_plugins
+        from core.core_initializer import PLUGIN_REGISTRY, INTERFACE_REGISTRY
 
         available_actions = {}
 
-        def _register(action_type: str, iface: str, schema: dict, instr_fn):
+        def _register(action_type: str, owner: str, schema: dict, instr_fn):
             required = schema.get("required_fields", [])
             optional = schema.get("optional_fields", [])
             if not isinstance(required, list) or not isinstance(optional, list):
-                raise ValueError(f"Invalid schema for {action_type} in {iface}")
+                raise ValueError(f"Invalid schema for {action_type} in {owner}")
 
-            # Track which interface declares each action
-            self.interface_actions.setdefault(iface, set()).add(action_type)
+            # Track which component declares each action
+            self.interface_actions.setdefault(owner, set()).add(action_type)
 
             # Simplified structure: no more nested interfaces
             if action_type in available_actions:
@@ -241,51 +240,36 @@ class CoreInitializer:
             # Add instructions directly to the action
             available_actions[action_type]["instructions"] = instr
 
-        # --- Load action plugins ---
-        try:
-            for plugin in _load_action_plugins():
-                if not hasattr(plugin, "get_supported_actions"):
-                    continue
-                iface = getattr(
-                    plugin.__class__, "get_interface_id", lambda: plugin.__class__.__name__.lower()
-                )()
+        # --- Load action plugins from registry ---
+        for name, plugin in PLUGIN_REGISTRY.items():
+            if not hasattr(plugin, "get_supported_actions"):
+                continue
+            try:
                 supported = plugin.get_supported_actions()
                 if not isinstance(supported, dict):
-                    raise ValueError(f"Plugin {iface} must return dict from get_supported_actions")
+                    raise ValueError(f"Plugin {name} must return dict from get_supported_actions")
                 for act, schema in supported.items():
-                    _register(act, iface, schema, getattr(plugin, "get_prompt_instructions", None))
-        except Exception as e:
-            log_error(f"[core_initializer] Failed loading plugin actions: {e}")
-            self.startup_errors.append(str(e))
-
-        # --- Load interface classes ---
-        interface_dir = Path(__file__).parent.parent / "interface"
-        for file in interface_dir.glob("*.py"):
-            if file.name.startswith("_") or file.name.endswith(".disabled"):
-                continue
-            mod_name = f"interface.{file.stem}"
-            try:
-                module = importlib.import_module(mod_name)
+                    _register(act, name, schema, getattr(plugin, "get_prompt_instructions", None))
             except Exception as e:
-                log_warning(f"[core_initializer] Could not import {mod_name}: {e}")
-                continue
-            for _name, obj in inspect.getmembers(module, inspect.isclass):
-                if not hasattr(obj, "get_supported_actions"):
-                    continue
-                iface = getattr(obj, "get_interface_id", lambda: obj.__name__.lower())()
-                try:
-                    supported = obj.get_supported_actions()
-                    if not isinstance(supported, dict):
-                        raise ValueError(f"Interface {iface} must return dict from get_supported_actions")
-                    instr_fn = getattr(obj, "get_prompt_instructions", None)
-                    for act, schema in supported.items():
-                        _register(act, iface, schema, instr_fn)
-                except Exception as e:
-                    log_error(f"[core_initializer] Error processing interface {iface}: {e}")
+                log_error(f"[core_initializer] Error processing plugin {name}: {e}")
 
-        # --- Aggrega dati statici dai plugin/interfacce ---
+        # --- Load interface actions from registry ---
+        for name, iface in INTERFACE_REGISTRY.items():
+            if not hasattr(iface, "get_supported_actions"):
+                continue
+            try:
+                supported = iface.get_supported_actions()
+                if not isinstance(supported, dict):
+                    raise ValueError(f"Interface {name} must return dict from get_supported_actions")
+                instr_fn = getattr(iface, "get_prompt_instructions", None)
+                for act, schema in supported.items():
+                    _register(act, name, schema, instr_fn)
+            except Exception as e:
+                log_error(f"[core_initializer] Error processing interface {name}: {e}")
+
+        # --- Collect static context from registry members ---
         static_context = {}
-        for plugin in _load_action_plugins():
+        for plugin in PLUGIN_REGISTRY.values():
             if hasattr(plugin, "get_static_injection"):
                 try:
                     data = plugin.get_static_injection()
@@ -295,26 +279,16 @@ class CoreInitializer:
                         static_context.update(data)
                 except Exception as e:
                     log_warning(f"[core_initializer] Errore static injection da plugin {plugin}: {e}")
-        # Interfacce
-        interface_dir = Path(__file__).parent.parent / "interface"
-        for file in interface_dir.glob("*.py"):
-            if file.name.startswith("_") or file.name.endswith(".disabled"):
-                continue
-            mod_name = f"interface.{file.stem}"
-            try:
-                module = importlib.import_module(mod_name)
-            except Exception:
-                continue
-            for _name, obj in inspect.getmembers(module, inspect.isclass):
-                if hasattr(obj, "get_static_injection"):
-                    try:
-                        data = obj.get_static_injection()
-                        if inspect.isawaitable(data):
-                            data = await data
-                        if data:
-                            static_context.update(data)
-                    except Exception as e:
-                        log_warning(f"[core_initializer] Errore static injection da interfaccia {obj}: {e}")
+        for iface in INTERFACE_REGISTRY.values():
+            if hasattr(iface, "get_static_injection"):
+                try:
+                    data = iface.get_static_injection()
+                    if inspect.isawaitable(data):
+                        data = await data
+                    if data:
+                        static_context.update(data)
+                except Exception as e:
+                    log_warning(f"[core_initializer] Errore static injection da interfaccia {iface}: {e}")
 
         self.actions_block = {
             "available_actions": available_actions,
@@ -368,37 +342,93 @@ class CoreInitializer:
         """Public method to log the startup summary on demand."""
         self._display_startup_summary()
 
-    def register_action(self, name: str, instance: Any):
-        """Register a plugin or interface action with the core system."""
-        if name in self.actions_block["available_actions"]:
-            log_warning(f"[core_initializer] Action '{name}' is already registered. Overwriting.")
-        
-        self.actions_block["available_actions"][name] = instance
-        log_info(f"[core_initializer] Registered action: {name}")
+    def register_plugin(self, plugin_name: str):
+        """Record that a plugin has been loaded and started."""
+        if plugin_name not in self.loaded_plugins:
+            self.loaded_plugins.append(plugin_name)
+            log_info(f"[core_initializer] ✅ Plugin loaded and started: {plugin_name}")
+        else:
+            log_info(f"[core_initializer] 🔄 Plugin {plugin_name} is already registered")
+
+    def register_action(self, action_type: str, handler: Any) -> None:
+        """Expose explicit action registration through the core initializer."""
+        register_action(action_type, handler)
 
 
 # Global instance
 core_initializer = CoreInitializer()
 
+# Registry for action handlers (plugins or interfaces)
+ACTION_REGISTRY: dict[str, Any] = {}
+
+def register_action(action_type: str, handler: Any) -> None:
+    """Register a single action type with its handling object."""
+    existing = ACTION_REGISTRY.get(action_type)
+    if existing is not None:
+        log_warning(
+            f"[core_initializer] Action '{action_type}' is already registered. Overwriting."
+        )
+    ACTION_REGISTRY[action_type] = handler
+    log_info(f"[core_initializer] Registered action: {action_type}")
+
+    # Invalidate caches and rebuild action block
+    try:
+        from core import action_parser
+
+        action_parser._ACTION_HANDLERS = None
+        action_parser._INTERFACE_ACTIONS = None
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(core_initializer._build_actions_block())
+    except Exception:
+        pass
+
+# Global registry for plugin objects
+PLUGIN_REGISTRY: dict[str, Any] = {}
+
+def register_plugin(name: str, plugin_obj: Any) -> None:
+    """Register a plugin instance and its actions."""
+    PLUGIN_REGISTRY[name] = plugin_obj
+    log_debug(f"[core_initializer] Registered plugin: {name}")
+
+    # Automatically register supported actions
+    if hasattr(plugin_obj, "get_supported_actions"):
+        try:
+            for act in plugin_obj.get_supported_actions().keys():
+                register_action(act, plugin_obj)
+        except Exception as e:
+            log_error(f"[core_initializer] Failed to register actions for plugin {name}: {e}")
+
+    # Record plugin for startup summary
+    core_initializer.register_plugin(name)
+
+    # Reset cached plugin list in action parser
+    try:
+        from core import action_parser
+
+        action_parser._ACTION_PLUGINS = None
+    except Exception:
+        pass
+
 # Global registry for interface objects
 INTERFACE_REGISTRY: dict[str, Any] = {}
 
 def register_interface(name: str, interface_obj: Any) -> None:
-    """Register an interface instance for later retrieval."""
+    """Register an interface instance and its actions."""
     INTERFACE_REGISTRY[name] = interface_obj
     log_debug(f"[core_initializer] Registered interface: {name}")
 
     # Log detailed information about the interface loading
     log_debug(f"[core_initializer] Loading interface: {name}")
 
-    # Check if the interface provides action schemas
-    if hasattr(interface_obj, 'get_supported_actions'):
+    # Automatically register supported actions
+    if hasattr(interface_obj, "get_supported_actions"):
         log_debug(f"[core_initializer] Interface '{name}' supports action registration")
+        try:
+            for act in interface_obj.get_supported_actions().keys():
+                register_action(act, interface_obj)
+        except Exception as e:
+            log_error(f"[core_initializer] Failed to register actions for interface {name}: {e}")
 
-    # Reset cached interface-action mapping in action parser
-    try:
-        from core import action_parser
-
-        action_parser._INTERFACE_ACTIONS = None
-    except Exception:
-        pass
+    # Record interface for startup summary
+    core_initializer.register_interface(name)

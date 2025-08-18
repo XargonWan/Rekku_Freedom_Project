@@ -6,7 +6,7 @@ import urllib.parse
 import urllib.request
 from typing import Optional
 
-from core.core_initializer import core_initializer
+from core.core_initializer import core_initializer, register_plugin
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.rekku_utils import get_local_location
 
@@ -15,7 +15,8 @@ class WeatherPlugin:
     """Plugin that provides weather info as a static injection."""
 
     def __init__(self):
-        core_initializer.register_action("weather", self)
+        register_plugin("weather", self)
+        core_initializer.register_plugin("weather")
         log_info("[weather_plugin] Registered WeatherPlugin")
         self._cached_weather: Optional[str] = None
         self._last_fetch: float = 0.0

@@ -40,7 +40,8 @@ class RedditInterface:
             refresh_token=token,
         )
         self._running = False
-        core_initializer.register_action("reddit", self)
+        register_interface("reddit", self)
+        core_initializer.register_interface("reddit")
         log_info("[reddit_interface] Registered RedditInterface")
 
     # --- interface metadata -------------------------------------------------
@@ -235,4 +236,5 @@ async def start_reddit_interface():
         raise
 
 
+INTERFACE_CLASS = RedditInterface
 __all__ = ["RedditInterface"]

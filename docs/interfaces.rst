@@ -4,6 +4,11 @@ Interfaces
 This guide explains how to add a new chat interface and expose its actions to the
 core system.
 
+.. note::
+   Full interface documentation is available on the project's `Read the Docs`_ wiki.
+
+.. _Read the Docs: https://rekku.readthedocs.io
+
 1. **Create the module**
    Place a new ``*.py`` file under the ``interface/`` directory.  Removing the
    file later cleanly removes the interface from Rekku.
@@ -19,12 +24,12 @@ core system.
    snippets.
 
 4. **Register the interface**
-   When the interface starts, call ``register_action`` to make the instance
-   discoverable and notify the core initializer that it is active.
+   When the interface starts, use ``register_interface`` to store the instance
+   and ``core_initializer.register_interface`` to mark it active.
 
 .. code-block:: python
 
-   from core.core_initializer import core_initializer
+   from core.core_initializer import core_initializer, register_interface
 
    class MyInterface:
        @staticmethod
@@ -42,7 +47,7 @@ core system.
            }
 
        async def start(self):
-           register_action("myiface", self)
+           register_interface("myiface", self)
            core_initializer.register_interface("myiface")
 
    INTERFACE_CLASS = MyInterface
