@@ -62,11 +62,14 @@ class AutoResponseSystem:
             
             log_info(f"[auto_response] Requesting LLM to deliver {action_type} output to chat {chat_id}")
             
-            # Get bot instance from interfaces
-            from core.action_parser import INTERFACE_REGISTRY
-            bot = INTERFACE_REGISTRY.get('telegram_bot')
+            # Get interface instance dynamically without hardcoding
+            from core.core_initializer import INTERFACE_REGISTRY
+
+            bot = INTERFACE_REGISTRY.get(interface_name)
             if not bot:
-                log_error("[auto_response] No telegram_bot interface available")
+                log_error(
+                    f"[auto_response] No interface '{interface_name}' available"
+                )
                 return
             
             # Enqueue the LLM request
