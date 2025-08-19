@@ -88,14 +88,19 @@ class AutoResponseSystem:
             # Get interface instance dynamically without hardcoding
             from core.core_initializer import INTERFACE_REGISTRY
 
-            bot = INTERFACE_REGISTRY.get(interface_name)
-            if not bot:
+            interface = INTERFACE_REGISTRY.get(interface_name)
+            if not interface:
                 log_error(
                     f"[auto_response] No interface '{interface_name}' available"
                 )
                 return
-            
-            # Enqueue the LLM request
+
+            # Use the raw Telegram Bot instance if the interface wraps one
+            bot = getattr(interface, "bot", interface)
+
+            # Enqueue the LLM request using the bot so downstream handlers
+            # receive the expected python-telegram-bot API object rather than
+            # the interface wrapper (which has a different send_message signature).
             await enqueue(bot, mock_message, context_memory, priority=True)
             
         except Exception as e:

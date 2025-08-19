@@ -11,13 +11,14 @@ from core.auto_response import AutoResponseSystem
 def test_request_llm_response_builds_chat(monkeypatch):
     # Provide fake interface registry without importing heavy modules
     fake_core_initializer = SimpleNamespace(
-        INTERFACE_REGISTRY={'telegram_bot': SimpleNamespace()}
+        INTERFACE_REGISTRY={'telegram_bot': SimpleNamespace(bot='INNER_BOT')}
     )
     sys.modules['core.core_initializer'] = fake_core_initializer
 
     captured = {}
 
     async def fake_enqueue(bot, message, context_memory, priority=True):
+        captured['bot'] = bot
         captured['chat'] = getattr(message, 'chat', None)
         captured['chat_id'] = getattr(message.chat, 'id', None)
         captured['text'] = message.text
@@ -36,6 +37,7 @@ def test_request_llm_response_builds_chat(monkeypatch):
         )
     )
 
+    assert captured['bot'] == 'INNER_BOT'
     assert captured['chat'] is not None
     assert captured['chat_id'] == 42
     assert 'terminal' in captured['text']
