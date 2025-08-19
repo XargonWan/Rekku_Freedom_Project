@@ -185,7 +185,8 @@ class TerminalPlugin(AIPluginBase):
         action_type = action.get("type")
         payload = action.get("payload", {})
         command = payload.get("command", "")
-        persistent_session = payload.get("persistent_session", False)
+        # Default to persistent sessions so the LLM can interact like a user
+        persistent_session = payload.get("persistent_session", True)
 
         if not command:
             log_warning(f"[terminal] No command provided for {action_type} action")
@@ -233,9 +234,13 @@ class TerminalPlugin(AIPluginBase):
                     command=command
                 )
 
-                log_info(f"[terminal] Requested LLM delivery of {action_type} output to chat {original_message.chat_id}")
+                log_info(
+                    f"[terminal] Requested LLM delivery of {action_type} output to chat {original_message.chat_id}"
+                )
             else:
                 log_warning("[terminal] No original_message context for auto-response")
+
+            return output
 
         except Exception as e:
             log_error(f"[terminal] Error executing {action_type} command '{command}': {e}")
@@ -264,6 +269,7 @@ class TerminalPlugin(AIPluginBase):
                     action_type=f"{action_type}_error",
                     command=command
                 )
+            return f"Error executing command '{command}': {str(e)}"
 
     def get_target(self, trainer_message_id):
         return None
