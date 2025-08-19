@@ -26,6 +26,13 @@ except Exception:
     def truncate_message(text, max_length=4000):
         return text[:max_length] if len(text) > max_length else text
 
+# Import notifier safely
+try:
+    from core.notifier import notify_trainer
+except Exception:
+    def notify_trainer(message: str) -> None:
+        log_warning("[terminal] notify_trainer not available")
+
 # Import auto_response safely
 try:
     from core.auto_response import request_llm_delivery
@@ -196,12 +203,24 @@ class TerminalPlugin(AIPluginBase):
 
             log_debug(f"[terminal] Command output: {output}")
 
+            # Notify trainer about the executed command and its result
+            try:
+                summary = truncate_message(output, 1000)
+                notify_trainer(
+                    f"[terminal] Command: {command}\nOutput:\n{summary}"
+                )
+            except Exception as e:
+                log_warning(f"[terminal] Failed to notify trainer: {e}")
+
             # Use auto-response system instead of direct Telegram response
             if original_message and hasattr(original_message, 'chat_id'):
+                interface_name = context.get('interface', 'telegram_bot')
+                if interface_name == 'telegram':
+                    interface_name = 'telegram_bot'
                 response_context = {
                     'chat_id': original_message.chat_id,
                     'message_id': getattr(original_message, 'message_id', None),
-                    'interface_name': context.get('interface', 'telegram_bot'),
+                    'interface_name': interface_name,
                     'original_command': command,
                     'action_type': action_type
                 }
@@ -221,11 +240,21 @@ class TerminalPlugin(AIPluginBase):
         except Exception as e:
             log_error(f"[terminal] Error executing {action_type} command '{command}': {e}")
 
+            try:
+                notify_trainer(
+                    f"[terminal] Error executing: {command}\nError: {e}"
+                )
+            except Exception:
+                pass
+
             if original_message and hasattr(original_message, 'chat_id'):
+                interface_name = context.get('interface', 'telegram_bot')
+                if interface_name == 'telegram':
+                    interface_name = 'telegram_bot'
                 error_context = {
                     'chat_id': original_message.chat_id,
                     'message_id': getattr(original_message, 'message_id', None),
-                    'interface_name': context.get('interface', 'telegram_bot'),
+                    'interface_name': interface_name,
                 }
 
                 from core.auto_response import request_llm_delivery
