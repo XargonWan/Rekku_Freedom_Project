@@ -5,6 +5,7 @@ Used when interfaces need to report results back through the LLM instead of dire
 """
 
 import asyncio
+import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -18,19 +19,21 @@ class AutoResponseSystem:
     
     async def request_llm_response(
         self, 
-        output: str, 
-        original_context: Dict[str, Any],
-        action_type: str,
-        command: str = None
+        output: str = None,
+        original_context: Dict[str, Any] | None = None,
+        action_type: str | None = None,
+        command: str = None,
+        action_outputs: list | None = None,
     ):
         """
-        Request LLM to process and deliver output back to the user.
-        
+        Request LLM to process and deliver outputs back to the user.
+
         Args:
-            output: The result from the action (e.g., terminal output)
+            output: The result from a single action (legacy path)
             original_context: Context from the original request (chat_id, etc.)
             action_type: The type of action that generated this output
             command: The original command if applicable
+            action_outputs: List of outputs from multiple actions
         """
         try:
             # Import here to avoid circular imports
@@ -47,11 +50,16 @@ class AutoResponseSystem:
             # Basic identifiers
             mock_message.chat_id = chat_id
             mock_message.message_id = message_id or 0
-            mock_message.text = (
-                f"Auto-response for {action_type}: {command}"
-                if command
-                else f"Auto-response for {action_type}"
-            )
+            if action_outputs is not None:
+                mock_message.text = json.dumps(
+                    {"action_outputs": action_outputs}, ensure_ascii=False
+                )
+            else:
+                mock_message.text = (
+                    f"Auto-response for {action_type}: {command}"
+                    if command
+                    else f"Auto-response for {action_type}"
+                )
             # Populate minimal from_user info
             mock_message.from_user = SimpleNamespace()
             mock_message.from_user.id = chat_id
@@ -75,13 +83,18 @@ class AutoResponseSystem:
             mock_message.chat.type = "private"
             
             # Create context memory with the output and instructions
-            context_memory = {
-                "system_instruction": f"You executed a {action_type} command and got output. Please format and deliver this output to the user.",
-                "command_executed": command,
-                "command_output": output,
-                "delivery_instructions": f"Send the output back to chat {chat_id} using message_{interface_name} action. Format it nicely.",
-                "suggested_response": f"Here's the output from your {action_type} command:\n\n```\n{output}\n```"
-            }
+            if action_outputs is not None:
+                context_memory = {
+                    "system_instruction": "You executed one or more actions and received outputs. Use them to craft an appropriate response to the user.",
+                }
+            else:
+                context_memory = {
+                    "system_instruction": f"You executed a {action_type} command and got output. Please format and deliver this output to the user.",
+                    "command_executed": command,
+                    "command_output": output,
+                    "delivery_instructions": f"Send the output back to chat {chat_id} using message_{interface_name} action. Format it nicely.",
+                    "suggested_response": f"Here's the output from your {action_type} command:\n\n```\n{output}\n```"
+                }
             
             log_info(f"[auto_response] Requesting LLM to deliver {action_type} output to chat {chat_id}")
             
@@ -121,7 +134,8 @@ async def request_llm_delivery(
     output=None,
     original_context=None,
     action_type=None,
-    command=None
+    command=None,
+    action_outputs=None
 ):
     """
     Unified convenience function to request LLM-mediated delivery.
@@ -131,6 +145,14 @@ async def request_llm_delivery(
     2. New: request_llm_delivery(message, interface, context, reason)
     """
     # Handle legacy calling pattern (terminal plugin style)
+    if (action_outputs is not None) and original_context is not None:
+        await _auto_response_system.request_llm_response(
+            original_context=original_context,
+            action_type=action_type or "unknown",
+            action_outputs=action_outputs,
+        )
+        return
+
     if output is not None and original_context is not None:
         await _auto_response_system.request_llm_response(
             output, original_context, action_type or "unknown", command

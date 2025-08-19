@@ -33,12 +33,8 @@ except Exception:
     def notify_trainer(message: str) -> None:
         log_warning("[terminal] notify_trainer not available")
 
-# Import auto_response safely
-try:
-    from core.auto_response import request_llm_delivery
-except Exception:
-    async def request_llm_delivery(*args, **kwargs):
-        log_warning("[terminal] Auto-response not available")
+# Auto-response no longer used directly here; higher-level logic handles
+# delivery of outputs back to the LLM.
 
 
 class TerminalPlugin(AIPluginBase):
@@ -213,32 +209,10 @@ class TerminalPlugin(AIPluginBase):
             except Exception as e:
                 log_warning(f"[terminal] Failed to notify trainer: {e}")
 
-            # Use auto-response system instead of direct Telegram response
-            if original_message and hasattr(original_message, 'chat_id'):
-                interface_name = context.get('interface', 'telegram_bot')
-                if interface_name == 'telegram':
-                    interface_name = 'telegram_bot'
-                response_context = {
-                    'chat_id': original_message.chat_id,
-                    'message_id': getattr(original_message, 'message_id', None),
-                    'interface_name': interface_name,
-                    'original_command': command,
-                    'action_type': action_type
-                }
-
-                from core.auto_response import request_llm_delivery
-                await request_llm_delivery(
-                    output=output,
-                    original_context=response_context,
-                    action_type=action_type,
-                    command=command
-                )
-
-                log_info(
-                    f"[terminal] Requested LLM delivery of {action_type} output to chat {original_message.chat_id}"
-                )
-            else:
-                log_warning("[terminal] No original_message context for auto-response")
+            # Output is returned to the caller; higher-level orchestrators will
+            # decide how to deliver it back to the LLM or user.
+            if not (original_message and hasattr(original_message, 'chat_id')):
+                log_warning("[terminal] No original_message context for output delivery")
 
             return output
 

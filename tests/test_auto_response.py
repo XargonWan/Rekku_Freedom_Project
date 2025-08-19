@@ -43,3 +43,30 @@ def test_request_llm_response_builds_chat(monkeypatch):
     assert 'terminal' in captured['text']
     assert captured['full_name'] == 'AutoResponse'
     assert captured['date'] is not None
+
+
+def test_request_llm_response_action_outputs(monkeypatch):
+    fake_core_initializer = SimpleNamespace(
+        INTERFACE_REGISTRY={'telegram_bot': SimpleNamespace(bot='INNER_BOT')}
+    )
+    sys.modules['core.core_initializer'] = fake_core_initializer
+
+    captured = {}
+
+    async def fake_enqueue(bot, message, context_memory, priority=True):
+        captured['text'] = message.text
+        captured['bot'] = bot
+
+    sys.modules['core.message_queue'] = SimpleNamespace(enqueue=fake_enqueue)
+
+    auto = AutoResponseSystem()
+    asyncio.run(
+        auto.request_llm_response(
+            original_context={'chat_id': 1, 'interface_name': 'telegram_bot'},
+            action_type='terminal',
+            action_outputs=[{'type': 'terminal', 'command': 'ls', 'output': 'done'}],
+        )
+    )
+
+    assert captured['bot'] == 'INNER_BOT'
+    assert 'action_outputs' in captured['text']

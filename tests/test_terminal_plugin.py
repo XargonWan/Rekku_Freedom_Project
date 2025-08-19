@@ -1,5 +1,6 @@
 import sys
 import os
+import sys
 from types import SimpleNamespace
 import pytest
 
@@ -22,20 +23,12 @@ async def test_execute_action_notifies_and_normalizes(monkeypatch):
         notified['msg'] = msg
     monkeypatch.setattr("plugins.terminal.notify_trainer", fake_notify)
 
-    captured = {}
-    async def fake_request_llm_delivery(output, original_context, action_type, command):
-        captured['interface'] = original_context.get('interface_name')
-        captured['output'] = output
-        captured['command'] = command
-    monkeypatch.setattr("core.auto_response.request_llm_delivery", fake_request_llm_delivery)
-
     action = {"type": "terminal", "payload": {"command": "echo hi"}}
     context = {"interface": "telegram"}
     message = SimpleNamespace(chat_id=1, message_id=2)
 
     output = await plugin.execute_action(action, context, bot=None, original_message=message)
 
-    assert captured['interface'] == 'telegram_bot'
     assert 'echo hi' in notified['msg']
     assert 'result' in notified['msg']
     assert output == 'result'
@@ -51,12 +44,13 @@ async def test_run_actions_stops_after_terminal(monkeypatch):
     monkeypatch.setattr(plugin, "_send_command", fake_send_command)
 
     # Capture auto-response call
-    async def fake_request_llm_delivery(*args, **kwargs):
-        pass
+    captured = {}
 
-    monkeypatch.setattr(
-        "core.auto_response.request_llm_delivery", fake_request_llm_delivery
-    )
+    async def fake_request_llm_delivery(**kwargs):
+        captured['outputs'] = kwargs.get('action_outputs')
+        captured['interface'] = kwargs.get('original_context', {}).get('interface_name')
+
+    monkeypatch.setattr("core.auto_response.request_llm_delivery", fake_request_llm_delivery)
 
     # Fake telegram interface to detect if second action runs
     called = {}
@@ -81,6 +75,40 @@ async def test_run_actions_stops_after_terminal(monkeypatch):
 
     from core.action_parser import run_actions
 
-    await run_actions(actions, {"interface": "telegram"}, None, message)
+    result = await run_actions(actions, {"interface": "telegram"}, None, message)
 
     assert "payload" not in called
+    assert captured['interface'] == 'telegram_bot'
+    assert captured['outputs'][0]['command'] == 'echo hi'
+    assert result['action_outputs'][0]['output'] == 'done'
+
+
+@pytest.mark.asyncio
+async def test_run_actions_multiple_terminals(monkeypatch):
+    plugin = TerminalPlugin()
+
+    async def fake_send_command(cmd):
+        return f"out-{cmd}"
+
+    monkeypatch.setattr(plugin, "_send_command", fake_send_command)
+
+    captured = {}
+
+    async def fake_request_llm_delivery(**kwargs):
+        captured['outputs'] = kwargs.get('action_outputs')
+
+    monkeypatch.setattr("core.auto_response.request_llm_delivery", fake_request_llm_delivery)
+
+    actions = [
+        {"type": "terminal", "payload": {"command": "a"}},
+        {"type": "terminal", "payload": {"command": "b"}},
+    ]
+
+    message = SimpleNamespace(chat_id=1, message_id=2)
+
+    from core.action_parser import run_actions
+
+    res = await run_actions(actions, {"interface": "telegram"}, None, message)
+
+    assert len(captured['outputs']) == 2
+    assert res['action_outputs'][1]['output'] == 'out-b'
