@@ -598,14 +598,22 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
                 collected_errors.append(error_msg)
                 continue
             
-            log_debug(f"[action_parser] Running action {idx}: {action.get('type')}")
+            action_type = action.get('type')
+            log_debug(f"[action_parser] Running action {idx}: {action_type}")
             result = await run_action(action, context, bot, original_message)
-            
+
             # Check if run_action returned error info
             if isinstance(result, dict) and "error" in result:
                 collected_errors.append(result["error"])
             else:
                 processed_actions.append(action)
+
+            # Halt further actions after a terminal command to wait for LLM response
+            if action_type == "terminal":
+                log_info(
+                    "[action_parser] ⏸️ Terminal action executed; waiting for LLM response before processing further actions"
+                )
+                break
                 
         except Exception as e:
             error_msg = f"Error executing action {idx}: {repr(e)}"
