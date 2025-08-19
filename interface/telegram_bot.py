@@ -732,22 +732,11 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
 
 
 async def plugin_startup_callback(application):
-    """Launch plugin start() once the bot's event loop is ready."""
-    # Start pending async plugins
+    """Run pending plugin tasks once the bot's event loop is ready."""
     from core.core_initializer import core_initializer
-    await core_initializer.start_pending_async_plugins()
 
-    # Also try to start the main LLM plugin if it has a start method
-    plugin_obj = plugin_instance.get_plugin()
-    if plugin_obj and hasattr(plugin_obj, "start"):
-        try:
-            if asyncio.iscoroutinefunction(plugin_obj.start):
-                await plugin_obj.start()
-            else:
-                plugin_obj.start()
-            log_debug("[plugin] Plugin start executed")
-        except Exception as e:
-            log_error(f"[plugin] Error during post_init start: {repr(e)}", e)
+    # Start any async plugins that were deferred until a loop was available
+    await core_initializer.start_pending_async_plugins()
 
     # Start the queue consumer after the application is ready
     application.create_task(message_queue.run())
@@ -820,12 +809,10 @@ async def start_bot():
         ))
         log_info("[telegram_bot] All handlers added successfully")
 
-        # Register this interface with the core
-        log_info("[telegram_bot] Registering interface with core...")
-        from core.core_initializer import core_initializer
-        core_initializer.register_interface("telegram_bot")
-        log_info("[telegram_bot] Interface registered with core")
-        core_initializer.display_startup_summary()
+        # The interface will register itself once the Telegram application has
+        # been initialized below. Calling core_initializer.register_interface
+        # here would run before the interface instance exists and generates a
+        # misleading warning about missing action support.
     except Exception as e:
         log_error(f"[telegram_bot] Error building Telegram application: {repr(e)}")
         raise
@@ -839,11 +826,16 @@ async def start_bot():
         await app.initialize()
         log_info("[telegram_bot] Telegram application initialized")
 
-        # Register interface instance for plugins
+        # Register interface instance for plugins. This automatically exposes
+        # its actions to the core initializer.
         telegram_interface = TelegramInterface(app.bot)
-        # Register interface globally; actions are auto-registered
         register_interface("telegram_bot", telegram_interface)
         log_debug("[telegram_bot] Interface instance registered")
+
+        # Rebuild actions and display startup summary now that the interface is registered
+        from core.core_initializer import core_initializer
+        await core_initializer._build_actions_block()
+        core_initializer.display_startup_summary()
         
         await app.start()
         log_info("[telegram_bot] Telegram application started")
