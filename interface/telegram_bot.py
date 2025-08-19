@@ -732,22 +732,11 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
 
 
 async def plugin_startup_callback(application):
-    """Launch plugin start() once the bot's event loop is ready."""
-    # Start pending async plugins
+    """Run pending plugin tasks once the bot's event loop is ready."""
     from core.core_initializer import core_initializer
-    await core_initializer.start_pending_async_plugins()
 
-    # Also try to start the main LLM plugin if it has a start method
-    plugin_obj = plugin_instance.get_plugin()
-    if plugin_obj and hasattr(plugin_obj, "start"):
-        try:
-            if asyncio.iscoroutinefunction(plugin_obj.start):
-                await plugin_obj.start()
-            else:
-                plugin_obj.start()
-            log_debug("[plugin] Plugin start executed")
-        except Exception as e:
-            log_error(f"[plugin] Error during post_init start: {repr(e)}", e)
+    # Start any async plugins that were deferred until a loop was available
+    await core_initializer.start_pending_async_plugins()
 
     # Start the queue consumer after the application is ready
     application.create_task(message_queue.run())
