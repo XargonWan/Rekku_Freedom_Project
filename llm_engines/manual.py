@@ -3,7 +3,7 @@
 from core import say_proxy, message_map
 import asyncio
 from core.telegram_utils import truncate_message
-from core.config import TRAINER_ID
+from core.config import TELEGRAM_TRAINER_ID
 from core.ai_plugin_base import AIPluginBase
 import json
 from telegram.constants import ParseMode
@@ -60,7 +60,7 @@ class ManualAIPlugin(AIPluginBase):
             say_proxy.clear(user_id)
             return
 
-        # === Invia prompt JSON al trainer (TRAINER_ID) ===
+        # === Invia prompt JSON al trainer (TELEGRAM_TRAINER_ID) ===
         import json
         from telegram.constants import ParseMode
 
@@ -68,7 +68,7 @@ class ManualAIPlugin(AIPluginBase):
         prompt_json = truncate_message(prompt_json)
 
         await bot.send_message(
-            chat_id=TRAINER_ID,
+            chat_id=TELEGRAM_TRAINER_ID,
             text=f"\U0001f4e6 *Generated JSON prompt:*\n```json\n{prompt_json}\n```",
             parse_mode=ParseMode.MARKDOWN
         )
@@ -76,10 +76,10 @@ class ManualAIPlugin(AIPluginBase):
         # === Inoltra il messaggio originale per facilitare la risposta ===
         sender = message.from_user
         user_ref = f"@{sender.username}" if sender.username else sender.full_name
-        await bot.send_message(chat_id=TRAINER_ID, text=truncate_message(f"{user_ref}:"))
+        await bot.send_message(chat_id=TELEGRAM_TRAINER_ID, text=truncate_message(f"{user_ref}:"))
 
         sent = await bot.forward_message(
-            chat_id=TRAINER_ID,
+            chat_id=TELEGRAM_TRAINER_ID,
             from_chat_id=message.chat_id,
             message_id=message.message_id
         )

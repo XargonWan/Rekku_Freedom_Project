@@ -1,7 +1,7 @@
 from typing import Optional
 import asyncio
 from telegram.error import TimedOut
-from core.config import TRAINER_ID
+from core.config import TELEGRAM_TRAINER_ID
 from core.logging_utils import (
     log_debug,
     log_info,
@@ -57,13 +57,15 @@ async def _send_with_retry(
                 print(f"[telegram retry] send_message failed after {retries} retries: {e}")
         except Exception:
             raise
-    try:
-        await bot.send_message(
-            chat_id=TRAINER_ID,
-            text=f"\u274c Telegram send_message failed after {retries} retries (TimedOut)"
-        )
-    except Exception:
-        pass
+    trainer_id = TELEGRAM_TRAINER_ID
+    if trainer_id:
+        try:
+            await bot.send_message(
+                chat_id=trainer_id,
+                text=f"\u274c Telegram send_message failed after {retries} retries (TimedOut)"
+            )
+        except Exception:
+            pass
     logger.critical(
         "[telegram_utils] Failed to send message after %d retries to chat_id=%s. Content preview: %r",
         retries,
@@ -106,11 +108,15 @@ async def safe_edit(bot, chat_id: int, message_id: int, text: str, retries: int 
                 print(f"[telegram retry] edit_message_text failed after {retries} retries: {e}")
         except Exception:
             raise
-    try:
-        await bot.send_message(chat_id=TRAINER_ID,
-                               text=f"\u274c Telegram edit_message_text failed after {retries} retries (TimedOut)")
-    except Exception:
-        pass
+    trainer_id = TELEGRAM_TRAINER_ID
+    if trainer_id:
+        try:
+            await bot.send_message(
+                chat_id=trainer_id,
+                text=f"\u274c Telegram edit_message_text failed after {retries} retries (TimedOut)"
+            )
+        except Exception:
+            pass
     if last_error:
         raise last_error
 
