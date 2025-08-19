@@ -8,9 +8,9 @@ from core.core_initializer import core_initializer, register_plugin
 
 # Import config safely - may fail in test environments
 try:
-    from core.config import TRAINER_ID
+    from core.config import TELEGRAM_TRAINER_ID
 except Exception:
-    TRAINER_ID = None
+    TELEGRAM_TRAINER_ID = None
 
 # Import telegram safely - may fail if not available
 try:

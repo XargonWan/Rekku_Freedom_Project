@@ -4,13 +4,11 @@ from core.db import get_conn
 from core.db import ensure_core_tables
 import aiomysql
 import time
-import os
 import re
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 import json
 from pathlib import Path
-
-TRAINER_ID = int(os.getenv("TRAINER_ID", "123456789"))
+from core.config import TELEGRAM_TRAINER_ID
 MAX_ENTRIES = 100
 _metadata = {}
 chat_path_map = {}
@@ -113,7 +111,7 @@ def format_chat_entry(chat):
         return f"{safe_name} — `{chat.id}`"
 
 async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != TRAINER_ID:
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
 
     bot = context.bot

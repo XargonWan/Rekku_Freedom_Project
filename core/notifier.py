@@ -1,6 +1,6 @@
 # core/notifier.py
 
-from core.config import TRAINER_ID
+import asyncio
 import time
 from typing import List, Tuple, Callable
 from core.logging_utils import log_debug, log_info, log_warning, log_error
@@ -70,7 +70,42 @@ def notify(chat_id: int, message: str):
     _last_notify_messages[chat_id] = (now, message)
 
 def notify_trainer(message: str) -> None:
-    """Notify the trainer with ``message`` sent to ``TRAINER_ID`` only."""
-    from core.config import TRAINER_ID
-    log_debug(f"[notifier] Notification for TRAINER_ID={TRAINER_ID}: {message}")
-    notify(TRAINER_ID, message)
+    """Notify the trainer via selected interfaces."""
+    from core.config import NOTIFY_ERRORS_TO_INTERFACES, TELEGRAM_TRAINER_ID
+    from core.core_initializer import INTERFACE_REGISTRY
+
+    if not NOTIFY_ERRORS_TO_INTERFACES:
+        log_debug("[notifier] No interfaces configured for error notifications")
+        return
+
+    for interface_name in NOTIFY_ERRORS_TO_INTERFACES:
+        iface = INTERFACE_REGISTRY.get(interface_name)
+        if not iface:
+            log_error(f"[notifier] No interface '{interface_name}' available")
+            continue
+
+        trainer_id = None
+        if interface_name in ("telegram_bot", "telethon_userbot"):
+            trainer_id = TELEGRAM_TRAINER_ID
+        if not trainer_id:
+            log_error(
+                f"[notifier] No trainer ID configured for interface '{interface_name}'"
+            )
+            continue
+
+        async def send():
+            try:
+                await iface.send_message({"text": message, "target": trainer_id})
+            except Exception as e:  # pragma: no cover - best effort
+                log_error(
+                    f"[notifier] Failed to notify via {interface_name}: {repr(e)}",
+                )
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            loop.create_task(send())
+        else:
+            asyncio.run(send())

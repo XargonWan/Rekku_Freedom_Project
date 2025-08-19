@@ -10,8 +10,10 @@ Quickstart
 This guide outlines the typical steps to run **Rekku Freedom Project** using Docker.
 
 #. Copy ``.env.example`` to ``.env`` and adjust values as needed. Important
-   variables include ``BOTFATHER_TOKEN``, ``TRAINER_ID`` and database
-   credentials.
+   variables include ``BOTFATHER_TOKEN``, ``TELEGRAM_TRAINER_ID`` and
+   database credentials. The optional ``NOTIFY_ERRORS_TO_INTERFACES``
+   list (e.g. ``telegram_bot``) defines where error notifications are
+   sent.
 #. Build and start the services:
 
    .. code-block:: bash
