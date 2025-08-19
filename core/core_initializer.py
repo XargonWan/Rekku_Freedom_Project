@@ -466,3 +466,10 @@ def register_interface(name: str, interface_obj: Any) -> None:
 
     # Record interface for startup summary
     core_initializer.register_interface(name)
+
+    # Flush any queued trainer notifications for this interface
+    try:
+        from core.notifier import flush_pending_for_interface
+        flush_pending_for_interface(name)
+    except Exception:
+        pass
