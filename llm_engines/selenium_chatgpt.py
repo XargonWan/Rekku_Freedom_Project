@@ -130,9 +130,15 @@ class ChatLinkStore:
         return rows_deleted
 from core.telegram_utils import safe_send
 
-# Fallback per notify_trainer se non disponibile
-def notify_trainer(trainer_id, text):
-    log_warning(f"[notify_trainer fallback] trainer_id={trainer_id}: {text}")
+# Fallback per notify_trainer se il modulo core.notifier non è disponibile
+def notify_trainer(message: str) -> None:
+    """Best-effort trainer notification used during tests.
+
+    The real ``notify_trainer`` utility accepts a single message argument, so
+    the fallback must mirror that signature to avoid ``TypeError`` when the
+    caller provides just the message text.
+    """
+    log_warning(f"[notify_trainer fallback] {message}")
 
 # ---------------------------------------------------------------------------
 # Constants
