@@ -43,13 +43,26 @@ class AutoResponseSystem:
             # Create a mock message object for the LLM request
             from types import SimpleNamespace
             mock_message = SimpleNamespace()
+            # Basic identifiers
             mock_message.chat_id = chat_id
             mock_message.message_id = message_id or 0
-            mock_message.text = f"Auto-response for {action_type}: {command}" if command else f"Auto-response for {action_type}"
+            mock_message.text = (
+                f"Auto-response for {action_type}: {command}"
+                if command
+                else f"Auto-response for {action_type}"
+            )
+            # Populate minimal from_user info
             mock_message.from_user = SimpleNamespace()
             mock_message.from_user.id = chat_id
             mock_message.from_user.username = "auto_response"
             mock_message.from_user.first_name = "AutoResponse"
+            # Provide chat structure expected by message_queue.enqueue
+            mock_message.chat = SimpleNamespace()
+            mock_message.chat.id = chat_id
+            mock_message.chat.title = None
+            mock_message.chat.username = None
+            mock_message.chat.first_name = "AutoResponse"
+            mock_message.chat.type = "private"
             
             # Create context memory with the output and instructions
             context_memory = {
