@@ -71,29 +71,20 @@ def notify(chat_id: int, message: str):
 
 def notify_trainer(message: str) -> None:
     """Notify the trainer via selected interfaces."""
-    from core.config import NOTIFY_ERRORS_TO_INTERFACES, TELEGRAM_TRAINER_ID
+    from core.config import NOTIFY_ERRORS_TO_INTERFACES
     from core.core_initializer import INTERFACE_REGISTRY
 
     if not NOTIFY_ERRORS_TO_INTERFACES:
         log_debug("[notifier] No interfaces configured for error notifications")
         return
 
-    for interface_name in NOTIFY_ERRORS_TO_INTERFACES:
+    for interface_name, trainer_id in NOTIFY_ERRORS_TO_INTERFACES.items():
         iface = INTERFACE_REGISTRY.get(interface_name)
         if not iface:
             available = ", ".join(sorted(INTERFACE_REGISTRY)) or "none"
             log_error(
                 f"[notifier] No interface '{interface_name}' available. "
                 f"Available: {available}"
-            )
-            continue
-
-        trainer_id = None
-        if interface_name in ("telegram_bot", "telethon_userbot"):
-            trainer_id = TELEGRAM_TRAINER_ID
-        if not trainer_id:
-            log_error(
-                f"[notifier] No trainer ID configured for interface '{interface_name}'",
             )
             continue
 
