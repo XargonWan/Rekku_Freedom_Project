@@ -4,7 +4,8 @@ import subprocess
 import json
 from core.ai_plugin_base import AIPluginBase
 from core.logging_utils import log_debug, log_info, log_warning, log_error
-from core.config import set_notifier, GEMINI_API_KEY
+from core.notifier import set_notifier
+from core.config import GEMINI_API_KEY
 
 class GoogleCLIPlugin(AIPluginBase):
     """

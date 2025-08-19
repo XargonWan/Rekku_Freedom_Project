@@ -10,8 +10,10 @@ core system.
 .. _Read the Docs: https://rekku.readthedocs.io
 
 1. **Create the module**
-   Place a new ``*.py`` file under the ``interface/`` directory.  Removing the
-   file later cleanly removes the interface from Rekku.
+   Place a new ``*.py`` file under the ``interface/`` directory.  The core now
+   imports all modules in ``interface/``, ``plugins/`` and ``llm_engines/``
+   recursively, so no special naming convention is required. Removing the file
+   later cleanly removes the interface from Rekku.
 
 2. **Declare actions**
    Implement ``get_supported_actions`` on the interface class.  The method should

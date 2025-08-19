@@ -12,7 +12,6 @@ class DiscordInterface:
     def __init__(self, bot_token):
         # Initialize Discord client
         register_interface("discord_bot", self)
-        core_initializer.register_interface("discord_bot")
         log_info("[discord_interface] Registered DiscordInterface")
 
     @staticmethod
@@ -36,6 +35,7 @@ class DiscordInterface:
             }
         }
 
+    @staticmethod
     def get_prompt_instructions(action_name: str) -> dict:
         if action_name == "message_discord_bot":
             return {
