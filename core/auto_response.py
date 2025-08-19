@@ -7,6 +7,7 @@ Used when interfaces need to report results back through the LLM instead of dire
 import asyncio
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from typing import Dict, Any, Optional
+from datetime import datetime
 
 
 class AutoResponseSystem:
@@ -56,6 +57,15 @@ class AutoResponseSystem:
             mock_message.from_user.id = chat_id
             mock_message.from_user.username = "auto_response"
             mock_message.from_user.first_name = "AutoResponse"
+            mock_message.from_user.full_name = "AutoResponse"
+
+            # Message metadata expected by downstream handlers
+            mock_message.date = datetime.utcnow()
+            mock_message.reply_to_message = None
+            mock_message.message_thread_id = original_context.get(
+                "message_thread_id"
+            )
+
             # Provide chat structure expected by message_queue.enqueue
             mock_message.chat = SimpleNamespace()
             mock_message.chat.id = chat_id

@@ -21,6 +21,8 @@ def test_request_llm_response_builds_chat(monkeypatch):
         captured['chat'] = getattr(message, 'chat', None)
         captured['chat_id'] = getattr(message.chat, 'id', None)
         captured['text'] = message.text
+        captured['full_name'] = getattr(message.from_user, 'full_name', None)
+        captured['date'] = getattr(message, 'date', None)
 
     sys.modules['core.message_queue'] = SimpleNamespace(enqueue=fake_enqueue)
 
@@ -37,3 +39,5 @@ def test_request_llm_response_builds_chat(monkeypatch):
     assert captured['chat'] is not None
     assert captured['chat_id'] == 42
     assert 'terminal' in captured['text']
+    assert captured['full_name'] == 'AutoResponse'
+    assert captured['date'] is not None
