@@ -83,47 +83,90 @@ class CoreInitializer:
                     self.startup_errors.append(f"Module {module_name}: {e}")
                     continue
 
-                if hasattr(module, "PLUGIN_CLASS"):
-                    plugin_class = getattr(module, "PLUGIN_CLASS")
-                    # Basic validation that it's a proper plugin class
-                    if hasattr(plugin_class, "get_supported_action_types") or hasattr(plugin_class, "get_supported_actions"):
+                if not hasattr(module, "PLUGIN_CLASS"):
+                    continue
+
+                plugin_class = getattr(module, "PLUGIN_CLASS")
+
+                if not (
+                    hasattr(plugin_class, "get_supported_action_types")
+                    or hasattr(plugin_class, "get_supported_actions")
+                ):
+                    log_warning(
+                        f"[core_initializer] ⚠️ Plugin {module_name} doesn't implement action interface"
+                    )
+                    self.startup_errors.append(
+                        f"Plugin {module_name}: Missing action interface"
+                    )
+                    continue
+
+                try:
+                    init_sig = inspect.signature(plugin_class.__init__)
+                    required = [
+                        p
+                        for name, p in list(init_sig.parameters.items())[1:]
+                        if p.default is inspect.Parameter.empty
+                        and p.kind
+                        in (
+                            inspect.Parameter.POSITIONAL_ONLY,
+                            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                        )
+                    ]
+                    if required:
+                        log_debug(
+                            f"[core_initializer] Skipping {module_name}: constructor requires params"
+                        )
+                        continue
+
+                    instance = plugin_class()
+
+                    if hasattr(instance, "start"):
                         try:
-                            # Create instance and start it
-                            instance = plugin_class()
-
-                            # Start the plugin if it has a start method
-                            if hasattr(instance, "start"):
+                            if asyncio.iscoroutinefunction(instance.start):
                                 try:
-                                    if asyncio.iscoroutinefunction(instance.start):
-                                        try:
-                                            loop = asyncio.get_running_loop()
-                                            if loop and loop.is_running():
-                                                loop.create_task(instance.start())
-                                                log_info(f"[core_initializer] Started async plugin: {module_name}")
-                                            else:
-                                                log_warning(f"[core_initializer] No running loop for async plugin: {module_name}")
-                                                if not hasattr(self, '_pending_async_plugins'):
-                                                    self._pending_async_plugins = []
-                                                self._pending_async_plugins.append((module_name, instance))
-                                        except RuntimeError:
-                                            log_warning(f"[core_initializer] No event loop for async plugin: {module_name}")
-                                            if not hasattr(self, '_pending_async_plugins'):
-                                                self._pending_async_plugins = []
-                                            self._pending_async_plugins.append((module_name, instance))
+                                    loop = asyncio.get_running_loop()
+                                    if loop and loop.is_running():
+                                        loop.create_task(instance.start())
+                                        log_info(
+                                            f"[core_initializer] Started async plugin: {module_name}"
+                                        )
                                     else:
-                                        instance.start()
-                                        log_info(f"[core_initializer] Started sync plugin: {module_name}")
-                                except Exception as e:
-                                    log_error(f"[core_initializer] Error starting plugin {module_name}: {repr(e)}")
+                                        log_warning(
+                                            f"[core_initializer] No running loop for async plugin: {module_name}"
+                                        )
+                                        if not hasattr(self, "_pending_async_plugins"):
+                                            self._pending_async_plugins = []
+                                        self._pending_async_plugins.append(
+                                            (module_name, instance)
+                                        )
+                                except RuntimeError:
+                                    log_warning(
+                                        f"[core_initializer] No event loop for async plugin: {module_name}"
+                                    )
+                                    if not hasattr(self, "_pending_async_plugins"):
+                                        self._pending_async_plugins = []
+                                    self._pending_async_plugins.append(
+                                        (module_name, instance)
+                                    )
                             else:
-                                log_debug(f"[core_initializer] Plugin {module_name} has no start method")
-
+                                instance.start()
+                                log_info(
+                                    f"[core_initializer] Started sync plugin: {module_name}"
+                                )
                         except Exception as e:
-                            log_error(f"[core_initializer] Failed to start plugin {module_name}: {repr(e)}")
-                            self.startup_errors.append(f"Plugin {module_name}: {e}")
+                            log_error(
+                                f"[core_initializer] Error starting plugin {module_name}: {repr(e)}"
+                            )
                     else:
-                        log_warning(f"[core_initializer] ⚠️ Plugin {module_name} doesn't implement action interface")
-                        self.startup_errors.append(f"Plugin {module_name}: Missing action interface")
+                        log_debug(
+                            f"[core_initializer] Plugin {module_name} has no start method"
+                        )
+
+                except Exception as e:
+                    log_error(
+                        f"[core_initializer] Failed to start plugin {module_name}: {repr(e)}"
+                    )
+                    self.startup_errors.append(f"Plugin {module_name}: {e}")
     
     def _discover_interfaces(self):
         """Auto-discover active interfaces by checking running processes/modules."""
