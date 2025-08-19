@@ -820,12 +820,10 @@ async def start_bot():
         ))
         log_info("[telegram_bot] All handlers added successfully")
 
-        # Register this interface with the core
-        log_info("[telegram_bot] Registering interface with core...")
-        from core.core_initializer import core_initializer
-        core_initializer.register_interface("telegram_bot")
-        log_info("[telegram_bot] Interface registered with core")
-        core_initializer.display_startup_summary()
+        # The interface will register itself once the Telegram application has
+        # been initialized below. Calling core_initializer.register_interface
+        # here would run before the interface instance exists and generates a
+        # misleading warning about missing action support.
     except Exception as e:
         log_error(f"[telegram_bot] Error building Telegram application: {repr(e)}")
         raise
@@ -839,11 +837,15 @@ async def start_bot():
         await app.initialize()
         log_info("[telegram_bot] Telegram application initialized")
 
-        # Register interface instance for plugins
+        # Register interface instance for plugins. This automatically exposes
+        # its actions to the core initializer.
         telegram_interface = TelegramInterface(app.bot)
-        # Register interface globally; actions are auto-registered
         register_interface("telegram_bot", telegram_interface)
         log_debug("[telegram_bot] Interface instance registered")
+
+        # Display startup summary now that the interface is fully registered
+        from core.core_initializer import core_initializer
+        core_initializer.display_startup_summary()
         
         await app.start()
         log_info("[telegram_bot] Telegram application started")
