@@ -1089,6 +1089,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             message_thread_id = getattr(message, "message_thread_id", None)
             chat_id = await chat_link_store.get_link(message.chat_id, message_thread_id)
             prompt_text = json.dumps(prompt, ensure_ascii=False)
+            if isinstance(prompt, dict) and "system_message" in prompt:
+                prompt_text = f"```json\n{prompt_text}\n```"
             if not chat_id:
                 path = recent_chats.get_chat_path(message.chat_id)
                 if path and go_to_chat_by_path_with_retries(driver, path):
