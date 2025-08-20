@@ -256,3 +256,4 @@ class TerminalPlugin(AIPluginBase):
 
 
 PLUGIN_CLASS = TerminalPlugin
+
