@@ -18,12 +18,11 @@ class AutoResponseSystem:
         self._pending_responses = {}
     
     async def request_llm_response(
-        self, 
-        output: str = None,
-        original_context: Dict[str, Any] | None = None,
-        action_type: str | None = None,
-        command: str = None,
-        action_outputs: list | None = None,
+        self,
+        output: str,
+        original_context: Dict[str, Any],
+        action_type: str,
+        command: str = None
     ):
         """
         Request LLM to process and deliver outputs back to the user.
@@ -82,21 +81,13 @@ class AutoResponseSystem:
             mock_message.chat.first_name = "AutoResponse"
             mock_message.chat.type = "private"
             
-            # Create context memory with the output and instructions
-            if action_outputs is not None:
-                context_memory = {
-                    "system_instruction": "You executed one or more actions and received outputs. Use them to craft an appropriate response to the user.",
-                }
-            else:
-                context_memory = {
-                    "system_instruction": f"You executed a {action_type} command and got output. Please format and deliver this output to the user.",
-                    "command_executed": command,
-                    "command_output": output,
-                    "delivery_instructions": f"Send the output back to chat {chat_id} using message_{interface_name} action. Format it nicely.",
-                    "suggested_response": f"Here's the output from your {action_type} command:\n\n```\n{output}\n```"
-                }
-            
-            log_info(f"[auto_response] Requesting LLM to deliver {action_type} output to chat {chat_id}")
+            system_payload = {
+                "system_message": {"type": "output", "message": output}
+            }
+
+            log_info(
+                f"[auto_response] Requesting LLM to deliver {action_type} output to chat {chat_id}"
+            )
             
             # Get interface instance dynamically without hardcoding
             from core.core_initializer import INTERFACE_REGISTRY
@@ -107,14 +98,16 @@ class AutoResponseSystem:
                     f"[auto_response] No interface '{interface_name}' available"
                 )
                 return
+            
+            # Enqueue the LLM request
+            import json
 
-            # Use the raw Telegram Bot instance if the interface wraps one
-            bot = getattr(interface, "bot", interface)
-
-            # Enqueue the LLM request using the bot so downstream handlers
-            # receive the expected python-telegram-bot API object rather than
-            # the interface wrapper (which has a different send_message signature).
-            await enqueue(bot, mock_message, context_memory, priority=True)
+            await enqueue(
+                bot,
+                mock_message,
+                json.dumps(system_payload, ensure_ascii=False),
+                priority=True,
+            )
             
         except Exception as e:
             log_error(f"[auto_response] Failed to request LLM response: {e}")
@@ -162,27 +155,36 @@ async def request_llm_delivery(
     # Handle new calling pattern (interface style)
     if message is not None or interface is not None:
         try:
-            from core.message_queue import enqueue
             import core.plugin_instance as plugin_instance
-            
+
             log_info(f"[auto_response] Processing {reason or 'autonomous'} request")
-            
+
             # If we have a message, use it directly with plugin_instance
+            import json
+
+            if isinstance(context, dict) and context.get("input", {}).get("type") == "event":
+                system_payload = {
+                    "system_message": {"type": "event", "message": context}
+                }
+            else:
+                system_payload = {
+                    "system_message": {"type": "output", "message": context}
+                }
+
+            payload_json = json.dumps(system_payload, ensure_ascii=False)
+
             if message is not None:
-                await plugin_instance.handle_incoming_message(
-                    interface, message, context or {}
-                )
+                await plugin_instance.handle_incoming_message(interface, message, payload_json)
             else:
                 # For interface-only requests, create synthetic message
                 from types import SimpleNamespace
+
                 mock_message = SimpleNamespace()
                 mock_message.chat_id = -1  # Default chat
                 mock_message.message_id = 0
                 mock_message.text = f"Auto-generated message for {reason}"
-                
-                await plugin_instance.handle_incoming_message(
-                    interface, mock_message, context or {}
-                )
+
+                await plugin_instance.handle_incoming_message(interface, mock_message, payload_json)
                 
         except Exception as e:
             log_error(f"[auto_response] Failed to process {reason}: {e}")

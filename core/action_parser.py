@@ -71,30 +71,15 @@ async def corrector(errors: list, failed_actions: list, bot, message):
     retry_count = _increment_retry(message)
 
     error_summary = "\n".join([f"- {err}" for err in errors[:5]])
-    failed_actions_json = json.dumps(failed_actions, indent=2, ensure_ascii=False)
 
-    # Build JSON structure reminder
-    try:
-        from core.core_initializer import core_initializer
-
-        actions_block = core_initializer.actions_block.get("available_actions", {})
-    except Exception as e:
-        log_warning(f"[corrector] Failed to load actions block: {e}")
-        actions_block = {}
-
-    instructions = load_json_instructions()
-    json_structure = json.dumps(
-        {"instructions": instructions, "actions": actions_block},
-        ensure_ascii=False,
-        indent=2,
+    message_text = (
+        f"{error_summary}\n"
+        "Please repeat your previous message, corrected."
     )
-
-    correction_prompt = (
-        f"Your JSON is invalid. The error is: {error_summary}\n"
-        "Please repeat the previous message, corrected.\n\n"
-        "Here is a reminder of the JSON structure:\n"
-        f"{json_structure}\n"
-    )
+    correction_payload = {
+        "system_message": {"type": "error", "message": message_text}
+    }
+    correction_prompt = json.dumps(correction_payload, ensure_ascii=False)
 
     log_warning(f"[corrector] {error_summary}")
     log_info(
