@@ -94,10 +94,13 @@ class TestCorrectorRetry(unittest.TestCase):
         self.assertIsNone(extract_json_from_text("[WARNING] Some warning"))
         self.assertIsNone(extract_json_from_text("[INFO] Some info"))
         self.assertIsNone(extract_json_from_text("[DEBUG] Some debug"))
-        
+
         # Error reports should return None
         self.assertIsNone(extract_json_from_text('🚨 ACTION PARSING ERRORS DETECTED 🚨'))
         self.assertIsNone(extract_json_from_text('Please fix these actions'))
+        self.assertIsNone(
+            extract_json_from_text('{"system_message": {"type": "error", "message": "fail"}}')
+        )
         
         # Valid JSON should parse
         valid_json = '{"type": "message", "payload": {"text": "Hello"}}'

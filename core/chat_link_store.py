@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable, Awaitable
 
 import aiomysql
 
@@ -10,15 +10,51 @@ from core.logging_utils import log_debug, log_error, log_warning
 from core.db import get_conn
 
 
+class ChatLinkError(Exception):
+    """Base error for chat link operations."""
+
+
+class ChatLinkNotFound(ChatLinkError):
+    """Raised when a chat link cannot be uniquely resolved."""
+
+
+class ChatLinkMultipleMatches(ChatLinkError):
+    """Raised when more than one chat link matches a lookup."""
+
+
 class ChatLinkStore:
     """Persistence layer for chat -> ChatGPT conversation links.
 
     Supports optional tracking of chat and thread names to allow lookup by
-    human-readable identifiers.
+    human-readable identifiers.  A resolver callback can be registered to
+    automatically fetch chat/thread names from interfaces.
     """
+
+    _name_resolver: Optional[
+        Callable[[int | str, Optional[int | str], Any], Awaitable[Dict[str, Optional[str]]]]
+    ] = None
 
     def __init__(self) -> None:
         self._table_ensured = False
+
+    # ------------------------------------------------------------------
+    # Resolver management
+    @classmethod
+    def set_name_resolver(
+        cls,
+        resolver: Callable[[int | str, Optional[int | str], Any], Awaitable[Dict[str, Optional[str]]]],
+    ) -> None:
+        """Register a callback used to resolve chat and thread names."""
+
+        cls._name_resolver = resolver
+
+    @classmethod
+    def _get_resolver(
+        cls,
+    ) -> Optional[
+        Callable[[int | str, Optional[int | str], Any], Awaitable[Dict[str, Optional[str]]]]
+    ]:
+        return cls._name_resolver
 
     # ------------------------------------------------------------------
     # Helpers
@@ -163,6 +199,13 @@ class ChatLinkStore:
             f"[chatlink] Saved mapping {chat_id_str}/{normalized} -> {link}"
         )
 
+        # Populate names automatically if resolver available
+        if (chat_name is None or message_thread_name is None) and self._get_resolver():
+            try:
+                await self.update_names_from_resolver(chat_id, message_thread_id)
+            except Exception as e:  # pragma: no cover - best effort
+                log_warning(f"[chatlink] name resolution failed: {e}")
+
     async def remove(
         self,
         chat_id: int | str | None = None,
@@ -246,39 +289,92 @@ class ChatLinkStore:
             conn.close()
         return result > 0
 
-    async def resolve_chat(
-        self, chat_name: str, message_thread_name: Optional[str] = None
+    async def update_names_from_resolver(
+        self,
+        chat_id: int | str,
+        message_thread_id: Optional[int | str],
+        bot: Any | None = None,
+    ) -> bool:
+        """Use the registered resolver to update chat/thread names."""
+
+        resolver = self._get_resolver()
+        if not resolver:
+            return False
+        try:
+            try:
+                result = await resolver(chat_id, message_thread_id, bot)
+            except TypeError:  # resolver might not accept bot
+                result = await resolver(chat_id, message_thread_id)
+        except Exception as e:  # pragma: no cover - best effort
+            log_warning(f"[chatlink] resolver execution failed: {e}")
+            return False
+        if not result:
+            return False
+        return await self.update_names(
+            chat_id,
+            message_thread_id,
+            chat_name=result.get("chat_name"),
+            message_thread_name=result.get("message_thread_name"),
+        )
+
+    async def resolve(
+        self,
+        *,
+        chat_id: int | str | None = None,
+        message_thread_id: Optional[int | str] = None,
+        chat_name: Optional[str] = None,
+        message_thread_name: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Resolve a chat by name returning identifiers and link."""
+        """Resolve a chat link using any combination of identifiers."""
 
         await self._ensure_table()
         conn = await get_conn()
         try:
             async with conn.cursor(aiomysql.DictCursor) as cursor:
-                norm_name = self._normalize_name(message_thread_name)
-                if norm_name is None:
-                    await cursor.execute(
-                        """
-                        SELECT chat_id, message_thread_id, link
-                        FROM chatgpt_links
-                        WHERE chat_name = %s AND message_thread_name IS NULL
-                        """,
-                        (chat_name,),
-                    )
-                else:
-                    await cursor.execute(
-                        """
-                        SELECT chat_id, message_thread_id, link
-                        FROM chatgpt_links
-                        WHERE chat_name = %s AND message_thread_name = %s
-                        """,
-                        (chat_name, norm_name),
-                    )
-                row = await cursor.fetchone()
+                clauses = []
+                params: list[Any] = []
+                if chat_id is not None:
+                    clauses.append("chat_id = %s")
+                    params.append(str(chat_id))
+                if message_thread_id is not None:
+                    clauses.append("message_thread_id = %s")
+                    params.append(self._normalize_thread_id(message_thread_id))
+                if chat_name is not None:
+                    clauses.append("chat_name = %s")
+                    params.append(chat_name)
+                if message_thread_name is not None:
+                    clauses.append("message_thread_name = %s")
+                    params.append(message_thread_name)
+                if not clauses:
+                    return None
+                query = (
+                    "SELECT chat_id, message_thread_id, link, chat_name, message_thread_name"
+                    f" FROM chatgpt_links WHERE {' AND '.join(clauses)}"
+                )
+                await cursor.execute(query, params)
+                rows = await cursor.fetchall()
         finally:
             conn.close()
-        return row
+
+        if not rows:
+            return None
+        if len(rows) > 1:
+            raise ChatLinkMultipleMatches()
+        return rows[0]
+
+    # Backwards compatibility
+    async def resolve_chat(
+        self, chat_name: str, message_thread_name: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        return await self.resolve(
+            chat_name=chat_name, message_thread_name=message_thread_name
+        )
 
 
-__all__ = ["ChatLinkStore"]
+__all__ = [
+    "ChatLinkStore",
+    "ChatLinkError",
+    "ChatLinkNotFound",
+    "ChatLinkMultipleMatches",
+]
 

@@ -22,9 +22,9 @@ class ChatLinkActions:
     def get_supported_actions():
         return {
             "update_chat_name": {
-                "description": "Aggiorna il nome della chat o del thread per un chat link esistente.",
+                "description": "Aggiorna i nomi della chat e del thread usando i dati dell'interfaccia.",
                 "required_fields": ["chat_id"],
-                "optional_fields": ["message_thread_id", "chat_name", "message_thread_name"],
+                "optional_fields": ["message_thread_id"],
             }
         }
 
@@ -34,8 +34,6 @@ class ChatLinkActions:
         if action_type == "update_chat_name":
             if not payload.get("chat_id"):
                 errors.append("chat_id is required")
-            if not payload.get("chat_name") and not payload.get("message_thread_name"):
-                errors.append("chat_name or message_thread_name required")
         return errors
 
     async def execute_action(self, action: dict, context: dict, bot, original_message):
@@ -46,15 +44,11 @@ class ChatLinkActions:
         payload = action.get("payload", {})
         chat_id = payload.get("chat_id")
         message_thread_id = payload.get("message_thread_id")
-        chat_name = payload.get("chat_name")
-        thread_name = payload.get("message_thread_name")
-
         try:
-            updated = await self.store.update_names(
+            updated = await self.store.update_names_from_resolver(
                 chat_id,
                 message_thread_id,
-                chat_name=chat_name,
-                message_thread_name=thread_name,
+                bot=bot,
             )
             if updated:
                 log_info(
