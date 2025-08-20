@@ -24,6 +24,7 @@ getting started.
    architecture
    event_id_flow
    auto_response
+   chat_links
    llm_engines
    plugins
    interfaces

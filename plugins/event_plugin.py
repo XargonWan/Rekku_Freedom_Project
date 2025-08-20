@@ -408,9 +408,9 @@ class EventPlugin(AIPluginBase):
             bot = self.bot
             if not bot:
                 try:
-                    from core.interfaces import get_interface_by_name
+                    from core.core_initializer import INTERFACE_REGISTRY
 
-                    telegram_iface = get_interface_by_name("telegram_bot")
+                    telegram_iface = INTERFACE_REGISTRY.get("telegram_bot")
                     if telegram_iface and getattr(telegram_iface, "bot", None):
                         bot = telegram_iface.bot
                         self.bot = bot
@@ -654,10 +654,10 @@ For recurring events, you can use:
     ):
         """Send message directly via Telegram transport layer."""
         try:
-            from core.interfaces import get_interface_by_name
+            from core.core_initializer import INTERFACE_REGISTRY
 
             bot = None
-            telegram_iface = get_interface_by_name("telegram_bot")
+            telegram_iface = INTERFACE_REGISTRY.get("telegram_bot")
             if telegram_iface and getattr(telegram_iface, "bot", None):
                 bot = telegram_iface.bot
                 self.bot = bot
@@ -700,10 +700,10 @@ For recurring events, you can use:
     ):
         """Fallback method to send via Telegram bot directly."""
         try:
-            from core.interfaces import get_interface_by_name
+            from core.core_initializer import INTERFACE_REGISTRY
 
             bot = None
-            telegram_iface = get_interface_by_name("telegram_bot")
+            telegram_iface = INTERFACE_REGISTRY.get("telegram_bot")
             if telegram_iface and getattr(telegram_iface, "bot", None):
                 bot = telegram_iface.bot
                 self.bot = bot
