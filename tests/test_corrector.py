@@ -102,6 +102,11 @@ class TestCorrectorRetry(unittest.TestCase):
             extract_json_from_text('{"system_message": {"type": "error", "message": "fail"}}')
         )
         self.assertIsNone(
+            extract_json_from_text(
+                '{"system_message": {"type": "error", "message": "fail", "error_retry_policy": {"description": "d", "steps": ["1"]}}}'
+            )
+        )
+        self.assertIsNone(
             extract_json_from_text('{"system_message": {"type": "output", "message": "ok"}}')
         )
         self.assertIsNone(

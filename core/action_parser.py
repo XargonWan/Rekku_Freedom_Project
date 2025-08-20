@@ -19,6 +19,21 @@ CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
 _retry_tracker = {}
 
 
+ERROR_RETRY_POLICY = {
+    "description": (
+        "If you receive a system_message of type 'error' with the phrase 'Please repeat your "
+        "previous message, corrected.' you must automatically re-send the exact same JSON you sent "
+        "previously, but with the part indicated as invalid corrected."
+    ),
+    "steps": [
+        "1. Identify which part of your last sent JSON caused the error (e.g. an unsupported action type or missing parameter).",
+        "2. Create a new JSON that is identical to the one you previously sent, except for correcting ONLY the invalid part.",
+        "3. Do not add, remove or reorder any other actions or payload content.",
+        "4. Re-submit the corrected JSON immediately (without waiting for user instructions).",
+    ],
+}
+
+
 def _get_retry_key(message):
     """Generate a unique key for tracking retries based on chat/thread."""
     chat_id = getattr(message, "chat_id", None)
@@ -77,7 +92,11 @@ async def corrector(errors: list, failed_actions: list, bot, message):
         "Please repeat your previous message, corrected."
     )
     correction_payload = {
-        "system_message": {"type": "error", "message": message_text}
+        "system_message": {
+            "type": "error",
+            "message": message_text,
+            "error_retry_policy": ERROR_RETRY_POLICY,
+        }
     }
     correction_prompt = json.dumps(correction_payload, ensure_ascii=False)
 
