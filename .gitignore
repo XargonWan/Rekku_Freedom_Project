@@ -1,6 +1,6 @@
 venv
 .venv
-.env
+.env*
 data
 *.pyc
 *.pyo
@@ -50,4 +50,4 @@ build/
 site/
 logs/
 persona/
-docker-compose-localtest.yml
+docker-compose-*.yml
