@@ -42,8 +42,19 @@ def extract_json_from_text(text: str, processed_messages: set = None):
             return None
             
         # Don't parse JSON from error reports or correction requests
-        if any(keyword in text for keyword in ['"error_report"', '"correction_needed"', '🚨 ACTION PARSING ERRORS DETECTED 🚨', 'Please fix these actions']):
-            log_debug("[extract_json_from_text] Skipping error report/correction request - not actionable JSON")
+        if any(
+            keyword in text
+            for keyword in [
+                '"error_report"',
+                '"correction_needed"',
+                '🚨 ACTION PARSING ERRORS DETECTED 🚨',
+                'Please fix these actions',
+                '"system_message"',
+            ]
+        ):
+            log_debug(
+                "[extract_json_from_text] Skipping error report/correction request - not actionable JSON"
+            )
             return None
         
         # Handle the common ChatGPT pattern: "json\nCopy\nEdit\n{...}"
