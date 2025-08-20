@@ -11,7 +11,6 @@ import threading
 import asyncio
 from collections import defaultdict
 from typing import Optional, Dict
-import aiomysql
 import subprocess
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -36,98 +35,7 @@ import core.recent_chats as recent_chats
 from core.ai_plugin_base import AIPluginBase
 
 # ChatLinkStore: gestisce la mappatura tra chat Telegram e chat ChatGPT
-from core.db import get_conn
-
-class ChatLinkStore:
-    def __init__(self):
-        self._table_ensured = False
-
-    def _normalize_thread_id(self, message_thread_id: Optional[int | str]) -> str:
-        """Return ``message_thread_id`` as a non-null string."""
-        return str(message_thread_id) if message_thread_id is not None else "0"
-
-    async def _ensure_table(self) -> None:
-        if self._table_ensured:
-            return
-        conn = await get_conn()
-        async with conn.cursor() as cursor:
-            await cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS chatgpt_links (
-                    chat_id TEXT NOT NULL,
-                    message_thread_id TEXT,
-                    link VARCHAR(2048),
-                    PRIMARY KEY (chat_id(255), message_thread_id(255))
-                )
-                """
-            )
-            await conn.commit()
-        conn.close()
-        self._table_ensured = True
-
-    async def get_link(self, chat_id: int | str, message_thread_id: Optional[int | str]) -> Optional[str]:
-        await self._ensure_table()
-        normalized = self._normalize_thread_id(message_thread_id)
-        chat_id_str = str(chat_id)
-        log_debug(f"[chatlink] Searching for link: chat_id={chat_id_str}, message_thread_id={normalized}")
-        conn = await get_conn()
-        async with conn.cursor(aiomysql.DictCursor) as cursor:
-            await cursor.execute(
-                """
-                SELECT link
-                FROM chatgpt_links
-                WHERE chat_id = %s AND message_thread_id = %s
-                """,
-                (chat_id_str, normalized),
-            )
-            row = await cursor.fetchone()
-        conn.close()
-        if row:
-            link_value = row.get("link")
-            log_debug(f"[chatlink] Found mapping {chat_id_str}/{normalized} -> {link_value}")
-            return link_value
-        log_debug(f"[chatlink] No row found for {chat_id_str}/{normalized}")
-        return None
-
-    async def save_link(self, chat_id: int | str, message_thread_id: Optional[int | str], link: str) -> None:
-        await self._ensure_table()
-        normalized = self._normalize_thread_id(message_thread_id)
-        chat_id_str = str(chat_id)
-        conn = await get_conn()
-        async with conn.cursor() as cursor:
-            await cursor.execute(
-                """
-                INSERT INTO chatgpt_links (chat_id, message_thread_id, link)
-                VALUES (%s, %s, %s)
-                ON DUPLICATE KEY UPDATE link=VALUES(link)
-                """,
-                (chat_id_str, normalized, link),
-            )
-            await conn.commit()
-        conn.close()
-        log_debug(f"[chatlink] Saved mapping {chat_id_str}/{normalized} -> {link}")
-
-    async def remove(self, chat_id: int | str, message_thread_id: Optional[int | str]) -> bool:
-        await self._ensure_table()
-        normalized = self._normalize_thread_id(message_thread_id)
-        chat_id_str = str(chat_id)
-        conn = await get_conn()
-        async with conn.cursor() as cursor:
-            result = await cursor.execute(
-                """
-                DELETE FROM chatgpt_links
-                WHERE chat_id = %s AND message_thread_id = %s
-                """,
-                (chat_id_str, normalized),
-            )
-            await conn.commit()
-        conn.close()
-        rows_deleted = cursor.rowcount > 0
-        if rows_deleted:
-            log_debug(f"[chatlink] Removed link for chat_id={chat_id_str}, message_thread_id={normalized}")
-        else:
-            log_debug(f"[chatlink] No link found for chat_id={chat_id_str}, message_thread_id={normalized}")
-        return rows_deleted
+from core.chat_link_store import ChatLinkStore
 from core.telegram_utils import safe_send
 
 # Fallback per notify_trainer se non disponibile
@@ -1175,6 +1083,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             message_thread_id = getattr(message, "message_thread_id", None)
             chat_id = await chat_link_store.get_link(message.chat_id, message_thread_id)
             prompt_text = json.dumps(prompt, ensure_ascii=False)
+            if isinstance(prompt, dict) and "system_message" in prompt:
+                prompt_text = f"```json\n{prompt_text}\n```"
             if not chat_id:
                 path = recent_chats.get_chat_path(message.chat_id)
                 if path and go_to_chat_by_path_with_retries(driver, path):

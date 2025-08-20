@@ -16,8 +16,8 @@ class AutoResponseSystem:
         self._pending_responses = {}
     
     async def request_llm_response(
-        self, 
-        output: str, 
+        self,
+        output: str,
         original_context: Dict[str, Any],
         action_type: str,
         command: str = None
@@ -51,16 +51,13 @@ class AutoResponseSystem:
             mock_message.from_user.username = "auto_response"
             mock_message.from_user.first_name = "AutoResponse"
             
-            # Create context memory with the output and instructions
-            context_memory = {
-                "system_instruction": f"You executed a {action_type} command and got output. Please format and deliver this output to the user.",
-                "command_executed": command,
-                "command_output": output,
-                "delivery_instructions": f"Send the output back to chat {chat_id} using message_{interface_name} action. Format it nicely.",
-                "suggested_response": f"Here's the output from your {action_type} command:\n\n```\n{output}\n```"
+            system_payload = {
+                "system_message": {"type": "output", "message": output}
             }
-            
-            log_info(f"[auto_response] Requesting LLM to deliver {action_type} output to chat {chat_id}")
+
+            log_info(
+                f"[auto_response] Requesting LLM to deliver {action_type} output to chat {chat_id}"
+            )
             
             # Get interface instance dynamically without hardcoding
             from core.core_initializer import INTERFACE_REGISTRY
@@ -73,7 +70,14 @@ class AutoResponseSystem:
                 return
             
             # Enqueue the LLM request
-            await enqueue(bot, mock_message, context_memory, priority=True)
+            import json
+
+            await enqueue(
+                bot,
+                mock_message,
+                json.dumps(system_payload, ensure_ascii=False),
+                priority=True,
+            )
             
         except Exception as e:
             log_error(f"[auto_response] Failed to request LLM response: {e}")
@@ -112,26 +116,41 @@ async def request_llm_delivery(
     # Handle new calling pattern (interface style)
     if message is not None or interface is not None:
         try:
-            from core.message_queue import enqueue
             import core.plugin_instance as plugin_instance
-            
+
             log_info(f"[auto_response] Processing {reason or 'autonomous'} request")
-            
+
             # If we have a message, use it directly with plugin_instance
+            import json
+
+            if isinstance(context, dict) and context.get("input", {}).get("type") == "event":
+                system_payload = {
+                    "system_message": {"type": "event", "message": context}
+                }
+            else:
+                system_payload = {
+                    "system_message": {"type": "output", "message": context}
+                }
+
+            payload_json = json.dumps(system_payload, ensure_ascii=False)
+
             if message is not None:
-                await plugin_instance.handle_incoming_message(
-                    interface, message, context or {}
-                )
+                await plugin_instance.handle_incoming_message(interface, message, payload_json)
             else:
                 # For interface-only requests, create synthetic message
                 from types import SimpleNamespace
+
                 mock_message = SimpleNamespace()
                 mock_message.chat_id = -1  # Default chat
                 mock_message.message_id = 0
                 mock_message.text = f"Auto-generated message for {reason}"
-                
+                mock_message.from_user = SimpleNamespace(
+                    id=0, username="auto_response", full_name="AutoResponder"
+                )
+                mock_message.chat = SimpleNamespace(id=-1, type="private")
+
                 await plugin_instance.handle_incoming_message(
-                    interface, mock_message, context or {}
+                    interface, mock_message, payload_json
                 )
                 
         except Exception as e:

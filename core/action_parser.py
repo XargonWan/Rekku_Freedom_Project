@@ -19,6 +19,21 @@ CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
 _retry_tracker = {}
 
 
+ERROR_RETRY_POLICY = {
+    "description": (
+        "If you receive a system_message of type 'error' with the phrase 'Please repeat your "
+        "previous message, corrected.' you must automatically re-send the exact same JSON you sent "
+        "previously, but with the part indicated as invalid corrected."
+    ),
+    "steps": [
+        "1. Identify which part of your last sent JSON caused the error (e.g. an unsupported action type or missing parameter).",
+        "2. Create a new JSON that is identical to the one you previously sent, except for correcting ONLY the invalid part.",
+        "3. Do not add, remove or reorder any other actions or payload content.",
+        "4. Re-submit the corrected JSON immediately (without waiting for user instructions).",
+    ],
+}
+
+
 def _get_retry_key(message):
     """Generate a unique key for tracking retries based on chat/thread."""
     chat_id = getattr(message, "chat_id", None)
@@ -71,30 +86,19 @@ async def corrector(errors: list, failed_actions: list, bot, message):
     retry_count = _increment_retry(message)
 
     error_summary = "\n".join([f"- {err}" for err in errors[:5]])
-    failed_actions_json = json.dumps(failed_actions, indent=2, ensure_ascii=False)
 
-    # Build JSON structure reminder
-    try:
-        from core.core_initializer import core_initializer
-
-        actions_block = core_initializer.actions_block.get("available_actions", {})
-    except Exception as e:
-        log_warning(f"[corrector] Failed to load actions block: {e}")
-        actions_block = {}
-
-    instructions = load_json_instructions()
-    json_structure = json.dumps(
-        {"instructions": instructions, "actions": actions_block},
-        ensure_ascii=False,
-        indent=2,
+    message_text = (
+        f"{error_summary}\n"
+        "Please repeat your previous message, corrected."
     )
-
-    correction_prompt = (
-        f"Your JSON is invalid. The error is: {error_summary}\n"
-        "Please repeat the previous message, corrected.\n\n"
-        "Here is a reminder of the JSON structure:\n"
-        f"{json_structure}\n"
-    )
+    correction_payload = {
+        "system_message": {
+            "type": "error",
+            "message": message_text,
+            "error_retry_policy": ERROR_RETRY_POLICY,
+        }
+    }
+    correction_prompt = json.dumps(correction_payload, ensure_ascii=False)
 
     log_warning(f"[corrector] {error_summary}")
     log_info(

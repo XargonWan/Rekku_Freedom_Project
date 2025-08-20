@@ -473,3 +473,6 @@ def register_interface(name: str, interface_obj: Any) -> None:
         flush_pending_for_interface(name)
     except Exception:
         pass
+
+# Ensure core actions (like chat_link) are registered after core setup
+import core.chat_link_actions  # noqa: F401

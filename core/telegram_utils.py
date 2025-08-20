@@ -171,6 +171,21 @@ async def send_with_thread_fallback(
     except Exception as e:
         error_message = str(e)
 
+        # Retry without parse_mode if Markdown/HTML entities are malformed
+        if "can't parse entities" in error_message.lower() and send_kwargs.get("parse_mode"):
+            log_warning(
+                f"[telegram_utils] Parse error with parse_mode={send_kwargs['parse_mode']}; retrying without parse_mode"
+            )
+            send_kwargs.pop("parse_mode", None)
+            try:
+                await bot.send_message(**send_kwargs)
+                log_info(
+                    f"[telegram_utils] Message sent to {chat_id} without parse_mode"
+                )
+                return
+            except Exception as e2:
+                error_message = str(e2)
+
         if message_thread_id and "thread not found" in error_message.lower():
             log_warning(
                 f"[telegram_utils] Thread {message_thread_id} not found; retrying without thread"

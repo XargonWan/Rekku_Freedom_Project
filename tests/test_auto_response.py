@@ -3,6 +3,8 @@
 
 import sys
 import os
+import pytest
+from types import SimpleNamespace
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,7 +19,6 @@ def test_auto_response_system():
     
     try:
         from core.auto_response import request_llm_delivery
-        from types import SimpleNamespace
         
         print("✅ Auto-response module imported successfully")
         
@@ -82,3 +83,27 @@ drwxr-xr-x  2 user user 4096 Aug  2 15:30 logs"""
 
 if __name__ == "__main__":
     test_auto_response_system()
+
+
+@pytest.mark.asyncio
+async def test_request_llm_delivery_includes_from_user(monkeypatch):
+    from core import auto_response
+
+    captured = {}
+
+    async def fake_handle(bot, message, prompt):
+        captured['from_user'] = getattr(message, 'from_user', None)
+
+    monkeypatch.setattr(
+        "core.plugin_instance.handle_incoming_message", fake_handle
+    )
+
+    interface = SimpleNamespace()
+    await auto_response.request_llm_delivery(
+        message=None,
+        interface=interface,
+        context={"test": True},
+        reason="unit_test_event",
+    )
+
+    assert captured['from_user'] is not None

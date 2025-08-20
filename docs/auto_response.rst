@@ -119,6 +119,23 @@ The system preserves essential context:
     - Delivery instructions
     - Suggested response format
 
+System Message Types
+--------------------
+
+Auto-response delivers results back to the LLM using structured
+``system_message`` payloads. The ``type`` field indicates the origin:
+
+* ``"output"`` – command results from plugins or terminals
+* ``"event"`` – scheduled notifications
+* ``"error"`` – corrector warnings such as ambiguous chat names
+
+Error system messages include an ``error_retry_policy`` instructing the
+LLM how to resubmit corrected JSON. The policy describes the steps to
+repeat the previous request while adjusting only the invalid portion.
+
+These system messages are ignored during JSON extraction, preventing
+unintended actions.
+
 Usage Examples
 --------------
 
