@@ -9,6 +9,9 @@ from typing import Optional, Any
 from core.logging_utils import log_info, log_error, log_warning, log_debug
 from core.config import get_active_llm, list_available_llms
 
+# Ensure core actions (like chat_link) are registered
+import core.chat_link_actions  # noqa: F401
+
 
 class CoreInitializer:
     """Centralizes the initialization of all Rekku components."""
