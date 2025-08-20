@@ -51,3 +51,4 @@ site/
 logs/
 persona/
 docker-compose-*.yml
+backups/
