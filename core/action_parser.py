@@ -573,25 +573,47 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
 
     processed_actions = []
     collected_errors = []
+    action_outputs: List[Dict[str, Any]] = []
+    terminal_seen = False
 
     for idx, action in enumerate(actions):
         try:
+            action_type = action.get("type")
+
+            # Halt processing of subsequent non-terminal actions until the LLM
+            # has seen the outputs from executed terminal commands.
+            if terminal_seen and action_type != "terminal":
+                log_info(
+                    "[action_parser] ⏸️ Waiting for LLM response before executing remaining actions"
+                )
+                break
+
             valid, errors = validate_action(action, context, original_message)
             if not valid:
                 error_msg = f"Invalid action {idx}: {errors}"
                 log_warning(f"[action_parser] Skipping {error_msg}")
                 collected_errors.append(error_msg)
                 continue
-            
-            log_debug(f"[action_parser] Running action {idx}: {action.get('type')}")
+
+            log_debug(f"[action_parser] Running action {idx}: {action_type}")
             result = await run_action(action, context, bot, original_message)
-            
+
             # Check if run_action returned error info
             if isinstance(result, dict) and "error" in result:
                 collected_errors.append(result["error"])
             else:
                 processed_actions.append(action)
-                
+
+                if action_type == "terminal" and isinstance(result, str):
+                    terminal_seen = True
+                    action_outputs.append(
+                        {
+                            "type": "terminal",
+                            "command": action.get("payload", {}).get("command", ""),
+                            "output": result,
+                        }
+                    )
+
         except Exception as e:
             error_msg = f"Error executing action {idx}: {repr(e)}"
             log_error(f"[action_parser] {error_msg}")
@@ -618,10 +640,39 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
                 f"[action_parser] Failed to clear processing flag for event {event_id}: {e}"
             )
 
+    if action_outputs:
+        interface_name = context.get("interface", "telegram_bot")
+        if interface_name == "telegram":
+            interface_name = "telegram_bot"
+
+        response_context = {
+            "chat_id": getattr(original_message, "chat_id", None),
+            "message_id": getattr(original_message, "message_id", None),
+            "interface_name": interface_name,
+            "message_thread_id": getattr(original_message, "message_thread_id", None),
+        }
+
+        try:
+            from core.auto_response import request_llm_delivery
+
+            await request_llm_delivery(
+                action_outputs=action_outputs,
+                original_context=response_context,
+                action_type="terminal",
+            )
+        except Exception as e:
+            log_warning(
+                f"[action_parser] Failed to request LLM delivery for action outputs: {e}"
+            )
+
     if collected_errors:
         await corrector(collected_errors, actions, bot, original_message)
 
-    return {"processed": processed_actions, "errors": collected_errors}
+    return {
+        "processed": processed_actions,
+        "errors": collected_errors,
+        "action_outputs": action_outputs,
+    }
 
 
 async def parse_action(action: dict, bot, message):
