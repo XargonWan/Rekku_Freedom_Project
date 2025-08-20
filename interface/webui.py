@@ -11,6 +11,7 @@ Provides a chat-like interface running on FastAPI with WebSocket support.
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from types import SimpleNamespace
 from datetime import datetime
@@ -34,6 +35,7 @@ from core.logging_utils import (
 )
 from core.core_initializer import register_interface
 import core.plugin_instance as plugin_instance
+import uvicorn
 
 
 class WebUIInterface:
@@ -403,3 +405,13 @@ load();
 # Expose class for dynamic loading and register instance
 INTERFACE_CLASS = WebUIInterface
 webui_interface = WebUIInterface()
+
+
+async def start_server() -> None:
+    """Launch the FastAPI WebUI server using Uvicorn."""
+    host = os.getenv("WEBUI_HOST", "0.0.0.0")
+    port = int(os.getenv("WEBUI_PORT", "8000"))
+    config = uvicorn.Config(webui_interface.app, host=host, port=port, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
+
