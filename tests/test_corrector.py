@@ -101,6 +101,12 @@ class TestCorrectorRetry(unittest.TestCase):
         self.assertIsNone(
             extract_json_from_text('{"system_message": {"type": "error", "message": "fail"}}')
         )
+        self.assertIsNone(
+            extract_json_from_text('{"system_message": {"type": "output", "message": "ok"}}')
+        )
+        self.assertIsNone(
+            extract_json_from_text('{"system_message": {"type": "event", "message": "ping"}}')
+        )
         
         # Valid JSON should parse
         valid_json = '{"type": "message", "payload": {"text": "Hello"}}'
