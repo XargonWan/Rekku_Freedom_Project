@@ -49,6 +49,6 @@ dist/
 build/
 site/
 logs/
-persona/
+persona*/
 docker-compose-*.yml
 backups/
