@@ -1004,6 +1004,7 @@ class TelegramInterface:
             self.bot,
             target,
             text,
+            parse_mode="Markdown",
             message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
             reply_to_message_id=reply_message_id,
             fallback_chat_id=fallback_chat_id,
