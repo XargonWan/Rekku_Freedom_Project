@@ -46,7 +46,10 @@ class WebUIInterface:
 
         # Serve static files (logo etc.)
         static_dir = Path(__file__).resolve().parent.parent / "docs" / "res"
-        self.app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+        if static_dir.exists():
+            self.app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+        else:  # pragma: no cover - optional assets
+            log_warning(f"[webui] static directory not found: {static_dir}")
 
         # Routes
         self.app.get("/")(self.index)
