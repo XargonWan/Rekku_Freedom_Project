@@ -26,12 +26,15 @@ except Exception:
     def truncate_message(text, max_length=4000):
         return text[:max_length] if len(text) > max_length else text
 
-# Import auto_response safely
+# Import notifier safely
 try:
-    from core.auto_response import request_llm_delivery
+    from core.notifier import notify_trainer
 except Exception:
-    async def request_llm_delivery(*args, **kwargs):
-        log_warning("[terminal] Auto-response not available")
+    def notify_trainer(message: str) -> None:
+        log_warning("[terminal] notify_trainer not available")
+
+# Auto-response no longer used directly here; higher-level logic handles
+# delivery of outputs back to the LLM.
 
 
 class TerminalPlugin(AIPluginBase):
@@ -178,7 +181,8 @@ class TerminalPlugin(AIPluginBase):
         action_type = action.get("type")
         payload = action.get("payload", {})
         command = payload.get("command", "")
-        persistent_session = payload.get("persistent_session", False)
+        # Default to persistent sessions so the LLM can interact like a user
+        persistent_session = payload.get("persistent_session", True)
 
         if not command:
             log_warning(f"[terminal] No command provided for {action_type} action")
@@ -196,36 +200,40 @@ class TerminalPlugin(AIPluginBase):
 
             log_debug(f"[terminal] Command output: {output}")
 
-            # Use auto-response system instead of direct Telegram response
-            if original_message and hasattr(original_message, 'chat_id'):
-                response_context = {
-                    'chat_id': original_message.chat_id,
-                    'message_id': getattr(original_message, 'message_id', None),
-                    'interface_name': context.get('interface', 'telegram_bot'),
-                    'original_command': command,
-                    'action_type': action_type
-                }
-
-                from core.auto_response import request_llm_delivery
-                await request_llm_delivery(
-                    output=output,
-                    original_context=response_context,
-                    action_type=action_type,
-                    command=command
+            # Notify trainer about the executed command and its result
+            try:
+                summary = truncate_message(output, 1000)
+                notify_trainer(
+                    f"[terminal] Command: {command}\nOutput:\n{summary}"
                 )
+            except Exception as e:
+                log_warning(f"[terminal] Failed to notify trainer: {e}")
 
-                log_info(f"[terminal] Requested LLM delivery of {action_type} output to chat {original_message.chat_id}")
-            else:
-                log_warning("[terminal] No original_message context for auto-response")
+            # Output is returned to the caller; higher-level orchestrators will
+            # decide how to deliver it back to the LLM or user.
+            if not (original_message and hasattr(original_message, 'chat_id')):
+                log_warning("[terminal] No original_message context for output delivery")
+
+            return output
 
         except Exception as e:
             log_error(f"[terminal] Error executing {action_type} command '{command}': {e}")
 
+            try:
+                notify_trainer(
+                    f"[terminal] Error executing: {command}\nError: {e}"
+                )
+            except Exception:
+                pass
+
             if original_message and hasattr(original_message, 'chat_id'):
+                interface_name = context.get('interface', 'telegram_bot')
+                if interface_name == 'telegram':
+                    interface_name = 'telegram_bot'
                 error_context = {
                     'chat_id': original_message.chat_id,
                     'message_id': getattr(original_message, 'message_id', None),
-                    'interface_name': context.get('interface', 'telegram_bot'),
+                    'interface_name': interface_name,
                 }
 
                 from core.auto_response import request_llm_delivery
@@ -235,6 +243,7 @@ class TerminalPlugin(AIPluginBase):
                     action_type=f"{action_type}_error",
                     command=command
                 )
+            return f"Error executing command '{command}': {str(e)}"
 
     def get_target(self, trainer_message_id):
         return None
@@ -247,3 +256,4 @@ class TerminalPlugin(AIPluginBase):
 
 
 PLUGIN_CLASS = TerminalPlugin
+

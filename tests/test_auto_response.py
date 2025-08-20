@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
-"""Test per verificare il nuovo sistema di auto-response."""
-
+import sys, os
+from types import SimpleNamespace
+import asyncio
 import sys
 import os
 import pytest
