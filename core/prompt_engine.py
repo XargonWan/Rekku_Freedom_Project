@@ -2,8 +2,8 @@
 
 from core.rekku_tagging import extract_tags, expand_tags
 from core.db import get_conn
-import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.json_utils import dumps as json_dumps
 import aiomysql
 
 
@@ -80,8 +80,8 @@ async def build_json_prompt(message, context_memory) -> dict:
     input_section = {"type": "message", "payload": input_payload}
 
     # Debug output for both sections
-    log_debug("[json_prompt] context = " + json.dumps(context_section, ensure_ascii=False))
-    log_debug("[json_prompt] input = " + json.dumps(input_section, ensure_ascii=False))
+    log_debug("[json_prompt] context = " + json_dumps(context_section))
+    log_debug("[json_prompt] input = " + json_dumps(input_section))
 
     # Add JSON instructions to the prompt
     json_instructions = load_json_instructions()

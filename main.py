@@ -13,6 +13,7 @@ from core.logging_utils import (
     setup_logging,
     log_error,
 )
+from interface.reddit_interface import start_reddit_interface
 
 # WORKAROUND, TODO: INVESTIGATE THIS
 # Ensure /usr/share/novnc exists

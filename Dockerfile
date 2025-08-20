@@ -92,6 +92,7 @@ RUN chmod +x /usr/local/bin/cleanup_chrome.sh /usr/local/bin/rekku.sh
 
 # Copy project code last to leverage layer caching
 COPY . /app
+RUN rm -rf /app/s6-services /app/automation_tools
 ENV PYTHONPATH=/app
 
 # Inject GitVersion tag

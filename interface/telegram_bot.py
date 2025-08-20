@@ -35,7 +35,7 @@ from core.message_sender import (
     extract_response_target,
 )
 from core.config import get_active_llm, set_active_llm, list_available_llms
-from core.config import BOT_TOKEN, BOT_USERNAME, TRAINER_ID
+from core.config import BOT_TOKEN, BOT_USERNAME, TELEGRAM_TRAINER_ID
 # Import mention detector to recognize Rekku aliases even without explicit @username
 from core.mention_utils import is_rekku_mentioned, is_message_for_bot
 import core.plugin_instance as plugin_instance
@@ -86,7 +86,7 @@ def resolve_forwarded_target(message):
 # === Block commands ===
 
 async def block_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != TRAINER_ID:
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
     try:
         to_block = int(context.args[0])
@@ -97,7 +97,7 @@ async def block_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Use: /block <user_id>")
 
 async def block_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != TRAINER_ID:
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
     blocked = blocklist.get_block_list()
     log_debug("Blocked users list requested.")
@@ -107,7 +107,7 @@ async def block_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\U0001f6ab Blocked users:\n" + "\n".join(map(str, blocked)))
 
 async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != TRAINER_ID:
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
     try:
         to_unblock = int(context.args[0])
@@ -118,7 +118,7 @@ async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Use: /unblock <user_id>")
 
 async def purge_mappings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != TRAINER_ID:
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
     # Ensure table exists even if manual plugin never loaded
     await message_map.init_table()
@@ -137,8 +137,8 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
     if not await ensure_plugin_loaded(update):
         return
 
-    if update.effective_user.id != TRAINER_ID:
-        log_debug("Message ignored: not from TRAINER_ID")
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
+        log_debug("Message ignored: not from TELEGRAM_TRAINER_ID")
         return
 
     message = update.message
@@ -150,7 +150,7 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
     log_debug(f"✅ handle_incoming_response: media_type = {media_type}; reply_message_id = {bool(message.reply_to_message)}")
 
     # === 1. Prova target da response_proxy (es. /say)
-    target = response_proxy.get_target(TRAINER_ID)
+    target = response_proxy.get_target(TELEGRAM_TRAINER_ID)
     log_debug(f"Initial target from response_proxy = {target}")
 
     # === 2. If replying to a message, search in plugin mapping
@@ -176,7 +176,7 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
 
     # === 3. Fallback from /say
     if not target:
-        fallback = say_proxy.get_target(TRAINER_ID)
+        fallback = say_proxy.get_target(TELEGRAM_TRAINER_ID)
         log_debug(f"Fallback from say_proxy = {fallback}")
         if fallback and fallback != "EXPIRED":
             target = {
@@ -207,8 +207,8 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
 
     if success:
         log_debug("✅ Sending successful. Cleaning proxy.")
-        response_proxy.clear_target(TRAINER_ID)
-        say_proxy.clear(TRAINER_ID)
+        response_proxy.clear_target(TELEGRAM_TRAINER_ID)
+        say_proxy.clear(TELEGRAM_TRAINER_ID)
     else:
         log_error("Sending failed.")
 
@@ -220,7 +220,7 @@ async def handle_response_command(update: Update, context: ContextTypes.DEFAULT_
     if not await ensure_plugin_loaded(update):
         return
 
-    if update.effective_user.id != TRAINER_ID:
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
 
     message = update.message
@@ -234,20 +234,20 @@ async def handle_response_command(update: Update, context: ContextTypes.DEFAULT_
         await message.reply_text("❌ Invalid message for this command.")
         return
 
-    response_proxy.set_target(TRAINER_ID, chat_id, message_id, content_type)
+    response_proxy.set_target(TELEGRAM_TRAINER_ID, chat_id, message_id, content_type)
     log_debug(f"Target {content_type} set: chat_id={chat_id}, message_id={message_id}")
     await safe_send(
         context.bot,
-        chat_id=TRAINER_ID,
+        chat_id=TELEGRAM_TRAINER_ID,
         text=f"📎 Send me the {content_type.upper()} file to use as response."
     )  # [FIX]
 
 async def cancel_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != TRAINER_ID:
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
-    if response_proxy.has_pending(TRAINER_ID):
-        response_proxy.clear_target(TRAINER_ID)
-        say_proxy.clear(TRAINER_ID)
+    if response_proxy.has_pending(TELEGRAM_TRAINER_ID):
+        response_proxy.clear_target(TELEGRAM_TRAINER_ID)
+        say_proxy.clear(TELEGRAM_TRAINER_ID)
         log_debug("Response sending cancelled.")
         await update.message.reply_text("❌ Sending cancelled.")
     else:
@@ -259,7 +259,7 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Test OK")
 
 async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != TRAINER_ID:
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
 
     entries = await recent_chats.get_last_active_chats_verbose(10, context.bot)
@@ -307,19 +307,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_debug(f"context_memory[{message.chat_id}] = {list(context_memory[message.chat_id])}")
 
     # Interactive /say step
-    if message.chat.type == "private" and user_id == TRAINER_ID and context.user_data.get("say_choices"):
+    if message.chat.type == "private" and user_id == TELEGRAM_TRAINER_ID and context.user_data.get("say_choices"):
         await handle_say_step(update, context)
         return
 
     log_debug(f"Message from {user_id} ({message.chat.type}): {text}")
 
     # Blocked user
-    if await blocklist.is_blocked(user_id) and user_id != TRAINER_ID:
+    if await blocklist.is_blocked(user_id) and user_id != TELEGRAM_TRAINER_ID:
         log_debug(f"User {user_id} is blocked. Ignoring message.")
         return
 
     # trainer reply to forwarded message
-    if message.chat.type == "private" and user_id == TRAINER_ID and message.reply_to_message:
+    if message.chat.type == "private" and user_id == TELEGRAM_TRAINER_ID and message.reply_to_message:
         reply_msg_id = message.reply_to_message.message_id
         log_debug(f"Reply to trainer_message_id={reply_msg_id}")
         original = plugin_instance.get_target(reply_msg_id)
@@ -364,7 +364,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from core.context import get_context_state
     from core.config import get_active_llm
 
-    if update.effective_user.id != TRAINER_ID:
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
 
     context_status = "active ✅" if get_context_state() else "inactive ❌"
@@ -427,7 +427,7 @@ def escape_markdown(text):
     return re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', text)
 
 async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != TRAINER_ID:
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
 
     entries = await recent_chats.get_last_active_chats_verbose(10, context.bot)
@@ -442,7 +442,7 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 async def manage_chat_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != TRAINER_ID:
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
 
     args = context.args
@@ -479,7 +479,7 @@ async def manage_chat_id_command(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text("Usage: /manage_chat_id [reset <id>|reset this>")
 
 async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != TRAINER_ID:
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
 
     args = context.args
@@ -594,8 +594,8 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_debug(f"Forwarding via plugin_instance.handle_incoming_message (chat_id={target_chat})")
         try:
             await plugin_instance.handle_incoming_message(context.bot, message, context.user_data)
-            response_proxy.clear_target(TRAINER_ID)
-            say_proxy.clear(TRAINER_ID)
+            response_proxy.clear_target(TELEGRAM_TRAINER_ID)
+            say_proxy.clear(TELEGRAM_TRAINER_ID)
         except Exception as e:
             log_error(
                 f"Error during plugin_instance.handle_incoming_message in /say: {e}",
@@ -606,8 +606,8 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_info(f"[telegram_bot] LLM command received from user {update.effective_user.id}")
     
-    if update.effective_user.id != TRAINER_ID:
-        log_warning(f"[telegram_bot] LLM command rejected: user {update.effective_user.id} != TRAINER_ID {TRAINER_ID}")
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
+        log_warning(f"[telegram_bot] LLM command rejected: user {update.effective_user.id} != TELEGRAM_TRAINER_ID {TELEGRAM_TRAINER_ID}")
         return
 
     args = context.args
@@ -641,7 +641,7 @@ async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Error loading plugin: {e}")
 
 async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != TRAINER_ID:
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
 
     try:
@@ -680,15 +680,15 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
     from telegram.error import TelegramError
     from telegram.constants import ParseMode
 
-    # Forza la notifica solo al TRAINER_ID in privato
+    # Forza la notifica solo al TELEGRAM_TRAINER_ID in privato
     log_debug(f"[telegram_notify] → CALLED con chat_id={chat_id}")
     log_debug(f"[telegram_notify] → MESSAGE:\n{message}")
 
     bot = Bot(token=BOT_TOKEN)
 
-    # Se il destinatario non è il TRAINER_ID, non inviare nulla
-    if chat_id != TRAINER_ID:
-        log_debug(f"[telegram_notify] Ignorato: chat_id {chat_id} != TRAINER_ID {TRAINER_ID}")
+    # Se il destinatario non è il TELEGRAM_TRAINER_ID, non inviare nulla
+    if chat_id != TELEGRAM_TRAINER_ID:
+        log_debug(f"[telegram_notify] Ignorato: chat_id {chat_id} != TELEGRAM_TRAINER_ID {TELEGRAM_TRAINER_ID}")
         return
 
     # Make URLs clickable
@@ -707,13 +707,13 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
             text = truncate_message(formatted_message or message)
             await safe_send(
                 bot,
-                chat_id=TRAINER_ID,
+                chat_id=TELEGRAM_TRAINER_ID,
                 text=text,
                 reply_to_message_id=reply_to_message_id,
                 parse_mode=ParseMode.HTML if formatted_message else None,
                 disable_web_page_preview=True,
             )  # [FIX][telegram retry]
-            log_debug(f"[notify] ✅ Telegram message sent to {TRAINER_ID}")
+            log_debug(f"[notify] ✅ Telegram message sent to {TELEGRAM_TRAINER_ID}")
         except TelegramError as e:
             log_error(f"[notify] ❌ Telegram error: {repr(e)}", e)
         except Exception as e:
@@ -732,22 +732,11 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
 
 
 async def plugin_startup_callback(application):
-    """Launch plugin start() once the bot's event loop is ready."""
-    # Start pending async plugins
+    """Run pending plugin tasks once the bot's event loop is ready."""
     from core.core_initializer import core_initializer
-    await core_initializer.start_pending_async_plugins()
 
-    # Also try to start the main LLM plugin if it has a start method
-    plugin_obj = plugin_instance.get_plugin()
-    if plugin_obj and hasattr(plugin_obj, "start"):
-        try:
-            if asyncio.iscoroutinefunction(plugin_obj.start):
-                await plugin_obj.start()
-            else:
-                plugin_obj.start()
-            log_debug("[plugin] Plugin start executed")
-        except Exception as e:
-            log_error(f"[plugin] Error during post_init start: {repr(e)}", e)
+    # Start any async plugins that were deferred until a loop was available
+    await core_initializer.start_pending_async_plugins()
 
     # Start the queue consumer after the application is ready
     application.create_task(message_queue.run())
@@ -776,7 +765,7 @@ async def start_bot():
             .build()
         )
         log_info("[telegram_bot] Telegram application built successfully")
-        log_info(f"[telegram_bot] TRAINER_ID configured as: {TRAINER_ID}")
+        log_info(f"[telegram_bot] TELEGRAM_TRAINER_ID configured as: {TELEGRAM_TRAINER_ID}")
         log_info(f"[telegram_bot] BOT_TOKEN configured: {'Yes' if BOT_TOKEN else 'No'}")
 
         log_info("[telegram_bot] Adding command handlers...")
@@ -800,19 +789,19 @@ async def start_bot():
         app.add_handler(CommandHandler("cancel", cancel_response))
         log_info("[telegram_bot] Adding MessageHandler for general messages...")
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        log_info("[telegram_bot] Adding MessageHandler for TRAINER_ID say steps...")
+        log_info("[telegram_bot] Adding MessageHandler for TELEGRAM_TRAINER_ID say steps...")
 
         app.add_handler(MessageHandler(
-            filters.Chat(TRAINER_ID) & (
+            filters.Chat(TELEGRAM_TRAINER_ID) & (
                 filters.TEXT | filters.PHOTO | filters.AUDIO | filters.VOICE |
                 filters.VIDEO | filters.Document.ALL
             ),
             handle_say_step
         ))
-        log_info("[telegram_bot] Adding MessageHandler for TRAINER_ID incoming responses...")
+        log_info("[telegram_bot] Adding MessageHandler for TELEGRAM_TRAINER_ID incoming responses...")
 
         app.add_handler(MessageHandler(
-            filters.Chat(TRAINER_ID) & (
+            filters.Chat(TELEGRAM_TRAINER_ID) & (
                 filters.Sticker.ALL | filters.PHOTO | filters.AUDIO |
                 filters.VOICE | filters.VIDEO | filters.Document.ALL
             ),
@@ -820,12 +809,10 @@ async def start_bot():
         ))
         log_info("[telegram_bot] All handlers added successfully")
 
-        # Register this interface with the core
-        log_info("[telegram_bot] Registering interface with core...")
-        from core.core_initializer import core_initializer
-        core_initializer.register_interface("telegram_bot")
-        log_info("[telegram_bot] Interface registered with core")
-        core_initializer.display_startup_summary()
+        # The interface will register itself once the Telegram application has
+        # been initialized below. Calling core_initializer.register_interface
+        # here would run before the interface instance exists and generates a
+        # misleading warning about missing action support.
     except Exception as e:
         log_error(f"[telegram_bot] Error building Telegram application: {repr(e)}")
         raise
@@ -839,11 +826,16 @@ async def start_bot():
         await app.initialize()
         log_info("[telegram_bot] Telegram application initialized")
 
-        # Register interface instance for plugins
+        # Register interface instance for plugins. This automatically exposes
+        # its actions to the core initializer.
         telegram_interface = TelegramInterface(app.bot)
-        register_interface("telegram", telegram_interface)
         register_interface("telegram_bot", telegram_interface)
         log_debug("[telegram_bot] Interface instance registered")
+
+        # Rebuild actions and display startup summary now that the interface is registered
+        from core.core_initializer import core_initializer
+        await core_initializer._build_actions_block()
+        core_initializer.display_startup_summary()
         
         await app.start()
         log_info("[telegram_bot] Telegram application started")
@@ -1012,6 +1004,7 @@ class TelegramInterface:
             self.bot,
             target,
             text,
+            parse_mode="Markdown",
             message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
             reply_to_message_id=reply_message_id,
             fallback_chat_id=fallback_chat_id,

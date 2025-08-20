@@ -1,14 +1,16 @@
 # core/notifier.py
 
-from core.config import TRAINER_ID
+import asyncio
 import time
 from typing import List, Tuple, Callable
-from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.logging_utils import log_debug, log_info, log_warning
 from collections import deque
 
 _in_notify = False
 
 _pending: List[Tuple[int, str]] = []
+# Messages targeting interfaces that are not yet registered
+_pending_interface_msgs: List[Tuple[str, int, str]] = []
 
 def _default_notify(chat_id: int, message: str):
     """Fallback when no real notifier is configured."""
@@ -25,7 +27,7 @@ def set_notifier(fn: Callable[[int, str], None]):
         try:
             fn(chat_id, msg)
         except Exception as e:
-            log_error(f"[notifier] Failed to send pending message: {repr(e)}")
+            log_warning(f"[notifier] Failed to send pending message: {repr(e)}")
     _pending.clear()
 
 CHUNK_SIZE = 4000
@@ -50,7 +52,7 @@ def notify(chat_id: int, message: str):
             try:
                 _notify_impl(chat_id, chunk)
             except Exception as e:  # pragma: no cover - best effort
-                log_error(
+                log_warning(
                     f"[notifier] Failed to send notification chunk: {repr(e)}"
                 )
     finally:
@@ -70,7 +72,73 @@ def notify(chat_id: int, message: str):
     _last_notify_messages[chat_id] = (now, message)
 
 def notify_trainer(message: str) -> None:
-    """Notify the trainer with ``message`` sent to ``TRAINER_ID`` only."""
-    from core.config import TRAINER_ID
-    log_debug(f"[notifier] Notification for TRAINER_ID={TRAINER_ID}: {message}")
-    notify(TRAINER_ID, message)
+    """Notify the trainer via selected interfaces."""
+    from core.config import NOTIFY_ERRORS_TO_INTERFACES
+    from core.core_initializer import INTERFACE_REGISTRY
+
+    if not NOTIFY_ERRORS_TO_INTERFACES:
+        log_debug("[notifier] No interfaces configured for error notifications")
+        return
+
+    for interface_name, trainer_id in NOTIFY_ERRORS_TO_INTERFACES.items():
+        iface = INTERFACE_REGISTRY.get(interface_name)
+        if not iface:
+            available = ", ".join(sorted(INTERFACE_REGISTRY)) or "none"
+            log_warning(
+                f"[notifier] No interface '{interface_name}' available. "
+                f"Available: {available}; queuing notification"
+            )
+            _pending_interface_msgs.append((interface_name, trainer_id, message))
+            continue
+
+        async def send():
+            try:
+                await iface.send_message({"text": message, "target": trainer_id})
+            except Exception as e:  # pragma: no cover - best effort
+                log_warning(
+                    f"[notifier] Failed to notify via {interface_name}: {repr(e)}",
+                )
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            loop.create_task(send())
+        else:
+            asyncio.run(send())
+
+
+def flush_pending_for_interface(interface_name: str) -> None:
+    """Flush queued trainer notifications for a newly registered interface."""
+    from core.core_initializer import INTERFACE_REGISTRY
+
+    iface = INTERFACE_REGISTRY.get(interface_name)
+    if not iface:
+        return
+
+    remaining: List[Tuple[str, int, str]] = []
+    for name, trainer_id, msg in _pending_interface_msgs:
+        if name != interface_name:
+            remaining.append((name, trainer_id, msg))
+            continue
+
+        async def send():
+            try:
+                await iface.send_message({"text": msg, "target": trainer_id})
+            except Exception as e:  # pragma: no cover - best effort
+                log_warning(
+                    f"[notifier] Failed to flush pending notify via {interface_name}: {repr(e)}",
+                )
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            loop.create_task(send())
+        else:
+            asyncio.run(send())
+
+    _pending_interface_msgs[:] = remaining
+

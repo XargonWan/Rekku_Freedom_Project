@@ -4,12 +4,13 @@ import asyncio
 from typing import Optional
 from core.ai_plugin_base import AIPluginBase
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.core_initializer import core_initializer, register_plugin
 
 # Import config safely - may fail in test environments
 try:
-    from core.config import TRAINER_ID
+    from core.config import TELEGRAM_TRAINER_ID
 except Exception:
-    TRAINER_ID = None
+    TELEGRAM_TRAINER_ID = None
 
 # Import telegram safely - may fail if not available
 try:
@@ -25,12 +26,15 @@ except Exception:
     def truncate_message(text, max_length=4000):
         return text[:max_length] if len(text) > max_length else text
 
-# Import auto_response safely
+# Import notifier safely
 try:
-    from core.auto_response import request_llm_delivery
+    from core.notifier import notify_trainer
 except Exception:
-    async def request_llm_delivery(*args, **kwargs):
-        log_warning("[terminal] Auto-response not available")
+    def notify_trainer(message: str) -> None:
+        log_warning("[terminal] notify_trainer not available")
+
+# Auto-response no longer used directly here; higher-level logic handles
+# delivery of outputs back to the LLM.
 
 
 class TerminalPlugin(AIPluginBase):
@@ -39,6 +43,9 @@ class TerminalPlugin(AIPluginBase):
     def __init__(self, notify_fn: Optional[callable] = None):
         self.process = None
         self.notify_fn = notify_fn
+        register_plugin("terminal", self)
+        core_initializer.register_plugin("terminal")
+        log_info("[terminal] TerminalPlugin registered successfully")
 
     async def _run_single_command(self, cmd: str) -> str:
         """
@@ -138,110 +145,97 @@ class TerminalPlugin(AIPluginBase):
     @staticmethod
     def get_supported_action_types() -> list[str]:
         """Return the list of action types this plugin supports."""
-        return ["terminal", "bash"]
+        return ["terminal"]
 
     def get_supported_actions(self) -> dict:
         """Return schema information for supported actions."""
         return {
             "terminal": {
                 "required_fields": ["command"],
-                "optional_fields": [],
-                "description": "Execute shell commands (bash, python, etc.) in a persistent terminal session.",
-            },
-            "bash": {
-                "required_fields": ["command"],
-                "optional_fields": [],
-                "description": "Execute a single shell command directly.",
+                "optional_fields": ["persistent_session"],
+                "description": "Execute shell commands (bash, python, etc.) in a terminal session. Optionally persistent.",
             }
         }
 
     def get_prompt_instructions(self, action_name: str) -> dict:
         if action_name == "terminal":
             return {
-                "description": "Execute commands in a persistent shell session (bash, python, etc.)",
+                "description": "Execute commands in a terminal session (bash, python, etc.). Optionally persistent.",
                 "payload": {
                     "command": "df -h",
+                    "persistent_session": False,
                     "interface": self.get_interface_id(),
                 },
                 "example": {
                     "type": "terminal",
-                    "payload": {"command": "df -h"}
-                }
-            }
-        elif action_name == "bash":
-            return {
-                "description": "Execute a single shell command directly",
-                "payload": {
-                    "command": "ls -la",
-                    "interface": self.get_interface_id(),
-                },
-                "example": {
-                    "type": "bash",
-                    "payload": {"command": "ls -la"}
+                    "payload": {
+                        "command": "df -h",
+                        "persistent_session": True
+                    }
                 }
             }
         return {}
 
     async def execute_action(self, action: dict, context: dict, bot, original_message):
-        """Execute terminal or bash actions."""
+        """Execute terminal actions."""
         action_type = action.get("type")
         payload = action.get("payload", {})
         command = payload.get("command", "")
-        
+        # Default to persistent sessions so the LLM can interact like a user
+        persistent_session = payload.get("persistent_session", True)
+
         if not command:
             log_warning(f"[terminal] No command provided for {action_type} action")
             return
-            
+
         log_info(f"[terminal] Executing {action_type} command: {command}")
-        
+
         try:
-            if action_type == "bash":
-                # Single command execution
-                output = await self._run_single_command(command)
-            elif action_type == "terminal":
+            if persistent_session:
                 # Persistent session execution
                 output = await self._send_command(command)
             else:
-                log_warning(f"[terminal] Unsupported action type: {action_type}")
-                return
-                
+                # Single command execution
+                output = await self._run_single_command(command)
+
             log_debug(f"[terminal] Command output: {output}")
-            
-            # NEW: Use auto-response system instead of direct Telegram response
-            if original_message and hasattr(original_message, 'chat_id'):
-                # Prepare context for LLM-mediated response
-                response_context = {
-                    'chat_id': original_message.chat_id,
-                    'message_id': getattr(original_message, 'message_id', None),
-                    'interface_name': context.get('interface', 'telegram_bot'),
-                    'original_command': command,
-                    'action_type': action_type
-                }
-                
-                # Request LLM to deliver the output
-                from core.auto_response import request_llm_delivery
-                await request_llm_delivery(
-                    output=output,
-                    original_context=response_context,
-                    action_type=action_type,
-                    command=command
+
+            # Notify trainer about the executed command and its result
+            try:
+                summary = truncate_message(output, 1000)
+                notify_trainer(
+                    f"[terminal] Command: {command}\nOutput:\n{summary}"
                 )
-                
-                log_info(f"[terminal] Requested LLM delivery of {action_type} output to chat {original_message.chat_id}")
-            else:
-                log_warning("[terminal] No original_message context for auto-response")
-                
+            except Exception as e:
+                log_warning(f"[terminal] Failed to notify trainer: {e}")
+
+            # Output is returned to the caller; higher-level orchestrators will
+            # decide how to deliver it back to the LLM or user.
+            if not (original_message and hasattr(original_message, 'chat_id')):
+                log_warning("[terminal] No original_message context for output delivery")
+
+            return output
+
         except Exception as e:
             log_error(f"[terminal] Error executing {action_type} command '{command}': {e}")
-            
-            # Also use auto-response for errors
+
+            try:
+                notify_trainer(
+                    f"[terminal] Error executing: {command}\nError: {e}"
+                )
+            except Exception:
+                pass
+
             if original_message and hasattr(original_message, 'chat_id'):
+                interface_name = context.get('interface', 'telegram_bot')
+                if interface_name == 'telegram':
+                    interface_name = 'telegram_bot'
                 error_context = {
                     'chat_id': original_message.chat_id,
                     'message_id': getattr(original_message, 'message_id', None),
-                    'interface_name': context.get('interface', 'telegram_bot'),
+                    'interface_name': interface_name,
                 }
-                
+
                 from core.auto_response import request_llm_delivery
                 await request_llm_delivery(
                     output=f"Error executing command '{command}': {str(e)}",
@@ -249,6 +243,7 @@ class TerminalPlugin(AIPluginBase):
                     action_type=f"{action_type}_error",
                     command=command
                 )
+            return f"Error executing command '{command}': {str(e)}"
 
     def get_target(self, trainer_message_id):
         return None
@@ -261,3 +256,4 @@ class TerminalPlugin(AIPluginBase):
 
 
 PLUGIN_CLASS = TerminalPlugin
+

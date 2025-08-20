@@ -13,7 +13,7 @@ import core.plugin_instance as plugin_instance
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.message_sender import detect_media_type, extract_response_target
 from core.config import set_active_llm, list_available_llms, get_active_llm
-from core.config import TRAINER_ID
+from core.config import TELEGRAM_TRAINER_ID
 from core import blocklist, response_proxy, say_proxy, recent_chats
 from core.context import context_command
 from core.auto_response import request_llm_delivery
@@ -26,7 +26,6 @@ load_dotenv()
 API_ID = int(os.getenv("API_ID", "0") or "0")
 API_HASH = os.getenv("API_HASH", "")
 SESSION = os.getenv("SESSION", "rekku_userbot")
-TRAINER_ID = int(os.getenv("TRAINER_ID", "0") or "0")
 
 say_sessions = {}
 context_memory = {}
@@ -35,6 +34,7 @@ message_id = None
 
 client = TelegramClient(SESSION, API_ID, API_HASH)
 register_interface("telegram_userbot", client)
+log_info("[telethon_userbot] Registered TelethonUserbot")
 
 def escape_markdown(text):
     return re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', text)
@@ -57,7 +57,7 @@ def resolve_forwarded_target(message):
 
 @client.on(events.NewMessage(pattern=r"\.block (\d+)"))
 async def block_user(event):
-    if event.sender_id != TRAINER_ID:
+    if event.sender_id != TELEGRAM_TRAINER_ID:
         return
     try:
         to_block = int(event.pattern_match.group(1))
@@ -68,7 +68,7 @@ async def block_user(event):
 
 @client.on(events.NewMessage(pattern=r"\.block_list"))
 async def block_list(event):
-    if event.sender_id != TRAINER_ID:
+    if event.sender_id != TELEGRAM_TRAINER_ID:
         return
     blocked = blocklist.get_block_list()
     if not blocked:
@@ -78,7 +78,7 @@ async def block_list(event):
 
 @client.on(events.NewMessage(pattern=r"\.unblock (\d+)"))
 async def unblock_user(event):
-    if event.sender_id != TRAINER_ID:
+    if event.sender_id != TELEGRAM_TRAINER_ID:
         return
     try:
         to_unblock = int(event.pattern_match.group(1))
@@ -89,7 +89,7 @@ async def unblock_user(event):
 
 @client.on(events.NewMessage(pattern=r"\.last_chats"))
 async def last_chats_command(event):
-    if event.sender_id != TRAINER_ID:
+    if event.sender_id != TELEGRAM_TRAINER_ID:
         return
     entries = await recent_chats.get_last_active_chats_verbose(10, client)
     if not entries:
@@ -103,7 +103,7 @@ async def last_chats_command(event):
 
 @client.on(events.NewMessage(pattern=r"\.help"))
 async def help_command(event):
-    if event.sender_id != TRAINER_ID:
+    if event.sender_id != TELEGRAM_TRAINER_ID:
         return
     from core.context import get_context_state
     context_status = "active ✅" if get_context_state() else "inactive ❌"
@@ -131,7 +131,7 @@ async def help_command(event):
 
 @client.on(events.NewMessage(pattern=r"\.llm(?: (.+))?"))
 async def llm_command(event):
-    if event.sender_id != TRAINER_ID:
+    if event.sender_id != TELEGRAM_TRAINER_ID:
         return
     args = event.pattern_match.group(1)
     current = await get_active_llm()
@@ -158,7 +158,7 @@ async def llm_command(event):
 
 @client.on(events.NewMessage(pattern=r"\.say(?: (\d+) (.+))?"))
 async def say_command(event):
-    if event.sender_id != TRAINER_ID:
+    if event.sender_id != TELEGRAM_TRAINER_ID:
         return
     args = event.pattern_match.groups()
     # Case 1: .say <chat_id> <message>
@@ -193,7 +193,7 @@ async def handle_message(event):
     user_id = message.sender_id
     text = message.message or ""
     # Interactive /say step
-    if user_id == TRAINER_ID and user_id in say_sessions:
+    if user_id == TELEGRAM_TRAINER_ID and user_id in say_sessions:
         stripped = text.strip()
         if stripped.isdigit():
             index = int(stripped) - 1
@@ -210,10 +210,10 @@ async def handle_message(event):
         await event.reply("❌ Invalid selection. Send a correct number.")
         return
     # Blocked user
-    if blocklist.is_blocked(user_id) and user_id != TRAINER_ID:
+    if blocklist.is_blocked(user_id) and user_id != TELEGRAM_TRAINER_ID:
         return
     # Trainer reply to forwarded message
-    if user_id == TRAINER_ID and message.is_reply:
+    if user_id == TELEGRAM_TRAINER_ID and message.is_reply:
         reply_msg_id = message.reply_to_msg_id
         original = plugin_instance.get_target(reply_msg_id)
         if original:

@@ -18,7 +18,34 @@ Invia una notifica al trainer (Telegram) tramite la logica centralizzata in core
 # ✅ Load all environment variables from .env
 load_dotenv(dotenv_path="/app/.env", override=False)
 
-TRAINER_ID = int(os.getenv("TRAINER_ID", "123456789"))
+
+def _parse_notify_interfaces(value: str):
+    mapping = {}
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if ":" not in item:
+            log_warning(
+                f"[config] Invalid NOTIFY_ERRORS_TO_INTERFACES entry '{item}' (expected interface:trainer_id)"
+            )
+            continue
+        interface, trainer_id = item.split(":", 1)
+        try:
+            mapping[interface.strip()] = int(trainer_id.strip())
+        except ValueError:
+            log_warning(
+                f"[config] Invalid trainer ID '{trainer_id}' for interface '{interface}'"
+            )
+    return mapping
+
+
+NOTIFY_ERRORS_TO_INTERFACES = _parse_notify_interfaces(
+    os.getenv("NOTIFY_ERRORS_TO_INTERFACES", "")
+)
+
+TELEGRAM_TRAINER_ID = int(os.getenv("TELEGRAM_TRAINER_ID", "0") or 0)
+
 BOT_TOKEN = os.getenv("BOTFATHER_TOKEN") or os.getenv("TELEGRAM_TOKEN")
 BOT_USERNAME = "rekku_freedom_project"
 LLM_MODE = os.getenv("LLM_MODE", "manual")

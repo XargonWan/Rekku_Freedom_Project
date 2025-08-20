@@ -11,7 +11,7 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 # Database connection parameters
 DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = int(os.getenv("EXT_DB_PORT", "3306"))
+DB_PORT = int(os.getenv("DB_PORT", "3306"))
 DB_USER = os.getenv("DB_USER", "rekku")
 DB_PASS = os.getenv("DB_PASS", "rekku")
 DB_NAME = os.getenv("DB_NAME", "rekku")

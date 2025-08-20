@@ -1,6 +1,6 @@
 venv
 .venv
-.env
+.env*
 data
 *.pyc
 *.pyo
@@ -49,5 +49,6 @@ dist/
 build/
 site/
 logs/
-persona/
-docker-compose-localtest.yml
+persona*/
+docker-compose-*.yml
+backups/

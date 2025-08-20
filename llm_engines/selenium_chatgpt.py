@@ -130,9 +130,15 @@ class ChatLinkStore:
         return rows_deleted
 from core.telegram_utils import safe_send
 
-# Fallback per notify_trainer se non disponibile
-def notify_trainer(trainer_id, text):
-    log_warning(f"[notify_trainer fallback] trainer_id={trainer_id}: {text}")
+# Fallback per notify_trainer se il modulo core.notifier non è disponibile
+def notify_trainer(message: str) -> None:
+    """Best-effort trainer notification used during tests.
+
+    The real ``notify_trainer`` utility accepts a single message argument, so
+    the fallback must mirror that signature to avoid ``TypeError`` when the
+    caller provides just the message text.
+    """
+    log_warning(f"[notify_trainer fallback] {message}")
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -177,8 +183,10 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
     """Inject ``text`` into the ChatGPT prompt area via JavaScript."""
     clean_text = strip_non_bmp(text)
     log_debug(f"[DEBUG] Length before sending: {len(clean_text)}")
-    preview = clean_text[:120] + ("..." if len(clean_text) > 120 else "")
-    log_debug(f"[DEBUG] Text preview: {preview}")
+    # Log the full text to aid debugging and ensure the JSON is not truncated
+    # in logs. This may produce very long lines but provides complete
+    # visibility into the prompt content.
+    log_debug(f"[DEBUG] Text to send: {clean_text}")
 
     tag = (textarea.tag_name or "").lower()
     prop = "value" if tag in {"textarea", "input"} else "textContent"
@@ -612,10 +620,7 @@ def process_prompt_in_chat(
         log_warning(f"[selenium] Saved screenshot to {fname}")
     except Exception as e:
         log_warning(f"[selenium] Failed to save screenshot: {e}")
-    from core.config import TRAINER_ID
-
     notify_trainer(
-        TRAINER_ID,
         f"\u26A0\uFE0F No response received for chat_id={chat_id}. Screenshot: {fname}"
     )
     return None
@@ -892,7 +897,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         if fut.cancelled():
             log_warning("[selenium] Worker task cancelled")
         elif fut.exception():
-            log_error(
+            log_warning(
                 f"[selenium] Worker task crashed: {fut.exception()}", fut.exception()
             )
         # Attempt restart if needed

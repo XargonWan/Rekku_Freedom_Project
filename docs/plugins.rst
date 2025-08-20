@@ -10,6 +10,11 @@ Plugins
 The project includes several optional plugins that implement additional actions
 or storage.
 
+.. note::
+   For a complete developer guide, see the project's `Read the Docs`_ wiki.
+
+.. _Read the Docs: https://rekku.readthedocs.io
+
 Terminal
 --------
 
@@ -17,18 +22,16 @@ Terminal
 sent to the bot are executed in a background ``/bin/bash`` process and the
 output is returned.
 
-Bash
-----
-
-``bash_plugin`` executes one-off shell commands and returns the output.
-Every command is also reported to the configured ``TRAINER_ID`` so that
-the trainer can audit activity.
-
 Event
 -----
 
 The ``event`` plugin stores scheduled reminders in a MariaDB table. A background
 scheduler checks for due events and sends them back to Rekku when the time comes.
+
+All Python modules under ``plugins/``, ``llm_engines/`` and ``interface/`` are
+imported recursively on startup. Plugin files no longer need a special naming
+scheme. Each plugin registers itself using ``register_plugin`` and notifies the
+core initializer with ``core_initializer.register_plugin``.
 
 Reddit Interface
 ----------------
@@ -64,8 +67,13 @@ registry the plugin must expose a ``PLUGIN_CLASS`` variable and implement
 .. code-block:: python
 
    from core.ai_plugin_base import AIPluginBase
+   from core.core_initializer import core_initializer, register_plugin
 
    class MyActionPlugin(AIPluginBase):
+       def __init__(self):
+           register_plugin("myplugin", self)
+           core_initializer.register_plugin("myplugin")
+
        def get_supported_actions(self):
            return {
                "my_action": {
@@ -107,7 +115,7 @@ The following diagram and steps illustrate how plugins interact with the system:
 
 **Step-by-step flow:**
 
-1. The plugin registers itself, adding an entry to ``ACTIVE_INTERFACES``.
+1. The plugin registers itself via ``register_plugin``, adding an entry to ``PLUGIN_REGISTRY``.
 2. The plugin defines its available actions, which are collected in ``available_actions``.
 3. The plugin provides action instructions, stored in ``action_instructions``.
 4. The LLM uses ``available_actions`` to generate a JSON action request.
@@ -132,7 +140,7 @@ initializer that it is active.
 
 .. code-block:: python
 
-   from core.core_initializer import register_interface, core_initializer
+   from core.core_initializer import core_initializer, register_interface
 
    class MyInterface:
        @staticmethod
@@ -141,13 +149,13 @@ initializer that it is active.
 
        @staticmethod
        def get_supported_actions():
-           return {
-               "message_myiface": {
-                   "required_fields": ["text"],
-                   "optional_fields": [],
-                   "description": "Send a message over MyInterface.",
-               }
-           }
+         return {
+             "message_myiface": {
+                 "required_fields": ["text"],
+                 "optional_fields": [],
+                 "description": "Send a message over MyInterface.",
+             }
+         }
 
        async def start(self):
            register_interface("myiface", self)

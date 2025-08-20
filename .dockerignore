@@ -5,6 +5,11 @@ __pycache__/
 *.env
 .git
 logs/
-persona
+persona/
 .ICEauthority
 backups/
+tests/
+docs/
+run_tests.sh
+.venv/
+GitVersion.yml

@@ -15,6 +15,7 @@ import asyncio
 import json
 import time
 import aiomysql
+from core.core_initializer import core_initializer, register_plugin
 
 
 class EventPlugin(AIPluginBase):
@@ -31,6 +32,9 @@ class EventPlugin(AIPluginBase):
         # Track events currently being processed to mark them as delivered after successful send
         self._pending_events: dict[str, dict] = {}  # message_id -> event_info
         log_info("[event_plugin] EventPlugin instance created")
+        register_plugin("event", self)
+        core_initializer.register_plugin("event")
+        log_info("[event_plugin] Registered EventPlugin")
 
     def set_bot(self, bot):
         """Update the bot reference used for sending messages."""
@@ -40,7 +44,7 @@ class EventPlugin(AIPluginBase):
     async def ensure_table_exists(self) -> None:
         """Ensure the scheduled_events table is present."""
         host = os.getenv("DB_HOST", "localhost")
-        port = int(os.getenv("EXT_DB_PORT", "3306"))
+        port = int(os.getenv("DB_PORT", "3306"))
         user = os.getenv("DB_USER", "root")
         # Reuse the same variable name used in core.db for consistency
         password = os.getenv("DB_PASS", "")

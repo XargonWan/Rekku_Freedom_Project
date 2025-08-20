@@ -17,7 +17,6 @@ sntwitter = None
 
 from core.logging_utils import log_info, log_debug, log_warning
 from core.core_initializer import register_interface, core_initializer
-from core.auto_response import request_llm_delivery
 
 log_warning("[x_interface] snscrape disabled due to Python 3.12 compatibility issues")
 
@@ -31,6 +30,7 @@ class XInterface:
             log_debug(f"[x_interface] Using username: {self.username}")
         else:
             log_debug("[x_interface] X_USERNAME not set; timeline features disabled")
+        log_info("[x_interface] Registered XInterface")
 
     @staticmethod
     def get_interface_id() -> str:
