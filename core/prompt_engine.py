@@ -218,15 +218,27 @@ The JSON is just a wrapper — speak naturally as you always do.
 """
 
 
-def build_full_json_instructions() -> dict:
-    """Return combined JSON instructions and available actions block."""
+def build_full_json_instructions(allowed_actions: list[str] | None = None) -> dict:
+    """Return combined JSON instructions and a filtered available actions block.
+
+    Parameters
+    ----------
+    allowed_actions: list[str] | None
+        If provided, limit the actions block to this subset.  This helps keep
+        auto-generated prompts small when only a handful of actions are
+        relevant (e.g. for autonomous event/terminal messages).
+    """
+
     instructions = load_json_instructions()
     actions = {}
     try:
         from core.core_initializer import core_initializer
         actions = core_initializer.actions_block.get("available_actions", {})
+        if allowed_actions is not None:
+            actions = {k: v for k, v in actions.items() if k in allowed_actions}
     except Exception as e:  # pragma: no cover - defensive
         log_warning(f"[prompt_engine] Failed to load actions block: {e}")
+
     return {"instructions": instructions, "actions": actions}
 
 
