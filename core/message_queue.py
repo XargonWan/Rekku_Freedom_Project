@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from core.config import TELEGRAM_TRAINER_ID
 from core import plugin_instance, rate_limit, recent_chats
 from core.logging_utils import log_debug, log_error, log_warning, log_info
+from core.mention_utils import is_message_for_bot
 
 # Use a priority queue so events can be processed before regular messages
 HIGH_PRIORITY = 0
@@ -46,6 +47,10 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
         context_memory: Message context
         priority: If True, message is added to front of queue (for events)
     """
+    if not await is_message_for_bot(message, bot):
+        log_debug("[QUEUE] Message ignored: not directed to bot")
+        return
+
     plugin = plugin_instance.get_plugin()
     if not plugin:
         log_error("[QUEUE] No active plugin")

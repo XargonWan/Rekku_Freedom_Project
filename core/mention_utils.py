@@ -46,6 +46,10 @@ REKKU_ALIASES_LOWER = [alias.lower() for alias in REKKU_ALIASES]
 
 
 from core.logging_utils import log_debug
+from typing import Dict, Set
+
+# Track human participants per group chat to detect 1:1 conversations
+_GROUP_CHAT_HUMANS: Dict[int, Set[int]] = {}
 
 
 def is_rekku_mentioned(text: str) -> bool:
@@ -85,20 +89,39 @@ async def is_message_for_bot(message, bot, bot_username: str = None) -> bool:
     if message.chat.type in ["group", "supergroup"]:
         text = message.text or message.caption or ""
         
-        # Get bot username if not provided
+        bot_id = None
+        # Get bot username and id if not provided
         if not bot_username:
             try:
                 bot_user = await bot.get_me() if hasattr(bot, 'get_me') else None
-                if bot_user and hasattr(bot_user, 'username'):
-                    bot_username = bot_user.username.lower()
+                if bot_user:
+                    if hasattr(bot_user, 'username') and bot_user.username:
+                        bot_username = bot_user.username.lower()
+                    bot_id = getattr(bot_user, 'id', None)
                 else:
-                    # Fallback to config
                     from core.config import BOT_USERNAME
                     bot_username = BOT_USERNAME.lower()
             except Exception as e:
                 log_debug(f"[mention] Failed to get bot username: {e}")
                 from core.config import BOT_USERNAME
                 bot_username = BOT_USERNAME.lower()
+        if bot_id is None:
+            if hasattr(bot, 'id'):
+                bot_id = bot.id
+            elif hasattr(bot, 'user') and hasattr(bot.user, 'id'):
+                bot_id = bot.user.id
+
+        # Detect 1:1 chats: only one human participant besides the bot
+        user = getattr(message, 'from_user', None)
+        if user and not getattr(user, 'is_bot', False):
+            chat_id = getattr(message.chat, 'id', None)
+            if chat_id is not None:
+                humans = _GROUP_CHAT_HUMANS.setdefault(chat_id, set())
+                humans.add(user.id)
+                human_ids = {uid for uid in humans if uid != bot_id}
+                if len(human_ids) <= 1:
+                    log_debug("[mention] 1:1 group chat detected - directed to bot")
+                    return True
         
         # Check for explicit @mention of the bot
         if message.entities:
