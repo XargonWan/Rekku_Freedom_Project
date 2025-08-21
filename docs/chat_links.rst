@@ -34,16 +34,16 @@ structured system message:
            "type": "error",
            "message": "Multiple channels found with name <name>; please retry with the numeric chat_id",
            "error_retry_policy": {
-               "description": "If you receive a system_message of type 'error' with the phrase 'Please repeat your previous message, corrected.' you must automatically re-send the exact same JSON you sent previously, but with the part indicated as invalid corrected.",
-               "steps": [
-                   "1. Identify which part of your last sent JSON caused the error (e.g. an unsupported action type or missing parameter).",
-                   "2. Create a new JSON that is identical to the one you previously sent, except for correcting ONLY the invalid part.",
-                   "3. Do not add, remove or reorder any other actions or payload content.",
-                   "4. Re-submit the corrected JSON immediately (without waiting for user instructions)."
-               ]
-           }
-       }
-   }
+              "description": "If you receive a system_message of type 'error' with the phrase 'Please repeat your previous message, not this very prompt, but your previous reply, corrected.' you must automatically re-send the exact same JSON you sent previously, but with the part indicated as invalid corrected.",
+              "steps": [
+                  "1. Identify which part of your last sent JSON caused the error (e.g. an unsupported action type or missing parameter).",
+                  "2. Create a new JSON that is identical to the one you previously sent, except for correcting ONLY the invalid part.",
+                  "3. Do not add, remove or reorder any other actions or payload content.",
+                  "4. Re-submit the corrected JSON immediately (without waiting for user instructions)."
+              ]
+          }
+      }
+  }
 
 The LLM should resend the original action using explicit IDs.
 

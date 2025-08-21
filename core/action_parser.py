@@ -22,8 +22,9 @@ _retry_tracker = {}
 ERROR_RETRY_POLICY = {
     "description": (
         "If you receive a system_message of type 'error' with the phrase 'Please repeat your "
-        "previous message, corrected.' you must automatically re-send the exact same JSON you sent "
-        "previously, but with the part indicated as invalid corrected."
+        "previous message, not this very prompt, but your previous reply, corrected.' you must "
+        "automatically re-send the exact same JSON you sent previously, but with the part "
+        "indicated as invalid corrected."
     ),
     "steps": [
         "1. Identify which part of your last sent JSON caused the error (e.g. an unsupported action type or missing parameter).",
@@ -89,7 +90,7 @@ async def corrector(errors: list, failed_actions: list, bot, message):
 
     message_text = (
         f"{error_summary}\n"
-        "Please repeat your previous message, corrected."
+        "Please repeat your previous message, not this very prompt, but your previous reply, corrected."
     )
     correction_payload = {
         "system_message": {
