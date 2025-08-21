@@ -683,6 +683,7 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
                 action_outputs=action_outputs,
                 original_context=response_context,
                 action_type="terminal",
+                allowed_actions=["message_telegram_bot", "event", "terminal"],
             )
         except Exception as e:
             log_warning(

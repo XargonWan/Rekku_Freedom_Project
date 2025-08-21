@@ -25,6 +25,7 @@ class AutoResponseSystem:
         action_type: str,
         command: str = None,
         action_outputs: Optional[list] = None,
+        allowed_actions: Optional[list[str]] = None,
     ):
         """
         Request LLM to process and deliver outputs back to the user.
@@ -83,7 +84,7 @@ class AutoResponseSystem:
             mock_message.chat.first_name = "AutoResponse"
             mock_message.chat.type = "private"
             
-            full_json = build_full_json_instructions()
+            full_json = build_full_json_instructions(allowed_actions)
             system_payload = {
                 "system_message": {
                     "type": "output",
@@ -106,11 +107,13 @@ class AutoResponseSystem:
                 )
                 return
             
-            # Enqueue the LLM request
+            # Enqueue the LLM request using the interface's bot instance
             import json
 
+            enqueue_bot = getattr(interface, "bot", interface)
+
             await enqueue(
-                bot,
+                enqueue_bot,
                 mock_message,
                 json.dumps(system_payload, ensure_ascii=False),
                 priority=True,
@@ -136,6 +139,7 @@ async def request_llm_delivery(
     action_type=None,
     command=None,
     action_outputs=None,
+    allowed_actions: Optional[list[str]] = None,
 ):
     """
     Unified convenience function to request LLM-mediated delivery.
@@ -150,6 +154,7 @@ async def request_llm_delivery(
             original_context=original_context,
             action_type=action_type or "unknown",
             action_outputs=action_outputs,
+            allowed_actions=allowed_actions,
         )
         return
 
@@ -159,6 +164,7 @@ async def request_llm_delivery(
             original_context,
             action_type or "unknown",
             command,
+            allowed_actions=allowed_actions,
         )
         return
     
@@ -172,7 +178,7 @@ async def request_llm_delivery(
             # If we have a message, use it directly with plugin_instance
             import json
 
-            full_json = build_full_json_instructions()
+            full_json = build_full_json_instructions(allowed_actions)
             if isinstance(context, dict) and context.get("input", {}).get("type") == "event":
                 system_payload = {
                     "system_message": {

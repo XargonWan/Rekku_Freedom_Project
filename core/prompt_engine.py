@@ -5,6 +5,7 @@ from core.db import get_conn
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.json_utils import dumps as json_dumps
 import aiomysql
+from typing import Optional
 
 
 async def build_json_prompt(message, context_memory) -> dict:
@@ -218,14 +219,24 @@ The JSON is just a wrapper — speak naturally as you always do.
 """
 
 
-def build_full_json_instructions() -> dict:
-    """Return combined JSON instructions and the full available actions block."""
+def build_full_json_instructions(allowed_actions: Optional[list[str]] = None) -> dict:
+    """Return combined JSON instructions and the available actions block.
+
+    Parameters
+    ----------
+    allowed_actions : Optional[list[str]]
+        If provided, limit the actions block to this subset.
+    """
 
     instructions = load_json_instructions()
     actions = {}
     try:
         from core.core_initializer import core_initializer
-        actions = core_initializer.actions_block.get("available_actions", {})
+        full_actions = core_initializer.actions_block.get("available_actions", {})
+        if allowed_actions:
+            actions = {k: v for k, v in full_actions.items() if k in allowed_actions}
+        else:
+            actions = full_actions
     except Exception as e:  # pragma: no cover - defensive
         log_warning(f"[prompt_engine] Failed to load actions block: {e}")
 
