@@ -405,24 +405,25 @@ class EventPlugin(AIPluginBase):
                 f"[event_plugin] Delivering event {event['id']} to LLM via auto-response system"
             )
 
+            interface = None
             bot = self.bot
-            if not bot:
-                try:
-                    from core.core_initializer import INTERFACE_REGISTRY
-
-                    telegram_iface = INTERFACE_REGISTRY.get("telegram_bot")
-                    if telegram_iface and getattr(telegram_iface, "bot", None):
+            try:
+                from core.core_initializer import INTERFACE_REGISTRY
+                telegram_iface = INTERFACE_REGISTRY.get("telegram_bot")
+                if telegram_iface:
+                    interface = telegram_iface
+                    if getattr(telegram_iface, "bot", None):
                         bot = telegram_iface.bot
                         self.bot = bot
-                except Exception:
-                    bot = None
+            except Exception:
+                interface = None
 
             # Use auto-response system for autonomous event notifications
             await request_llm_delivery(
                 message=None,  # No original message for autonomous events
-                interface=bot,  # Use telegram bot interface
+                interface=interface,  # Pass interface so LLM can route the event
                 context=event_prompt,
-                reason=f"scheduled_event_{event['id']}"
+                reason=f"scheduled_event_{event['id']}",
             )
             log_info(
                 f"[event_plugin] Event {event['id']} delivered to LLM via auto-response"

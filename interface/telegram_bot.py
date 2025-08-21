@@ -25,7 +25,6 @@ from collections import deque
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.telegram_utils import (
-    truncate_message,
     safe_send,
     send_with_thread_fallback,
 )
@@ -479,7 +478,7 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(args) >= 2:
         try:
             chat_id = int(args[0])
-            text = truncate_message(" ".join(args[1:]))
+            text = " ".join(args[1:])
             await safe_send(bot, chat_id=chat_id, text=text)  # [FIX]
             await update.message.reply_text("✅ Message sent.")
         except Exception as e:
@@ -694,11 +693,10 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
 
     async def send():
         try:
-            text = truncate_message(formatted_message or message)
             await safe_send(
                 bot,
                 chat_id=TELEGRAM_TRAINER_ID,
-                text=text,
+                text=formatted_message or message,
                 reply_to_message_id=reply_to_message_id,
                 parse_mode=ParseMode.HTML if formatted_message else None,
                 disable_web_page_preview=True,

@@ -19,13 +19,6 @@ except Exception:
     class ParseMode:
         MARKDOWN = "Markdown"
 
-# Import telegram utils safely
-try:
-    from core.telegram_utils import truncate_message
-except Exception:
-    def truncate_message(text, max_length=4000):
-        return text[:max_length] if len(text) > max_length else text
-
 # Import notifier safely
 try:
     from core.notifier import notify_trainer
@@ -121,15 +114,15 @@ class TerminalPlugin(AIPluginBase):
         output = await self._send_command(cmd)
 
         if bot and message:
-            truncated = output
-            if len(truncated) > 4000:
-                truncated = truncated[:4000] + "\n..."
-            await bot.send_message(
-                chat_id=message.chat_id,
-                text=f"```\n{truncated}\n```" if truncated else "(no output)",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_to_message_id=message.message_id,
-            )
+            text = output or "(no output)"
+            for i in range(0, len(text), 4000):
+                chunk = text[i:i+4000]
+                await bot.send_message(
+                    chat_id=message.chat_id,
+                    text=f"```\n{chunk}\n```",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_to_message_id=message.message_id if i == 0 else None,
+                )
 
         return output
 
@@ -202,9 +195,8 @@ class TerminalPlugin(AIPluginBase):
 
             # Notify trainer about the executed command and its result
             try:
-                summary = truncate_message(output, 1000)
                 notify_trainer(
-                    f"[terminal] Command: {command}\nOutput:\n{summary}"
+                    f"[terminal] Command: {command}\nOutput:\n{output}"
                 )
             except Exception as e:
                 log_warning(f"[terminal] Failed to notify trainer: {e}")

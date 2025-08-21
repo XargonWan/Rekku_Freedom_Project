@@ -8,6 +8,22 @@ from types import SimpleNamespace
 from core.logging_utils import log_debug, log_warning, log_error, log_info
 from core.telegram_utils import _send_with_retry
 
+# Store last JSON parsing error details for corrector hints
+LAST_JSON_ERROR_INFO: Optional[str] = None
+
+
+
+def _format_json_error(text: str, err: json.JSONDecodeError) -> str:
+    """Return a helpful message with context around a JSON error."""
+    start = max(0, err.pos - 20)
+    end = min(len(text), err.pos + 20)
+    snippet = text[start:end]
+    pointer = " " * (err.pos - start) + "^"
+    return (
+        f"{err.msg} at line {err.lineno} column {err.colno}\n"
+        f"{snippet}\n{pointer}\n"
+        "Tip: escape inner quotes with \\\" and ensure proper commas and brackets."
+    )
 
 
 def extract_json_from_text(text: str, processed_messages: set = None):
@@ -21,6 +37,9 @@ def extract_json_from_text(text: str, processed_messages: set = None):
     Returns:
         A Python dictionary, list, or None if no valid JSON is found.
     """
+    global LAST_JSON_ERROR_INFO
+    LAST_JSON_ERROR_INFO = None
+
     try:
         text = text.strip()
 
@@ -68,90 +87,78 @@ def extract_json_from_text(text: str, processed_messages: set = None):
                 # Skip the first 3-4 lines that contain json/Copy/Edit
                 text = '\n'.join(lines[3:]).strip()
                 log_debug("[extract_json_from_text] Removed ChatGPT prefix lines")
+
+        decoder = json.JSONDecoder()
+
+        # First, attempt to parse the entire text strictly
+        try:
+            obj, end = decoder.raw_decode(text)
+            remainder = text[end:].strip()
+            if remainder:
+                log_warning("[extract_json_from_text] Extra content detected after JSON block")
+                raise json.JSONDecodeError("Extra data", text, end)
+            return obj
+        except json.JSONDecodeError:
+            pass
         
-        # Check if the entire text is a JSON array
-        if text.startswith('[') and text.endswith(']'):
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                pass
-        
-        # Check if the entire text is a JSON object
-        if text.startswith('{') and text.endswith('}'):
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                pass
-        
-        # Scan greedily for JSON blocks starting from each '{' (backward compatibility)
+        # Scan greedily for JSON blocks starting from each '{'
         start_indices = [i for i, char in enumerate(text) if char == '{']
         if not start_indices:
             log_warning("[extract_json_from_text] No starting braces found in text")
             return None
         for start in start_indices:
-            # Try to find the matching closing brace for a complete JSON object
-            brace_count = 0
-            for end in range(start, len(text)):
-                if text[end] == '{':
-                    brace_count += 1
-                elif text[end] == '}':
-                    brace_count -= 1
-                    if brace_count == 0:
-                        # Found a complete JSON object
-                        try:
-                            potential_json = text[start:end+1]
-                            return json.loads(potential_json)
-                        except json.JSONDecodeError:
-                            continue
-        
-        # If complete object search failed and we have start indices, try the rest of the text from the last position
-        if start_indices:
             try:
-                potential_json = text[start_indices[-1]:]
-                return json.loads(potential_json)
+                obj, obj_end = decoder.raw_decode(text[start:])
             except json.JSONDecodeError:
-                pass
+                continue
+            obj_end += start
+            prefix = text[:start].strip()
+            suffix = text[obj_end:].strip()
+            if prefix or suffix:
+                log_warning("[extract_json_from_text] Extra content detected around JSON block")
+                raise json.JSONDecodeError("Extra data", text, obj_end)
+            return obj
         
         # Scan for JSON arrays starting from each '['
         array_start_indices = [i for i, char in enumerate(text) if char == '[']
         for start in array_start_indices:
-            # Try to find the matching closing bracket for a complete JSON array
-            bracket_count = 0
-            for end in range(start, len(text)):
-                if text[end] == '[':
-                    bracket_count += 1
-                elif text[end] == ']':
-                    bracket_count -= 1
-                    if bracket_count == 0:
-                        # Found a complete JSON array
-                        try:
-                            potential_json = text[start:end+1]
-                            return json.loads(potential_json)
-                        except json.JSONDecodeError:
-                            continue
-        
-        # If complete array search failed and we have array start indices, try the rest of the text from the last position
-        if array_start_indices:
             try:
-                potential_json = text[array_start_indices[-1]:]
-                return json.loads(potential_json)
+                obj, obj_end = decoder.raw_decode(text[start:])
             except json.JSONDecodeError:
-                pass
+                continue
+            obj_end += start
+            prefix = text[:start].strip()
+            suffix = text[obj_end:].strip()
+            if prefix or suffix:
+                log_warning("[extract_json_from_text] Extra content detected around JSON block")
+                raise json.JSONDecodeError("Extra data", text, obj_end)
+            return obj
 
         # Handle additional cases where JSON is embedded in text
         if 'json' in text.lower():
             start_index = text.lower().find('{')
-            end_index = text.rfind('}')
-            if start_index != -1 and end_index != -1:
-                potential_json = text[start_index:end_index + 1]
+            if start_index != -1:
                 try:
-                    return json.loads(potential_json)
+                    obj, obj_end = decoder.raw_decode(text[start_index:])
                 except json.JSONDecodeError:
                     log_warning("[extract_json_from_text] Failed to parse embedded JSON")
+                else:
+                    obj_end += start_index
+                    prefix = text[:start_index].strip()
+                    suffix = text[obj_end:].strip()
+                    if prefix or suffix:
+                        log_warning("[extract_json_from_text] Extra content detected around JSON block")
+                        raise json.JSONDecodeError("Extra data", text, obj_end)
+                    return obj
 
         # Log a warning if no JSON is found
         log_warning("[extract_json_from_text] No valid JSON found in text")
+    except json.JSONDecodeError as e:
+        LAST_JSON_ERROR_INFO = _format_json_error(text, e)
+        log_warning(f"[extract_json_from_text] JSON decoding error: {LAST_JSON_ERROR_INFO}")
+        return None
     except Exception as e:
+        LAST_JSON_ERROR_INFO = str(e)
         log_warning(f"[extract_json_from_text] Unexpected error: {e}")
         return None
 
@@ -265,9 +272,10 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
         message.message_thread_id = kwargs.get('message_thread_id')
         from datetime import datetime
         message.date = datetime.utcnow()
-        await corrector([
-            "Invalid or missing JSON in LLM response",
-        ], [], bot, message)
+        errors = ["Invalid or missing JSON in LLM response"]
+        if LAST_JSON_ERROR_INFO:
+            errors.append(LAST_JSON_ERROR_INFO)
+        await corrector(errors, [], bot, message)
         return
 
     # Send as normal text
@@ -388,9 +396,10 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
             message.event_id = kwargs['event_id']
         from datetime import datetime
         message.date = datetime.utcnow()
-        await corrector([
-            "Invalid or missing JSON in LLM response",
-        ], [], bot, message)
+        errors = ["Invalid or missing JSON in LLM response"]
+        if LAST_JSON_ERROR_INFO:
+            errors.append(LAST_JSON_ERROR_INFO)
+        await corrector(errors, [], bot, message)
         return
 
     # Send system messages or plain text with chunking
