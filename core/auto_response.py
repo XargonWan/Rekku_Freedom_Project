@@ -24,7 +24,6 @@ class AutoResponseSystem:
         original_context: Dict[str, Any],
         action_type: str,
         command: str = None,
-        allowed_actions: Optional[list[str]] = None,
         action_outputs: Optional[list] = None,
     ):
         """
@@ -84,7 +83,7 @@ class AutoResponseSystem:
             mock_message.chat.first_name = "AutoResponse"
             mock_message.chat.type = "private"
             
-            full_json = build_full_json_instructions(allowed_actions)
+            full_json = build_full_json_instructions()
             system_payload = {
                 "system_message": {
                     "type": "output",
@@ -137,7 +136,6 @@ async def request_llm_delivery(
     action_type=None,
     command=None,
     action_outputs=None,
-    allowed_actions=None,
 ):
     """
     Unified convenience function to request LLM-mediated delivery.
@@ -152,7 +150,6 @@ async def request_llm_delivery(
             original_context=original_context,
             action_type=action_type or "unknown",
             action_outputs=action_outputs,
-            allowed_actions=allowed_actions,
         )
         return
 
@@ -162,7 +159,6 @@ async def request_llm_delivery(
             original_context,
             action_type or "unknown",
             command,
-            allowed_actions=allowed_actions,
         )
         return
     
@@ -176,7 +172,7 @@ async def request_llm_delivery(
             # If we have a message, use it directly with plugin_instance
             import json
 
-            full_json = build_full_json_instructions(allowed_actions)
+            full_json = build_full_json_instructions()
             if isinstance(context, dict) and context.get("input", {}).get("type") == "event":
                 system_payload = {
                     "system_message": {
