@@ -465,7 +465,10 @@ def process_prompt_in_chat(
         log_error("[selenium][ERROR] prompt textarea not found")
         return None
 
-    for attempt in range(1, 4):  # Retry up to 3 times
+    start = time.time()
+    attempt = 0
+    while time.time() - start < AWAIT_RESPONSE_TIMEOUT:
+        attempt += 1
         try:
             paste_and_send(textarea, prompt_text)
             tag = (textarea.tag_name or "").lower()
@@ -505,21 +508,21 @@ def process_prompt_in_chat(
 
         log_debug("🔍 Waiting for response block...")
         try:
-            response_text = wait_until_response_stabilizes(driver)
+            response_text = wait_until_response_stabilizes(driver, max_total_wait=5)
         except TimeoutException:
             log_warning("[selenium][WARN] Timeout while waiting for response")
         else:
             if response_text and response_text != previous_text:
-                # If this was a new chat (no chat_id initially), extract and save the new chat ID
                 if not chat_id:
                     new_chat_id = _extract_chat_id(driver.current_url)
                     if new_chat_id:
                         log_debug(f"[selenium] New chat ID extracted after response: {new_chat_id}")
-                        # This will be used by the calling function to save the link
                 return response_text.strip()
 
         log_warning(f"[selenium][retry] Empty response attempt {attempt}")
-        time.sleep(2)
+        remaining = AWAIT_RESPONSE_TIMEOUT - (time.time() - start)
+        if remaining > 0:
+            time.sleep(min(5, remaining))
 
     os.makedirs("/config/logs/screenshots", exist_ok=True)
     fname = f"/config/logs/screenshots/chat_{chat_id or 'unknown'}_no_response.png"
