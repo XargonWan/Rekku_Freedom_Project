@@ -196,22 +196,24 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
             else:
                 log_warning(f"[transport] Unrecognized JSON structure: {json_data}")
                 return await interface_send_func(*args, text=text, **kwargs)
-            
-            bot = getattr(interface_send_func, '__self__', None) or (args[0] if args and hasattr(args[0], 'send_message') else None)
-            
+
+            bot = getattr(interface_send_func, '__self__', None) or (
+                args[0] if args and hasattr(args[0], 'send_message') else None
+            )
+
             if not bot:
                 log_warning("[transport] Could not extract bot instance for action parsing")
                 return await interface_send_func(*args, text=text, **kwargs)
-            
+
             # Create message context for actions
             message = SimpleNamespace()
             chat_id_value = kwargs.get('chat_id') or (args[0] if args else None)
-            
+
             # Validate chat_id before proceeding
             if chat_id_value is None or not isinstance(chat_id_value, int):
                 log_warning(f"[transport] Invalid chat_id for action processing: {chat_id_value}")
                 return await interface_send_func(*args, text=text, **kwargs)
-                
+
             message.chat_id = chat_id_value
             message.text = ""
             message.message_thread_id = kwargs.get('message_thread_id')
@@ -221,9 +223,9 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
             # Use centralized action system for all action types
             from core.action_parser import run_actions
             context = {"interface": "telegram"}  # Add more context as needed
-            
+
             processed_actions = []
-            
+
             # Remove duplicate actions
             unique_actions = []
             seen_actions = set()
@@ -243,11 +245,28 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
             except Exception as e:
                 log_warning(f"[transport] Failed to process actions: {e}")
 
-            log_info(f"[transport] Processed {len(processed_actions)} unique JSON actions via plugin system")
+            log_info(
+                f"[transport] Processed {len(processed_actions)} unique JSON actions via plugin system"
+            )
             return
 
         except Exception as e:
             log_warning(f"[transport] Failed to process JSON actions: {e}")
+
+    # Trigger corrector for non-JSON responses (excluding system messages)
+    if text and not text.startswith(("[ERROR]", "[WARNING]", "[INFO]", "[DEBUG]")):
+        from core.action_parser import corrector
+        bot = getattr(interface_send_func, '__self__', None)
+        message = SimpleNamespace()
+        message.chat_id = kwargs.get('chat_id') or (args[0] if args else None)
+        message.text = text
+        message.message_thread_id = kwargs.get('message_thread_id')
+        from datetime import datetime
+        message.date = datetime.utcnow()
+        await corrector([
+            "Invalid or missing JSON in LLM response",
+        ], [], bot, message)
+        return
 
     # Send as normal text
     return await interface_send_func(*args, text=text, **kwargs)
@@ -355,7 +374,22 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
         except Exception as e:
             log_warning(f"[telegram_transport] Failed to process JSON actions: {e}")
 
-    # Send as normal text with chunking
+    if not json_data and not is_system_message:
+        from core.action_parser import corrector
+        message = SimpleNamespace()
+        message.chat_id = chat_id
+        message.text = text
+        message.message_thread_id = kwargs.get('message_thread_id')
+        if 'event_id' in kwargs:
+            message.event_id = kwargs['event_id']
+        from datetime import datetime
+        message.date = datetime.utcnow()
+        await corrector([
+            "Invalid or missing JSON in LLM response",
+        ], [], bot, message)
+        return
+
+    # Send system messages or plain text with chunking
     log_debug(f"[telegram_transport] Sending as normal text with chunking")
     try:
         for i in range(0, len(text), chunk_size):
