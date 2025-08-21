@@ -8,6 +8,22 @@ from types import SimpleNamespace
 from core.logging_utils import log_debug, log_warning, log_error, log_info
 from core.telegram_utils import _send_with_retry
 
+# Store last JSON parsing error details for corrector hints
+LAST_JSON_ERROR_INFO: Optional[str] = None
+
+
+
+def _format_json_error(text: str, err: json.JSONDecodeError) -> str:
+    """Return a helpful message with context around a JSON error."""
+    start = max(0, err.pos - 20)
+    end = min(len(text), err.pos + 20)
+    snippet = text[start:end]
+    pointer = " " * (err.pos - start) + "^"
+    return (
+        f"{err.msg} at line {err.lineno} column {err.colno}\n"
+        f"{snippet}\n{pointer}\n"
+        "Tip: escape inner quotes with \\\" and ensure proper commas and brackets."
+    )
 
 
 def extract_json_from_text(text: str, processed_messages: set = None):
@@ -21,6 +37,9 @@ def extract_json_from_text(text: str, processed_messages: set = None):
     Returns:
         A Python dictionary, list, or None if no valid JSON is found.
     """
+    global LAST_JSON_ERROR_INFO
+    LAST_JSON_ERROR_INFO = None
+
     try:
         text = text.strip()
 
@@ -135,9 +154,11 @@ def extract_json_from_text(text: str, processed_messages: set = None):
         # Log a warning if no JSON is found
         log_warning("[extract_json_from_text] No valid JSON found in text")
     except json.JSONDecodeError as e:
-        log_warning(f"[extract_json_from_text] JSON decoding error: {e}")
+        LAST_JSON_ERROR_INFO = _format_json_error(text, e)
+        log_warning(f"[extract_json_from_text] JSON decoding error: {LAST_JSON_ERROR_INFO}")
         return None
     except Exception as e:
+        LAST_JSON_ERROR_INFO = str(e)
         log_warning(f"[extract_json_from_text] Unexpected error: {e}")
         return None
 
@@ -251,9 +272,10 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
         message.message_thread_id = kwargs.get('message_thread_id')
         from datetime import datetime
         message.date = datetime.utcnow()
-        await corrector([
-            "Invalid or missing JSON in LLM response",
-        ], [], bot, message)
+        errors = ["Invalid or missing JSON in LLM response"]
+        if LAST_JSON_ERROR_INFO:
+            errors.append(LAST_JSON_ERROR_INFO)
+        await corrector(errors, [], bot, message)
         return
 
     # Send as normal text
@@ -374,9 +396,10 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
             message.event_id = kwargs['event_id']
         from datetime import datetime
         message.date = datetime.utcnow()
-        await corrector([
-            "Invalid or missing JSON in LLM response",
-        ], [], bot, message)
+        errors = ["Invalid or missing JSON in LLM response"]
+        if LAST_JSON_ERROR_INFO:
+            errors.append(LAST_JSON_ERROR_INFO)
+        await corrector(errors, [], bot, message)
         return
 
     # Send system messages or plain text with chunking

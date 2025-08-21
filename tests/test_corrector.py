@@ -22,7 +22,7 @@ from core.action_parser import (
     _retry_tracker,
     corrector,
 )
-from core.transport_layer import extract_json_from_text
+from core.transport_layer import extract_json_from_text, LAST_JSON_ERROR_INFO
 
 
 class TestCorrectorRetry(unittest.TestCase):
@@ -120,6 +120,12 @@ class TestCorrectorRetry(unittest.TestCase):
         result = extract_json_from_text(valid_json)
         self.assertIsNotNone(result)
         self.assertEqual(result["type"], "message")
+
+        # Invalid JSON should populate LAST_JSON_ERROR_INFO
+        invalid_json = '{"type": "message"'
+        self.assertIsNone(extract_json_from_text(invalid_json))
+        assert LAST_JSON_ERROR_INFO is not None
+        assert "line" in LAST_JSON_ERROR_INFO
     
     @patch('core.action_parser.log_warning')
     @patch('core.action_parser.log_info')
