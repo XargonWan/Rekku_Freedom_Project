@@ -33,6 +33,8 @@ structured system message:
        "system_message": {
            "type": "error",
            "message": "Multiple channels found with name <name>; please retry with the numeric chat_id",
+           "your_reply": "<original reply>",
+           "full_json_instructions": {"instructions": "...", "actions": { ... }},
            "error_retry_policy": {
              "description": "If you receive a system_message of type 'error' with the phrase 'Please repeat your previous message, not this very prompt, but your previous reply, corrected. If that was a web search please use the content to reply with your own words.' you must automatically re-send the exact same JSON you sent previously, but with the part indicated as invalid corrected.",
               "steps": [

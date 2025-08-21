@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Tuple, Optional
 
 from core.logging_utils import log_debug, log_info, log_warning, log_error
-from core.prompt_engine import load_json_instructions
+from core.prompt_engine import build_full_json_instructions
 
 # Global dictionary to track retry attempts per chat/message thread for the corrector
 CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
@@ -93,10 +93,13 @@ async def corrector(errors: list, failed_actions: list, bot, message):
         "Please repeat your previous message, not this very prompt, but your previous reply, corrected. "
         "If that was a web search please use the content to reply with your own words."
     )
+    full_json = build_full_json_instructions()
     correction_payload = {
         "system_message": {
             "type": "error",
             "message": message_text,
+            "your_reply": getattr(message, "text", ""),
+            "full_json_instructions": full_json,
             "error_retry_policy": ERROR_RETRY_POLICY,
         }
     }

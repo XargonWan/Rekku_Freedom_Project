@@ -99,18 +99,19 @@ class TestCorrectorRetry(unittest.TestCase):
         self.assertIsNone(extract_json_from_text('🚨 ACTION PARSING ERRORS DETECTED 🚨'))
         self.assertIsNone(extract_json_from_text('Please fix these actions'))
         self.assertIsNone(
-            extract_json_from_text('{"system_message": {"type": "error", "message": "fail"}}')
-        )
-        self.assertIsNone(
             extract_json_from_text(
-                '{"system_message": {"type": "error", "message": "fail", "error_retry_policy": {"description": "d", "steps": ["1"]}}}'
+                '{"system_message": {"type": "error", "message": "fail", "your_reply": "orig", "full_json_instructions": {}, "error_retry_policy": {"description": "d", "steps": ["1"]}}}'
             )
         )
         self.assertIsNone(
-            extract_json_from_text('{"system_message": {"type": "output", "message": "ok"}}')
+            extract_json_from_text(
+                '{"system_message": {"type": "output", "message": "ok", "full_json_instructions": {}}}'
+            )
         )
         self.assertIsNone(
-            extract_json_from_text('{"system_message": {"type": "event", "message": "ping"}}')
+            extract_json_from_text(
+                '{"system_message": {"type": "event", "message": "ping", "full_json_instructions": {}}}'
+            )
         )
         
         # Valid JSON should parse
