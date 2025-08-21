@@ -249,12 +249,40 @@ def wait_until_response_stabilizes(
         time.sleep(0.5)
 
 
+def _wait_for_button_state(driver, state: str, timeout: int) -> bool:
+    """Wait until the submit button matches the desired ``state``."""
+    locator = (By.ID, "composer-submit-button")
+    try:
+        WebDriverWait(driver, timeout).until(
+            lambda d: d.find_element(*locator).get_attribute("data-testid") == state
+        )
+        return True
+    except TimeoutException:
+        return False
+
+
+def wait_for_chatgpt_idle(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
+    """Wait until ChatGPT is ready for a new prompt (send button visible)."""
+    if _wait_for_button_state(driver, "send-button", timeout):
+        return True
+    log_warning("[selenium] Timeout waiting for send button")
+    return False
+
+
+def wait_for_response_completion(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
+    """Wait until the current response finishes streaming."""
+    _wait_for_button_state(driver, "stop-button", 5)
+    if _wait_for_button_state(driver, "send-button", timeout):
+        return True
+    log_warning("[selenium] Timeout waiting for response completion")
+    return False
+
+
 
 def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
-    """Send text and wait for ChatGPT to start replying."""
+    """Send text and wait for ChatGPT's reply to finish."""
     driver = textarea._parent
-    prev_blocks = len(driver.find_elements(By.CSS_SELECTOR, "div.markdown"))
-    log_debug(f"[selenium][STEP] Initial markdown block count: {prev_blocks}")
+    wait_for_chatgpt_idle(driver)
     for attempt in range(1, 4):
         try:
             log_debug(f"[selenium][STEP] Attempt {attempt} to send prompt")
@@ -271,11 +299,10 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
                 log_warning(f"[selenium] Failed to click send button: {e}")
                 textarea.send_keys(Keys.ENTER)
                 log_debug("[selenium][STEP] Sent ENTER key as fallback")
-            log_debug(f"[selenium][STEP] Prompt sent, waiting for response")
-            if wait_for_markdown_block_to_appear(driver, prev_blocks):
-                log_debug(f"[selenium][STEP] New markdown block detected")
+            log_debug("[selenium][STEP] Prompt sent, waiting for completion")
+            if wait_for_response_completion(driver):
                 wait_until_response_stabilizes(driver)
-                log_debug(f"[selenium][STEP] Response stabilized")
+                log_debug("[selenium][STEP] Response stabilized")
                 return
             log_warning(f"[selenium] No response after attempt {attempt}")
         except Exception as e:  # pragma: no cover - best effort
@@ -283,9 +310,8 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
     log_warning("[selenium] Fallback via ActionChains")
     try:
         ActionChains(driver).click(textarea).send_keys(prompt_text).send_keys(Keys.ENTER).perform()
-        log_debug(f"[selenium][STEP] Fallback ActionChains used to send prompt")
-        if wait_for_markdown_block_to_appear(driver, prev_blocks):
-            log_debug(f"[selenium][STEP] New markdown block detected after fallback")
+        log_debug("[selenium][STEP] Fallback ActionChains used to send prompt")
+        if wait_for_response_completion(driver):
             wait_until_response_stabilizes(driver)
     except Exception as e:  # pragma: no cover - best effort
         log_warning(f"[selenium] Fallback send failed: {e}")
@@ -474,7 +500,7 @@ def process_prompt_in_chat(
     while time.time() - start < AWAIT_RESPONSE_TIMEOUT:
         attempt += 1
         try:
-            prev_count = len(driver.find_elements(By.CSS_SELECTOR, "div.markdown"))
+            wait_for_chatgpt_idle(driver)
             paste_and_send(textarea, prompt_text)
             tag = (textarea.tag_name or "").lower()
             prop = "value" if tag in {"textarea", "input"} else "textContent"
@@ -513,10 +539,10 @@ def process_prompt_in_chat(
             log_error(f"[selenium][ERROR] Failed to send prompt: {repr(e)}")
             return None
 
-        log_debug("🔍 Waiting for response block...")
-        if not wait_for_markdown_block_to_appear(driver, prev_count, timeout=10):
+        log_debug("🔍 Waiting for response...")
+        if not wait_for_response_completion(driver):
             repeat_failures += 1
-            log_warning("[selenium][retry] No new response block appeared")
+            log_warning("[selenium][retry] Response did not complete")
         else:
             try:
                 response_text = wait_until_response_stabilizes(driver, max_total_wait=5)
