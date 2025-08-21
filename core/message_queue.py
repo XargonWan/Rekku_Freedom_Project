@@ -51,8 +51,20 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
     if human_count is None and hasattr(message, "chat"):
         human_count = getattr(message.chat, "human_count", None)
 
-    if not await is_message_for_bot(message, bot, human_count=human_count):
-        log_debug("[QUEUE] Message ignored: not directed to bot")
+    directed, reason = await is_message_for_bot(
+        message, bot, human_count=human_count
+    )
+    if not directed:
+        if reason == "missing_human_count":
+            log_debug(
+                "[QUEUE] Message ignored: interface lacks participant count and no direct mention"
+            )
+        elif reason == "multiple_humans":
+            log_debug(
+                "[QUEUE] Message ignored: multiple humans in chat and no direct mention"
+            )
+        else:
+            log_debug(f"[QUEUE] Message ignored: {reason or 'not directed to bot'}")
         return
 
     plugin = plugin_instance.get_plugin()

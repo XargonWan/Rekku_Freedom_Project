@@ -29,8 +29,15 @@ def test_one_to_one_detection_with_explicit_count():
     )
 
     async def run():
-        assert await mention_utils.is_message_for_bot(message, bot, human_count=1)
-        assert not await mention_utils.is_message_for_bot(message, bot, human_count=3)
+        directed, reason = await mention_utils.is_message_for_bot(
+            message, bot, human_count=1
+        )
+        assert directed and reason is None
+
+        directed, reason = await mention_utils.is_message_for_bot(
+            message, bot, human_count=3
+        )
+        assert not directed and reason == "multiple_humans"
 
     asyncio.run(run())
 
@@ -49,7 +56,8 @@ def test_no_auto_detection_when_count_unknown():
     )
 
     async def run():
-        assert not await mention_utils.is_message_for_bot(message, bot)
+        directed, reason = await mention_utils.is_message_for_bot(message, bot)
+        assert not directed and reason == "missing_human_count"
 
     asyncio.run(run())
 

@@ -66,7 +66,7 @@ async def is_message_for_bot(
     bot,
     bot_username: str | None = None,
     human_count: int | None = None,
-) -> bool:
+) -> tuple[bool, str | None]:
     """
     Check if a message is directed to the bot considering:
     - Explicit @mention of the bot
@@ -83,12 +83,15 @@ async def is_message_for_bot(
             and the bot will fall back to mention-based activation.
     
     Returns:
-        bool: True if message is directed to the bot
+        tuple: (is_for_bot, reason)
+            - is_for_bot: True if message is directed to the bot
+            - reason: Optional string describing why a message was not
+              considered for the bot. ``None`` when ``is_for_bot`` is True.
     """
     # Private messages are always for the bot
     if message.chat.type == "private":
         log_debug("[mention] Private message - directed to bot")
-        return True
+        return True, None
     
     # Group/supergroup messages need specific checks
     if message.chat.type in ["group", "supergroup"]:
@@ -124,7 +127,7 @@ async def is_message_for_bot(
 
         if human_count is not None and human_count <= 1:
             log_debug("[mention] 1:1 group chat detected - directed to bot")
-            return True
+            return True, None
         
         # Check for explicit @mention of the bot
         if message.entities:
@@ -133,7 +136,7 @@ async def is_message_for_bot(
                     mention_text = text[entity.offset:entity.offset + entity.length].lower()
                     if mention_text == f"@{bot_username}":
                         log_debug(f"[mention] Explicit bot mention found: {mention_text}")
-                        return True
+                        return True, None
         
         # Check if replying to a message from the bot
         if message.reply_to_message and message.reply_to_message.from_user:
@@ -153,19 +156,19 @@ async def is_message_for_bot(
                             bot_user = bot.get_me()
                             if bot_user and replied_user.id == bot_user.id:
                                 log_debug(f"[mention] Reply to bot message detected (by ID: {bot_user.id})")
-                                return True
+                                return True, None
                     except Exception as e:
                         log_debug(f"[mention] bot.get_me failed: {e}")
                 
                 # Alternative: check if bot object has an id attribute
                 if hasattr(bot, 'id') and replied_user.id == bot.id:
                     log_debug(f"[mention] Reply to bot message detected (by bot.id: {bot.id})")
-                    return True
+                    return True, None
                     
                 # Alternative: check if bot object has a user attribute
                 if hasattr(bot, 'user') and hasattr(bot.user, 'id') and replied_user.id == bot.user.id:
                     log_debug(f"[mention] Reply to bot message detected (by bot.user.id: {bot.user.id})")
-                    return True
+                    return True, None
                     
             except Exception as e:
                 log_debug(f"[mention] Exception in ID check: {e}")
@@ -174,25 +177,31 @@ async def is_message_for_bot(
             if replied_user.username and bot_username:
                 if replied_user.username.lower() == bot_username.lower():
                     log_debug(f"[mention] Reply to bot message detected (by username: {replied_user.username})")
-                    return True
+                    return True, None
             
             # Additional fallback: check common bot usernames if we don't have bot_username
             if replied_user.username and not bot_username:
                 common_bot_names = ['rekku_freedom_project', 'rekku_the_bot', 'rekkubot']
                 if replied_user.username.lower() in common_bot_names:
                     log_debug(f"[mention] Reply to bot message detected (by common name: {replied_user.username})")
-                    return True
+                    return True, None
             
             log_debug(f"[mention] Reply detected but not to bot (replied to: {replied_user.username or replied_user.id})")
         
         # Check for Rekku aliases in text
         if is_rekku_mentioned(text):
             log_debug("[mention] Rekku alias mentioned in text")
-            return True
-        
-        log_debug("[mention] No bot mention detected in group message")
-        return False
+            return True, None
+
+        log_debug(
+            f"[mention] No bot mention detected in group message (human_count={human_count})"
+        )
+        if human_count is None:
+            return False, "missing_human_count"
+        return False, "multiple_humans"
     
     # For other chat types, default to True (channels, etc.)
-    log_debug(f"[mention] Unknown chat type {message.chat.type} - assuming directed to bot")
-    return True
+    log_debug(
+        f"[mention] Unknown chat type {message.chat.type} - assuming directed to bot"
+    )
+    return True, None
