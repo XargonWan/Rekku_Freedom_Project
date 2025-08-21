@@ -467,13 +467,18 @@ def process_prompt_in_chat(
 
     start = time.time()
     attempt = 0
+    repeat_failures = 0
+    last_response: Optional[str] = None
     while time.time() - start < AWAIT_RESPONSE_TIMEOUT:
         attempt += 1
         try:
+            prev_count = len(driver.find_elements(By.CSS_SELECTOR, "div.markdown"))
             paste_and_send(textarea, prompt_text)
             tag = (textarea.tag_name or "").lower()
             prop = "value" if tag in {"textarea", "input"} else "textContent"
-            final_value = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
+            final_value = driver.execute_script(
+                f"return arguments[0].{prop};", textarea
+            ) or ""
             if final_value != strip_non_bmp(prompt_text):
                 log_warning(
                     f"[selenium] Prompt mismatch after paste: expected {len(prompt_text)} chars, got {len(final_value)}"
@@ -507,17 +512,34 @@ def process_prompt_in_chat(
             return None
 
         log_debug("🔍 Waiting for response block...")
-        try:
-            response_text = wait_until_response_stabilizes(driver, max_total_wait=5)
-        except TimeoutException:
-            log_warning("[selenium][WARN] Timeout while waiting for response")
+        if not wait_for_markdown_block_to_appear(driver, prev_count, timeout=10):
+            repeat_failures += 1
+            log_warning("[selenium][retry] No new response block appeared")
         else:
-            if response_text and response_text != previous_text:
-                if not chat_id:
-                    new_chat_id = _extract_chat_id(driver.current_url)
-                    if new_chat_id:
-                        log_debug(f"[selenium] New chat ID extracted after response: {new_chat_id}")
-                return response_text.strip()
+            try:
+                response_text = wait_until_response_stabilizes(driver, max_total_wait=5)
+            except TimeoutException:
+                log_warning("[selenium][WARN] Timeout while waiting for response")
+                response_text = None
+            else:
+                if response_text and response_text != previous_text:
+                    if not chat_id:
+                        new_chat_id = _extract_chat_id(driver.current_url)
+                        if new_chat_id:
+                            log_debug(
+                                f"[selenium] New chat ID extracted after response: {new_chat_id}"
+                            )
+                    return response_text.strip()
+
+            if response_text == last_response:
+                repeat_failures += 1
+            else:
+                repeat_failures = 0
+            last_response = response_text
+
+        if repeat_failures >= 3:
+            log_warning("[selenium] Aborting after repeated empty responses")
+            break
 
         log_warning(f"[selenium][retry] Empty response attempt {attempt}")
         remaining = AWAIT_RESPONSE_TIMEOUT - (time.time() - start)
