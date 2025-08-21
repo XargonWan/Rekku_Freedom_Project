@@ -5,8 +5,9 @@ Test suite for the action parser corrector retry system.
 
 import unittest
 import time
+import json
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, AsyncMock
 from types import SimpleNamespace
 
 # Import the transport layer module
@@ -99,18 +100,19 @@ class TestCorrectorRetry(unittest.TestCase):
         self.assertIsNone(extract_json_from_text('🚨 ACTION PARSING ERRORS DETECTED 🚨'))
         self.assertIsNone(extract_json_from_text('Please fix these actions'))
         self.assertIsNone(
-            extract_json_from_text('{"system_message": {"type": "error", "message": "fail"}}')
-        )
-        self.assertIsNone(
             extract_json_from_text(
-                '{"system_message": {"type": "error", "message": "fail", "error_retry_policy": {"description": "d", "steps": ["1"]}}}'
+                '{"system_message": {"type": "error", "message": "fail", "your_reply": "orig", "full_json_instructions": {}, "error_retry_policy": {"description": "d", "steps": ["1"]}}}'
             )
         )
         self.assertIsNone(
-            extract_json_from_text('{"system_message": {"type": "output", "message": "ok"}}')
+            extract_json_from_text(
+                '{"system_message": {"type": "output", "message": "ok", "full_json_instructions": {}}}'
+            )
         )
         self.assertIsNone(
-            extract_json_from_text('{"system_message": {"type": "event", "message": "ping"}}')
+            extract_json_from_text(
+                '{"system_message": {"type": "event", "message": "ping", "full_json_instructions": {}}}'
+            )
         )
         
         # Valid JSON should parse
@@ -196,6 +198,30 @@ class TestCorrectorRetry(unittest.TestCase):
         await corrector(errors, failed_actions, mock_bot, message)
 
         mock_log_error.assert_not_called()
+
+
+@patch('core.action_parser.build_full_json_instructions', return_value={})
+@patch('core.plugin_instance.plugin')
+@pytest.mark.asyncio
+async def test_corrector_uses_original_text(mock_plugin, mock_build_instr):
+    """Corrector should embed the original LLM reply if provided."""
+    mock_plugin.handle_incoming_message = AsyncMock()
+
+    message = SimpleNamespace()
+    message.chat_id = 1
+    message.message_thread_id = None
+    message.text = "ignored"
+    message.original_text = '{"actions": []}'
+
+    mock_bot = Mock()
+    errors = ["dummy error"]
+
+    await corrector(errors, [], mock_bot, message)
+
+    args = mock_plugin.handle_incoming_message.await_args.args
+    correction_prompt = args[2]
+    payload = json.loads(correction_prompt)
+    assert payload["system_message"]["your_reply"] == '{"actions": []}'
 
 if __name__ == '__main__':
     unittest.main()

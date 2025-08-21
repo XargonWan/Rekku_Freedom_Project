@@ -218,4 +218,16 @@ The JSON is just a wrapper — speak naturally as you always do.
 """
 
 
+def build_full_json_instructions() -> dict:
+    """Return combined JSON instructions and available actions block."""
+    instructions = load_json_instructions()
+    actions = {}
+    try:
+        from core.core_initializer import core_initializer
+        actions = core_initializer.actions_block.get("available_actions", {})
+    except Exception as e:  # pragma: no cover - defensive
+        log_warning(f"[prompt_engine] Failed to load actions block: {e}")
+    return {"instructions": instructions, "actions": actions}
+
+
 

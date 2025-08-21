@@ -133,6 +133,9 @@ Error system messages include an ``error_retry_policy`` instructing the
 LLM how to resubmit corrected JSON. The policy describes the steps to
 repeat the previous request while adjusting only the invalid portion.
 
+All system messages also contain a ``full_json_instructions`` block that
+reminds the LLM of the JSON format and available actions.
+
 These system messages are ignored during JSON extraction, preventing
 unintended actions.
 

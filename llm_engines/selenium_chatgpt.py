@@ -1175,7 +1175,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     queue_paused = False
 
                 if not response_text:
-                    response_text = "\u26a0\ufe0f No response received"
+                    response_text = json.dumps({"actions": []})
 
                 await safe_send(
                     bot,

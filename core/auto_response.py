@@ -9,6 +9,7 @@ import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from typing import Dict, Any, Optional
 from datetime import datetime
+from core.prompt_engine import build_full_json_instructions
 
 
 class AutoResponseSystem:
@@ -81,8 +82,13 @@ class AutoResponseSystem:
             mock_message.chat.first_name = "AutoResponse"
             mock_message.chat.type = "private"
             
+            full_json = build_full_json_instructions()
             system_payload = {
-                "system_message": {"type": "output", "message": output}
+                "system_message": {
+                    "type": "output",
+                    "message": output,
+                    "full_json_instructions": full_json,
+                }
             }
 
             log_info(
@@ -162,13 +168,22 @@ async def request_llm_delivery(
             # If we have a message, use it directly with plugin_instance
             import json
 
+            full_json = build_full_json_instructions()
             if isinstance(context, dict) and context.get("input", {}).get("type") == "event":
                 system_payload = {
-                    "system_message": {"type": "event", "message": context}
+                    "system_message": {
+                        "type": "event",
+                        "message": context,
+                        "full_json_instructions": full_json,
+                    }
                 }
             else:
                 system_payload = {
-                    "system_message": {"type": "output", "message": context}
+                    "system_message": {
+                        "type": "output",
+                        "message": context,
+                        "full_json_instructions": full_json,
+                    }
                 }
 
             payload_json = json.dumps(system_payload, ensure_ascii=False)
