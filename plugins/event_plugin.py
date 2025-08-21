@@ -424,7 +424,6 @@ class EventPlugin(AIPluginBase):
                 interface=interface,  # Pass interface so LLM can route the event
                 context=event_prompt,
                 reason=f"scheduled_event_{event['id']}",
-                allowed_actions=["message_telegram_bot", "event", "terminal"],
             )
             log_info(
                 f"[event_plugin] Event {event['id']} delivered to LLM via auto-response"
@@ -828,8 +827,7 @@ For recurring events, you can use:
                 message=unified_message,
                 interface=None,  # Let auto-response determine interface
                 context=scheduled_prompt,
-                reason=f"scheduled_action_{event_id}",
-                allowed_actions=["message_telegram_bot", "event", "terminal"],
+                reason=f"scheduled_action_{event_id}"
             )
 
         except Exception as e:
