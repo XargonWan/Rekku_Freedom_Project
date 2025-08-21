@@ -40,14 +40,18 @@ async def _delayed_put(item: dict, delay: float) -> None:
 
 async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
     """Enqueue a message for serialized processing with rate limiting.
-    
+
     Args:
         bot: The bot instance
         message: The message to process
         context_memory: Message context
         priority: If True, message is added to front of queue (for events)
     """
-    if not await is_message_for_bot(message, bot):
+    human_count = getattr(message, "human_count", None)
+    if human_count is None and hasattr(message, "chat"):
+        human_count = getattr(message.chat, "human_count", None)
+
+    if not await is_message_for_bot(message, bot, human_count=human_count):
         log_debug("[QUEUE] Message ignored: not directed to bot")
         return
 
