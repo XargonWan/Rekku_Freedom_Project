@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from core.config import TELEGRAM_TRAINER_ID
 from core import plugin_instance, rate_limit, recent_chats
 from core.logging_utils import log_debug, log_error, log_warning, log_info
+from core.mention_utils import is_message_for_bot
 
 # Use a priority queue so events can be processed before regular messages
 HIGH_PRIORITY = 0
@@ -39,13 +40,33 @@ async def _delayed_put(item: dict, delay: float) -> None:
 
 async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
     """Enqueue a message for serialized processing with rate limiting.
-    
+
     Args:
         bot: The bot instance
         message: The message to process
         context_memory: Message context
         priority: If True, message is added to front of queue (for events)
     """
+    human_count = getattr(message, "human_count", None)
+    if human_count is None and hasattr(message, "chat"):
+        human_count = getattr(message.chat, "human_count", None)
+
+    directed, reason = await is_message_for_bot(
+        message, bot, human_count=human_count
+    )
+    if not directed:
+        if reason == "missing_human_count":
+            log_debug(
+                "[QUEUE] Message ignored: interface lacks participant count and no direct mention"
+            )
+        elif reason == "multiple_humans":
+            log_debug(
+                "[QUEUE] Message ignored: multiple humans in chat and no direct mention"
+            )
+        else:
+            log_debug(f"[QUEUE] Message ignored: {reason or 'not directed to bot'}")
+        return
+
     plugin = plugin_instance.get_plugin()
     if not plugin:
         log_error("[QUEUE] No active plugin")

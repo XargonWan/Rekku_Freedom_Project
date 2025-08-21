@@ -36,8 +36,6 @@ from core.message_sender import (
 )
 from core.config import get_active_llm, set_active_llm, list_available_llms
 from core.config import BOT_TOKEN, BOT_USERNAME, TELEGRAM_TRAINER_ID
-# Import mention detector to recognize Rekku aliases even without explicit @username
-from core.mention_utils import is_rekku_mentioned, is_message_for_bot
 
 from core.chat_link_store import (
     ChatLinkStore,
@@ -343,22 +341,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             log_warning("⚠️ No target found for reply. Ensure plugin mapping is correct.")
             await message.reply_text("⚠️ No message found to reply to.")
-        return
-
-    # === FILTER: Only respond if mentioned or in reply
-    log_debug(f"[telegram_bot] Checking if message is for bot: chat_type={message.chat.type}, "
-              f"text='{text[:50]}{'...' if len(text) > 50 else ''}', "
-              f"reply_message_id={message.reply_to_message is not None}")
-    
-    if message.reply_to_message:
-        log_debug(f"[telegram_bot] Reply to message from user ID: {message.reply_to_message.from_user.id if message.reply_to_message.from_user else 'None'}, "
-                  f"username: {message.reply_to_message.from_user.username if message.reply_to_message.from_user else 'None'}")
-    
-    is_for_bot = await is_message_for_bot(message, context.bot)
-    log_debug(f"[telegram_bot] is_message_for_bot result: {is_for_bot}")
-    
-    if not is_for_bot:
-        log_debug("Ignoring message: no Rekku mention detected.")
         return
 
     # === Forward to centralized queue
