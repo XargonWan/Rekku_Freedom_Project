@@ -183,8 +183,14 @@ async def request_llm_delivery(
                 mock_message.chat_id = -1  # Default chat
                 mock_message.message_id = 0
                 mock_message.text = f"Auto-generated message for {reason}"
+                mock_message.from_user = SimpleNamespace(
+                    id=0, username="auto_response", full_name="AutoResponder"
+                )
+                mock_message.chat = SimpleNamespace(id=-1, type="private")
 
-                await plugin_instance.handle_incoming_message(interface, mock_message, payload_json)
+                await plugin_instance.handle_incoming_message(
+                    interface, mock_message, payload_json
+                )
                 
         except Exception as e:
             log_error(f"[auto_response] Failed to process {reason}: {e}")
