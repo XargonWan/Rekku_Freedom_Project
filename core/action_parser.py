@@ -98,7 +98,7 @@ async def corrector(errors: list, failed_actions: list, bot, message):
         "system_message": {
             "type": "error",
             "message": message_text,
-            "your_reply": getattr(message, "text", ""),
+            "your_reply": getattr(message, "original_text", getattr(message, "text", "")),
             "full_json_instructions": full_json,
             "error_retry_policy": ERROR_RETRY_POLICY,
         }
