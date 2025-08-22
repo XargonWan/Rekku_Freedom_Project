@@ -422,9 +422,9 @@ PLUGIN_REGISTRY: dict[str, Any] = {}
 
 def register_plugin(name: str, plugin_obj: Any) -> None:
     """Register a plugin instance and its actions."""
-    # Avoid re-registering the same plugin repeatedly
+    # Avoid re-registering the same plugin by name
     existing = PLUGIN_REGISTRY.get(name)
-    if existing is plugin_obj:
+    if existing is not None:
         log_debug(f"[core_initializer] Plugin {name} already registered; skipping")
         return
 

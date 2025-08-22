@@ -4,17 +4,24 @@ from core.logging_utils import log_info, log_warning, log_error
 from core.core_initializer import register_plugin, PLUGIN_REGISTRY
 from core.chat_link_store import ChatLinkStore
 
+# Global flag to avoid multiple registrations when the module is re-imported
+_REGISTERED = False
+
 
 class ChatLinkActions:
     """Expose actions for updating chat and thread names."""
 
     def __init__(self) -> None:
-        self.store = ChatLinkStore()
-        if "chat_link" not in PLUGIN_REGISTRY:
-            register_plugin("chat_link", self)
-            log_info("[chat_link_actions] Registered core chat_link actions")
-        else:
+        global _REGISTERED
+
+        if _REGISTERED or "chat_link" in PLUGIN_REGISTRY:
             log_info("[chat_link_actions] chat_link actions already registered")
+            return
+
+        self.store = ChatLinkStore()
+        register_plugin("chat_link", self)
+        _REGISTERED = True
+        log_info("[chat_link_actions] Registered core chat_link actions")
 
     # --------------------------------------------------------------
     @staticmethod
