@@ -232,6 +232,8 @@ def wait_until_response_stabilizes(
                     log_debug(
                         "[selenium] Dismissed prefer-response dialog"
                     )
+                except StaleElementReferenceException:
+                    log_debug("[selenium] Prefer-response button became stale")
                 except Exception as e:  # pragma: no cover - best effort
                     log_warning(
                         f"[selenium] Failed to click prefer-response button: {e}"
@@ -249,6 +251,10 @@ def wait_until_response_stabilizes(
                 time.sleep(0.5)
                 continue
             text = elems[-1].text or ""
+        except StaleElementReferenceException:
+            log_debug("[selenium] Response element became stale, retrying...")
+            time.sleep(0.5)
+            continue
         except Exception as e:  # pragma: no cover - best effort
             log_warning(f"[selenium] Response wait error: {e}")
             time.sleep(0.5)
