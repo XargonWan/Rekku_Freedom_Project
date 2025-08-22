@@ -137,22 +137,27 @@ def paste_and_send(textarea, prompt_text: str) -> None:
     import textwrap
     textarea.clear()
     chunk_size = 1000
+    final_val = ""
     for attempt in range(3):
         if attempt:
             log_warning(f"[selenium] send_keys retry {attempt}/3")
         try:
             textarea.send_keys(Keys.CONTROL, "a")
             textarea.send_keys(Keys.DELETE)
-            for chunk in textwrap.wrap(clean, chunk_size):
+            for idx, chunk in enumerate(textwrap.wrap(clean, chunk_size), start=1):
+                log_debug(f"[selenium] sending chunk {idx} len={len(chunk)}")
                 textarea.send_keys(chunk)
                 time.sleep(0.05)
             final_val = textarea.get_attribute("value") or ""
+            log_debug(f"[selenium] value after send_keys: {len(final_val)} chars")
             if final_val == clean:
                 return
         except Exception as e:
             log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
         chunk_size = max(200, chunk_size // 2)
-    log_warning("[selenium] Failed to insert full prompt")
+    log_warning(
+        f"[selenium] Failed to insert full prompt: expected {len(clean)} chars, got {len(final_val)}"
+    )
 
 
 # ---------------------------------------------------------------------------
