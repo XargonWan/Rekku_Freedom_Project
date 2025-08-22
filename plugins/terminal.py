@@ -234,7 +234,6 @@ class TerminalPlugin(AIPluginBase):
                     original_context=error_context,
                     action_type=f"{action_type}_error",
                     command=command,
-                    allowed_actions=["message_telegram_bot", "event", "terminal"],
                 )
             return f"Error executing command '{command}': {str(e)}"
 
