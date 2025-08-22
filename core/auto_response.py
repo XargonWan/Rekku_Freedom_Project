@@ -157,20 +157,20 @@ async def request_llm_delivery(
     """
     # Handle legacy calling pattern (terminal plugin style)
     if (action_outputs is not None) and original_context is not None:
-            await _auto_response_system.request_llm_response(
-                original_context=original_context,
-                action_type=action_type or "unknown",
-                action_outputs=action_outputs,
-            )
+        await _auto_response_system.request_llm_response(
+            original_context=original_context,
+            action_type=action_type or "unknown",
+            action_outputs=action_outputs,
+        )
         return
 
     if output is not None and original_context is not None:
-            await _auto_response_system.request_llm_response(
-                output,
-                original_context,
-                action_type or "unknown",
-                command,
-            )
+        await _auto_response_system.request_llm_response(
+            output,
+            original_context,
+            action_type or "unknown",
+            command,
+        )
         return
     
     # Handle new calling pattern (interface style)
