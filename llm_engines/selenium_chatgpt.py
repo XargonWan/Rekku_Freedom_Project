@@ -258,21 +258,35 @@ def wait_until_response_stabilizes(
 def _wait_for_button_state(driver, state: str, timeout: int) -> bool:
     """Wait until the submit button matches the desired ``state``."""
     locator = (By.ID, "composer-submit-button")
-    try:
-        def check_button_state(d):
-            try:
-                element = d.find_element(*locator)
-                return element.get_attribute("data-testid") == state
-            except StaleElementReferenceException:
-                # Element became stale, find it again in the next iteration
+    max_retries = 3
+    
+    for retry in range(max_retries):
+        try:
+            def check_button_state(d):
+                try:
+                    element = d.find_element(*locator)
+                    return element.get_attribute("data-testid") == state
+                except StaleElementReferenceException:
+                    # Element is stale, return False to trigger retry in outer loop
+                    return False
+                except:
+                    return False
+            
+            WebDriverWait(driver, timeout).until(check_button_state)
+            return True
+        except (TimeoutException, StaleElementReferenceException) as e:
+            if retry < max_retries - 1:
+                print(f"Retry {retry + 1}/{max_retries} for button state '{state}': {str(e)}")
+                time.sleep(1)  # Brief pause before retry
+                continue
+            else:
+                print(f"Failed to wait for button state '{state}' after {max_retries} retries")
                 return False
-            except NoSuchElementException:
-                return False
-        
-        WebDriverWait(driver, timeout).until(check_button_state)
-        return True
-    except TimeoutException:
-        return False
+        except Exception as e:
+            print(f"Unexpected error waiting for button state '{state}': {str(e)}")
+            return False
+    
+    return False
 
 
 def wait_for_chatgpt_idle(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
