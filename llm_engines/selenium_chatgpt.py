@@ -124,27 +124,37 @@ def paste_and_send(textarea, prompt_text: str) -> None:
     driver = textarea._parent
     clean = strip_non_bmp(prompt_text)
 
-    _send_text_to_textarea(driver, textarea, clean)
-    tag = (textarea.tag_name or "").lower()
-    prop = "value" if tag in {"textarea", "input"} else "textContent"
-    actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
-    if actual == clean:
-        return
+    try:
+        _send_text_to_textarea(driver, textarea, clean)
+        tag = (textarea.tag_name or "").lower()
+        prop = "value" if tag in {"textarea", "input"} else "textContent"
+        actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
+        if actual == clean:
+            return
+    except StaleElementReferenceException:
+        log_warning("[selenium] Textarea became stale during JS paste, retrying with send_keys")
 
     log_warning(
-        f"[selenium] JS paste mismatch: expected {len(clean)} chars, got {len(actual)}. Falling back to send_keys"
+        f"[selenium] JS paste mismatch or stale element. Falling back to send_keys"
     )
 
     import textwrap
-    textarea.clear()
     chunk_size = 1000
     final_val = ""
     for attempt in range(3):
         if attempt:
             log_warning(f"[selenium] send_keys retry {attempt}/3")
         try:
-            textarea.send_keys(Keys.CONTROL, "a")
-            textarea.send_keys(Keys.DELETE)
+            # Re-locate textarea if it became stale
+            try:
+                textarea.send_keys(Keys.CONTROL, "a")
+                textarea.send_keys(Keys.DELETE)
+            except StaleElementReferenceException:
+                log_warning("[selenium] Textarea stale, attempting to re-locate")
+                textarea = driver.find_element(By.ID, "prompt-textarea")
+                textarea.send_keys(Keys.CONTROL, "a")
+                textarea.send_keys(Keys.DELETE)
+            
             for idx, chunk in enumerate(textwrap.wrap(clean, chunk_size), start=1):
                 log_debug(f"[selenium] sending chunk {idx} len={len(chunk)}")
                 textarea.send_keys(chunk)
@@ -153,6 +163,13 @@ def paste_and_send(textarea, prompt_text: str) -> None:
             log_debug(f"[selenium] value after send_keys: {len(final_val)} chars")
             if final_val == clean:
                 return
+        except StaleElementReferenceException as e:
+            log_warning(f"[selenium] Stale element on send_keys attempt {attempt}: {e}")
+            try:
+                textarea = driver.find_element(By.ID, "prompt-textarea")
+            except NoSuchElementException:
+                log_error("[selenium] Could not re-locate textarea element")
+                break
         except Exception as e:
             log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
         chunk_size = max(200, chunk_size // 2)
@@ -268,22 +285,27 @@ def _wait_for_button_state(driver, state: str, timeout: int) -> bool:
                     return element.get_attribute("data-testid") == state
                 except StaleElementReferenceException:
                     # Element is stale, return False to trigger retry in outer loop
+                    log_debug(f"[selenium] Stale element in check_button_state, retry {retry + 1}")
                     return False
-                except:
+                except NoSuchElementException:
+                    log_debug(f"[selenium] Button element not found for state '{state}'")
+                    return False
+                except Exception as e:
+                    log_debug(f"[selenium] Unexpected error in check_button_state: {e}")
                     return False
             
             WebDriverWait(driver, timeout).until(check_button_state)
             return True
         except (TimeoutException, StaleElementReferenceException) as e:
             if retry < max_retries - 1:
-                print(f"Retry {retry + 1}/{max_retries} for button state '{state}': {str(e)}")
+                log_debug(f"[selenium] Retry {retry + 1}/{max_retries} for button state '{state}': {str(e)}")
                 time.sleep(1)  # Brief pause before retry
                 continue
             else:
-                print(f"Failed to wait for button state '{state}' after {max_retries} retries")
+                log_warning(f"[selenium] Failed to wait for button state '{state}' after {max_retries} retries")
                 return False
         except Exception as e:
-            print(f"Unexpected error waiting for button state '{state}': {str(e)}")
+            log_warning(f"[selenium] Unexpected error waiting for button state '{state}': {str(e)}")
             return False
     
     return False
@@ -314,6 +336,15 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
     for attempt in range(1, 4):
         try:
             log_debug(f"[selenium][STEP] Attempt {attempt} to send prompt")
+            # Re-find textarea element in case it became stale
+            try:
+                textarea = WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((By.ID, "prompt-textarea"))
+                )
+            except (TimeoutException, StaleElementReferenceException) as e:
+                log_warning(f"[selenium] Could not find textarea on attempt {attempt}: {e}")
+                continue
+            
             paste_and_send(textarea, prompt_text)
             try:
                 send_btn = WebDriverWait(driver, 3).until(
@@ -323,16 +354,23 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
                 )
                 driver.execute_script("arguments[0].click();", send_btn)
                 log_debug("[selenium][STEP] Clicked send button")
-            except Exception as e:
+            except (StaleElementReferenceException, TimeoutException) as e:
                 log_warning(f"[selenium] Failed to click send button: {e}")
-                textarea.send_keys(Keys.ENTER)
-                log_debug("[selenium][STEP] Sent ENTER key as fallback")
+                try:
+                    textarea.send_keys(Keys.ENTER)
+                    log_debug("[selenium][STEP] Sent ENTER key as fallback")
+                except StaleElementReferenceException:
+                    log_warning("[selenium] Textarea became stale, retrying...")
+                    continue
             log_debug("[selenium][STEP] Prompt sent, waiting for completion")
             if wait_for_response_completion(driver):
                 wait_until_response_stabilizes(driver)
                 log_debug("[selenium][STEP] Response stabilized")
                 return
             log_warning(f"[selenium] No response after attempt {attempt}")
+        except StaleElementReferenceException as e:
+            log_warning(f"[selenium] Stale element on attempt {attempt}: {e}")
+            continue
         except Exception as e:  # pragma: no cover - best effort
             log_warning(f"[selenium] Send attempt {attempt} failed: {e}")
     log_warning("[selenium] Fallback via ActionChains")
@@ -718,27 +756,56 @@ def _locate_model_switcher(driver, timeout: int = 5):
 def ensure_chatgpt_model(driver):
     """Ensure the desired ChatGPT model is active before sending a prompt."""
     log_info(f"[chatgpt_model] Verifying active model matches {CHATGPT_MODEL}")
-    try:
-        log_debug("[chatgpt_model] Locating model switcher button")
-        switcher_btn = _locate_model_switcher(driver)
-        aria_label = switcher_btn.get_attribute("aria-label") or ""
-        log_debug(f"[chatgpt_model] switcher aria-label: {aria_label}")
-        match = re.search(r"current model is\s*(.*)", aria_label)
-        active_model = match.group(1).strip() if match else ""
-        log_info(f"[chatgpt_model] Active model is {active_model}")
-        if active_model == CHATGPT_MODEL:
-            log_info(f"[chatgpt_model] Desired model {CHATGPT_MODEL} already active")
-            return True
+    max_retries = 3
+    for retry in range(max_retries):
+        try:
+            log_debug("[chatgpt_model] Locating model switcher button")
+            switcher_btn = _locate_model_switcher(driver)
+            aria_label = switcher_btn.get_attribute("aria-label") or ""
+            log_debug(f"[chatgpt_model] switcher aria-label: {aria_label}")
+            match = re.search(r"current model is\s*(.*)", aria_label)
+            active_model = match.group(1).strip() if match else ""
+            log_info(f"[chatgpt_model] Active model is {active_model}")
+            if active_model == CHATGPT_MODEL:
+                log_info(f"[chatgpt_model] Desired model {CHATGPT_MODEL} already active")
+                return True
+            break  # Exit retry loop if we got the info we need
+        except StaleElementReferenceException as e:
+            if retry < max_retries - 1:
+                log_debug(f"[chatgpt_model] Stale element, retry {retry + 1}/{max_retries}: {e}")
+                time.sleep(1)
+                continue
+            else:
+                log_warning(f"[chatgpt_model] Failed to get model info after {max_retries} retries")
+                return False
+        except Exception as e:
+            log_warning(f"[chatgpt_model] Error getting current model: {e}")
+            return False
 
         log_debug("[chatgpt_model] Opening dropdown")
         try:
-            switcher_btn.find_element(By.XPATH, "./div").click()
-        except Exception:
+            # Re-locate switcher button to avoid stale element
+            switcher_btn = _locate_model_switcher(driver)
+            try:
+                switcher_btn.find_element(By.XPATH, "./div").click()
+            except (StaleElementReferenceException, NoSuchElementException):
+                switcher_btn.click()
+        except StaleElementReferenceException:
+            log_warning("[chatgpt_model] Switcher button became stale, retrying...")
+            switcher_btn = _locate_model_switcher(driver)
             switcher_btn.click()
-        WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div[role='menu']"))
-        )
-        log_debug("[chatgpt_model] Dropdown opened")
+        except Exception as e:
+            log_warning(f"[chatgpt_model] Failed to click switcher button: {e}")
+            return False
+            
+        try:
+            WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div[role='menu']"))
+            )
+            log_debug("[chatgpt_model] Dropdown opened")
+        except TimeoutException:
+            log_warning("[chatgpt_model] Dropdown failed to open")
+            return False
 
         try:
             log_debug("[chatgpt_model] Searching main list for model")
@@ -790,20 +857,43 @@ def ensure_chatgpt_model(driver):
                         pass
                     return False
 
-        log_debug("[chatgpt_model] Clicking desired model")
-        ActionChains(driver).move_to_element(model_elem).click().perform()
-        log_info(f"[chatgpt_model] Clicked on model {CHATGPT_MODEL}")
         try:
-            WebDriverWait(driver, 5).until(
-                lambda d: CHATGPT_MODEL in (
-                    _locate_model_switcher(d).get_attribute("aria-label") or ""
-                )
-            )
+            log_debug("[chatgpt_model] Clicking desired model")
+            ActionChains(driver).move_to_element(model_elem).click().perform()
+            log_info(f"[chatgpt_model] Clicked on model {CHATGPT_MODEL}")
+        except StaleElementReferenceException:
+            log_warning("[chatgpt_model] Model element became stale, clicking with JS")
+            driver.execute_script("arguments[0].click();", model_elem)
+        except Exception as e:
+            log_warning(f"[chatgpt_model] Failed to click model element: {e}")
+            return False
+            
+        try:
+            # Wait and verify the model was selected
+            def check_model_selected(d):
+                try:
+                    switcher = _locate_model_switcher(d)
+                    aria_label = switcher.get_attribute("aria-label") or ""
+                    return CHATGPT_MODEL in aria_label
+                except StaleElementReferenceException:
+                    return False
+                except Exception:
+                    return False
+                    
+            WebDriverWait(driver, 5).until(check_model_selected)
             log_info(f"[chatgpt_model] Modello selezionato: {CHATGPT_MODEL}")
             return True
         except TimeoutException:
-            new_label = _locate_model_switcher(driver).get_attribute("aria-label") or ""
-            log_warning(f"[chatgpt_model] Verifica modello fallita: {new_label}")
+            try:
+                new_label = _locate_model_switcher(driver).get_attribute("aria-label") or ""
+                log_warning(f"[chatgpt_model] Verifica modello fallita: {new_label}")
+            except StaleElementReferenceException:
+                log_warning("[chatgpt_model] Could not verify model selection - stale element")
+            except Exception as verify_e:
+                log_warning(f"[chatgpt_model] Could not verify model selection: {verify_e}")
+            return False
+        except Exception as click_e:
+            log_warning(f"[chatgpt_model] Error during model verification: {click_e}")
             return False
     except Exception as e:
         log_warning(f"[chatgpt_model] Errore selezione modello: {repr(e)}")
