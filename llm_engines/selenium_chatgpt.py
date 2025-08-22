@@ -901,7 +901,6 @@ def ensure_chatgpt_model(driver):
         except Exception as click_e:
             log_warning(f"[chatgpt_model] Error during model verification: {click_e}")
             return False
-    except Exception as e:
         log_warning(f"[chatgpt_model] Errore selezione modello: {repr(e)}")
         try:
             os.makedirs("/config/logs/screenshots", exist_ok=True)
