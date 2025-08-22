@@ -4,6 +4,7 @@ from core.rekku_tagging import extract_tags, expand_tags
 from core.db import get_conn
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.json_utils import dumps as json_dumps
+from typing import Optional
 import aiomysql
 
 
@@ -218,13 +219,21 @@ The JSON is just a wrapper — speak naturally as you always do.
 """
 
 
-def build_full_json_instructions() -> dict:
-    """Return combined JSON instructions and available actions block."""
+def build_full_json_instructions(allowed_actions: Optional[list] = None) -> dict:
+    """Return combined JSON instructions and available actions block.
+
+    Args:
+        allowed_actions: Optional list of action names to include. When provided,
+            only these actions will be included in the returned block. If None,
+            the full set of actions is returned.
+    """
     instructions = load_json_instructions()
     actions = {}
     try:
         from core.core_initializer import core_initializer
         actions = core_initializer.actions_block.get("available_actions", {})
+        if allowed_actions is not None:
+            actions = {k: v for k, v in actions.items() if k in allowed_actions}
     except Exception as e:  # pragma: no cover - defensive
         log_warning(f"[prompt_engine] Failed to load actions block: {e}")
     return {"instructions": instructions, "actions": actions}

@@ -7,7 +7,7 @@ Used when interfaces need to report results back through the LLM instead of dire
 import asyncio
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 from core.prompt_engine import build_full_json_instructions
 
@@ -20,10 +20,12 @@ class AutoResponseSystem:
     
     async def request_llm_response(
         self,
-        output: str,
-        original_context: Dict[str, Any],
-        action_type: str,
-        command: str = None
+        output: Optional[str] = None,
+        original_context: Optional[Dict[str, Any]] = None,
+        action_type: str = "unknown",
+        command: str = None,
+        action_outputs: Optional[List[Dict[str, Any]]] = None,
+        allowed_actions: Optional[List[str]] = None,
     ):
         """
         Request LLM to process and deliver outputs back to the user.
@@ -82,11 +84,15 @@ class AutoResponseSystem:
             mock_message.chat.first_name = "AutoResponse"
             mock_message.chat.type = "private"
             
-            full_json = build_full_json_instructions()
+            full_json = build_full_json_instructions(allowed_actions)
+            if action_outputs is not None:
+                message_block = {"action_outputs": action_outputs}
+            else:
+                message_block = output
             system_payload = {
                 "system_message": {
                     "type": "output",
-                    "message": output,
+                    "message": message_block,
                     "full_json_instructions": full_json,
                 }
             }
@@ -104,7 +110,14 @@ class AutoResponseSystem:
                     f"[auto_response] No interface '{interface_name}' available"
                 )
                 return
-            
+
+            bot = getattr(interface, "bot", None)
+            if bot is None:
+                log_error(
+                    f"[auto_response] Interface '{interface_name}' has no bot instance"
+                )
+                return
+
             # Enqueue the LLM request
             import json
 
@@ -134,7 +147,8 @@ async def request_llm_delivery(
     original_context=None,
     action_type=None,
     command=None,
-    action_outputs=None
+    action_outputs=None,
+    allowed_actions: Optional[List[str]] = None,
 ):
     """
     Unified convenience function to request LLM-mediated delivery.
@@ -145,17 +159,22 @@ async def request_llm_delivery(
     """
     # Handle legacy calling pattern (terminal plugin style)
     if (action_outputs is not None) and original_context is not None:
-        await _auto_response_system.request_llm_response(
-            original_context=original_context,
-            action_type=action_type or "unknown",
-            action_outputs=action_outputs,
-        )
+            await _auto_response_system.request_llm_response(
+                original_context=original_context,
+                action_type=action_type or "unknown",
+                action_outputs=action_outputs,
+                allowed_actions=allowed_actions,
+            )
         return
 
     if output is not None and original_context is not None:
-        await _auto_response_system.request_llm_response(
-            output, original_context, action_type or "unknown", command
-        )
+            await _auto_response_system.request_llm_response(
+                output,
+                original_context,
+                action_type or "unknown",
+                command,
+                allowed_actions=allowed_actions,
+            )
         return
     
     # Handle new calling pattern (interface style)
@@ -168,7 +187,7 @@ async def request_llm_delivery(
             # If we have a message, use it directly with plugin_instance
             import json
 
-            full_json = build_full_json_instructions()
+            full_json = build_full_json_instructions(allowed_actions)
             if isinstance(context, dict) and context.get("input", {}).get("type") == "event":
                 system_payload = {
                     "system_message": {
