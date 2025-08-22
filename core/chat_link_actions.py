@@ -14,8 +14,14 @@ class ChatLinkActions:
     def __init__(self) -> None:
         global _REGISTERED
 
-        if _REGISTERED or "chat_link" in PLUGIN_REGISTRY:
-            log_info("[chat_link_actions] chat_link actions already registered")
+        # Check both the global flag and the registry to prevent duplicates
+        if _REGISTERED:
+            log_info("[chat_link_actions] chat_link actions already registered (global flag)")
+            return
+            
+        if "chat_link" in PLUGIN_REGISTRY:
+            log_info("[chat_link_actions] chat_link actions already registered (in registry)")
+            _REGISTERED = True
             return
 
         self.store = ChatLinkStore()
@@ -72,7 +78,8 @@ class ChatLinkActions:
         return {"updated": updated}
 
 
-# Instantiate and register on import
-ChatLinkActions()
+# Instantiate and register on import - but only if not already done
+if not _REGISTERED and "chat_link" not in PLUGIN_REGISTRY:
+    ChatLinkActions()
 
 __all__ = ["ChatLinkActions"]
