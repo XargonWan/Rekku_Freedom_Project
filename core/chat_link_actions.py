@@ -1,7 +1,7 @@
 """Core actions for managing chat link metadata."""
 
 from core.logging_utils import log_info, log_warning, log_error
-from core.core_initializer import register_plugin
+from core.core_initializer import register_plugin, PLUGIN_REGISTRY
 from core.chat_link_store import ChatLinkStore
 
 
@@ -10,8 +10,11 @@ class ChatLinkActions:
 
     def __init__(self) -> None:
         self.store = ChatLinkStore()
-        register_plugin("chat_link", self)
-        log_info("[chat_link_actions] Registered core chat_link actions")
+        if "chat_link" not in PLUGIN_REGISTRY:
+            register_plugin("chat_link", self)
+            log_info("[chat_link_actions] Registered core chat_link actions")
+        else:
+            log_info("[chat_link_actions] chat_link actions already registered")
 
     # --------------------------------------------------------------
     @staticmethod
