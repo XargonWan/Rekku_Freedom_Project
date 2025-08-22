@@ -318,11 +318,33 @@ def _wait_for_button_state(driver, state: str, timeout: int) -> bool:
 
 
 def wait_for_chatgpt_idle(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
-    """Wait until ChatGPT is ready for a new prompt (send button visible)."""
-    if _wait_for_button_state(driver, "send-button", timeout):
+    """Wait until ChatGPT is ready for a new prompt (textarea is available and no stop button)."""
+    # First, check that we're not in the middle of a response (no stop button)
+    try:
+        stop_button = WebDriverWait(driver, 2).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-testid='stop-button']"))
+        )
+        log_debug("[selenium] Stop button found, waiting for response completion")
+        # If stop button exists, wait for it to disappear
+        WebDriverWait(driver, timeout).until_not(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-testid='stop-button']"))
+        )
+        log_debug("[selenium] Stop button disappeared, ChatGPT is ready")
+    except TimeoutException:
+        # No stop button found, that's good - ChatGPT is idle
+        log_debug("[selenium] No stop button found, ChatGPT appears idle")
+        pass
+    
+    # Now check that textarea is available
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "prompt-textarea"))
+        )
+        log_debug("[selenium] Textarea found, ChatGPT is ready for input")
         return True
-    log_warning("[selenium] Timeout waiting for send button")
-    return False
+    except TimeoutException:
+        log_warning("[selenium] Timeout waiting for textarea")
+        return False
 
 
 def wait_for_response_completion(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
