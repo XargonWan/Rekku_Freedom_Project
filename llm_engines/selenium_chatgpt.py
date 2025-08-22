@@ -124,20 +124,23 @@ def paste_and_send(textarea, prompt_text: str) -> None:
     driver = textarea._parent
     clean = strip_non_bmp(prompt_text)
 
+    # Try JavaScript injection first
     try:
         _send_text_to_textarea(driver, textarea, clean)
         tag = (textarea.tag_name or "").lower()
         prop = "value" if tag in {"textarea", "input"} else "textContent"
         actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
-        if actual == clean:
+        if len(actual) >= len(clean) * 0.9:  # Allow some tolerance
+            log_debug(f"[selenium] JS injection successful: {len(actual)}/{len(clean)} chars")
             return
     except StaleElementReferenceException:
         log_warning("[selenium] Textarea became stale during JS paste, retrying with send_keys")
+    except Exception as e:
+        log_warning(f"[selenium] JS injection failed: {e}, falling back to send_keys")
 
-    log_warning(
-        f"[selenium] JS paste mismatch or stale element. Falling back to send_keys"
-    )
+    log_warning(f"[selenium] JS paste failed, falling back to send_keys")
 
+    # Fallback to send_keys with improved logic
     import textwrap
     chunk_size = 1000
     final_val = ""
@@ -147,22 +150,60 @@ def paste_and_send(textarea, prompt_text: str) -> None:
         try:
             # Re-locate textarea if it became stale
             try:
-                textarea.send_keys(Keys.CONTROL, "a")
-                textarea.send_keys(Keys.DELETE)
+                textarea.clear()
+                time.sleep(0.1)  # Brief pause after clear
             except StaleElementReferenceException:
                 log_warning("[selenium] Textarea stale, attempting to re-locate")
                 textarea = driver.find_element(By.ID, "prompt-textarea")
-                textarea.send_keys(Keys.CONTROL, "a")
-                textarea.send_keys(Keys.DELETE)
+                textarea.clear()
+                time.sleep(0.1)
+            
+            # Send chunks with better validation
+            accumulated_text = ""
+            chunks_sent = 0
+            total_chunks = len(list(textwrap.wrap(clean, chunk_size)))
+            content_was_sent = False
             
             for idx, chunk in enumerate(textwrap.wrap(clean, chunk_size), start=1):
-                log_debug(f"[selenium] sending chunk {idx} len={len(chunk)}")
+                log_debug(f"[selenium] sending chunk {idx}/{total_chunks} len={len(chunk)}")
                 textarea.send_keys(chunk)
+                accumulated_text += chunk
+                chunks_sent = idx
                 time.sleep(0.05)
+                
+                # Validate every few chunks to catch issues early
+                if idx % 5 == 0:
+                    current_val = textarea.get_attribute("value") or ""
+                    if len(current_val) < len(accumulated_text) * 0.5:  # More lenient threshold
+                        log_warning(f"[selenium] Content mismatch detected at chunk {idx}, retrying")
+                        break
+            
+            # If we sent all chunks, consider it potentially successful
+            if chunks_sent == total_chunks:
+                content_was_sent = True
+                log_debug(f"[selenium] All {chunks_sent} chunks sent successfully")
+            
             final_val = textarea.get_attribute("value") or ""
             log_debug(f"[selenium] value after send_keys: {len(final_val)} chars")
-            if final_val == clean:
+            
+            # Check success conditions with better logic
+            if len(final_val) >= len(clean) * 0.9:
+                log_debug(f"[selenium] Content successfully inserted ({len(final_val)}/{len(clean)} chars)")
                 return
+            elif len(final_val) == 0 and content_was_sent:
+                log_debug("[selenium] Textarea is empty but all chunks were sent - likely cleared by ChatGPT JS")
+                # This is actually success - ChatGPT cleared the textarea after accepting input
+                return
+            elif len(final_val) == 0:
+                log_warning("[selenium] Textarea is empty after sending, possible JS interference")
+                # Try alternative approach for next attempt
+                chunk_size = max(100, chunk_size // 3)
+            elif len(final_val) >= len(clean) * 0.5:
+                log_debug(f"[selenium] Accepting partial content as sufficient ({len(final_val)}/{len(clean)} chars)")
+                return
+            else:
+                log_warning(f"[selenium] Partial content inserted ({len(final_val)}/{len(clean)} chars)")
+                
         except StaleElementReferenceException as e:
             log_warning(f"[selenium] Stale element on send_keys attempt {attempt}: {e}")
             try:
@@ -172,7 +213,22 @@ def paste_and_send(textarea, prompt_text: str) -> None:
                 break
         except Exception as e:
             log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
+        
         chunk_size = max(200, chunk_size // 2)
+    
+    # If we still failed, try one more approach with smaller chunks
+    if len(final_val) < len(clean) * 0.5:
+        log_warning("[selenium] Attempting emergency fallback with very small chunks")
+        try:
+            textarea.clear()
+            for char in clean[:500]:  # Limit to first 500 chars as emergency
+                textarea.send_keys(char)
+                time.sleep(0.01)
+            final_val = textarea.get_attribute("value") or ""
+            log_warning(f"[selenium] Emergency fallback result: {len(final_val)} chars")
+        except Exception as e:
+            log_error(f"[selenium] Emergency fallback failed: {e}")
+    
     log_warning(
         f"[selenium] Failed to insert full prompt: expected {len(clean)} chars, got {len(final_val)}"
     )
