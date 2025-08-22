@@ -23,6 +23,7 @@ from selenium.common.exceptions import (
     ElementNotInteractableException,
     SessionNotCreatedException,
     WebDriverException,
+    StaleElementReferenceException,
 )
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -258,9 +259,17 @@ def _wait_for_button_state(driver, state: str, timeout: int) -> bool:
     """Wait until the submit button matches the desired ``state``."""
     locator = (By.ID, "composer-submit-button")
     try:
-        WebDriverWait(driver, timeout).until(
-            lambda d: d.find_element(*locator).get_attribute("data-testid") == state
-        )
+        def check_button_state(d):
+            try:
+                element = d.find_element(*locator)
+                return element.get_attribute("data-testid") == state
+            except StaleElementReferenceException:
+                # Element became stale, find it again in the next iteration
+                return False
+            except NoSuchElementException:
+                return False
+        
+        WebDriverWait(driver, timeout).until(check_button_state)
         return True
     except TimeoutException:
         return False
