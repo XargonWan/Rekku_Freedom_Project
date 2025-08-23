@@ -138,25 +138,37 @@ async def _consumer_loop() -> None:
 
             async with _lock:
                 batch = await compact_similar_messages(item)
-                final = batch[-1]
+                final = batch[0]
                 if len(batch) > 1 and final.get("message"):
-                    texts = [
-                        b["message"].text
-                        for b in batch
-                        if b.get("message") and getattr(b["message"], "text", None)
-                    ]
+                    lines = []
+                    for b in batch:
+                        msg = b.get("message")
+                        if not (msg and getattr(msg, "text", None)):
+                            continue
+                        user = getattr(msg, "from_user", None)
+                        if user:
+                            if getattr(user, "username", None):
+                                name = f"@{user.username}"
+                            elif getattr(user, "full_name", None):
+                                name = user.full_name
+                            else:
+                                name = f"user_{getattr(user, 'id', 'unknown')}"
+                            lines.append(f"{name}: {msg.text}")
+                        else:
+                            lines.append(msg.text)
                     base = final["message"]
                     merged = SimpleNamespace(
                         chat_id=getattr(base, "chat_id", None),
                         message_id=getattr(base, "message_id", None),
-                        text="\n".join(texts),
-                        from_user=getattr(base, "from_user", None),
+                        text="\n".join(lines),
+                        from_user=SimpleNamespace(id=0, username="group", full_name="group"),
                         date=getattr(base, "date", datetime.utcnow()),
                         message_thread_id=getattr(base, "message_thread_id", None),
                         chat=getattr(base, "chat", None),
                         reply_to_message=getattr(base, "reply_to_message", None),
                     )
                     final["message"] = merged
+                    final["context"] = batch[-1].get("context", final.get("context"))
                 log_debug(
                     f"[QUEUE] Processing message from chat {final.get('chat_id')}"
                 )

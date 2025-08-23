@@ -156,8 +156,8 @@ def test_batching_combines_text(monkeypatch):
         message_queue._queue = StubQueue()
 
         bot = BotA()
-        msg1 = Msg(1, 10, text="one")
-        msg2 = Msg(1, 10, text="two")
+        msg1 = Msg(1, 10, text="one", user_id=1)
+        msg2 = Msg(1, 10, text="two", user_id=2)
 
         await message_queue.enqueue(bot, msg1, None)
         await message_queue.enqueue(bot, msg2, None)
@@ -166,7 +166,7 @@ def test_batching_combines_text(monkeypatch):
         task.cancel()
         await task
 
-        assert calls == ["one\ntwo"]
+        assert calls == ["user_1: one\nuser_2: two"]
 
     asyncio.run(scenario())
 
@@ -194,13 +194,13 @@ def test_messages_during_processing_are_grouped(monkeypatch):
         message_queue._queue = StubQueue()
 
         bot = BotA()
-        msg1 = Msg(1, 10, text="first")
+        msg1 = Msg(1, 10, text="first", user_id=1)
         await message_queue.enqueue(bot, msg1, None)
 
         task = asyncio.create_task(message_queue._consumer_loop())
         await asyncio.sleep(0.35)
-        msg2 = Msg(1, 10, text="second")
-        msg3 = Msg(1, 10, text="third")
+        msg2 = Msg(1, 10, text="second", user_id=2)
+        msg3 = Msg(1, 10, text="third", user_id=3)
         await message_queue.enqueue(bot, msg2, None)
         await message_queue.enqueue(bot, msg3, None)
 
@@ -208,6 +208,6 @@ def test_messages_during_processing_are_grouped(monkeypatch):
         task.cancel()
         await task
 
-        assert calls == ["first", "second\nthird"]
+        assert calls == ["first", "user_2: second\nuser_3: third"]
 
     asyncio.run(scenario())
