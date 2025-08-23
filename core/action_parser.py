@@ -319,6 +319,19 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
     if isinstance(payload, dict) and action_type in supported_types:
         _validate_payload(action_type, payload, errors)
 
+        if _is_restricted_action(action_type):
+            mode = os.getenv("RESTRICT_ACTIONS", "on").lower()
+            if mode == "on":
+                errors.append(f"Action '{action_type}' is restricted")
+            elif mode == "trainer_only":
+                user_id = getattr(getattr(original_message, "from_user", None), "id", None)
+                try:
+                    from core.config import TELEGRAM_TRAINER_ID
+                except Exception:
+                    TELEGRAM_TRAINER_ID = None  # type: ignore
+                if user_id is not None and TELEGRAM_TRAINER_ID and user_id != TELEGRAM_TRAINER_ID:
+                    errors.append(f"Action '{action_type}' is restricted to trainer")
+
     return len(errors) == 0, errors
 
 
@@ -824,6 +837,32 @@ async def gather_static_injections() -> dict:
     except Exception as e:
         log_error(f"[action_parser] Error collecting static injections: {e}")
     return injections
+
+
+def _is_restricted_action(action_type: str) -> bool:
+    """Return True if the action is marked as restricted."""
+    try:
+        for plugin in _load_action_plugins():
+            if hasattr(plugin, "get_supported_actions"):
+                actions = plugin.get_supported_actions()
+                if isinstance(actions, dict):
+                    meta = actions.get(action_type)
+                    if isinstance(meta, dict) and meta.get("restricted"):
+                        return True
+    except Exception:
+        pass
+    try:  # Check interface actions as well
+        from core.core_initializer import INTERFACE_REGISTRY
+        for iface in INTERFACE_REGISTRY.values():
+            if hasattr(iface, "get_supported_actions"):
+                actions = iface.get_supported_actions()
+                if isinstance(actions, dict):
+                    meta = actions.get(action_type)
+                    if isinstance(meta, dict) and meta.get("restricted"):
+                        return True
+    except Exception:
+        pass
+    return False
 
 
 __all__ = [
