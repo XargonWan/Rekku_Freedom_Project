@@ -104,10 +104,15 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
     meta = message.chat.title or message.chat.username or message.chat.first_name
     await recent_chats.track_chat(chat_id, meta)
 
+    thread_id = getattr(message, "message_thread_id", None)
+    interface = bot.__class__.__name__ if bot else None
+
     item = {
         "bot": bot,
         "message": message,
         "chat_id": chat_id,
+        "thread_id": thread_id,
+        "interface": interface,
         "timestamp": time.time(),
         "context": context_memory,
         "priority": priority,
@@ -116,29 +121,37 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
     priority_val = HIGH_PRIORITY if priority else NORMAL_PRIORITY
     await _queue.put((priority_val, item))
     if priority:
-        log_debug(f"[QUEUE] High-priority message enqueued from chat {chat_id} by user {user_id}")
+        log_debug(
+            f"[QUEUE] High-priority message enqueued from {interface} chat {chat_id}"
+            f" thread {thread_id} by user {user_id}"
+        )
     else:
-        log_debug(f"[QUEUE] Regular message enqueued from chat {chat_id} by user {user_id}")
+        log_debug(
+            f"[QUEUE] Regular message enqueued from {interface} chat {chat_id}"
+            f" thread {thread_id} by user {user_id}"
+        )
 
 
-async def compact_similar_messages(first: dict) -> list:
-    """Merge up to 4 additional queued messages from the same chat."""
+async def compact_similar_messages(first: dict, limit: int = 5) -> list:
+    """Collect already-queued messages from same chat/thread/interface."""
     batch = [first]
     chat_id = first["chat_id"]
+    thread_id = first.get("thread_id")
+    interface = first.get("interface")
     ts = first["timestamp"]
-    candidates = []
-    
-    # Convert internal queue list to iterate and remove
+
     queue_items = list(_queue._queue)
     for prio, item in queue_items:
-        if len(batch) >= 5:
+        if len(batch) >= limit:
             break
-        if item["chat_id"] == chat_id and item["timestamp"] - ts <= 600:
-            candidates.append((prio, item))
-
-    for prio, item in candidates:
-        _queue._queue.remove((prio, item))
-        batch.append(item)
+        if (
+            item["chat_id"] == chat_id
+            and item.get("thread_id") == thread_id
+            and item.get("interface") == interface
+            and item["timestamp"] - ts <= 600
+        ):
+            _queue._queue.remove((prio, item))
+            batch.append(item)
 
     batch.sort(key=lambda x: x["timestamp"])
 
@@ -160,7 +173,37 @@ async def _consumer_loop() -> None:
 
             async with _lock:
                 batch = await compact_similar_messages(item)
-                final = batch[-1]
+                final = batch[0]
+                if len(batch) > 1 and final.get("message"):
+                    lines = []
+                    for b in batch:
+                        msg = b.get("message")
+                        if not (msg and getattr(msg, "text", None)):
+                            continue
+                        user = getattr(msg, "from_user", None)
+                        if user:
+                            if getattr(user, "username", None):
+                                name = f"@{user.username}"
+                            elif getattr(user, "full_name", None):
+                                name = user.full_name
+                            else:
+                                name = f"user_{getattr(user, 'id', 'unknown')}"
+                            lines.append(f"{name}: {msg.text}")
+                        else:
+                            lines.append(msg.text)
+                    base = final["message"]
+                    merged = SimpleNamespace(
+                        chat_id=getattr(base, "chat_id", None),
+                        message_id=getattr(base, "message_id", None),
+                        text="\n".join(lines),
+                        from_user=SimpleNamespace(id=0, username="group", full_name="group"),
+                        date=getattr(base, "date", datetime.utcnow()),
+                        message_thread_id=getattr(base, "message_thread_id", None),
+                        chat=getattr(base, "chat", None),
+                        reply_to_message=getattr(base, "reply_to_message", None),
+                    )
+                    final["message"] = merged
+                    final["context"] = batch[-1].get("context", final.get("context"))
                 log_debug(
                     f"[QUEUE] Processing message from chat {final.get('chat_id')}"
                 )
@@ -245,6 +288,8 @@ async def enqueue_event(bot, prompt_data, event_id: int = None) -> None:
         "bot": bot,
         "message": None,  # Events don't have actual messages
         "chat_id": "TARDIS/system/events",
+        "thread_id": None,
+        "interface": bot.__class__.__name__ if bot else None,
         "timestamp": time.time(),
         "context": {"event_id": event_id} if event_id else {},
         "priority": True,
