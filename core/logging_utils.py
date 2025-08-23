@@ -5,8 +5,13 @@ import traceback
 from logging.handlers import RotatingFileHandler
 from typing import Optional
 
+
 _logger: Optional[logging.Logger] = None
-_LOG_DIR = os.getenv("LOG_DIR", "/config/logs")
+
+# Default to a "logs" directory inside the repository rather than /config
+# so running the tests does not attempt to write to restricted locations.
+_DEFAULT_LOG_DIR = os.path.join(os.getcwd(), "logs")
+_LOG_DIR = os.getenv("LOG_DIR", _DEFAULT_LOG_DIR)
 _LOG_FILE = os.path.join(_LOG_DIR, "rekku.log")
 _LEVELS = {
     "DEBUG": logging.DEBUG,
