@@ -231,6 +231,10 @@ if __name__ == "__main__":
             from core import message_queue
             asyncio.create_task(message_queue.run())
             log_info("[main] Message queue consumer started")
+            # Start WebUI server
+            from interface.webui import start_server
+            asyncio.create_task(start_server())
+            log_info("[main] WebUI server started")
         except Exception as e:
             log_error(f"[main] Critical error initializing core components: {repr(e)}")
             import traceback
