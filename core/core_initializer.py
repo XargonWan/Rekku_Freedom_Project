@@ -196,6 +196,18 @@ class CoreInitializer:
                     f"[core_initializer] ⚠️ Interface {interface_name} does not support action registration"
                 )
 
+            # After registering, rebuild actions to expose interface capabilities
+            try:
+                loop = asyncio.get_running_loop()
+                if loop.is_running():
+                    loop.create_task(self._build_actions_block())
+                else:  # pragma: no cover - no running loop
+                    asyncio.run(self._build_actions_block())
+            except Exception as e:  # pragma: no cover - defensive
+                log_error(
+                    f"[core_initializer] Error rebuilding actions for {interface_name}: {e}"
+                )
+
             # Show updated status after interface registration
             self._show_interface_status()
         else:
@@ -208,6 +220,14 @@ class CoreInitializer:
             log_info(f"📡 Active Interfaces: {interfaces_str}")
         else:
             log_info("📡 Active Interfaces: None")
+
+    async def refresh_actions_block(self) -> None:
+        """Public helper to rebuild the actions block.
+
+        Ensures recently registered plugins or interfaces expose their
+        actions immediately to the rest of the system.
+        """
+        await self._build_actions_block()
     
     async def start_pending_async_plugins(self):
         """Start async plugins that were pending due to no event loop."""
