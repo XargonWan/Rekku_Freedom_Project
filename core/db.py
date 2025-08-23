@@ -5,7 +5,23 @@ from datetime import datetime, timezone, timedelta
 import calendar
 import asyncio
 
-import aiomysql
+from types import SimpleNamespace
+from typing import Any
+
+# ``aiomysql`` is an optional dependency.  Import it lazily and provide a
+# minimal stub when it's not installed so modules depending on ``core.db`` can
+# still be imported during tests.
+try:  # pragma: no cover - import guard
+    import aiomysql  # type: ignore
+except Exception:  # pragma: no cover - executed when aiomysql missing
+    async def _missing_connect(*args, **kwargs):
+        raise RuntimeError("aiomysql is not installed")
+
+    aiomysql = SimpleNamespace(  # type: ignore
+        Connection=object,
+        Cursor=object,
+        connect=_missing_connect,
+    )
 
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
@@ -515,7 +531,7 @@ def is_valid_datetime_format(date_str: str, time_str: str | None) -> bool:
 
 
 async def safe_db_execute(
-    cursor: aiomysql.Cursor,
+    cursor: Any,
     query: str,
     params: tuple | list = (),
     ensure_fn=None,

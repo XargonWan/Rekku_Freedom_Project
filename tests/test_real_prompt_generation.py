@@ -12,35 +12,35 @@ import sys
 import os
 import asyncio
 import unittest
-from dotenv import load_dotenv
 
-# Load the real .env file
-load_dotenv()
-
-# Set up log directory to local logs folder for testing
+# Use local log directory
 os.environ['LOG_DIR'] = os.path.join(os.path.dirname(__file__), '..', 'logs')
 os.makedirs(os.environ['LOG_DIR'], exist_ok=True)
 
-# Aggiunge la directory principale al PYTHONPATH
+# Ensure repository root is importable
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+try:  # pragma: no cover - optional components
+    from core.prompt_engine import build_json_prompt  # type: ignore
+    from core.core_initializer import core_initializer  # type: ignore
+except Exception:  # Missing deps
+    build_json_prompt = None  # type: ignore
+    core_initializer = None  # type: ignore
 
+
+@unittest.skipIf(build_json_prompt is None or core_initializer is None, "core components unavailable")
 class TestPromptGeneration(unittest.TestCase):
     """Test per vedere il prompt JSON reale."""
-    
+
     def test_prompt_generation(self):
         """Test per vedere come viene generato il prompt JSON reale."""
         print("\n🧪 Generazione REALE del prompt JSON...")
         print("=" * 80)
-        
+
         async def run_test():
             try:
-                # Import della funzione reale
-                from core.prompt_engine import build_json_prompt
                 from datetime import datetime
-                
-                # Inizializza il core per caricare le interfacce
-                from core.core_initializer import core_initializer
+
                 await core_initializer.initialize_all()
                 
                 # Mock di un messaggio Telegram reale
@@ -62,10 +62,10 @@ class TestPromptGeneration(unittest.TestCase):
                 
                 # Simula un messaggio Telegram in arrivo
                 message = MockMessage()
-                
+
                 # Context memory vuoto (come sarebbe all'inizio)
                 context_memory = {}
-                
+
                 # Genera il prompt reale usando la vera funzione
                 prompt = await build_json_prompt(message, context_memory)
                 

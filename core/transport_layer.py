@@ -6,7 +6,15 @@ import re
 from typing import Any, Dict, Optional
 from types import SimpleNamespace
 from core.logging_utils import log_debug, log_warning, log_error, log_info
-from core.telegram_utils import _send_with_retry
+
+# ``core.telegram_utils`` depends on the optional ``telegram`` package.  Import it
+# lazily so that the transport layer can still be imported when that dependency is
+# missing.  When unavailable the Telegram-specific helpers become no-ops.
+try:  # pragma: no cover - import guard
+    from core.telegram_utils import _send_with_retry  # type: ignore
+except Exception as e:  # pragma: no cover - executed only when telegram missing
+    _send_with_retry = None  # type: ignore
+    log_warning(f"[transport] telegram utilities unavailable: {e}")
 
 # Store last JSON parsing error details for corrector hints
 LAST_JSON_ERROR_INFO: Optional[str] = None
@@ -228,8 +236,15 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
             from datetime import datetime
             message.date = datetime.utcnow()
 
-            # Use centralized action system for all action types
-            from core.action_parser import run_actions
+            # Use centralized action system for all action types.  The action
+            # parser is optional, so import it lazily and fall back to sending
+            # plain text if it's unavailable.
+            try:
+                from core.action_parser import run_actions  # type: ignore
+            except Exception as e:  # pragma: no cover - executed when action_parser missing
+                log_warning(f"[transport] action parser unavailable: {e}")
+                return await interface_send_func(*args, text=text, **kwargs)
+
             context = {"interface": "telegram"}  # Add more context as needed
 
             processed_actions = []
@@ -263,7 +278,12 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
 
     # Trigger corrector for non-JSON responses (excluding system messages)
     if text and not text.startswith(("[ERROR]", "[WARNING]", "[INFO]", "[DEBUG]")):
-        from core.action_parser import corrector
+        try:
+            from core.action_parser import corrector  # type: ignore
+        except Exception as e:  # pragma: no cover - executed when action_parser missing
+            log_warning(f"[transport] corrector unavailable: {e}")
+            return await interface_send_func(*args, text=text, **kwargs)
+
         bot = getattr(interface_send_func, '__self__', None)
         message = SimpleNamespace()
         message.chat_id = kwargs.get('chat_id') or (args[0] if args else None)
@@ -295,6 +315,10 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
     """
     if text is None:
         text = ""
+
+    if _send_with_retry is None:  # pragma: no cover - executed when telegram missing
+        log_warning("[telegram_transport] telegram utilities unavailable; skipping send")
+        return None
 
     log_debug(f"[telegram_transport] Called with text: {text}")
 
@@ -362,8 +386,19 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
             if 'event_id' in kwargs:
                 message.event_id = kwargs['event_id']
 
-            # Use centralized action system for all action types
-            from core.action_parser import run_actions
+            # Use centralized action system for all action types.  Import
+            # ``run_actions`` lazily so the transport layer still works if the
+            # action parser (and its optional dependencies) is missing.
+            try:
+                from core.action_parser import run_actions  # type: ignore
+            except Exception as e:  # pragma: no cover - executed when action_parser missing
+                log_warning(f"[telegram_transport] action parser unavailable: {e}")
+                # Fall back to sending the original text
+                for i in range(0, len(text), chunk_size):
+                    chunk = text[i : i + chunk_size]
+                    await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
+                return
+
             context = {"interface": "telegram"}
             if 'event_id' in kwargs:
                 context['event_id'] = kwargs['event_id']
@@ -386,7 +421,12 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
             log_warning(f"[telegram_transport] Failed to process JSON actions: {e}")
 
     if not json_data and not is_system_message:
-        from core.action_parser import corrector
+        try:
+            from core.action_parser import corrector  # type: ignore
+        except Exception as e:  # pragma: no cover - executed when action_parser missing
+            log_warning(f"[telegram_transport] corrector unavailable: {e}")
+            return
+
         message = SimpleNamespace()
         message.chat_id = chat_id
         message.text = text

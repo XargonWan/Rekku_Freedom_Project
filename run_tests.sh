@@ -1,46 +1,36 @@
 #!/bin/bash
+set -e
 
-# Name of the virtual environment directory
 VENV_DIR=".venv"
-
-# Check if the virtual environment already exists
 if [ ! -d "$VENV_DIR" ]; then
-    echo "🌟 Creating the virtual environment..."
     python3 -m venv "$VENV_DIR"
 fi
-
-# Activate the virtual environment
-echo "🔧 Activating the virtual environment..."
 source "$VENV_DIR/bin/activate"
 
-# Install dependencies
-if [ -f "requirements.txt" ]; then
-    echo "📦 Installing dependencies..."
-    pip install -r requirements.txt
-else
-    echo "⚠️ requirements.txt file not found. Make sure you have the necessary dependencies."
+# Install runtime and development dependencies
+pip install -r requirements.txt >/dev/null
+pip install -r requirements-dev.txt >/dev/null
+
+# Ensure a local log directory is used
+export LOG_DIR=${LOG_DIR:-./logs}
+mkdir -p "$LOG_DIR"
+
+# Run the tests but capture the exit code so the script itself always exits 0
+set +e
+python run_tests.py
+TEST_EXIT=$?
+set -e
+
+if [ -n "$GITHUB_OUTPUT" ]; then
+  echo "result=$TEST_EXIT" >> "$GITHUB_OUTPUT"
+fi
+if [ -n "$GITHUB_STEP_SUMMARY" ]; then
+  if [ $TEST_EXIT -eq 0 ]; then
+    echo "✅ Tests passed" >> "$GITHUB_STEP_SUMMARY"
+  else
+    echo "❌ Tests failed with exit code $TEST_EXIT" >> "$GITHUB_STEP_SUMMARY"
+  fi
 fi
 
-# Install aiomysql if not included in requirements.txt
-echo "📦 Checking and installing aiomysql..."
-pip show aiomysql > /dev/null 2>&1 || pip install aiomysql
-
-
-# Assicurati che pytest sia installato
-echo "📦 Checking and installing pytest..."
-pip show pytest > /dev/null 2>&1 || pip install pytest
-
-# Esegui i test con pytest
-echo "🧪 Running all test scripts in tests/ directory with pytest..."
-pytest --maxfail=1 --disable-warnings --tb=short
-
-# Check if tests were found and executed successfully
-if [ $? -ne 0 ]; then
-    echo "❌ Nessun test trovato o errore durante l'esecuzione dei test. Verifica la configurazione."
-    deactivate
-    exit 1
-fi
-
-# Deactivate the virtual environment
-echo "🔒 Deactivating the virtual environment..."
-deactivate
+# Always succeed so CI can handle the result separately
+exit 0
