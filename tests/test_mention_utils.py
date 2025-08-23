@@ -1,5 +1,8 @@
+import os
+import sys
 from types import SimpleNamespace
-import sys, os, asyncio
+
+import pytest
 
 # Add parent directory to path so that 'core' can be imported
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,7 +18,8 @@ class DummyBot:
         return self._me
 
 
-def test_one_to_one_detection_with_explicit_count():
+@pytest.mark.asyncio
+async def test_one_to_one_detection_with_explicit_count():
     bot = DummyBot()
     chat = SimpleNamespace(id=-100, type="group", title="Test")
     user = SimpleNamespace(id=1, is_bot=False, username="alice")
@@ -28,21 +32,19 @@ def test_one_to_one_detection_with_explicit_count():
         reply_to_message=None,
     )
 
-    async def run():
-        directed, reason = await mention_utils.is_message_for_bot(
-            message, bot, human_count=1
-        )
-        assert directed and reason is None
+    directed, reason = await mention_utils.is_message_for_bot(
+        message, bot, human_count=1
+    )
+    assert directed and reason is None
 
-        directed, reason = await mention_utils.is_message_for_bot(
-            message, bot, human_count=3
-        )
-        assert not directed and reason == "multiple_humans"
-
-    asyncio.run(run())
+    directed, reason = await mention_utils.is_message_for_bot(
+        message, bot, human_count=3
+    )
+    assert not directed and reason == "multiple_humans"
 
 
-def test_no_auto_detection_when_count_unknown():
+@pytest.mark.asyncio
+async def test_no_auto_detection_when_count_unknown():
     bot = DummyBot()
     chat = SimpleNamespace(id=-100, type="group", title="Test")
     user = SimpleNamespace(id=1, is_bot=False, username="alice")
@@ -55,9 +57,6 @@ def test_no_auto_detection_when_count_unknown():
         reply_to_message=None,
     )
 
-    async def run():
-        directed, reason = await mention_utils.is_message_for_bot(message, bot)
-        assert not directed and reason == "missing_human_count"
-
-    asyncio.run(run())
+    directed, reason = await mention_utils.is_message_for_bot(message, bot)
+    assert not directed and reason == "missing_human_count"
 
