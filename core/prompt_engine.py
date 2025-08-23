@@ -219,7 +219,12 @@ The JSON is just a wrapper — speak naturally as you always do.
 
 
 def build_full_json_instructions() -> dict:
-    """Return combined JSON instructions and available actions block."""
+    """Return combined JSON instructions and available actions block.
+
+    Always returns the full set of available actions so the model is aware of
+    every capability, preserving flexibility and avoiding accidental action
+    masking.
+    """
     instructions = load_json_instructions()
     actions = {}
     try:

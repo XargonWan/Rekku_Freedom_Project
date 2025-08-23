@@ -827,7 +827,7 @@ For recurring events, you can use:
                 message=unified_message,
                 interface=None,  # Let auto-response determine interface
                 context=scheduled_prompt,
-                reason=f"scheduled_action_{event_id}"
+                reason=f"scheduled_action_{event_id}",
             )
 
         except Exception as e:

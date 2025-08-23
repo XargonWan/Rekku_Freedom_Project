@@ -1,16 +1,32 @@
 """Core actions for managing chat link metadata."""
 
 from core.logging_utils import log_info, log_warning, log_error
-from core.core_initializer import register_plugin
+from core.core_initializer import register_plugin, PLUGIN_REGISTRY
 from core.chat_link_store import ChatLinkStore
+
+# Global flag to avoid multiple registrations when the module is re-imported
+_REGISTERED = False
 
 
 class ChatLinkActions:
     """Expose actions for updating chat and thread names."""
 
     def __init__(self) -> None:
+        global _REGISTERED
+
+        # Check both the global flag and the registry to prevent duplicates
+        if _REGISTERED:
+            log_info("[chat_link_actions] chat_link actions already registered (global flag)")
+            return
+            
+        if "chat_link" in PLUGIN_REGISTRY:
+            log_info("[chat_link_actions] chat_link actions already registered (in registry)")
+            _REGISTERED = True
+            return
+
         self.store = ChatLinkStore()
         register_plugin("chat_link", self)
+        _REGISTERED = True
         log_info("[chat_link_actions] Registered core chat_link actions")
 
     # --------------------------------------------------------------
@@ -62,7 +78,8 @@ class ChatLinkActions:
         return {"updated": updated}
 
 
-# Instantiate and register on import
-ChatLinkActions()
+# Instantiate and register on import - but only if not already done
+if not _REGISTERED and "chat_link" not in PLUGIN_REGISTRY:
+    ChatLinkActions()
 
 __all__ = ["ChatLinkActions"]
