@@ -27,7 +27,8 @@ RUN apt-get update && \
       python3 python3-venv python3-pip \
       git curl wget unzip nano vim \
       lsb-release ca-certificates \
-      htop net-tools iputils-ping && \
+      htop net-tools iputils-ping \
+      ffmpeg && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install gemini-cli

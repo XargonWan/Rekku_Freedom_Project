@@ -3,6 +3,7 @@
 import os
 import re
 import asyncio
+import subprocess
 from telegram import Update, Bot
 from telegram.ext import (
     ApplicationBuilder,
@@ -889,7 +890,17 @@ class TelegramInterface:
                     "message_thread_name",
                 ],
                 "description": "Send a text message via Telegram",
-            }
+            },
+            "audio_telegram_bot": {
+                "required_fields": ["audio"],
+                "optional_fields": [
+                    "target",
+                    "chat_name",
+                    "message_thread_id",
+                    "message_thread_name",
+                ],
+                "description": "Send a voice message via Telegram",
+            },
         }
 
     @staticmethod
@@ -932,20 +943,49 @@ class TelegramInterface:
                     },
                 },
             }
+        if action_name == "audio_telegram_bot":
+            return {
+                "description": "Send a voice message via Telegram bot",
+                "payload": {
+                    "audio": {"type": "string", "example": "/path/to/file.ogg", "description": "Path to the voice file"},
+                    "target": {
+                        "type": "string",
+                        "example": "-123456789",
+                        "description": "Numeric chat_id or chat_name of the recipient",
+                        "optional": True,
+                    },
+                    "chat_name": {
+                        "type": "string",
+                        "example": "Il covo di Rekku",
+                        "description": "Alternative to target for specifying the chat by name",
+                        "optional": True,
+                    },
+                    "message_thread_id": {
+                        "type": "integer",
+                        "example": 456,
+                        "description": "Optional thread ID for group chats",
+                        "optional": True,
+                    },
+                },
+            }
         return None
 
     @staticmethod
     def validate_payload(action_type: str, payload: dict) -> list:
         """Validate payload for telegram actions."""
-        if action_type != "message_telegram_bot":
-            return []
-        
         errors = []
-        
-        # Required field: text
-        text = payload.get("text")
-        if not isinstance(text, str) or not text:
-            errors.append("payload.text must be a non-empty string")
+
+        if action_type == "message_telegram_bot":
+            text = payload.get("text")
+            if not isinstance(text, str) or not text:
+                errors.append("payload.text must be a non-empty string")
+
+        elif action_type == "audio_telegram_bot":
+            audio = payload.get("audio")
+            if not isinstance(audio, str) or not audio:
+                errors.append("payload.audio must be a non-empty string")
+        else:
+            return []
 
         target = payload.get("target")
         chat_name = payload.get("chat_name")
@@ -955,11 +995,11 @@ class TelegramInterface:
             if target is not None:
                 if isinstance(target, dict):
                     chat_id = target.get("chat_id")
-                    message_id = target.get("message_id")
+                    message_thread_id = target.get("message_thread_id")
                     if chat_id is not None and not isinstance(chat_id, (int, str)):
                         errors.append("payload.target.chat_id must be an int or string")
-                    if message_id is not None and not isinstance(message_id, int):
-                        errors.append("payload.target.message_id must be an int")
+                    if message_thread_id is not None and not isinstance(message_thread_id, int):
+                        errors.append("payload.target.message_thread_id must be an int")
                 elif not isinstance(target, (int, str)):
                     errors.append("payload.target must be an int, string or dict")
 
@@ -970,7 +1010,7 @@ class TelegramInterface:
         thread_name = payload.get("message_thread_name")
         if thread_name is not None and not isinstance(thread_name, str):
             errors.append("payload.message_thread_name must be a string")
-        
+
         return errors
 
     async def send_message(self, payload: dict, original_message: object | None = None) -> None:
@@ -1093,6 +1133,111 @@ class TelegramInterface:
             fallback_reply_to_message_id=fallback_reply_to,
         )
 
+    async def _convert_to_voice(self, path: str) -> str:
+        if path.endswith(".ogg"):
+            return path
+        ogg_path = path.rsplit(".", 1)[0] + ".ogg"
+        cmd = ["ffmpeg", "-y", "-i", path, "-c:a", "libopus", ogg_path]
+        try:
+            await asyncio.to_thread(subprocess.run, cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            return ogg_path
+        except Exception as e:
+            log_error(f"[telegram_interface] Audio conversion failed: {e}")
+            return path
+
+    async def send_audio(self, payload: dict, original_message: object | None = None) -> None:
+        audio = payload.get("audio")
+        target = payload.get("target")
+        chat_name = payload.get("chat_name")
+        message_thread_id = payload.get("message_thread_id")
+        thread_name = payload.get("message_thread_name")
+
+        if not audio or (target is None and chat_name is None):
+            log_warning("[telegram_interface] Missing audio or destination, aborting")
+            return
+
+        chat_id = None
+
+        if isinstance(target, dict):
+            chat_id = target.get("chat_id")
+            message_thread_id = target.get("message_thread_id", message_thread_id)
+            thread_name = target.get("message_thread_name", thread_name)
+        elif target is not None:
+            if isinstance(target, str) and not target.lstrip("-").isdigit():
+                chat_name = target
+            else:
+                try:
+                    chat_id = int(target)
+                except Exception:
+                    chat_name = target
+
+        if chat_id is None or (message_thread_id is None and thread_name is not None):
+            try:
+                row = await chat_link_store.resolve(
+                    chat_id=chat_id,
+                    message_thread_id=message_thread_id,
+                    chat_name=chat_name,
+                    message_thread_name=thread_name,
+                )
+            except ChatLinkMultipleMatches:
+                await corrector(
+                    [
+                        f"Multiple channels found with name {chat_name}, please repeat your previous message putting the chat_id instead of chat_name",
+                    ],
+                    [payload],
+                    self.bot,
+                    original_message,
+                )
+                return
+            if not row:
+                await corrector(
+                    [
+                        f"Channel or thread not found for name {chat_name or thread_name}",
+                    ],
+                    [payload],
+                    self.bot,
+                    original_message,
+                )
+                return
+            chat_id = row.get("chat_id", chat_id)
+            message_thread_id = row.get("message_thread_id", message_thread_id)
+
+        try:
+            target_for_comparison = int(chat_id)
+        except (TypeError, ValueError):
+            log_warning(f"[telegram_interface] Invalid chat identifier: {chat_id}")
+            return
+
+        reply_message_id = None
+        if (
+            original_message
+            and hasattr(original_message, "chat_id")
+            and hasattr(original_message, "message_id")
+            and target_for_comparison == getattr(original_message, "chat_id")
+        ):
+            reply_message_id = original_message.message_id
+
+        send_kwargs = {"chat_id": target_for_comparison}
+        if message_thread_id is not None:
+            send_kwargs["message_thread_id"] = message_thread_id
+        if reply_message_id is not None:
+            send_kwargs["reply_to_message_id"] = reply_message_id
+
+        try:
+            converted = await self._convert_to_voice(audio)
+            with open(converted, "rb") as f:
+                await self.bot.send_voice(**send_kwargs, voice=f)
+            return
+        except Exception as e:
+            error_message = str(e)
+            if message_thread_id and "thread not found" in error_message.lower():
+                send_kwargs.pop("message_thread_id", None)
+                converted = await self._convert_to_voice(audio)
+                with open(converted, "rb") as f:
+                    await self.bot.send_voice(**send_kwargs, voice=f)
+            else:
+                log_error(f"[telegram_interface] Failed to send voice: {e}")
+
     async def execute_action(
         self, action: dict, context: dict, bot: Any, original_message: object | None = None
     ) -> None:
@@ -1101,6 +1246,9 @@ class TelegramInterface:
         if action_type == "message_telegram_bot":
             payload = action.get("payload", {})
             await self.send_message(payload, original_message)
+        elif action_type == "audio_telegram_bot":
+            payload = action.get("payload", {})
+            await self.send_audio(payload, original_message)
 
     @staticmethod
     def get_interface_instructions():
