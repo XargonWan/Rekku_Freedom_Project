@@ -806,8 +806,19 @@ def get_action_plugin_instructions() -> dict[str, dict]:
     return instructions
 
 
-async def gather_static_injections() -> dict:
-    """Collect static injections from plugins supporting the static_inject action."""
+async def gather_static_injections(message=None, context_memory=None) -> dict:
+    """Collect static injections from plugins supporting the ``static_inject`` action.
+
+    Parameters
+    ----------
+    message : optional
+        The original message associated with the prompt. Passed to plugins that
+        accept it for participant resolution.
+    context_memory : optional
+        Memory structure containing recent chat messages. Also passed to
+        plugins if they accept it.
+    """
+
     injections: dict = {}
     try:
         for plugin in _load_action_plugins():
@@ -825,7 +836,13 @@ async def gather_static_injections() -> dict:
                         supported = "static_inject" in acts
                 if not supported or not hasattr(plugin, "get_static_injection"):
                     continue
-                result = plugin.get_static_injection()
+
+                # Pass message and context_memory if the plugin expects them
+                try:
+                    result = plugin.get_static_injection(message, context_memory)
+                except TypeError:
+                    result = plugin.get_static_injection()
+
                 if inspect.iscoroutine(result):
                     result = await result
                 if isinstance(result, dict):

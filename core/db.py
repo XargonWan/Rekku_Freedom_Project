@@ -99,23 +99,6 @@ async def init_db() -> None:
                 """
             )
 
-            # scheduled_events table redesigned for structured recurring events
-            await cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS scheduled_events (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    `date` TEXT NOT NULL,
-                    `time` TEXT,
-                    next_run TEXT NOT NULL,
-                    recurrence_type VARCHAR(20) DEFAULT 'none',
-                    description TEXT NOT NULL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    delivered BOOLEAN DEFAULT FALSE,
-                    created_by VARCHAR(100) DEFAULT 'rekku'
-                )
-                """
-            )
-
             # settings table for configuration values
             await cur.execute(
                 """
@@ -162,26 +145,6 @@ async def ensure_core_tables() -> None:
         if not _db_initialized:
             await init_db()
             _db_initialized = True
-
-        conn = await get_conn()
-        try:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS bio (
-                        id VARCHAR(255) PRIMARY KEY,
-                        known_as TEXT,
-                        likes TEXT,
-                        not_likes TEXT,
-                        information TEXT,
-                        past_events TEXT,
-                        feelings TEXT,
-                        contacts TEXT
-                    )
-                    """
-                )
-        finally:
-            conn.close()
 
 # 🧠 Insert a new memory into the database
 async def insert_memory(
