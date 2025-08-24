@@ -822,9 +822,9 @@ async def start_bot():
         register_interface("telegram_bot", telegram_interface)
         log_debug("[telegram_bot] Interface instance registered")
 
-        # Display startup summary now that the interface is registered
-        # (actions block is already built in core initialization)
+        # Rebuild action schemas and display updated startup summary
         from core.core_initializer import core_initializer
+        await core_initializer.refresh_actions_block()
         core_initializer.display_startup_summary()
         
         await app.start()
