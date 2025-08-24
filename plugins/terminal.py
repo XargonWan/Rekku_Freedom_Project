@@ -201,9 +201,28 @@ class TerminalPlugin(AIPluginBase):
             except Exception as e:
                 log_warning(f"[terminal] Failed to notify trainer: {e}")
 
-            # Output is returned to the caller; higher-level orchestrators will
-            # decide how to deliver it back to the LLM or user.
-            if not (original_message and hasattr(original_message, 'chat_id')):
+            # Deliver the output back to the LLM so it can reason about results
+            if original_message and hasattr(original_message, 'chat_id'):
+                interface_name = context.get('interface', 'telegram_bot')
+                if interface_name == 'telegram':
+                    interface_name = 'telegram_bot'
+                delivery_context = {
+                    'chat_id': original_message.chat_id,
+                    'message_id': getattr(original_message, 'message_id', None),
+                    'interface_name': interface_name,
+                    'message_thread_id': getattr(original_message, 'message_thread_id', None),
+                }
+                try:
+                    from core.auto_response import request_llm_delivery
+                    await request_llm_delivery(
+                        output=output or '(no output)',
+                        original_context=delivery_context,
+                        action_type=action_type,
+                        command=command,
+                    )
+                except Exception as e:
+                    log_warning(f"[terminal] Failed to deliver output to LLM: {e}")
+            else:
                 log_warning("[terminal] No original_message context for output delivery")
 
             return output

@@ -187,7 +187,7 @@ async def request_llm_delivery(
             if isinstance(context, dict) and context.get("input", {}).get("type") == "event":
                 system_payload = {
                     "system_message": {
-                        "type": "event",
+                        "type": "event_reminder",
                         "message": context,
                         "full_json_instructions": full_json,
                     }
