@@ -30,7 +30,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 
 # Funzioni e classi locali
-from core.logging_utils import log_debug, log_error, log_warning, log_info
+from core.logging_utils import log_debug, log_error, log_warning, log_info, _LOG_DIR
 from core.notifier import set_notifier
 import core.recent_chats as recent_chats
 from core.ai_plugin_base import AIPluginBase
@@ -744,8 +744,9 @@ def process_prompt_in_chat(
         if remaining > 0:
             time.sleep(min(5, remaining))
 
-    os.makedirs("/config/logs/screenshots", exist_ok=True)
-    fname = f"/config/logs/screenshots/chat_{chat_id or 'unknown'}_no_response.png"
+    screenshots_dir = os.path.join(_LOG_DIR, "screenshots")
+    os.makedirs(screenshots_dir, exist_ok=True)
+    fname = os.path.join(screenshots_dir, f"chat_{chat_id or 'unknown'}_no_response.png")
     try:
         driver.save_screenshot(fname)
         log_warning(f"[selenium] Saved screenshot to {fname}")
@@ -1001,10 +1002,12 @@ def ensure_chatgpt_model(driver):
             return False
         log_warning(f"[chatgpt_model] Errore selezione modello: {repr(e)}")
         try:
-            os.makedirs("/config/logs/screenshots", exist_ok=True)
-            driver.save_screenshot("/config/logs/screenshots/model_switch_error.png")
+            screenshots_dir = os.path.join(_LOG_DIR, "screenshots")
+            os.makedirs(screenshots_dir, exist_ok=True)
+            screenshot_path = os.path.join(screenshots_dir, "model_switch_error.png")
+            driver.save_screenshot(screenshot_path)
             log_warning(
-                "[chatgpt_model] Saved screenshot model_switch_error.png"
+                f"[chatgpt_model] Saved screenshot {screenshot_path}"
             )
         except Exception as ss:
             log_warning(f"[chatgpt_model] Screenshot failed: {ss}")
