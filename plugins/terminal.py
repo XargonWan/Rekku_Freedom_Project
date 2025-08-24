@@ -153,7 +153,11 @@ class TerminalPlugin(AIPluginBase):
     def get_prompt_instructions(self, action_name: str) -> dict:
         if action_name == "terminal":
             return {
-                "description": "Execute commands in a terminal session (bash, python, etc.). Optionally persistent.",
+                "description": (
+                    "Execute commands in a terminal session (bash, python, etc.). "
+                    "Optionally persistent. Escape special characters (quotes, newlines, backslashes) in "
+                    "the command so the JSON remains valid."
+                ),
                 "payload": {
                     "command": "df -h",
                     "persistent_session": False,
