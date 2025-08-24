@@ -2,7 +2,7 @@
 set -e
 
 echo "[S6 Rekku] Pulizia processi precedenti..."
-/usr/local/bin/cleanup_chromium.sh || true
+/usr/local/bin/cleanup_chrome.sh || true
 
 echo "[S6 Rekku] Attendo /tmp/.X11-unix/X1..."
 while [ ! -e /tmp/.X11-unix/X1 ]; do

@@ -8,9 +8,12 @@ from typing import Optional
 
 _logger: Optional[logging.Logger] = None
 
-# Default to a "logs" directory inside the repository rather than /config
-# so running the tests does not attempt to write to restricted locations.
-_DEFAULT_LOG_DIR = os.path.join(os.getcwd(), "logs")
+# Default to a "logs" directory rooted at the project so the working
+# directory does not influence where logs are written. This avoids attempts to
+# create `/logs` (which may not be writable) when the application is launched
+# from an arbitrary path.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_DEFAULT_LOG_DIR = os.path.join(_REPO_ROOT, "logs")
 _LOG_DIR = os.getenv("LOG_DIR", _DEFAULT_LOG_DIR)
 _LOG_FILE = os.path.join(_LOG_DIR, "rekku.log")
 _LEVELS = {
