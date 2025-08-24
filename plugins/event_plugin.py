@@ -511,7 +511,7 @@ class EventPlugin(AIPluginBase):
         return {
             "context": context,
             "input": {
-                "type": "event",
+                "type": "event_reminder",
                 "payload": {
                     "date": date,
                     "time": time,

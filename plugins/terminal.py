@@ -123,6 +123,24 @@ class TerminalPlugin(AIPluginBase):
                     parse_mode=ParseMode.MARKDOWN,
                     reply_to_message_id=message.message_id if i == 0 else None,
                 )
+        try:
+            from core.auto_response import request_llm_delivery
+
+            delivery_context = {
+                "chat_id": getattr(message, "chat_id", None),
+                "message_id": getattr(message, "message_id", None),
+                "interface_name": "telegram_bot",
+                "message_thread_id": getattr(message, "message_thread_id", None),
+            }
+
+            await request_llm_delivery(
+                output=output or "(no output)",
+                original_context=delivery_context,
+                action_type="terminal",
+                command=cmd,
+            )
+        except Exception as e:
+            log_warning(f"[terminal] Failed to deliver output to LLM: {e}")
 
         return output
 
@@ -206,16 +224,18 @@ class TerminalPlugin(AIPluginBase):
                 log_warning(f"[terminal] Failed to notify trainer: {e}")
 
             # Deliver the output back to the LLM so it can reason about results
-            if original_message and hasattr(original_message, 'chat_id'):
-                interface_name = context.get('interface', 'telegram_bot')
-                if interface_name == 'telegram':
-                    interface_name = 'telegram_bot'
-                delivery_context = {
-                    'chat_id': original_message.chat_id,
-                    'message_id': getattr(original_message, 'message_id', None),
-                    'interface_name': interface_name,
-                    'message_thread_id': getattr(original_message, 'message_thread_id', None),
-                }
+            interface_name = context.get('interface', 'telegram_bot')
+            if interface_name == 'telegram':
+                interface_name = 'telegram_bot'
+            delivery_context = {
+                'chat_id': getattr(original_message, 'chat_id', context.get('chat_id')),
+                'message_id': getattr(original_message, 'message_id', context.get('message_id')),
+                'interface_name': interface_name,
+                'message_thread_id': getattr(
+                    original_message, 'message_thread_id', context.get('message_thread_id')
+                ),
+            }
+            if delivery_context['chat_id'] is not None:
                 try:
                     from core.auto_response import request_llm_delivery
                     await request_llm_delivery(
@@ -227,7 +247,7 @@ class TerminalPlugin(AIPluginBase):
                 except Exception as e:
                     log_warning(f"[terminal] Failed to deliver output to LLM: {e}")
             else:
-                log_warning("[terminal] No original_message context for output delivery")
+                log_warning("[terminal] No context available for output delivery")
 
             return output
 
