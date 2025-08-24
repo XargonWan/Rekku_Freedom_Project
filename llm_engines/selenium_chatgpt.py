@@ -27,6 +27,7 @@ from selenium.common.exceptions import (
 )
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from urllib3.exceptions import ReadTimeoutError
 
 
 # Funzioni e classi locali
@@ -430,6 +431,9 @@ def wait_for_response_completion(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) 
         except TimeoutException:
             log_warning("[selenium] Timeout waiting for response completion")
             return False
+    except (ReadTimeoutError, WebDriverException) as e:
+        log_error(f"[selenium] Error waiting for response completion: {e}")
+        return False
 
 
 
