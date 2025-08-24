@@ -843,6 +843,14 @@ async def start_bot():
         raise
     finally:
         log_info("[telegram_bot] Shutting down Telegram application...")
+        # Ensure the updater is stopped before shutting down the application.
+        # Otherwise python-telegram-bot raises "This Updater is still running!"
+        # when ``Application.shutdown()`` is called.
+        try:
+            await app.updater.stop()
+        finally:  # Even if stopping the updater fails, attempt to continue shutdown
+            await app.updater.shutdown()
+
         await app.stop()
         await app.shutdown()
         log_info("[telegram_bot] Telegram application shutdown completed")
