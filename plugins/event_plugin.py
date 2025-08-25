@@ -508,6 +508,10 @@ class EventPlugin(AIPluginBase):
         except Exception as e:
             log_warning(f"[event_plugin] Failed to gather static injections: {e}")
 
+        log_debug(
+            f"[event_plugin] Formatting event {event_id} as event_reminder for LLM"
+        )
+
         return {
             "context": context,
             "input": {

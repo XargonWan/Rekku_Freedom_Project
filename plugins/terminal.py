@@ -139,6 +139,7 @@ class TerminalPlugin(AIPluginBase):
                 action_type="terminal",
                 command=cmd,
             )
+            log_debug("[terminal] Forwarded output to LLM from incoming message")
         except Exception as e:
             log_warning(f"[terminal] Failed to deliver output to LLM: {e}")
 
@@ -244,6 +245,7 @@ class TerminalPlugin(AIPluginBase):
                         action_type=action_type,
                         command=command,
                     )
+                    log_debug("[terminal] Forwarded output to LLM from execute_action")
                 except Exception as e:
                     log_warning(f"[terminal] Failed to deliver output to LLM: {e}")
             else:

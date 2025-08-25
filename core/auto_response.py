@@ -185,6 +185,7 @@ async def request_llm_delivery(
 
             full_json = build_full_json_instructions()
             if isinstance(context, dict) and context.get("input", {}).get("type") in {"event", "event_reminder"}:
+                log_debug("[auto_response] Routing event reminder to LLM")
                 system_payload = {
                     "system_message": {
                         "type": "event_reminder",
