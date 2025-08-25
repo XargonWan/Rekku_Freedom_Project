@@ -7,7 +7,8 @@ import asyncio
 import aiomysql
 
 from core.db import get_conn
-from core.logging_utils import log_error
+from core.logging_utils import log_error, log_info
+from core.core_initializer import core_initializer, register_plugin
 
 
 JSON_LIST_FIELDS = {"known_as", "likes", "not_likes", "past_events", "feelings"}
@@ -315,6 +316,9 @@ class BioPlugin:
 
     def __init__(self):
         self._participants: list[dict[str, Any]] = []
+        register_plugin("bio_manager", self)
+        core_initializer.register_plugin("bio_manager")
+        log_info("[bio_manager] BioPlugin initialized and registered")
 
     def get_supported_action_types(self):
         return ["static_inject", "bio_full_request", "bio_update"]
