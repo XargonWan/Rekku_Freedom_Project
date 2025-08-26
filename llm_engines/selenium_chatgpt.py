@@ -392,7 +392,8 @@ def wait_for_chatgpt_idle(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool
 
 def wait_for_response_completion(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
     """Wait until the current response finishes streaming."""
-    end_time = time.time() + timeout
+    start_time = time.time()
+    end_time = start_time + timeout
 
     try:
         driver.find_element(By.CSS_SELECTOR, "button[data-testid='stop-button']")
@@ -411,7 +412,7 @@ def wait_for_response_completion(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) 
     while time.time() < end_time:
         try:
             driver.find_element(By.CSS_SELECTOR, "button[data-testid='stop-button']")
-            elapsed = int(timeout - (end_time - time.time()))
+            elapsed = int(time.time() - start_time)
             if elapsed // 10 > last_report // 10:
                 log_debug(
                     f"[selenium] {elapsed} seconds passed, stop button still present"
@@ -420,7 +421,10 @@ def wait_for_response_completion(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) 
             time.sleep(1)
             continue
         except NoSuchElementException:
-            log_debug("[selenium] Stop button disappeared, response completed")
+            elapsed = int(time.time() - start_time)
+            log_debug(
+                f"[selenium] Stop button disappeared after {elapsed} seconds, response completed"
+            )
             return True
         except (ReadTimeoutError, WebDriverException) as e:
             log_warning(f"[selenium] Polling error while waiting for completion: {e}")
