@@ -29,11 +29,25 @@ DEFAULTS = {
 
 
 def _run(coro):
+    """Run a coroutine safely regardless of event loop state."""
     try:
         return asyncio.run(coro)
     except RuntimeError:
-        loop = asyncio.get_event_loop()
-        return loop.run_until_complete(coro)
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                new_loop = asyncio.new_event_loop()
+                try:
+                    return new_loop.run_until_complete(coro)
+                finally:
+                    new_loop.close()
+            return loop.run_until_complete(coro)
+        except RuntimeError:
+            new_loop = asyncio.new_event_loop()
+            try:
+                return new_loop.run_until_complete(coro)
+            finally:
+                new_loop.close()
 
 
 async def _execute(query: str, params: tuple = ()) -> None:
