@@ -376,25 +376,9 @@ def _wait_for_button_state(driver, state: str, timeout: int) -> bool:
 
 def wait_for_chatgpt_idle(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
     """Wait until ChatGPT is ready for a new prompt (textarea is available and no stop button)."""
-    # First, check that we're not in the middle of a response (no stop button)
-    try:
-        stop_button = WebDriverWait(driver, 2).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-testid='stop-button']"))
-        )
-        log_debug(
-            f"[selenium] Stop button found, waiting for response completion with timeout {timeout} seconds"
-        )
-        # If stop button exists, wait for it to disappear
-        WebDriverWait(driver, timeout).until_not(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-testid='stop-button']"))
-        )
-        log_debug("[selenium] Stop button disappeared, ChatGPT is ready")
-    except TimeoutException:
-        # No stop button found, that's good - ChatGPT is idle
-        log_debug("[selenium] No stop button found, ChatGPT appears idle")
-        pass
-    
-    # Now check that textarea is available
+    if not wait_for_response_completion(driver, timeout):
+        log_warning("[selenium] ChatGPT may still be generating during idle wait")
+
     try:
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.ID, "prompt-textarea"))
@@ -408,36 +392,38 @@ def wait_for_chatgpt_idle(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool
 
 def wait_for_response_completion(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
     """Wait until the current response finishes streaming."""
-    # First, check if there's a stop button (response in progress)
+    end_time = time.time() + timeout
+
     try:
-        stop_button = WebDriverWait(driver, 2).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-testid='stop-button']"))
-        )
+        driver.find_element(By.CSS_SELECTOR, "button[data-testid='stop-button']")
         log_debug(
             f"[selenium] Stop button found, waiting for response to complete with timeout {timeout} seconds"
         )
-        # Wait for stop button to disappear (response finished)
-        WebDriverWait(driver, timeout).until_not(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-testid='stop-button']"))
-        )
-        log_debug("[selenium] Stop button disappeared, response completed")
+    except NoSuchElementException:
+        log_debug("[selenium] No stop button found, assuming idle")
         return True
-    except TimeoutException:
-        # No stop button found, or it didn't disappear in time
-        log_debug("[selenium] No stop button found or timeout waiting for completion")
-        # Try alternative approach: check if textarea is ready for new input
+
+    last_report = 0
+    while time.time() < end_time:
         try:
-            WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.ID, "prompt-textarea"))
-            )
-            log_debug("[selenium] Textarea available, assuming response completed")
+            driver.find_element(By.CSS_SELECTOR, "button[data-testid='stop-button']")
+            elapsed = int(timeout - (end_time - time.time()))
+            if elapsed // 10 > last_report // 10:
+                log_debug(
+                    f"[selenium] {elapsed} seconds passed, stop button still present"
+                )
+                last_report = elapsed
+            time.sleep(1)
+            continue
+        except NoSuchElementException:
+            log_debug("[selenium] Stop button disappeared, response completed")
             return True
-        except TimeoutException:
-            log_warning("[selenium] Timeout waiting for response completion")
-            return False
-    except (ReadTimeoutError, WebDriverException) as e:
-        log_error(f"[selenium] Error waiting for response completion: {e}")
-        return False
+        except (ReadTimeoutError, WebDriverException) as e:
+            log_warning(f"[selenium] Polling error while waiting for completion: {e}")
+            time.sleep(1)
+
+    log_warning("[selenium] Timeout waiting for response completion")
+    return False
 
 
 
