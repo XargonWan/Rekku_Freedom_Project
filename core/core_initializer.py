@@ -331,12 +331,16 @@ class CoreInitializer:
             if hasattr(plugin, "get_static_injection"):
                 try:
                     data = plugin.get_static_injection()
-                    if inspect.isawaitable(data):
-                        data = await data
-                    if data:
-                        static_context.update(data)
+                except TypeError:
+                    # Plugin requires parameters; skip during startup
+                    continue
                 except Exception as e:
                     log_warning(f"[core_initializer] Errore static injection da plugin {plugin}: {e}")
+                    continue
+                if inspect.isawaitable(data):
+                    data = await data
+                if data:
+                    static_context.update(data)
         for iface in INTERFACE_REGISTRY.values():
             if hasattr(iface, "get_static_injection"):
                 try:

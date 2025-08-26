@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Callable
 import asyncio
 import aiomysql
+import threading
 
 from core.db import get_conn
 from core.logging_utils import log_error
@@ -29,25 +30,26 @@ DEFAULTS = {
 
 
 def _run(coro):
-    """Run a coroutine safely regardless of event loop state."""
+    """Run a coroutine safely even if an event loop is already running."""
     try:
         return asyncio.run(coro)
     except RuntimeError:
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                new_loop = asyncio.new_event_loop()
-                try:
-                    return new_loop.run_until_complete(coro)
-                finally:
-                    new_loop.close()
-            return loop.run_until_complete(coro)
-        except RuntimeError:
-            new_loop = asyncio.new_event_loop()
+        result: Any = None
+        exc: Exception | None = None
+
+        def runner() -> None:
+            nonlocal result, exc
             try:
-                return new_loop.run_until_complete(coro)
-            finally:
-                new_loop.close()
+                result = asyncio.run(coro)
+            except Exception as e:  # pragma: no cover - defensive
+                exc = e
+
+        thread = threading.Thread(target=runner)
+        thread.start()
+        thread.join()
+        if exc:
+            raise exc
+        return result
 
 
 async def _execute(query: str, params: tuple = ()) -> None:
@@ -352,7 +354,7 @@ class BioPlugin:
             },
         }
 
-    def get_static_injection(self, message, context_memory) -> dict:
+    def get_static_injection(self, message=None, context_memory=None) -> dict:
         """Gather participants and inject short bios and feelings."""
         if not message or context_memory is None:
             self._participants = []
