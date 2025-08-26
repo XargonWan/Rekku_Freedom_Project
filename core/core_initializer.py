@@ -379,10 +379,13 @@ class CoreInitializer:
         else:
             log_info("Interfaces: none")
 
-        # --- Plugins ---
+        # --- Plugins and their actions ---
         if self.loaded_plugins:
-            plugins_str = ", ".join(sorted(set(self.loaded_plugins)))
-            log_info(f"Plugins: {plugins_str}")
+            log_info("Plugins and actions:")
+            for plugin in sorted(set(self.loaded_plugins)):
+                actions = sorted(self.interface_actions.get(plugin, set()))
+                actions_str = ", ".join(actions) if actions else "none"
+                log_info(f"  {plugin}: {actions_str}")
         else:
             log_info("Plugins: none")
 
