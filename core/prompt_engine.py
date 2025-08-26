@@ -119,20 +119,18 @@ async def search_memories(tags=None, scope=None, limit=5):
     if not tags:
         return []
 
-    placeholders = ",".join(["%s"] * len(tags))
+    # Build OR conditions using JSON_CONTAINS to check if any tag exists in the JSON array
+    conditions = " OR ".join(["JSON_CONTAINS(tags, %s)"] * len(tags))
 
     query = f"""
         SELECT DISTINCT content
         FROM memories
         WHERE json_valid(tags)
-          AND EXISTS (
-              SELECT 1
-              FROM json_each(memories.tags)
-              WHERE json_each.value IN ({placeholders})
-          )
+          AND ({conditions})
     """
 
-    params = tags.copy()
+    # Parameters: each tag encoded as a JSON string for JSON_CONTAINS
+    params = [json_dumps(tag) for tag in tags]
 
     if scope:
         query += " AND scope = %s"
