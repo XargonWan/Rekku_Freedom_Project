@@ -184,6 +184,7 @@ async def request_llm_delivery(
             import json
 
             full_json = build_full_json_instructions()
+            # Reminders are flagged separately so the scheduler doesn't re-queue them
             if isinstance(context, dict) and context.get("input", {}).get("type") in {"event", "event_reminder"}:
                 log_debug("[auto_response] Routing event reminder to LLM")
                 system_payload = {
