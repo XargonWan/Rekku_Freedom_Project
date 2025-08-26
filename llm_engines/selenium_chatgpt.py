@@ -381,7 +381,9 @@ def wait_for_chatgpt_idle(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool
         stop_button = WebDriverWait(driver, 2).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-testid='stop-button']"))
         )
-        log_debug("[selenium] Stop button found, waiting for response completion")
+        log_debug(
+            f"[selenium] Stop button found, waiting for response completion with timeout {timeout} seconds"
+        )
         # If stop button exists, wait for it to disappear
         WebDriverWait(driver, timeout).until_not(
             EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-testid='stop-button']"))
@@ -411,7 +413,9 @@ def wait_for_response_completion(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) 
         stop_button = WebDriverWait(driver, 2).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-testid='stop-button']"))
         )
-        log_debug("[selenium] Stop button found, waiting for response to complete")
+        log_debug(
+            f"[selenium] Stop button found, waiting for response to complete with timeout {timeout} seconds"
+        )
         # Wait for stop button to disappear (response finished)
         WebDriverWait(driver, timeout).until_not(
             EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-testid='stop-button']"))
