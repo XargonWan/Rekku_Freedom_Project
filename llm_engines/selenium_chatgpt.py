@@ -399,6 +399,10 @@ def wait_for_response_completion(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) 
         log_debug(
             f"[selenium] Stop button found, waiting for response to complete with timeout {timeout} seconds"
         )
+        try:
+            driver.command_executor.set_timeout(timeout)
+        except Exception as e:
+            log_warning(f"[selenium] Could not apply command timeout: {e}")
     except NoSuchElementException:
         log_debug("[selenium] No stop button found, assuming idle")
         return True
@@ -1087,6 +1091,20 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except RuntimeError:
             pass
 
+    def _apply_driver_timeouts(self) -> None:
+        """Apply environment-based timeouts to the Selenium driver."""
+        if not self.driver:
+            return
+        try:
+            self.driver.command_executor.set_timeout(AWAIT_RESPONSE_TIMEOUT)
+            self.driver.set_page_load_timeout(AWAIT_RESPONSE_TIMEOUT)
+            self.driver.set_script_timeout(AWAIT_RESPONSE_TIMEOUT)
+            log_debug(
+                f"[selenium] Driver timeouts set to {AWAIT_RESPONSE_TIMEOUT}s"
+            )
+        except Exception as e:
+            log_warning(f"[selenium] Failed to set driver timeouts: {e}")
+
     def _init_driver(self):
         if self.driver is None:
             log_debug("[selenium] [STEP] Initializing Chrome driver with undetected-chromedriver")
@@ -1170,7 +1188,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         browser_executable_path=None,  # Let UC find Chrome
                         user_data_dir=profile_dir
                     )
-                    log_debug("[selenium] ✅ Chrome successfully initialized with undetected-chromedriver")
+                    self._apply_driver_timeouts()
+                    log_debug(
+                        "[selenium] ✅ Chrome successfully initialized with undetected-chromedriver"
+                    )
                     return  # Success, exit retry loop
                     
                 except Exception as e:
@@ -1217,7 +1238,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                     browser_executable_path=chrome_binary,
                                     user_data_dir=profile_dir
                                 )
-                                log_debug("[selenium] ✅ Chrome initialized with explicit binary path")
+                                self._apply_driver_timeouts()
+                                log_debug(
+                                    "[selenium] ✅ Chrome initialized with explicit binary path"
+                                )
                                 return
                             else:
                                 raise Exception("Chrome binary not found")
@@ -1242,7 +1266,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                         browser_executable_path=chrome_binary,
                                         user_data_dir=profile_dir
                                     )
-                                    log_debug("[selenium] ✅ Chrome initialized after forced lock cleanup")
+                                    self._apply_driver_timeouts()
+                                    log_debug(
+                                        "[selenium] ✅ Chrome initialized after forced lock cleanup"
+                                    )
                                     return
                                 else:
                                     raise Exception("Chrome binary not found")
