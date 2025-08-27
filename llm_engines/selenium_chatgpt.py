@@ -109,7 +109,7 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
 
     actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
     log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
-    if len(actual) != len(clean_text):
+    if len(actual) < len(clean_text):
         log_warning(
             f"[selenium] textarea mismatch: expected {len(clean_text)} chars, found {len(actual)}"
         )
@@ -681,14 +681,20 @@ def process_prompt_in_chat(
                 f"return arguments[0].{prop};", textarea
             ) or ""
             expected_len = len(strip_non_bmp(prompt_text))
-            if len(final_value) != expected_len:
+            if len(final_value) < expected_len:
                 log_warning(
                     f"[selenium] Prompt mismatch after paste: expected {expected_len} chars, got {len(final_value)}"
                 )
                 time.sleep(1)
                 continue
+
+            candidate = final_value.strip()
+            if candidate.startswith("```"):
+                match = re.match(r"```(?:json)?\n(.*)\n```", candidate, re.DOTALL)
+                if match:
+                    candidate = match.group(1)
             try:
-                json.loads(final_value)
+                json.loads(candidate)
             except Exception:
                 log_warning("[selenium] JSON invalid after paste; retrying")
                 time.sleep(1)
