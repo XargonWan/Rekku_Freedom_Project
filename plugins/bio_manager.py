@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Callable
 import asyncio
 import aiomysql
+import threading
 
 from core.db import get_conn
 from core.logging_utils import log_error, log_info
@@ -30,11 +31,26 @@ DEFAULTS = {
 
 
 def _run(coro):
+    """Run a coroutine safely even if an event loop is already running."""
     try:
         return asyncio.run(coro)
     except RuntimeError:
-        loop = asyncio.get_event_loop()
-        return loop.run_until_complete(coro)
+        result: Any = None
+        exc: Exception | None = None
+
+        def runner() -> None:
+            nonlocal result, exc
+            try:
+                result = asyncio.run(coro)
+            except Exception as e:  # pragma: no cover - defensive
+                exc = e
+
+        thread = threading.Thread(target=runner)
+        thread.start()
+        thread.join()
+        if exc:
+            raise exc
+        return result
 
 
 async def _execute(query: str, params: tuple = ()) -> None:
@@ -342,7 +358,7 @@ class BioPlugin:
             },
         }
 
-    def get_static_injection(self, message, context_memory) -> dict:
+    def get_static_injection(self, message=None, context_memory=None) -> dict:
         """Gather participants and inject short bios and feelings."""
         if not message or context_memory is None:
             self._participants = []

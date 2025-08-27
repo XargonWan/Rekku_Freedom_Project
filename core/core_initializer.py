@@ -331,12 +331,16 @@ class CoreInitializer:
             if hasattr(plugin, "get_static_injection"):
                 try:
                     data = plugin.get_static_injection()
-                    if inspect.isawaitable(data):
-                        data = await data
-                    if data:
-                        static_context.update(data)
+                except TypeError:
+                    # Plugin requires parameters; skip during startup
+                    continue
                 except Exception as e:
                     log_warning(f"[core_initializer] Errore static injection da plugin {plugin}: {e}")
+                    continue
+                if inspect.isawaitable(data):
+                    data = await data
+                if data:
+                    static_context.update(data)
         for iface in INTERFACE_REGISTRY.values():
             if hasattr(iface, "get_static_injection"):
                 try:
@@ -379,10 +383,13 @@ class CoreInitializer:
         else:
             log_info("Interfaces: none")
 
-        # --- Plugins ---
+        # --- Plugins and their actions ---
         if self.loaded_plugins:
-            plugins_str = ", ".join(sorted(set(self.loaded_plugins)))
-            log_info(f"Plugins: {plugins_str}")
+            log_info("Plugins and actions:")
+            for plugin in sorted(set(self.loaded_plugins)):
+                actions = sorted(self.interface_actions.get(plugin, set()))
+                actions_str = ", ".join(actions) if actions else "none"
+                log_info(f"  {plugin}: {actions_str}")
         else:
             log_info("Plugins: none")
 

@@ -376,23 +376,9 @@ def _wait_for_button_state(driver, state: str, timeout: int) -> bool:
 
 def wait_for_chatgpt_idle(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
     """Wait until ChatGPT is ready for a new prompt (textarea is available and no stop button)."""
-    # First, check that we're not in the middle of a response (no stop button)
-    try:
-        stop_button = WebDriverWait(driver, 2).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-testid='stop-button']"))
-        )
-        log_debug("[selenium] Stop button found, waiting for response completion")
-        # If stop button exists, wait for it to disappear
-        WebDriverWait(driver, timeout).until_not(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-testid='stop-button']"))
-        )
-        log_debug("[selenium] Stop button disappeared, ChatGPT is ready")
-    except TimeoutException:
-        # No stop button found, that's good - ChatGPT is idle
-        log_debug("[selenium] No stop button found, ChatGPT appears idle")
-        pass
-    
-    # Now check that textarea is available
+    if not wait_for_response_completion(driver, timeout):
+        log_warning("[selenium] ChatGPT may still be generating during idle wait")
+
     try:
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.ID, "prompt-textarea"))
@@ -406,34 +392,46 @@ def wait_for_chatgpt_idle(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool
 
 def wait_for_response_completion(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
     """Wait until the current response finishes streaming."""
-    # First, check if there's a stop button (response in progress)
+    start_time = time.time()
+    end_time = start_time + timeout
+
     try:
-        stop_button = WebDriverWait(driver, 2).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-testid='stop-button']"))
+        driver.find_element(By.CSS_SELECTOR, "button[data-testid='stop-button']")
+        log_debug(
+            f"[selenium] Stop button found, waiting for response to complete with timeout {timeout} seconds"
         )
-        log_debug("[selenium] Stop button found, waiting for response to complete")
-        # Wait for stop button to disappear (response finished)
-        WebDriverWait(driver, timeout).until_not(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-testid='stop-button']"))
-        )
-        log_debug("[selenium] Stop button disappeared, response completed")
-        return True
-    except TimeoutException:
-        # No stop button found, or it didn't disappear in time
-        log_debug("[selenium] No stop button found or timeout waiting for completion")
-        # Try alternative approach: check if textarea is ready for new input
         try:
-            WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.ID, "prompt-textarea"))
+            driver.command_executor.set_timeout(timeout)
+        except Exception as e:
+            log_warning(f"[selenium] Could not apply command timeout: {e}")
+    except NoSuchElementException:
+        log_debug("[selenium] No stop button found, assuming idle")
+        return True
+
+    last_report = 0
+    while time.time() < end_time:
+        try:
+            driver.find_element(By.CSS_SELECTOR, "button[data-testid='stop-button']")
+            elapsed = int(time.time() - start_time)
+            if elapsed // 10 > last_report // 10:
+                log_debug(
+                    f"[selenium] {elapsed} seconds passed, stop button still present"
+                )
+                last_report = elapsed
+            time.sleep(1)
+            continue
+        except NoSuchElementException:
+            elapsed = int(time.time() - start_time)
+            log_debug(
+                f"[selenium] Stop button disappeared after {elapsed} seconds, response completed"
             )
-            log_debug("[selenium] Textarea available, assuming response completed")
             return True
-        except TimeoutException:
-            log_warning("[selenium] Timeout waiting for response completion")
-            return False
-    except (ReadTimeoutError, WebDriverException) as e:
-        log_error(f"[selenium] Error waiting for response completion: {e}")
-        return False
+        except (ReadTimeoutError, WebDriverException) as e:
+            log_warning(f"[selenium] Polling error while waiting for completion: {e}")
+            time.sleep(1)
+
+    log_warning("[selenium] Timeout waiting for response completion")
+    return False
 
 
 
@@ -1097,6 +1095,20 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except RuntimeError:
             pass
 
+    def _apply_driver_timeouts(self) -> None:
+        """Apply environment-based timeouts to the Selenium driver."""
+        if not self.driver:
+            return
+        try:
+            self.driver.command_executor.set_timeout(AWAIT_RESPONSE_TIMEOUT)
+            self.driver.set_page_load_timeout(AWAIT_RESPONSE_TIMEOUT)
+            self.driver.set_script_timeout(AWAIT_RESPONSE_TIMEOUT)
+            log_debug(
+                f"[selenium] Driver timeouts set to {AWAIT_RESPONSE_TIMEOUT}s"
+            )
+        except Exception as e:
+            log_warning(f"[selenium] Failed to set driver timeouts: {e}")
+
     def _init_driver(self):
         if self.driver is None:
             log_debug("[selenium] [STEP] Initializing Chrome driver with undetected-chromedriver")
@@ -1180,7 +1192,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         browser_executable_path=None,  # Let UC find Chrome
                         user_data_dir=profile_dir
                     )
-                    log_debug("[selenium] ✅ Chrome successfully initialized with undetected-chromedriver")
+                    self._apply_driver_timeouts()
+                    log_debug(
+                        "[selenium] ✅ Chrome successfully initialized with undetected-chromedriver"
+                    )
                     return  # Success, exit retry loop
                     
                 except Exception as e:
@@ -1227,7 +1242,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                     browser_executable_path=chrome_binary,
                                     user_data_dir=profile_dir
                                 )
-                                log_debug("[selenium] ✅ Chrome initialized with explicit binary path")
+                                self._apply_driver_timeouts()
+                                log_debug(
+                                    "[selenium] ✅ Chrome initialized with explicit binary path"
+                                )
                                 return
                             else:
                                 raise Exception("Chrome binary not found")
@@ -1252,7 +1270,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                         browser_executable_path=chrome_binary,
                                         user_data_dir=profile_dir
                                     )
-                                    log_debug("[selenium] ✅ Chrome initialized after forced lock cleanup")
+                                    self._apply_driver_timeouts()
+                                    log_debug(
+                                        "[selenium] ✅ Chrome initialized after forced lock cleanup"
+                                    )
                                     return
                                 else:
                                     raise Exception("Chrome binary not found")
