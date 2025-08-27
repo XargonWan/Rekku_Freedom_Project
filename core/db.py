@@ -416,7 +416,13 @@ async def get_due_events(now: datetime | None = None) -> list[dict]:
             else:
                 event_dt = datetime.fromisoformat(str(scheduled_val).replace('Z', '+00:00'))
             if event_dt.tzinfo is None:
-                event_dt = event_dt.replace(tzinfo=timezone.utc)
+                from core.rekku_utils import get_local_timezone
+                event_dt = (
+                    event_dt.replace(tzinfo=get_local_timezone())
+                    .astimezone(timezone.utc)
+                )
+            else:
+                event_dt = event_dt.astimezone(timezone.utc)
         except Exception as e:
             log_warning(f"[get_due_events] Invalid datetime in next_run: {scheduled_val} - {e}")
             continue
@@ -465,7 +471,13 @@ async def mark_event_delivered(event_id: int) -> bool:
                 else:
                     next_run_dt = None
                 if next_run_dt and next_run_dt.tzinfo is None:
-                    next_run_dt = next_run_dt.replace(tzinfo=timezone.utc)
+                    from core.rekku_utils import get_local_timezone
+                    next_run_dt = (
+                        next_run_dt.replace(tzinfo=get_local_timezone())
+                        .astimezone(timezone.utc)
+                    )
+                elif next_run_dt:
+                    next_run_dt = next_run_dt.astimezone(timezone.utc)
             except Exception as e:
                 log_warning(f"[db] Invalid next_run for event {event_id}: {next_run_val} - {e}")
                 next_run_dt = None
