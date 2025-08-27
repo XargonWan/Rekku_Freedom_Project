@@ -66,31 +66,34 @@ class ManualAIPlugin(AIPluginBase):
         from telegram.constants import ParseMode
 
         prompt_json = json.dumps(prompt, ensure_ascii=False, indent=2)
-        await bot.send_message(
-            chat_id=TELEGRAM_TRAINER_ID,
-            text="\U0001f4e6 *Generated JSON prompt:*",
-            parse_mode=ParseMode.MARKDOWN,
-        )
-        for i in range(0, len(prompt_json), 4000):
-            chunk = prompt_json[i:i+4000]
+        try:
             await bot.send_message(
                 chat_id=TELEGRAM_TRAINER_ID,
-                text=f"```json\n{chunk}\n```",
+                text="\U0001f4e6 *Generated JSON prompt:*",
                 parse_mode=ParseMode.MARKDOWN,
             )
+            for i in range(0, len(prompt_json), 4000):
+                chunk = prompt_json[i:i+4000]
+                await bot.send_message(
+                    chat_id=TELEGRAM_TRAINER_ID,
+                    text=f"```json\n{chunk}\n```",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
 
-        # === Inoltra il messaggio originale per facilitare la risposta ===
-        sender = message.from_user
-        user_ref = f"@{sender.username}" if sender.username else sender.full_name
-        await bot.send_message(chat_id=TELEGRAM_TRAINER_ID, text=f"{user_ref}:")
+            # === Inoltra il messaggio originale per facilitare la risposta ===
+            sender = message.from_user
+            user_ref = f"@{sender.username}" if sender.username else sender.full_name
+            await bot.send_message(chat_id=TELEGRAM_TRAINER_ID, text=f"{user_ref}:")
 
-        sent = await bot.forward_message(
-            chat_id=TELEGRAM_TRAINER_ID,
-            from_chat_id=message.chat_id,
-            message_id=message.message_id
-        )
-        await self.track_message(sent.message_id, message.chat_id, message.message_id)
-        log_debug("[manual] Message forwarded and tracked")
+            sent = await bot.forward_message(
+                chat_id=TELEGRAM_TRAINER_ID,
+                from_chat_id=message.chat_id,
+                message_id=message.message_id,
+            )
+            await self.track_message(sent.message_id, message.chat_id, message.message_id)
+            log_debug("[manual] Message forwarded and tracked")
+        except Exception as e:  # pragma: no cover - best effort
+            log_error(f"[manual] Failed to notify trainer: {repr(e)}")
 
     async def generate_response(self, messages):
         """In manual mode the reply is not generated automatically."""
