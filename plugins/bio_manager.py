@@ -95,6 +95,19 @@ def _ensure_table() -> None:
         )
     )
 
+    async def ensure_column() -> None:
+        conn = await get_conn()
+        try:
+            async with conn.cursor() as cur:
+                await cur.execute("SHOW COLUMNS FROM bio LIKE 'social_accounts'")
+                exists = await cur.fetchone()
+                if not exists:
+                    await cur.execute("ALTER TABLE bio ADD COLUMN social_accounts TEXT")
+        finally:
+            conn.close()
+
+    _run(ensure_column())
+
 
 def _ensure_user_exists(user_id: str) -> None:
     """Create an empty bio entry if the user is missing."""
@@ -143,6 +156,23 @@ def _load_json_field(value: str | None, key: str, default: Any) -> Any:
 def _save_json_field(user_id: str, key: str, value: Any) -> None:
     """Serialize and store a JSON field."""
     _run(_execute(f"UPDATE bio SET {key}=%s WHERE id=%s", (json.dumps(value), user_id)))
+
+
+def _merge_nested_dicts(original: dict, updates: dict) -> dict:
+    """Recursively merge dictionaries, concatenating lists without duplicates."""
+    for k, v in updates.items():
+        if k in original:
+            old = original[k]
+            if isinstance(old, dict) and isinstance(v, dict):
+                original[k] = _merge_nested_dicts(old, v)
+            elif isinstance(old, list) and isinstance(v, list):
+                unique = {json.dumps(x) for x in old + v}
+                original[k] = [json.loads(x) for x in unique]
+            else:
+                original[k] = v
+        else:
+            original[k] = v
+    return original
 
 
 def _update_json_field(user_id: str, key: str, update_fn: Callable[[Any], Any]) -> None:
@@ -235,8 +265,7 @@ def update_bio_fields(user_id: str, updates: dict) -> None:
             unique = {json.dumps(x) for x in old_val + new_val}
             merged[field] = [json.loads(x) for x in unique]
         elif isinstance(old_val, dict) and isinstance(new_val, dict):
-            old_val.update(new_val)
-            merged[field] = old_val
+            merged[field] = _merge_nested_dicts(old_val, new_val)
         else:
             merged[field] = new_val
 
