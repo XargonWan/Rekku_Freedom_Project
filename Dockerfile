@@ -107,6 +107,14 @@ RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
     echo rekku > /etc/s6-overlay/s6-rc.d/user/contents.d/rekku && \
     chown -R abc:abc /etc/s6-overlay/s6-rc.d/rekku
 
+# Copy S6 Websockify service for Selkies
+COPY s6-services/websockify /etc/s6-overlay/s6-rc.d/websockify
+RUN chmod +x /etc/s6-overlay/s6-rc.d/websockify/run && \
+    echo 'longrun' > /etc/s6-overlay/s6-rc.d/websockify/type && \
+    mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
+    echo websockify > /etc/s6-overlay/s6-rc.d/user/contents.d/websockify && \
+    chown -R abc:abc /etc/s6-overlay/s6-rc.d/websockify
+
 # Set permissions for abc user
 # Note: abc user home is /config
 RUN chown -R abc:abc /app
