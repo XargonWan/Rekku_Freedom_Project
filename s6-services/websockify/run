@@ -1,4 +1,6 @@
 #!/usr/bin/with-contenv sh
 mkdir -p /app/logs
-# Use selkies to proxy VNC over websockets and capture its output
-exec selkies --addr="localhost" --mode="websockets" >> /app/logs/selkies.log 2>&1
+# Disable X shared memory and PulseAudio lookups which crash in container
+export SELKIES_DISABLE_XSHM=1
+# Launch Selkies via websockets and capture its output
+exec selkies --addr="localhost" --mode="websockets" --audio-device-name="" >> /app/logs/selkies.log 2>&1
