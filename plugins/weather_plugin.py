@@ -21,9 +21,9 @@ class WeatherPlugin:
         self._cached_weather: Optional[str] = None
         self._last_fetch: float = 0.0
         try:
-            self.cache_minutes = int(os.getenv("WEATHER_CACHE_MINUTES", "30"))
+            self.fetch_minutes = int(os.getenv("WEATHER_FETCH_TIME", "30"))
         except ValueError:
-            self.cache_minutes = 30
+            self.fetch_minutes = 30
 
     # Plugin action registration
     def get_supported_action_types(self):
@@ -46,7 +46,7 @@ class WeatherPlugin:
         now = time.time()
         if (
             not self._cached_weather
-            or now - self._last_fetch > self.cache_minutes * 60
+            or now - self._last_fetch > self.fetch_minutes * 60
         ):
             await self._update_weather()
 
