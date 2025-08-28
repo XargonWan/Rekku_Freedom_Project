@@ -109,8 +109,8 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
 
     actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
     log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
-    # Only warn if the textarea is significantly shorter than the injected text
-    if len(clean_text) - len(actual) > 5:
+    # Only warn if the textarea differs noticeably from the injected text
+    if abs(len(clean_text) - len(actual)) > 5:
         log_warning(
             f"[selenium] textarea mismatch: expected {len(clean_text)} chars, found {len(actual)}"
         )
@@ -683,7 +683,7 @@ def process_prompt_in_chat(
             ) or ""
             expected_len = len(strip_non_bmp(prompt_text))
             # Allow small discrepancies (e.g., trailing spaces trimmed by ChatGPT)
-            if expected_len - len(final_value) > 5:
+            if abs(expected_len - len(final_value)) > 5:
                 log_warning(
                     f"[selenium] Prompt mismatch after paste: expected {expected_len} chars, got {len(final_value)}"
                 )
