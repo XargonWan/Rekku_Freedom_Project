@@ -44,7 +44,19 @@ NOTIFY_ERRORS_TO_INTERFACES = _parse_notify_interfaces(
     os.getenv("NOTIFY_ERRORS_TO_INTERFACES", "")
 )
 
+# Resolve the Telegram trainer ID from the mapping if the legacy
+# environment variable is missing or set to 0. This keeps backward
+# compatibility while allowing NOTIFY_ERRORS_TO_INTERFACES to be the
+# single source of truth for trainer IDs.
 TELEGRAM_TRAINER_ID = int(os.getenv("TELEGRAM_TRAINER_ID", "0") or 0)
+if TELEGRAM_TRAINER_ID == 0:
+    TELEGRAM_TRAINER_ID = NOTIFY_ERRORS_TO_INTERFACES.get("telegram_bot", 0)
+    if TELEGRAM_TRAINER_ID:
+        log_info(f"[config] TELEGRAM_TRAINER_ID resolved from NOTIFY_ERRORS_TO_INTERFACES: {TELEGRAM_TRAINER_ID}")
+    else:
+        log_warning("[config] TELEGRAM_TRAINER_ID not configured; trainer-only commands will be rejected")
+else:
+    log_info(f"[config] TELEGRAM_TRAINER_ID loaded from environment: {TELEGRAM_TRAINER_ID}")
 
 
 def get_trainer_id(interface_name: str) -> int | None:
