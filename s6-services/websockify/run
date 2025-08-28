@@ -3,10 +3,23 @@
 # Ensure log directory exists
 mkdir -p /app/logs
 
+# Wait for the X server to become available before launching Selkies.
+# When Selkies starts too early pynput fails to connect to the display
+# which causes an ImportError and the service restarts in a loop.
+if [ -n "${DISPLAY}" ]; then
+  for _ in $(seq 1 30); do
+    if xset q >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+fi
+
 # Completely disable X Shared Memory and PulseAudio usage.  Both
 # subsystems are unavailable inside this container and attempting to
 # use them causes Selkies to terminate with repeated errors.
 export SELKIES_DISABLE_XSHM=1
+export PIXELFLUX_DISABLE_XSHM=1
 export SELKIES_DISABLE_AUDIO=1
 
 # Start Selkies in websocket mode without audio or MIT-SHM and capture
