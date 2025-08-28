@@ -1,6 +1,15 @@
 #!/usr/bin/with-contenv sh
+
+# Ensure log directory exists
 mkdir -p /app/logs
-# Disable X shared memory and PulseAudio lookups which crash in container
+
+# Completely disable X Shared Memory and PulseAudio usage.  Both
+# subsystems are unavailable inside this container and attempting to
+# use them causes Selkies to terminate with repeated errors.
 export SELKIES_DISABLE_XSHM=1
-# Launch Selkies via websockets and capture its output
-exec selkies --addr="localhost" --mode="websockets" --audio-device-name="" >> /app/logs/selkies.log 2>&1
+export SELKIES_DISABLE_AUDIO=1
+
+# Start Selkies in websocket mode without audio or MIT-SHM and capture
+# all output in a persistent log file.
+exec selkies --addr="localhost" --mode="websockets" \
+    --disable-xshm --no-audio >> /app/logs/selkies.log 2>&1
