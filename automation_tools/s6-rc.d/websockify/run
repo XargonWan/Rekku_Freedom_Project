@@ -1,3 +1,4 @@
 #!/usr/bin/with-contenv sh
 mkdir -p /app/logs
-exec websockify --web=/usr/share/novnc 0.0.0.0:6901 localhost:5901 >> /app/logs/selkies.log 2>&1
+# Use selkies to proxy VNC over websockets and capture its output
+exec selkies --addr="localhost" --mode="websockets" >> /app/logs/selkies.log 2>&1
