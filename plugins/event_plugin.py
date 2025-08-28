@@ -437,7 +437,7 @@ class EventPlugin(AIPluginBase):
                         break
 
                 if attempt < CORRECTOR_RETRIES and not delivered:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(attempt)
 
             if not delivered:
                 log_warning(
