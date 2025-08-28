@@ -401,39 +401,48 @@ class EventPlugin(AIPluginBase):
             event_prompt = await self._create_event_prompt(event)
 
             from core.core_initializer import INTERFACE_REGISTRY
-            interface = INTERFACE_REGISTRY.get("telegram_bot")
-            if not interface:
-                log_warning(
-                    f"[event_plugin] No interface registered for event {event_id}"
-                )
-            else:
-                from types import SimpleNamespace
-
-                SCHEDULED_EVENTS_CHAT_ID = -999999999
-                synthetic_message = SimpleNamespace(
-                    message_id=f"scheduled_event_{event_id}",
-                    chat_id=SCHEDULED_EVENTS_CHAT_ID,
-                    text=f"[SCHEDULED_EVENT_{event_id}] {event.get('description', '')[:50]}",
-                    from_user=SimpleNamespace(
-                        id=0, username="scheduler", full_name="Scheduler"
-                    ),
-                    chat=SimpleNamespace(id=SCHEDULED_EVENTS_CHAT_ID, type="private"),
-                )
-
-                delivered = await request_llm_delivery(
-                    message=synthetic_message,
-                    interface=interface,
-                    context=event_prompt,
-                    reason=f"scheduled_event_{event_id}",
-                )
-                if delivered:
-                    log_info(
-                        f"[event_plugin] Event {event_id} delivered to LLM"
+            delivered = False
+            for attempt in range(1, CORRECTOR_RETRIES + 1):
+                interface = INTERFACE_REGISTRY.get("telegram_bot")
+                if not interface:
+                    log_warning(
+                        f"[event_plugin] No interface registered for event {event_id} "
+                        f"(attempt {attempt}/{CORRECTOR_RETRIES})"
                     )
                 else:
-                    log_warning(
-                        f"[event_plugin] Failed to deliver event {event_id} after {CORRECTOR_RETRIES} attempts"
+                    from types import SimpleNamespace
+
+                    SCHEDULED_EVENTS_CHAT_ID = -999999999
+                    synthetic_message = SimpleNamespace(
+                        message_id=f"scheduled_event_{event_id}",
+                        chat_id=SCHEDULED_EVENTS_CHAT_ID,
+                        text=f"[SCHEDULED_EVENT_{event_id}] {event.get('description', '')[:50]}",
+                        from_user=SimpleNamespace(
+                            id=0, username="scheduler", full_name="Scheduler"
+                        ),
+                        chat=SimpleNamespace(id=SCHEDULED_EVENTS_CHAT_ID, type="private"),
                     )
+
+                    delivered = await request_llm_delivery(
+                        message=synthetic_message,
+                        interface=interface,
+                        context=event_prompt,
+                        reason=f"scheduled_event_{event_id}",
+                    )
+
+                    if delivered:
+                        log_info(
+                            f"[event_plugin] Event {event_id} delivered to LLM"
+                        )
+                        break
+
+                if attempt < CORRECTOR_RETRIES and not delivered:
+                    await asyncio.sleep(1)
+
+            if not delivered:
+                log_warning(
+                    f"[event_plugin] Failed to deliver event {event_id} after {CORRECTOR_RETRIES} attempts"
+                )
         finally:
             try:
                 if event_id is not None:
