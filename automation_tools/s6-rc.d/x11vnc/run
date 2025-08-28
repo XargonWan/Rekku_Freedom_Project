@@ -1,2 +1,3 @@
 #!/usr/bin/with-contenv bash
-exec x11vnc -display :1 -rfbport 5901 -passwd rekku -shared -noshm -noxdamage
+mkdir -p /app/logs
+exec x11vnc -display :1 -rfbport 5901 -passwd rekku -shared -noshm -noxdamage >> /app/logs/vnc.log 2>&1

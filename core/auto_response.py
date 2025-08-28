@@ -6,10 +6,13 @@ Used when interfaces need to report results back through the LLM instead of dire
 
 import asyncio
 import json
+import os
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from core.prompt_engine import build_full_json_instructions
+
+CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
 
 
 class AutoResponseSystem:
@@ -175,16 +178,9 @@ async def request_llm_delivery(
     
     # Handle new calling pattern (interface style)
     if message is not None or interface is not None:
+        log_info(f"[auto_response] Processing {reason or 'autonomous'} request")
         try:
-            import core.plugin_instance as plugin_instance
-
-            log_info(f"[auto_response] Processing {reason or 'autonomous'} request")
-
-            # If we have a message, use it directly with plugin_instance
-            import json
-
             full_json = build_full_json_instructions()
-            # Reminders are flagged separately so the scheduler doesn't re-queue them
             if isinstance(context, dict) and context.get("input", {}).get("type") in {"event", "event_reminder"}:
                 log_debug("[auto_response] Routing event reminder to LLM")
                 system_payload = {
@@ -204,30 +200,52 @@ async def request_llm_delivery(
                 }
 
             payload_json = json.dumps(system_payload, ensure_ascii=False)
-
-            if message is not None:
-                await plugin_instance.handle_incoming_message(interface, message, payload_json)
-            else:
-                # For interface-only requests, create synthetic message
-                from types import SimpleNamespace
-
-                mock_message = SimpleNamespace()
-                mock_message.chat_id = -1  # Default chat
-                mock_message.message_id = 0
-                mock_message.text = f"Auto-generated message for {reason}"
-                mock_message.from_user = SimpleNamespace(
-                    id=0, username="auto_response", full_name="AutoResponder"
-                )
-                mock_message.chat = SimpleNamespace(id=-1, type="private")
-
-                await plugin_instance.handle_incoming_message(
-                    interface, mock_message, payload_json
-                )
-                
         except Exception as e:
-            log_error(f"[auto_response] Failed to process {reason}: {e}")
-            import traceback
-            traceback.print_exc()
-        return
+            log_error(f"[auto_response] Failed to build payload for {reason}: {e}")
+            return False
+
+        for attempt in range(1, CORRECTOR_RETRIES + 1):
+            try:
+                import core.plugin_instance as plugin_instance
+
+                active_plugin = plugin_instance.get_plugin()
+                if not active_plugin:
+                    log_warning(
+                        f"[auto_response] No active LLM plugin available (attempt {attempt}/{CORRECTOR_RETRIES})"
+                    )
+                    await asyncio.sleep(1)
+                    continue
+
+                if message is not None:
+                    await plugin_instance.handle_incoming_message(
+                        interface, message, payload_json
+                    )
+                else:
+                    from types import SimpleNamespace
+
+                    mock_message = SimpleNamespace()
+                    mock_message.chat_id = -1
+                    mock_message.message_id = 0
+                    mock_message.text = f"Auto-generated message for {reason}"
+                    mock_message.from_user = SimpleNamespace(
+                        id=0, username="auto_response", full_name="AutoResponder"
+                    )
+                    mock_message.chat = SimpleNamespace(id=-1, type="private")
+
+                    await plugin_instance.handle_incoming_message(
+                        interface, mock_message, payload_json
+                    )
+
+                return True
+            except Exception as e:
+                log_error(
+                    f"[auto_response] Delivery attempt {attempt} for {reason} failed: {e}"
+                )
+                await asyncio.sleep(1)
+
+        log_warning(
+            f"[auto_response] Failed to process {reason} after {CORRECTOR_RETRIES} attempts"
+        )
+        return False
     
     log_warning("[auto_response] request_llm_delivery called with insufficient parameters")

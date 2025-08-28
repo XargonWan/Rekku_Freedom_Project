@@ -109,7 +109,8 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
 
     actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
     log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
-    if actual != clean_text:
+    # Only warn if the textarea differs noticeably from the injected text
+    if abs(len(clean_text) - len(actual)) > 5:
         log_warning(
             f"[selenium] textarea mismatch: expected {len(clean_text)} chars, found {len(actual)}"
         )
@@ -260,6 +261,7 @@ def wait_for_markdown_block_to_appear(driver, prev_count: int, timeout: int = 10
 
 
 AWAIT_RESPONSE_TIMEOUT = int(os.getenv("AWAIT_RESPONSE_TIMEOUT", "240"))
+CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
 
 
 def wait_until_response_stabilizes(
@@ -669,7 +671,7 @@ def process_prompt_in_chat(
     attempt = 0
     repeat_failures = 0
     last_response: Optional[str] = None
-    while time.time() - start < AWAIT_RESPONSE_TIMEOUT:
+    while attempt < CORRECTOR_RETRIES and time.time() - start < AWAIT_RESPONSE_TIMEOUT:
         attempt += 1
         try:
             wait_for_chatgpt_idle(driver)
@@ -679,14 +681,22 @@ def process_prompt_in_chat(
             final_value = driver.execute_script(
                 f"return arguments[0].{prop};", textarea
             ) or ""
-            if final_value != strip_non_bmp(prompt_text):
+            expected_len = len(strip_non_bmp(prompt_text))
+            # Allow small discrepancies (e.g., trailing spaces trimmed by ChatGPT)
+            if abs(expected_len - len(final_value)) > 5:
                 log_warning(
-                    f"[selenium] Prompt mismatch after paste: expected {len(prompt_text)} chars, got {len(final_value)}"
+                    f"[selenium] Prompt mismatch after paste: expected {expected_len} chars, got {len(final_value)}"
                 )
                 time.sleep(1)
                 continue
+
+            candidate = final_value.strip()
+            if candidate.startswith("```"):
+                match = re.match(r"```(?:json)?\n(.*)\n```", candidate, re.DOTALL)
+                if match:
+                    candidate = match.group(1)
             try:
-                json.loads(final_value)
+                json.loads(candidate)
             except Exception:
                 log_warning("[selenium] JSON invalid after paste; retrying")
                 time.sleep(1)
@@ -746,6 +756,7 @@ def process_prompt_in_chat(
         if remaining > 0:
             time.sleep(min(5, remaining))
 
+    log_warning(f"[selenium] Aborting after {attempt} attempts")
     screenshots_dir = os.path.join(_LOG_DIR, "screenshots")
     os.makedirs(screenshots_dir, exist_ok=True)
     fname = os.path.join(screenshots_dir, f"chat_{chat_id or 'unknown'}_no_response.png")

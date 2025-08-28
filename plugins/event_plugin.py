@@ -17,6 +17,8 @@ import time
 import aiomysql
 from core.core_initializer import core_initializer, register_plugin
 
+CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
+
 
 class EventPlugin(AIPluginBase):
     """Plugin that stores future events without using an LLM."""
@@ -389,63 +391,77 @@ class EventPlugin(AIPluginBase):
 
     async def _deliver_event_to_llm(self, event: dict):
         """Deliver the event to the LLM as a structured input and wait for the response."""
+        raw_id = event.get("id")
         try:
-            import core.plugin_instance as plugin_instance
+            event_id = int(raw_id) if raw_id is not None else None
+        except (TypeError, ValueError):
+            event_id = None
 
-            active_plugin = plugin_instance.get_plugin()
-            if not active_plugin:
-                log_error(
-                    f"[event_plugin] No active LLM plugin available for event {event['id']}"
-                )
-                return
-
+        try:
             event_prompt = await self._create_event_prompt(event)
 
-            log_debug(
-                f"[event_plugin] Delivering event {event['id']} to LLM via auto-response system"
-            )
-
-            interface = None
-            bot = self.bot
-            try:
-                from core.core_initializer import INTERFACE_REGISTRY
-                telegram_iface = INTERFACE_REGISTRY.get("telegram_bot")
-                if telegram_iface:
-                    interface = telegram_iface
-                    if getattr(telegram_iface, "bot", None):
-                        bot = telegram_iface.bot
-                        self.bot = bot
-            except Exception:
-                interface = None
-
-            # Use auto-response system for autonomous event notifications
-            await request_llm_delivery(
-                message=None,  # No original message for autonomous events
-                interface=interface,  # Pass interface so LLM can route the event
-                context=event_prompt,
-                reason=f"scheduled_event_{event['id']}",
-            )
-            log_info(
-                f"[event_plugin] Event {event['id']} delivered to LLM via auto-response"
-            )
-            try:
-                if await mark_event_delivered(event["id"]):
-                    log_debug(
-                        f"[event_plugin] Event {event['id']} marked delivered in DB"
+            from core.core_initializer import INTERFACE_REGISTRY
+            delivered = False
+            for attempt in range(1, CORRECTOR_RETRIES + 1):
+                interface = INTERFACE_REGISTRY.get("telegram_bot")
+                if not interface:
+                    log_warning(
+                        f"[event_plugin] No interface registered for event {event_id} "
+                        f"(attempt {attempt}/{CORRECTOR_RETRIES})"
                     )
                 else:
+                    from types import SimpleNamespace
+
+                    SCHEDULED_EVENTS_CHAT_ID = -999999999
+                    synthetic_message = SimpleNamespace(
+                        message_id=f"scheduled_event_{event_id}",
+                        chat_id=SCHEDULED_EVENTS_CHAT_ID,
+                        text=f"[SCHEDULED_EVENT_{event_id}] {event.get('description', '')[:50]}",
+                        from_user=SimpleNamespace(
+                            id=0, username="scheduler", full_name="Scheduler"
+                        ),
+                        chat=SimpleNamespace(id=SCHEDULED_EVENTS_CHAT_ID, type="private"),
+                    )
+
+                    delivered = await request_llm_delivery(
+                        message=synthetic_message,
+                        interface=interface,
+                        context=event_prompt,
+                        reason=f"scheduled_event_{event_id}",
+                    )
+
+                    if delivered:
+                        log_info(
+                            f"[event_plugin] Event {event_id} delivered to LLM"
+                        )
+                        break
+
+                if attempt < CORRECTOR_RETRIES and not delivered:
+                    await asyncio.sleep(attempt)
+
+            if not delivered:
+                log_warning(
+                    f"[event_plugin] Failed to deliver event {event_id} after {CORRECTOR_RETRIES} attempts"
+                )
+        finally:
+            try:
+                if event_id is not None:
+                    if await mark_event_delivered(event_id):
+                        log_debug(
+                            f"[event_plugin] Event {event_id} marked delivered in DB"
+                        )
+                    else:
+                        log_warning(
+                            f"[event_plugin] Failed to mark event {event_id} delivered"
+                        )
+                else:
                     log_warning(
-                        f"[event_plugin] Failed to mark event {event['id']} delivered"
+                        "[event_plugin] Cannot mark event with invalid id as delivered"
                     )
             except Exception as e:
                 log_warning(
-                    f"[event_plugin] Error marking event {event['id']} delivered: {e}"
+                    f"[event_plugin] Error marking event {event_id} delivered: {e}"
                 )
-
-        except Exception as e:
-            log_error(
-                f"[event_plugin] Error delivering event {event['id']} to LLM: {repr(e)}"
-            )
 
     async def _create_event_prompt(self, event: dict):
         """Create a structured prompt for the event delivery."""
@@ -797,17 +813,6 @@ For recurring events, you can use:
     ):
         """Delegate the action execution to the active LLM plugin."""
         try:
-            # Get the active LLM plugin
-            import core.plugin_instance as plugin_instance
-
-            active_plugin = plugin_instance.get_plugin()
-
-            if not active_plugin:
-                log_error(
-                    f"[event_plugin] No active LLM plugin available for event {event_id}"
-                )
-                return
-
             # Track the current event ID for delivery confirmation
             self._current_processing_event_id = event_id
 
@@ -835,16 +840,9 @@ For recurring events, you can use:
             )
 
         except Exception as e:
-            log_error(f"[event_plugin] Error processing scheduled event {event_id}: {repr(e)}")
-            # Clean up the tracking since we can't process
-            if hasattr(self, "_current_processing_event_id"):
-                delattr(self, "_current_processing_event_id")
-
-        except Exception as e:
             log_error(
-                f"[event_plugin] Error delegating to active LLM for event {event_id}: {repr(e)}"
+                f"[event_plugin] Error processing scheduled event {event_id}: {repr(e)}"
             )
-            # Clean up the tracking on error
             if hasattr(self, "_current_processing_event_id"):
                 delattr(self, "_current_processing_event_id")
 
