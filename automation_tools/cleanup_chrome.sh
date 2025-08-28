@@ -5,6 +5,10 @@
 
 echo "🧹 Cleaning Chromium processes and lock files..."
 
+# Determine configuration directories
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+ALT_CONFIG_HOME="/home/rekku/.config"
+
 # Terminate all Chromium processes
 echo "🔪 Terminating Chromium processes..."
 pkill -f chromium 2>/dev/null || echo "No Chromium processes found"
@@ -21,22 +25,22 @@ echo "🗑️  Removing lock files and temporary cache (preserving login session
 
 # Remove Chromium lock files (these cause "cannot connect" errors)
 # Note: We only remove lock files, NOT the actual profile data to preserve logins
-rm -f ~/.config/chromium*/SingletonLock 2>/dev/null || true
-rm -f ~/.config/chromium*/Default/SingletonLock 2>/dev/null || true
-rm -f ~/.config/chromium*/lockfile 2>/dev/null || true
-rm -f /home/rekku/.config/chromium*/SingletonLock 2>/dev/null || true
-rm -f /home/rekku/.config/chromium*/Default/SingletonLock 2>/dev/null || true
-rm -f /home/rekku/.config/chromium*/lockfile 2>/dev/null || true
+rm -f "$CONFIG_HOME"/chromium*/SingletonLock 2>/dev/null || true
+rm -f "$CONFIG_HOME"/chromium*/Default/SingletonLock 2>/dev/null || true
+rm -f "$CONFIG_HOME"/chromium*/lockfile 2>/dev/null || true
+rm -f "$ALT_CONFIG_HOME"/chromium*/SingletonLock 2>/dev/null || true
+rm -f "$ALT_CONFIG_HOME"/chromium*/Default/SingletonLock 2>/dev/null || true
+rm -f "$ALT_CONFIG_HOME"/chromium*/lockfile 2>/dev/null || true
 
 # Remove undetected-chromedriver cache (this can be safely regenerated)
 rm -rf /tmp/undetected_chromedriver 2>/dev/null || true
 
 # Remove ONLY temporary profile directories (those with timestamp suffix)
 # This preserves the main persistent profile "chromium-rfp" but removes temporary ones
-rm -rf ~/.config/chromium-[0-9]* 2>/dev/null || true
-rm -rf /home/rekku/.config/chromium-[0-9]* 2>/dev/null || true
+rm -rf "$CONFIG_HOME"/chromium-[0-9]* 2>/dev/null || true
+rm -rf "$ALT_CONFIG_HOME"/chromium-[0-9]* 2>/dev/null || true
 
-# Note: We specifically preserve ~/.config/chromium-rfp (the persistent profile)
+# Note: We specifically preserve "$CONFIG_HOME/chromium-rfp" (the persistent profile)
 # This keeps ChatGPT login sessions and other site data intact
 
 # Remove Chromium temporary files and crash reports (safe to remove)
@@ -44,8 +48,8 @@ rm -rf /tmp/.org.chromium.* 2>/dev/null || true
 rm -rf /tmp/chromium_* 2>/dev/null || true
 
 # Remove Chromium process crash dumps and temp directories
-rm -rf ~/.config/chromium*/Crash\ Reports/pending/* 2>/dev/null || true
-rm -rf /home/rekku/.config/chromium*/Crash\ Reports/pending/* 2>/dev/null || true
+rm -rf "$CONFIG_HOME"/chromium*/Crash\ Reports/pending/* 2>/dev/null || true
+rm -rf "$ALT_CONFIG_HOME"/chromium*/Crash\ Reports/pending/* 2>/dev/null || true
 
 echo "✅ Cleanup completed!"
 

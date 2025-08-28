@@ -1179,7 +1179,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     
                     # Use persistent profile directory to maintain login sessions
                     # This preserves ChatGPT login and other site sessions across restarts
-                    profile_dir = os.path.expanduser("~/.config/chromium-rfp")
+                    config_home = os.getenv(
+                        "XDG_CONFIG_HOME",
+                        os.path.join(os.path.expanduser("~"), ".config"),
+                    )
+                    profile_dir = os.path.join(config_home, "chromium-rfp")
                     os.makedirs(profile_dir, exist_ok=True)
                     options.add_argument(f"--user-data-dir={profile_dir}")
                     
