@@ -34,34 +34,22 @@ RUN apt-get update && \
 # Install gemini-cli
 RUN pip3 install --no-cache-dir gemini-cli
 
-# Install browser based on architecture
-RUN ARCH="$TARGETARCH" && \
+# Install Chromium browser and driver
+RUN ARCH="${TARGETARCH}" && \
     if [ -z "$ARCH" ]; then \
         echo "Warning: TARGETARCH not set, defaulting to amd64" && \
         ARCH=amd64; \
     fi && \
-    if [ "$ARCH" = "amd64" ]; then \
-        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/trusted.gpg.d/google-chrome.gpg && \
-        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-        apt-get update && \
-        apt-get install -y google-chrome-stable && \
-        apt-get clean && rm -rf /var/lib/apt/lists/* && \
-        google-chrome --version; \
-    elif [ "$ARCH" = "arm64" ]; then \
-        apt-get update && \
-        apt-get install -y chromium chromium-driver && \
-        apt-get clean && rm -rf /var/lib/apt/lists/* && \
-        chromium --version && \
-        ln -s /usr/bin/chromium /usr/bin/google-chrome; \
+    apt-get update && \
+    apt-get purge -y google-chrome google-chrome-stable || true && \
+    if [ "$ARCH" = "amd64" ] || [ "$ARCH" = "arm64" ]; then \
+        apt-get install -y chromium chromium-driver; \
     else \
-        echo "Warning: unsupported architecture '$ARCH', defaulting to amd64" && \
-        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/trusted.gpg.d/google-chrome.gpg && \
-        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-        apt-get update && \
-        apt-get install -y google-chrome-stable && \
-        apt-get clean && rm -rf /var/lib/apt/lists/* && \
-        google-chrome --version; \
-    fi
+        echo "Warning: unsupported architecture '$ARCH', attempting Chromium install" && \
+        apt-get install -y chromium chromium-driver; \
+    fi && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    chromium --version
 
 # Install XFCE4 desktop environment
 RUN apt-get update && \

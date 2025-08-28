@@ -1051,17 +1051,17 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         if self.driver:
             try:
                 self.driver.quit()
-                log_debug("[selenium] Chrome driver closed")
+                log_debug("[selenium] Chromium driver closed")
             except Exception as e:
                 log_warning(f"[selenium] Failed to close driver: {e}")
             finally:
                 self.driver = None
         
-        # Kill any remaining Chrome processes
+        # Kill any remaining Chromium processes
         try:
-            subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
+            subprocess.run(["pkill", "-f", "chromium"], capture_output=True, text=True)
             subprocess.run(["pkill", "-f", "chromedriver"], capture_output=True, text=True)
-            log_debug("[selenium] Killed remaining Chrome processes")
+            log_debug("[selenium] Killed remaining Chromium processes")
         except Exception as e:
             log_debug(f"[selenium] Failed to kill processes: {e}")
         
@@ -1122,10 +1122,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
     def _init_driver(self):
         if self.driver is None:
-            log_debug("[selenium] [STEP] Initializing Chrome driver with undetected-chromedriver")
+            log_debug("[selenium] [STEP] Initializing Chromium driver with undetected-chromedriver")
 
             # Clean up any leftover processes and files from previous runs
-            self._cleanup_chrome_remnants()
+            self._cleanup_chromium_remnants()
 
             # Ensure DISPLAY is set
             if not os.environ.get("DISPLAY"):
@@ -1138,7 +1138,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 try:
                     log_debug(f"[selenium] Initialization attempt {attempt + 1}/{max_retries}")
                     
-                    # Create Chrome options optimized for container environments
+                    # Create Chromium options optimized for container environments
                     options = uc.ChromeOptions()
                     
                     # Essential options for Docker containers
@@ -1162,7 +1162,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "--disable-features=VizDisplayCompositor",
                         "--log-level=3",
                         "--disable-logging",
-                        "--remote-debugging-port=0",  # Let Chrome choose port
+                        "--remote-debugging-port=0",  # Let Chromium choose port
                         "--disable-background-mode",
                         "--disable-default-browser-check",
                         "--disable-hang-monitor",
@@ -1179,7 +1179,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     
                     # Use persistent profile directory to maintain login sessions
                     # This preserves ChatGPT login and other site sessions across restarts
-                    profile_dir = os.path.expanduser("~/.config/google-chrome-rekku")
+                    profile_dir = os.path.expanduser("~/.config/chromium-rfp")
                     os.makedirs(profile_dir, exist_ok=True)
                     options.add_argument(f"--user-data-dir={profile_dir}")
                     
@@ -1191,21 +1191,22 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         shutil.rmtree(uc_cache_dir, ignore_errors=True)
                         log_debug("[selenium] Cleared undetected-chromedriver cache")
                     
-                    # Try with automatic configuration first
+                    # Try with explicit Chromium binary
+                    chromium_binary = shutil.which("chromium") or "/usr/bin/chromium"
                     self.driver = uc.Chrome(
                         options=options,
                         headless=False,
                         use_subprocess=False,
-                        version_main=None,  # Auto-detect Chrome version
+                        version_main=None,  # Auto-detect Chromium version
                         suppress_welcome=True,
                         log_level=3,
                         driver_executable_path=None,  # Let UC handle chromedriver
-                        browser_executable_path=None,  # Let UC find Chrome
+                        browser_executable_path=chromium_binary,
                         user_data_dir=profile_dir
                     )
                     self._apply_driver_timeouts()
                     log_debug(
-                        "[selenium] ✅ Chrome successfully initialized with undetected-chromedriver"
+                        "[selenium] ✅ Chromium successfully initialized with undetected-chromedriver"
                     )
                     return  # Success, exit retry loop
                     
@@ -1214,7 +1215,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     
                     # Handle specific Python shutdown error
                     if "sys.meta_path is None" in str(e) or "Python is likely shutting down" in str(e):
-                        log_warning("[selenium] Python shutdown detected, skipping Chrome initialization")
+                        log_warning("[selenium] Python shutdown detected, skipping Chromium initialization")
                         return None
                     
                     # Clean up before next attempt
@@ -1225,24 +1226,24 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                             pass
                         self.driver = None
                     
-                    self._cleanup_chrome_remnants()
+                    self._cleanup_chromium_remnants()
                     
                     if attempt < max_retries - 1:
                         delay = (attempt + 1) * 2  # 2, 4, 6 seconds
                         log_debug(f"[selenium] Waiting {delay}s before next attempt...")
                         time.sleep(delay)
                     else:
-                        # Final attempt with explicit Chrome binary
-                        log_debug("[selenium] Final attempt with explicit Chrome binary path...")
+                        # Final attempt with explicit Chromium binary
+                        log_debug("[selenium] Final attempt with explicit Chromium binary path...")
                         try:
-                            chrome_binary = "/usr/bin/google-chrome-stable"
-                            if os.path.exists(chrome_binary):
-                                # Create fresh ChromeOptions for fallback attempt
+                            chromium_binary = shutil.which("chromium") or "/usr/bin/chromium"
+                            if os.path.exists(chromium_binary):
+                                # Create fresh ChromiumOptions for fallback attempt
                                 fallback_options = uc.ChromeOptions()
                                 for arg in essential_args:
                                     fallback_options.add_argument(arg)
                                 fallback_options.add_argument(f"--user-data-dir={profile_dir}")
-                                
+
                                 self.driver = uc.Chrome(
                                     options=fallback_options,
                                     headless=False,
@@ -1250,22 +1251,22 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                     version_main=None,
                                     suppress_welcome=True,
                                     log_level=3,
-                                    browser_executable_path=chrome_binary,
+                                    browser_executable_path=chromium_binary,
                                     user_data_dir=profile_dir
                                 )
                                 self._apply_driver_timeouts()
                                 log_debug(
-                                    "[selenium] ✅ Chrome initialized with explicit binary path"
+                                    "[selenium] ✅ Chromium initialized with explicit binary path"
                                 )
                                 return
                             else:
-                                raise Exception("Chrome binary not found")
-                                
+                                raise Exception("Chromium binary not found")
+
                         except Exception as e2:
-                            log_warning("[selenium] Chrome lock suspected - attempting forced lock cleanup...")
-                            self._cleanup_chrome_remnants()
+                            log_warning("[selenium] Chromium lock suspected - attempting forced lock cleanup...")
+                            self._cleanup_chromium_remnants()
                             try:
-                                if os.path.exists(chrome_binary):
+                                if os.path.exists(chromium_binary):
                                     fallback_options = uc.ChromeOptions()
                                     for arg in essential_args:
                                         fallback_options.add_argument(arg)
@@ -1278,38 +1279,37 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                         version_main=None,
                                         suppress_welcome=True,
                                         log_level=3,
-                                        browser_executable_path=chrome_binary,
+                                        browser_executable_path=chromium_binary,
                                         user_data_dir=profile_dir
                                     )
                                     self._apply_driver_timeouts()
                                     log_debug(
-                                        "[selenium] ✅ Chrome initialized after forced lock cleanup"
+                                        "[selenium] ✅ Chromium initialized after forced lock cleanup"
                                     )
                                     return
                                 else:
-                                    raise Exception("Chrome binary not found")
+                                    raise Exception("Chromium binary not found")
                             except Exception as e3:
                                 log_error(f"[selenium] ❌ All initialization attempts failed: {e3}")
                                 _notify_gui(f"❌ Selenium error: {e3}. Check graphics environment.")
                                 raise SystemExit(1)
 
-    def _cleanup_chrome_remnants(self):
-        """Clean up Chrome processes and leftover lock files."""
+    def _cleanup_chromium_remnants(self):
+        """Clean up Chromium processes and leftover lock files."""
         try:
-            subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
+            subprocess.run(["pkill", "-f", "chromium"], capture_output=True, text=True)
             subprocess.run(["pkill", "chromedriver"], capture_output=True, text=True)
             time.sleep(1)
-            log_debug("[selenium] Issued pkill for chrome and chromedriver")
+            log_debug("[selenium] Issued pkill for chromium and chromedriver")
         except Exception as e:
-            log_debug(f"[selenium] Failed to kill chrome processes: {e}")
+            log_debug(f"[selenium] Failed to kill chromium processes: {e}")
 
         try:
             import glob
             patterns = [
-                os.path.expanduser("~/.config/google-chrome*"),
-                "/tmp/.com.google.Chrome*",
+                os.path.expanduser("~/.config/chromium*"),
                 "/tmp/.org.chromium.*",
-                "/tmp/chrome_*",
+                "/tmp/chromium_*",
             ]
 
             for pattern in patterns:
@@ -1331,7 +1331,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except Exception as e:
             log_debug(f"[selenium] Lock file cleanup failed: {e}")
 
-        log_debug("[selenium] Chrome lock cleanup complete")
+        log_debug("[selenium] Chromium lock cleanup complete")
 
     # [FIX] ensure the WebDriver session is alive before use
     def _get_driver(self):
