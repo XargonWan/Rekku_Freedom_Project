@@ -2,7 +2,7 @@
 
 from core import say_proxy, message_map
 import asyncio
-from core.config import TELEGRAM_TRAINER_ID
+from core.config import get_trainer_id
 from core.ai_plugin_base import AIPluginBase
 import json
 from telegram.constants import ParseMode
@@ -61,21 +61,26 @@ class ManualAIPlugin(AIPluginBase):
             say_proxy.clear(user_id)
             return
 
-        # === Invia prompt JSON al trainer (TELEGRAM_TRAINER_ID) ===
+        # === Invia prompt JSON al trainer ===
         import json
         from telegram.constants import ParseMode
+
+        trainer_id = get_trainer_id("telegram_bot")
+        if not trainer_id:
+            log_warning("[manual] Missing trainer ID for telegram_bot; skipping notification")
+            return
 
         prompt_json = json.dumps(prompt, ensure_ascii=False, indent=2)
         try:
             await bot.send_message(
-                chat_id=TELEGRAM_TRAINER_ID,
+                chat_id=trainer_id,
                 text="\U0001f4e6 *Generated JSON prompt:*",
                 parse_mode=ParseMode.MARKDOWN,
             )
             for i in range(0, len(prompt_json), 4000):
                 chunk = prompt_json[i:i+4000]
                 await bot.send_message(
-                    chat_id=TELEGRAM_TRAINER_ID,
+                    chat_id=trainer_id,
                     text=f"```json\n{chunk}\n```",
                     parse_mode=ParseMode.MARKDOWN,
                 )
@@ -83,10 +88,10 @@ class ManualAIPlugin(AIPluginBase):
             # === Inoltra il messaggio originale per facilitare la risposta ===
             sender = message.from_user
             user_ref = f"@{sender.username}" if sender.username else sender.full_name
-            await bot.send_message(chat_id=TELEGRAM_TRAINER_ID, text=f"{user_ref}:")
+            await bot.send_message(chat_id=trainer_id, text=f"{user_ref}:")
 
             sent = await bot.forward_message(
-                chat_id=TELEGRAM_TRAINER_ID,
+                chat_id=trainer_id,
                 from_chat_id=message.chat_id,
                 message_id=message.message_id,
             )

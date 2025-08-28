@@ -46,6 +46,21 @@ NOTIFY_ERRORS_TO_INTERFACES = _parse_notify_interfaces(
 
 TELEGRAM_TRAINER_ID = int(os.getenv("TELEGRAM_TRAINER_ID", "0") or 0)
 
+
+def get_trainer_id(interface_name: str) -> int | None:
+    """Return the trainer ID for the given interface.
+
+    Prefers the mapping provided by ``NOTIFY_ERRORS_TO_INTERFACES`` and
+    falls back to legacy environment variables (e.g. ``TELEGRAM_TRAINER_ID``)
+    when necessary.
+    """
+    trainer_id = NOTIFY_ERRORS_TO_INTERFACES.get(interface_name)
+    if trainer_id:
+        return trainer_id
+    if interface_name == "telegram_bot" and TELEGRAM_TRAINER_ID:
+        return TELEGRAM_TRAINER_ID
+    return None
+
 BOT_TOKEN = os.getenv("BOTFATHER_TOKEN") or os.getenv("TELEGRAM_TOKEN")
 BOT_USERNAME = "rekku_freedom_project"
 LLM_MODE = os.getenv("LLM_MODE", "manual")
