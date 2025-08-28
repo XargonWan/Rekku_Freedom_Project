@@ -15,14 +15,27 @@ if [ -n "${DISPLAY}" ]; then
   done
 fi
 
-# Completely disable X Shared Memory and PulseAudio usage.  Both
-# subsystems are unavailable inside this container and attempting to
-# use them causes Selkies to terminate with repeated errors.
+# Completely disable X Shared Memory usage.  The container environment
+# lacks proper MIT-SHM support which causes Selkies to abort if the
+# extension is enabled.
 export SELKIES_DISABLE_XSHM=1
 export PIXELFLUX_DISABLE_XSHM=1
-export SELKIES_DISABLE_AUDIO=1
 
-# Start Selkies in websocket mode without audio or MIT-SHM and capture
-# all output in a persistent log file.
+# Spawn a minimal PulseAudio instance with a dummy sink so that Selkies'
+# internal pulsectl probes succeed even though no real audio hardware is
+# available.  This avoids repeated connection failures when the data
+# websocket initializes.
+pulseaudio -D --exit-idle-time=-1 \
+  --load="module-null-sink sink_name=output" --log-level=error 2>/dev/null
+
+# Give PulseAudio a moment to come up
+for _ in $(seq 1 10); do
+  pactl info >/dev/null 2>&1 && break
+  sleep 1
+done
+
+# Launch Selkies in websocket mode with XSHM disabled.  Audio is still
+# disabled at the application level, but the presence of a dummy
+# PulseAudio server prevents startup crashes.
 exec selkies --addr="localhost" --mode="websockets" \
     --disable-xshm --no-audio >> /app/logs/selkies.log 2>&1
