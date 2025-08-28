@@ -391,7 +391,12 @@ class EventPlugin(AIPluginBase):
 
     async def _deliver_event_to_llm(self, event: dict):
         """Deliver the event to the LLM as a structured input and wait for the response."""
-        event_id = event.get("id", "unknown")
+        raw_id = event.get("id")
+        try:
+            event_id = int(raw_id) if raw_id is not None else None
+        except (TypeError, ValueError):
+            event_id = None
+
         try:
             event_prompt = await self._create_event_prompt(event)
 
@@ -431,13 +436,18 @@ class EventPlugin(AIPluginBase):
                     )
         finally:
             try:
-                if await mark_event_delivered(event_id):
-                    log_debug(
-                        f"[event_plugin] Event {event_id} marked delivered in DB"
-                    )
+                if event_id is not None:
+                    if await mark_event_delivered(event_id):
+                        log_debug(
+                            f"[event_plugin] Event {event_id} marked delivered in DB"
+                        )
+                    else:
+                        log_warning(
+                            f"[event_plugin] Failed to mark event {event_id} delivered"
+                        )
                 else:
                     log_warning(
-                        f"[event_plugin] Failed to mark event {event_id} delivered"
+                        "[event_plugin] Cannot mark event with invalid id as delivered"
                     )
             except Exception as e:
                 log_warning(
