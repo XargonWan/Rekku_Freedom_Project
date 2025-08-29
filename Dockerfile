@@ -62,6 +62,7 @@ RUN apt-get update && \
       dbus-x11 \
       at-spi2-core \
       pulseaudio \
+      pulseaudio-utils \
       pavucontrol && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 

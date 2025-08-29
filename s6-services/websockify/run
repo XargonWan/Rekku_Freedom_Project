@@ -15,14 +15,41 @@ if [ -n "${DISPLAY}" ]; then
   done
 fi
 
+# Some environments disallow X MIT-SHM attachments; disable XShm in capture to avoid BadAccess
+export PIXELFLUX_USE_XSHM=0
+export MITSHM=0
+
+# Prepare PulseAudio runtime (prevents race conditions / missing socket)
+USER_ID="$(id -u)"
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/${USER_ID}}
+mkdir -p "${XDG_RUNTIME_DIR}/pulse" || true
+chmod 700 "${XDG_RUNTIME_DIR}" 2>/dev/null || true
+
 # Start a minimal PulseAudio server with a null sink so Selkies has an
 # `output` device and `output.monitor` for captures even when no real
 # sound hardware exists.
 pulseaudio -D --exit-idle-time=-1 \
-  --load="module-null-sink sink_name=output" >/dev/null 2>&1
+  --load="module-null-sink sink_name=output" >/dev/null 2>&1 || true
 
-# Ensure clients use the PulseAudio socket we just started.
-export PULSE_SERVER=unix:/run/user/$(id -u)/pulse/native
+# Point clients to the PulseAudio native socket and wait until ready
+export PULSE_SERVER="unix:${XDG_RUNTIME_DIR}/pulse/native"
+
+# Wait for PulseAudio to accept commands
+for _ in $(seq 1 30); do
+  if pactl -s "${PULSE_SERVER#unix:}" info >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.5
+done
+
+# Ensure the null sink exists (idempotent) and select as default, also set default source to monitor
+if ! pactl -s "${PULSE_SERVER#unix:}" list short sinks 2>/dev/null | awk '{print $2}' | grep -q "^output$"; then
+  pactl -s "${PULSE_SERVER#unix:}" load-module module-null-sink sink_name=output >/dev/null 2>&1 || true
+fi
+
+# Select defaults (ignore errors if not present yet)
+pactl -s "${PULSE_SERVER#unix:}" set-default-sink output >/dev/null 2>&1 || true
+pactl -s "${PULSE_SERVER#unix:}" set-default-source output.monitor >/dev/null 2>&1 || true
 
 # Launch Selkies in websocket mode and log to /app/logs/selkies.log
 exec selkies --addr="localhost" --mode="websockets" \
