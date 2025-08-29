@@ -1,8 +1,19 @@
 #!/command/with-contenv bash
 set -e
 
+ABC_USER=abc
+ABC_UID=$(id -u "$ABC_USER")
+ABC_GID=$(id -g "$ABC_USER")
+
+# Ensure XDG config locations exist and are owned by abc
+export HOME=/config
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+mkdir -p "$XDG_CONFIG_HOME" "$XDG_CONFIG_HOME/chromium-rfp" /home/rekku/.config || true
+chown -R "$ABC_UID:$ABC_GID" "$XDG_CONFIG_HOME" /home/rekku/.config || true
+chmod 700 "$XDG_CONFIG_HOME" 2>/dev/null || true
+
 echo "[S6 Rekku] Pulizia processi precedenti..."
-/usr/local/bin/cleanup_chromium.sh || true
+/usr/local/bin/cleanup_chrome.sh || true
 
 echo "[S6 Rekku] Attendo /tmp/.X11-unix/X1..."
 while [ ! -e /tmp/.X11-unix/X1 ]; do
@@ -12,5 +23,4 @@ done
 
 echo "[S6 Rekku] Avvio Rekku Freedom Project..."
 cd /app
-exec s6-setuidgid abc /usr/local/bin/rekku.sh run
-
+exec s6-setuidgid abc env HOME="$HOME" XDG_CONFIG_HOME="$XDG_CONFIG_HOME" /usr/local/bin/rekku.sh run
