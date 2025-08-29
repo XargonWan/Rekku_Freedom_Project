@@ -60,17 +60,25 @@ async def get_conn() -> aiomysql.Connection:
             db=DB_NAME,
             autocommit=True,
         )
-    except Exception as e:  # pragma: no cover - network errors
-        log_warning(f"[db] Connection to {DB_HOST} failed: {e}. Trying localhost...")
+    except Exception as primary_exc:  # pragma: no cover - network errors
+        log_warning(
+            f"[db] Connection to {DB_HOST} failed: {primary_exc}. Trying localhost..."
+        )
         if DB_HOST != "localhost":
-            conn = await aiomysql.connect(
-                host="localhost",
-                port=DB_PORT,
-                user=DB_USER,
-                password=DB_PASS,
-                db=DB_NAME,
-                autocommit=True,
-            )
+            try:
+                conn = await aiomysql.connect(
+                    host="localhost",
+                    port=DB_PORT,
+                    user=DB_USER,
+                    password=DB_PASS,
+                    db=DB_NAME,
+                    autocommit=True,
+                )
+            except Exception as fallback_exc:  # pragma: no cover - network errors
+                log_error(
+                    f"[db] Localhost connection failed: {fallback_exc}."
+                )
+                raise primary_exc
         else:
             raise
     log_debug("[db] Connection opened")
