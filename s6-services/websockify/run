@@ -19,46 +19,49 @@ fi
 export PIXELFLUX_USE_XSHM=0
 export MITSHM=0
 
-# Prepare PulseAudio runtime (prevents race conditions / missing socket)
-USER_ID="$(id -u)"
-export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/${USER_ID}}
-mkdir -p "${XDG_RUNTIME_DIR}/pulse" || true
+# Prepare PulseAudio runtime for abc user to keep client/server aligned
+ABC_USER=abc
+ABC_UID="$(id -u ${ABC_USER} 2>/dev/null || echo 1000)"
+ABC_GID="$(id -g ${ABC_USER} 2>/dev/null || echo 1000)"
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/${ABC_UID}}
+export PULSE_RUNTIME_PATH="${XDG_RUNTIME_DIR}/pulse"
+mkdir -p "${PULSE_RUNTIME_PATH}" || true
+chown -R "${ABC_UID}:${ABC_GID}" "${XDG_RUNTIME_DIR}" 2>/dev/null || true
 chmod 700 "${XDG_RUNTIME_DIR}" 2>/dev/null || true
 
 # Start a minimal PulseAudio server with a null sink so Selkies has an
 # `output` device and `output.monitor` for captures even when no real
 # sound hardware exists.
-pulseaudio -D --exit-idle-time=-1 \
-  --load="module-native-protocol-unix socket=${XDG_RUNTIME_DIR}/pulse/native auth-anonymous=1" \
-  --load="module-null-sink sink_name=output" >/dev/null 2>&1 || true
+# Run PulseAudio as abc to avoid UID/socket mismatch
+s6-setuidgid "${ABC_USER}" pulseaudio -n -D --exit-idle-time=-1 --disallow-exit=true \
+  --load="module-native-protocol-unix socket=${PULSE_RUNTIME_PATH}/native auth-anonymous=1" \
+  --load="module-null-sink sink_name=output sink_properties=device.description=Output" \
+  --load="module-always-sink" >/dev/null 2>&1 || true
 
 # Point clients to the PulseAudio native socket and wait until ready
-export PULSE_SERVER="unix:${XDG_RUNTIME_DIR}/pulse/native"
+export PULSE_SERVER="unix:${PULSE_RUNTIME_PATH}/native"
 
 # Wait for PulseAudio to accept commands (prefer pactl; fallback to socket file)
 for _ in $(seq 1 60); do
-  if command -v pactl >/dev/null 2>&1; then
-    if pactl -s "${PULSE_SERVER#unix:}" info >/dev/null 2>&1; then
-      break
-    fi
-  else
-    # Fallback: wait for native socket to appear
-    if [ -S "${XDG_RUNTIME_DIR}/pulse/native" ]; then
-      break
-    fi
+  if [ -S "${PULSE_RUNTIME_PATH}/native" ]; then
+    break
   fi
   sleep 0.5
 done
 
 # Ensure the null sink exists (idempotent) and select as default, also set default source to monitor
-if ! pactl -s "${PULSE_SERVER#unix:}" list short sinks 2>/dev/null | awk '{print $2}' | grep -q "^output$"; then
-  pactl -s "${PULSE_SERVER#unix:}" load-module module-null-sink sink_name=output >/dev/null 2>&1 || true
+# Ensure defaults using pactl as abc (best effort)
+if command -v pactl >/dev/null 2>&1; then
+  s6-setuidgid "${ABC_USER}" pactl -s "${PULSE_SERVER#unix:}" list short sinks 2>/dev/null | awk '{print $2}' | grep -q "^output$" || \
+    s6-setuidgid "${ABC_USER}" pactl -s "${PULSE_SERVER#unix:}" load-module module-null-sink sink_name=output >/dev/null 2>&1 || true
+  s6-setuidgid "${ABC_USER}" pactl -s "${PULSE_SERVER#unix:}" set-default-sink output >/dev/null 2>&1 || true
+  s6-setuidgid "${ABC_USER}" pactl -s "${PULSE_SERVER#unix:}" set-default-source output.monitor >/dev/null 2>&1 || true
 fi
 
-# Select defaults (ignore errors if not present yet)
-pactl -s "${PULSE_SERVER#unix:}" set-default-sink output >/dev/null 2>&1 || true
-pactl -s "${PULSE_SERVER#unix:}" set-default-source output.monitor >/dev/null 2>&1 || true
-
 # Launch Selkies in websocket mode and log to /app/logs/selkies.log
-exec selkies --addr="localhost" --mode="websockets" \
+exec s6-setuidgid "${ABC_USER}" env -u HOME \
+  XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" \
+  PULSE_RUNTIME_PATH="${PULSE_RUNTIME_PATH}" \
+  PULSE_SERVER="${PULSE_SERVER}" \
+  selkies --addr="localhost" --mode="websockets" \
     >> /app/logs/selkies.log 2>&1
