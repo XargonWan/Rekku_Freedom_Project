@@ -56,6 +56,11 @@ RUN ARCH="${TARGETARCH}" && \
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
     chromium --version
 
+# Prepare chrome profile folder
+RUN mkdir -p '/config/.config/chromium-rfp' && \
+    chown -R abc:abc /config && \
+    chmod -R 755 /config
+
 # Install XFCE4 desktop environment
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
