@@ -10,6 +10,11 @@ LABEL build_version="Rekku Freedom Project version:- ${VERSION} Build-date:- ${B
 LABEL maintainer="xargonwan"
 
 ENV TITLE="Rekku Freedom Project"
+ENV PIXELFLUX_USE_XSHM=0 \
+    PIXELFLUX_DISABLE_XSHM=1 \
+    PIXELFLUX_NO_XSHM=1 \
+    QT_X11_NO_MITSHM=1 \
+    DISABLE_XSHM=1
 
 # Block snap completely
 RUN echo 'Package: snapd' > /etc/apt/preferences.d/no-snap && \

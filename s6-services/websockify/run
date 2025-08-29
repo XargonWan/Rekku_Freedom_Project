@@ -29,15 +29,23 @@ chmod 700 "${XDG_RUNTIME_DIR}" 2>/dev/null || true
 # `output` device and `output.monitor` for captures even when no real
 # sound hardware exists.
 pulseaudio -D --exit-idle-time=-1 \
+  --load="module-native-protocol-unix socket=${XDG_RUNTIME_DIR}/pulse/native auth-anonymous=1" \
   --load="module-null-sink sink_name=output" >/dev/null 2>&1 || true
 
 # Point clients to the PulseAudio native socket and wait until ready
 export PULSE_SERVER="unix:${XDG_RUNTIME_DIR}/pulse/native"
 
-# Wait for PulseAudio to accept commands
-for _ in $(seq 1 30); do
-  if pactl -s "${PULSE_SERVER#unix:}" info >/dev/null 2>&1; then
-    break
+# Wait for PulseAudio to accept commands (prefer pactl; fallback to socket file)
+for _ in $(seq 1 60); do
+  if command -v pactl >/dev/null 2>&1; then
+    if pactl -s "${PULSE_SERVER#unix:}" info >/dev/null 2>&1; then
+      break
+    fi
+  else
+    # Fallback: wait for native socket to appear
+    if [ -S "${XDG_RUNTIME_DIR}/pulse/native" ]; then
+      break
+    fi
   fi
   sleep 0.5
 done
