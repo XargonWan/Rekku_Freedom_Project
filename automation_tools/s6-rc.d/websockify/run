@@ -1,2 +1,0 @@
-#!/usr/bin/with-contenv sh
-exec websockify --web=/usr/share/novnc 0.0.0.0:6901 localhost:5901

@@ -5,7 +5,23 @@ from datetime import datetime, timezone, timedelta
 import calendar
 import asyncio
 
-import aiomysql
+from types import SimpleNamespace
+from typing import Any
+
+# ``aiomysql`` is an optional dependency.  Import it lazily and provide a
+# minimal stub when it's not installed so modules depending on ``core.db`` can
+# still be imported during tests.
+try:  # pragma: no cover - import guard
+    import aiomysql  # type: ignore
+except Exception:  # pragma: no cover - executed when aiomysql missing
+    async def _missing_connect(*args, **kwargs):
+        raise RuntimeError("aiomysql is not installed")
+
+    aiomysql = SimpleNamespace(  # type: ignore
+        Connection=object,
+        Cursor=object,
+        connect=_missing_connect,
+    )
 
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
@@ -99,23 +115,6 @@ async def init_db() -> None:
                 """
             )
 
-            # scheduled_events table redesigned for structured recurring events
-            await cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS scheduled_events (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    `date` TEXT NOT NULL,
-                    `time` TEXT,
-                    next_run TEXT NOT NULL,
-                    recurrence_type VARCHAR(20) DEFAULT 'none',
-                    description TEXT NOT NULL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    delivered BOOLEAN DEFAULT FALSE,
-                    created_by VARCHAR(100) DEFAULT 'rekku'
-                )
-                """
-            )
-
             # settings table for configuration values
             await cur.execute(
                 """
@@ -162,26 +161,6 @@ async def ensure_core_tables() -> None:
         if not _db_initialized:
             await init_db()
             _db_initialized = True
-
-        conn = await get_conn()
-        try:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS bio (
-                        id VARCHAR(255) PRIMARY KEY,
-                        known_as TEXT,
-                        likes TEXT,
-                        not_likes TEXT,
-                        information TEXT,
-                        past_events TEXT,
-                        feelings TEXT,
-                        contacts TEXT
-                    )
-                    """
-                )
-        finally:
-            conn.close()
 
 # 🧠 Insert a new memory into the database
 async def insert_memory(
@@ -437,7 +416,13 @@ async def get_due_events(now: datetime | None = None) -> list[dict]:
             else:
                 event_dt = datetime.fromisoformat(str(scheduled_val).replace('Z', '+00:00'))
             if event_dt.tzinfo is None:
-                event_dt = event_dt.replace(tzinfo=timezone.utc)
+                from core.rekku_utils import get_local_timezone
+                event_dt = (
+                    event_dt.replace(tzinfo=get_local_timezone())
+                    .astimezone(timezone.utc)
+                )
+            else:
+                event_dt = event_dt.astimezone(timezone.utc)
         except Exception as e:
             log_warning(f"[get_due_events] Invalid datetime in next_run: {scheduled_val} - {e}")
             continue
@@ -486,7 +471,13 @@ async def mark_event_delivered(event_id: int) -> bool:
                 else:
                     next_run_dt = None
                 if next_run_dt and next_run_dt.tzinfo is None:
-                    next_run_dt = next_run_dt.replace(tzinfo=timezone.utc)
+                    from core.rekku_utils import get_local_timezone
+                    next_run_dt = (
+                        next_run_dt.replace(tzinfo=get_local_timezone())
+                        .astimezone(timezone.utc)
+                    )
+                elif next_run_dt:
+                    next_run_dt = next_run_dt.astimezone(timezone.utc)
             except Exception as e:
                 log_warning(f"[db] Invalid next_run for event {event_id}: {next_run_val} - {e}")
                 next_run_dt = None
@@ -552,7 +543,7 @@ def is_valid_datetime_format(date_str: str, time_str: str | None) -> bool:
 
 
 async def safe_db_execute(
-    cursor: aiomysql.Cursor,
+    cursor: Any,
     query: str,
     params: tuple | list = (),
     ensure_fn=None,

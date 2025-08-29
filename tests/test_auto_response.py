@@ -1,72 +1,36 @@
-import sys, os
+import os
+import sys
 from types import SimpleNamespace
-import asyncio
 
-# Ensure repository root in path
+import pytest
+
+# Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.auto_response import AutoResponseSystem
+# Mock environment to avoid config errors
+os.environ['BOTFATHER_TOKEN'] = 'test'
+os.environ['OPENAI_API_KEY'] = 'test'
 
 
-def test_request_llm_response_builds_chat(monkeypatch):
-    # Provide fake interface registry without importing heavy modules
-    fake_core_initializer = SimpleNamespace(
-        INTERFACE_REGISTRY={'telegram_bot': SimpleNamespace(bot='INNER_BOT')}
-    )
-    sys.modules['core.core_initializer'] = fake_core_initializer
-
-    captured = {}
-
-    async def fake_enqueue(bot, message, context_memory, priority=True):
-        captured['bot'] = bot
-        captured['chat'] = getattr(message, 'chat', None)
-        captured['chat_id'] = getattr(message.chat, 'id', None)
-        captured['text'] = message.text
-        captured['full_name'] = getattr(message.from_user, 'full_name', None)
-        captured['date'] = getattr(message, 'date', None)
-
-    sys.modules['core.message_queue'] = SimpleNamespace(enqueue=fake_enqueue)
-
-    auto = AutoResponseSystem()
-    asyncio.run(
-        auto.request_llm_response(
-            output='done',
-            original_context={'chat_id': 42, 'message_id': 5, 'interface_name': 'telegram_bot'},
-            action_type='terminal',
-            command='ls'
-        )
-    )
-
-    assert captured['bot'] == 'INNER_BOT'
-    assert captured['chat'] is not None
-    assert captured['chat_id'] == 42
-    assert 'terminal' in captured['text']
-    assert captured['full_name'] == 'AutoResponse'
-    assert captured['date'] is not None
-
-
-def test_request_llm_response_action_outputs(monkeypatch):
-    fake_core_initializer = SimpleNamespace(
-        INTERFACE_REGISTRY={'telegram_bot': SimpleNamespace(bot='INNER_BOT')}
-    )
-    sys.modules['core.core_initializer'] = fake_core_initializer
+@pytest.mark.asyncio
+async def test_request_llm_delivery_includes_from_user(monkeypatch):
+    from core import auto_response
 
     captured = {}
 
-    async def fake_enqueue(bot, message, context_memory, priority=True):
-        captured['text'] = message.text
-        captured['bot'] = bot
+    async def fake_handle(bot, message, prompt):
+        captured['from_user'] = getattr(message, 'from_user', None)
 
-    sys.modules['core.message_queue'] = SimpleNamespace(enqueue=fake_enqueue)
-
-    auto = AutoResponseSystem()
-    asyncio.run(
-        auto.request_llm_response(
-            original_context={'chat_id': 1, 'interface_name': 'telegram_bot'},
-            action_type='terminal',
-            action_outputs=[{'type': 'terminal', 'command': 'ls', 'output': 'done'}],
-        )
+    monkeypatch.setattr(
+        "core.plugin_instance.handle_incoming_message", fake_handle
     )
 
-    assert captured['bot'] == 'INNER_BOT'
-    assert 'action_outputs' in captured['text']
+    interface = SimpleNamespace()
+    await auto_response.request_llm_delivery(
+        message=None,
+        interface=interface,
+        context={"test": True},
+        reason="unit_test_event",
+    )
+
+    assert captured['from_user'] is not None

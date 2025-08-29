@@ -35,9 +35,13 @@ class CoreInitializer:
 
         # 2. Load generic plugins
         self._load_plugins()
+        
+        # 3. Load core actions (like chat_link) if not already loaded
+        self._ensure_core_actions()
+        
         await self._build_actions_block()
 
-        # 3. Auto-discover active interfaces
+        # 4. Auto-discover active interfaces
         self._discover_interfaces()
 
         return True
@@ -192,6 +196,18 @@ class CoreInitializer:
                     f"[core_initializer] ⚠️ Interface {interface_name} does not support action registration"
                 )
 
+            # After registering, rebuild actions to expose interface capabilities
+            try:
+                loop = asyncio.get_running_loop()
+                if loop.is_running():
+                    loop.create_task(self._build_actions_block())
+                else:  # pragma: no cover - no running loop
+                    asyncio.run(self._build_actions_block())
+            except Exception as e:  # pragma: no cover - defensive
+                log_error(
+                    f"[core_initializer] Error rebuilding actions for {interface_name}: {e}"
+                )
+
             # Show updated status after interface registration
             self._show_interface_status()
         else:
@@ -204,6 +220,14 @@ class CoreInitializer:
             log_info(f"📡 Active Interfaces: {interfaces_str}")
         else:
             log_info("📡 Active Interfaces: None")
+
+    async def refresh_actions_block(self) -> None:
+        """Public helper to rebuild the actions block.
+
+        Ensures recently registered plugins or interfaces expose their
+        actions immediately to the rest of the system.
+        """
+        await self._build_actions_block()
     
     async def start_pending_async_plugins(self):
         """Start async plugins that were pending due to no event loop."""
@@ -307,12 +331,16 @@ class CoreInitializer:
             if hasattr(plugin, "get_static_injection"):
                 try:
                     data = plugin.get_static_injection()
-                    if inspect.isawaitable(data):
-                        data = await data
-                    if data:
-                        static_context.update(data)
+                except TypeError:
+                    # Plugin requires parameters; skip during startup
+                    continue
                 except Exception as e:
                     log_warning(f"[core_initializer] Errore static injection da plugin {plugin}: {e}")
+                    continue
+                if inspect.isawaitable(data):
+                    data = await data
+                if data:
+                    static_context.update(data)
         for iface in INTERFACE_REGISTRY.values():
             if hasattr(iface, "get_static_injection"):
                 try:
@@ -355,10 +383,13 @@ class CoreInitializer:
         else:
             log_info("Interfaces: none")
 
-        # --- Plugins ---
+        # --- Plugins and their actions ---
         if self.loaded_plugins:
-            plugins_str = ", ".join(sorted(set(self.loaded_plugins)))
-            log_info(f"Plugins: {plugins_str}")
+            log_info("Plugins and actions:")
+            for plugin in sorted(set(self.loaded_plugins)):
+                actions = sorted(self.interface_actions.get(plugin, set()))
+                actions_str = ", ".join(actions) if actions else "none"
+                log_info(f"  {plugin}: {actions_str}")
         else:
             log_info("Plugins: none")
 
@@ -388,6 +419,17 @@ class CoreInitializer:
         """Expose explicit action registration through the core initializer."""
         register_action(action_type, handler)
 
+    def _ensure_core_actions(self):
+        """Ensure core actions like chat_link are loaded exactly once."""
+        if "chat_link" not in PLUGIN_REGISTRY:
+            try:
+                # Import chat_link_actions to trigger registration
+                import core.chat_link_actions  # noqa: F401
+                log_debug("[core_initializer] Core chat_link actions loaded")
+            except Exception as e:
+                log_error(f"[core_initializer] Failed to load core chat_link actions: {e}")
+                self.startup_errors.append(f"Core actions error: {e}")
+
 
 # Global instance
 core_initializer = CoreInitializer()
@@ -405,15 +447,14 @@ def register_action(action_type: str, handler: Any) -> None:
     ACTION_REGISTRY[action_type] = handler
     log_info(f"[core_initializer] Registered action: {action_type}")
 
-    # Invalidate caches and rebuild action block
+    # Invalidate caches - but don't automatically rebuild to avoid loops
     try:
         from core import action_parser
 
         action_parser._ACTION_HANDLERS = None
         action_parser._INTERFACE_ACTIONS = None
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(core_initializer._build_actions_block())
+        # Don't auto-rebuild here to prevent infinite loops
+        # The rebuild will happen when _build_actions_block() is explicitly called
     except Exception:
         pass
 
@@ -422,14 +463,24 @@ PLUGIN_REGISTRY: dict[str, Any] = {}
 
 def register_plugin(name: str, plugin_obj: Any) -> None:
     """Register a plugin instance and its actions."""
+    # Avoid re-registering the same plugin by name
+    existing = PLUGIN_REGISTRY.get(name)
+    if existing is not None:
+        log_debug(f"[core_initializer] Plugin {name} already registered; skipping")
+        return
+
     PLUGIN_REGISTRY[name] = plugin_obj
     log_debug(f"[core_initializer] Registered plugin: {name}")
 
     # Automatically register supported actions
     if hasattr(plugin_obj, "get_supported_actions"):
         try:
-            for act in plugin_obj.get_supported_actions().keys():
-                register_action(act, plugin_obj)
+            supported_actions = plugin_obj.get_supported_actions()
+            if isinstance(supported_actions, dict):
+                for act in supported_actions.keys():
+                    register_action(act, plugin_obj)
+            else:
+                log_warning(f"[core_initializer] Plugin {name} get_supported_actions() returned non-dict: {type(supported_actions)}")
         except Exception as e:
             log_error(f"[core_initializer] Failed to register actions for plugin {name}: {e}")
 
@@ -473,3 +524,6 @@ def register_interface(name: str, interface_obj: Any) -> None:
         flush_pending_for_interface(name)
     except Exception:
         pass
+
+# NOTE: core actions like chat_link are registered automatically when imported
+# by other modules that need them, avoiding circular import issues

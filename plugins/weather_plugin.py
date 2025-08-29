@@ -21,9 +21,9 @@ class WeatherPlugin:
         self._cached_weather: Optional[str] = None
         self._last_fetch: float = 0.0
         try:
-            self.cache_minutes = int(os.getenv("WEATHER_CACHE_MINUTES", "30"))
+            self.fetch_minutes = int(os.getenv("WEATHER_FETCH_TIME", "30"))
         except ValueError:
-            self.cache_minutes = 30
+            self.fetch_minutes = 30
 
     # Plugin action registration
     def get_supported_action_types(self):
@@ -46,7 +46,7 @@ class WeatherPlugin:
         now = time.time()
         if (
             not self._cached_weather
-            or now - self._last_fetch > self.cache_minutes * 60
+            or now - self._last_fetch > self.fetch_minutes * 60
         ):
             await self._update_weather()
 
@@ -58,7 +58,13 @@ class WeatherPlugin:
         try:
             response = await asyncio.to_thread(urllib.request.urlopen, url)
             data_bytes = await asyncio.to_thread(response.read)
-            data = json.loads(data_bytes.decode())
+            if not data_bytes:
+                raise ValueError("empty response")
+            try:
+                data = json.loads(data_bytes.decode())
+            except json.JSONDecodeError as e:
+                log_warning(f"[weather_plugin] Invalid JSON weather data: {e}")
+                return
             cc = data.get("current_condition", [{}])[0]
             desc = cc.get("weatherDesc", [{}])[0].get("value", "N/A")
             temp_c = cc.get("temp_C", "N/A")

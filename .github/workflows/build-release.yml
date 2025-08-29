@@ -95,6 +95,27 @@ jobs:
           name: digest-${{ matrix.arch }}
           path: digest-${{ matrix.arch }}
 
+  unit-tests:
+    needs: build-images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create dummy env file
+        run: |
+          echo "BOTFATHER_TOKEN=dummy" >> .env
+          echo "OPENAI_API_KEY=dummy" >> .env
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Run unit tests
+        id: tests
+        run: ./run_tests.sh
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: test-results/
+
   manifest:
     needs: [prepare, build-images]
     runs-on: ubuntu-latest
@@ -195,7 +216,7 @@ jobs:
   cleanup-images:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
-    needs: manifest
+    needs: [manifest, unit-tests]
     continue-on-error: true
     steps:
       - name: Remove dangling and old PR images from Docker Hub

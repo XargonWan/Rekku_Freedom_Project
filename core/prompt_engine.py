@@ -37,11 +37,11 @@ async def build_json_prompt(message, context_memory) -> dict:
         "memories": memories,
     }
 
-    # === 3b. Static injections from plugins ===
+    # === 3a. Static injections from plugins ===
     try:
         from core.action_parser import gather_static_injections
 
-        injections = await gather_static_injections()
+        injections = await gather_static_injections(message, context_memory)
         if isinstance(injections, dict):
             context_section.update(injections)
     except Exception as e:
@@ -119,20 +119,18 @@ async def search_memories(tags=None, scope=None, limit=5):
     if not tags:
         return []
 
-    placeholders = ",".join(["%s"] * len(tags))
+    # Build OR conditions using JSON_CONTAINS to check if any tag exists in the JSON array
+    conditions = " OR ".join(["JSON_CONTAINS(tags, %s)"] * len(tags))
 
     query = f"""
         SELECT DISTINCT content
         FROM memories
         WHERE json_valid(tags)
-          AND EXISTS (
-              SELECT 1
-              FROM json_each(memories.tags)
-              WHERE json_each.value IN ({placeholders})
-          )
+          AND ({conditions})
     """
 
-    params = tags.copy()
+    # Parameters: each tag encoded as a JSON string for JSON_CONTAINS
+    params = [json_dumps(tag) for tag in tags]
 
     if scope:
         query += " AND scope = %s"
@@ -206,6 +204,7 @@ async def build_prompt(
 def load_json_instructions() -> str:
     return """
 - Check the available_actions section below for supported interfaces and their capabilities
+- Search memories when unsure about a detail
 
 All rules:
 - Use 'input.payload.source.chat_id' as message target when applicable
@@ -216,6 +215,23 @@ All rules:
 
 The JSON is just a wrapper — speak naturally as you always do.
 """
+
+
+def build_full_json_instructions() -> dict:
+    """Return combined JSON instructions and available actions block.
+
+    Always returns the full set of available actions so the model is aware of
+    every capability, preserving flexibility and avoiding accidental action
+    masking.
+    """
+    instructions = load_json_instructions()
+    actions = {}
+    try:
+        from core.core_initializer import core_initializer
+        actions = core_initializer.actions_block.get("available_actions", {})
+    except Exception as e:  # pragma: no cover - defensive
+        log_warning(f"[prompt_engine] Failed to load actions block: {e}")
+    return {"instructions": instructions, "actions": actions}
 
 
 

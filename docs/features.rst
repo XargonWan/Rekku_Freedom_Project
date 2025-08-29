@@ -27,6 +27,13 @@ Automatic Forwarding
 Messages are forwarded to the trainer when Rekku is mentioned, in small groups,
 or via private chat.
 
+Chat Link Resolver
+------------------
+
+Rekku stores chat and thread identifiers in a central resolver. Interfaces can
+target conversations using either numeric IDs or human‑readable names, and the
+``update_chat_name`` action refreshes the stored titles when they change.
+
 Plugin Architecture
 -------------------
 

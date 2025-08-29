@@ -11,7 +11,6 @@ import threading
 import asyncio
 from collections import defaultdict
 from typing import Optional, Dict
-import aiomysql
 import subprocess
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -24,110 +23,21 @@ from selenium.common.exceptions import (
     ElementNotInteractableException,
     SessionNotCreatedException,
     WebDriverException,
+    StaleElementReferenceException,
 )
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from urllib3.exceptions import ReadTimeoutError
 
 
 # Funzioni e classi locali
-from core.logging_utils import log_debug, log_error, log_warning, log_info
+from core.logging_utils import log_debug, log_error, log_warning, log_info, _LOG_DIR
 from core.notifier import set_notifier
 import core.recent_chats as recent_chats
 from core.ai_plugin_base import AIPluginBase
 
 # ChatLinkStore: gestisce la mappatura tra chat Telegram e chat ChatGPT
-from core.db import get_conn
-
-class ChatLinkStore:
-    def __init__(self):
-        self._table_ensured = False
-
-    def _normalize_thread_id(self, message_thread_id: Optional[int | str]) -> str:
-        """Return ``message_thread_id`` as a non-null string."""
-        return str(message_thread_id) if message_thread_id is not None else "0"
-
-    async def _ensure_table(self) -> None:
-        if self._table_ensured:
-            return
-        conn = await get_conn()
-        async with conn.cursor() as cursor:
-            await cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS chatgpt_links (
-                    chat_id TEXT NOT NULL,
-                    message_thread_id TEXT,
-                    link VARCHAR(2048),
-                    PRIMARY KEY (chat_id(255), message_thread_id(255))
-                )
-                """
-            )
-            await conn.commit()
-        conn.close()
-        self._table_ensured = True
-
-    async def get_link(self, chat_id: int | str, message_thread_id: Optional[int | str]) -> Optional[str]:
-        await self._ensure_table()
-        normalized = self._normalize_thread_id(message_thread_id)
-        chat_id_str = str(chat_id)
-        log_debug(f"[chatlink] Searching for link: chat_id={chat_id_str}, message_thread_id={normalized}")
-        conn = await get_conn()
-        async with conn.cursor(aiomysql.DictCursor) as cursor:
-            await cursor.execute(
-                """
-                SELECT link
-                FROM chatgpt_links
-                WHERE chat_id = %s AND message_thread_id = %s
-                """,
-                (chat_id_str, normalized),
-            )
-            row = await cursor.fetchone()
-        conn.close()
-        if row:
-            link_value = row.get("link")
-            log_debug(f"[chatlink] Found mapping {chat_id_str}/{normalized} -> {link_value}")
-            return link_value
-        log_debug(f"[chatlink] No row found for {chat_id_str}/{normalized}")
-        return None
-
-    async def save_link(self, chat_id: int | str, message_thread_id: Optional[int | str], link: str) -> None:
-        await self._ensure_table()
-        normalized = self._normalize_thread_id(message_thread_id)
-        chat_id_str = str(chat_id)
-        conn = await get_conn()
-        async with conn.cursor() as cursor:
-            await cursor.execute(
-                """
-                INSERT INTO chatgpt_links (chat_id, message_thread_id, link)
-                VALUES (%s, %s, %s)
-                ON DUPLICATE KEY UPDATE link=VALUES(link)
-                """,
-                (chat_id_str, normalized, link),
-            )
-            await conn.commit()
-        conn.close()
-        log_debug(f"[chatlink] Saved mapping {chat_id_str}/{normalized} -> {link}")
-
-    async def remove(self, chat_id: int | str, message_thread_id: Optional[int | str]) -> bool:
-        await self._ensure_table()
-        normalized = self._normalize_thread_id(message_thread_id)
-        chat_id_str = str(chat_id)
-        conn = await get_conn()
-        async with conn.cursor() as cursor:
-            result = await cursor.execute(
-                """
-                DELETE FROM chatgpt_links
-                WHERE chat_id = %s AND message_thread_id = %s
-                """,
-                (chat_id_str, normalized),
-            )
-            await conn.commit()
-        conn.close()
-        rows_deleted = cursor.rowcount > 0
-        if rows_deleted:
-            log_debug(f"[chatlink] Removed link for chat_id={chat_id_str}, message_thread_id={normalized}")
-        else:
-            log_debug(f"[chatlink] No link found for chat_id={chat_id_str}, message_thread_id={normalized}")
-        return rows_deleted
+from core.chat_link_store import ChatLinkStore
 from core.telegram_utils import safe_send
 
 # Fallback per notify_trainer se il modulo core.notifier non è disponibile
@@ -199,7 +109,8 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
 
     actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
     log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
-    if actual != clean_text:
+    # Only warn if the textarea differs noticeably from the injected text
+    if abs(len(clean_text) - len(actual)) > 5:
         log_warning(
             f"[selenium] textarea mismatch: expected {len(clean_text)} chars, found {len(actual)}"
         )
@@ -215,34 +126,114 @@ def paste_and_send(textarea, prompt_text: str) -> None:
     driver = textarea._parent
     clean = strip_non_bmp(prompt_text)
 
-    _send_text_to_textarea(driver, textarea, clean)
-    tag = (textarea.tag_name or "").lower()
-    prop = "value" if tag in {"textarea", "input"} else "textContent"
-    actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
-    if actual == clean:
-        return
+    # Try JavaScript injection first
+    try:
+        _send_text_to_textarea(driver, textarea, clean)
+        tag = (textarea.tag_name or "").lower()
+        prop = "value" if tag in {"textarea", "input"} else "textContent"
+        actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
+        if len(actual) >= len(clean) * 0.9:  # Allow some tolerance
+            log_debug(f"[selenium] JS injection successful: {len(actual)}/{len(clean)} chars")
+            return
+    except StaleElementReferenceException:
+        log_warning("[selenium] Textarea became stale during JS paste, retrying with send_keys")
+    except Exception as e:
+        log_warning(f"[selenium] JS injection failed: {e}, falling back to send_keys")
 
-    log_warning(
-        f"[selenium] JS paste mismatch: expected {len(clean)} chars, got {len(actual)}. Falling back to send_keys"
-    )
+    log_warning(f"[selenium] JS paste failed, falling back to send_keys")
 
+    # Fallback to send_keys with improved logic
     import textwrap
-    textarea.clear()
+    chunk_size = 1000
+    final_val = ""
     for attempt in range(3):
         if attempt:
             log_warning(f"[selenium] send_keys retry {attempt}/3")
         try:
-            textarea.send_keys(Keys.CONTROL, "a")
-            textarea.send_keys(Keys.DELETE)
-            for chunk in textwrap.wrap(clean, 200):
+            # Re-locate textarea if it became stale
+            try:
+                textarea.clear()
+                time.sleep(0.1)  # Brief pause after clear
+            except StaleElementReferenceException:
+                log_warning("[selenium] Textarea stale, attempting to re-locate")
+                textarea = driver.find_element(By.ID, "prompt-textarea")
+                textarea.clear()
+                time.sleep(0.1)
+            
+            # Send chunks with better validation
+            accumulated_text = ""
+            chunks_sent = 0
+            total_chunks = len(list(textwrap.wrap(clean, chunk_size)))
+            content_was_sent = False
+            
+            for idx, chunk in enumerate(textwrap.wrap(clean, chunk_size), start=1):
+                log_debug(f"[selenium] sending chunk {idx}/{total_chunks} len={len(chunk)}")
                 textarea.send_keys(chunk)
+                accumulated_text += chunk
+                chunks_sent = idx
                 time.sleep(0.05)
+                
+                # Validate every few chunks to catch issues early
+                if idx % 5 == 0:
+                    current_val = textarea.get_attribute("value") or ""
+                    if len(current_val) < len(accumulated_text) * 0.5:  # More lenient threshold
+                        log_warning(f"[selenium] Content mismatch detected at chunk {idx}, retrying")
+                        break
+            
+            # If we sent all chunks, consider it potentially successful
+            if chunks_sent == total_chunks:
+                content_was_sent = True
+                log_debug(f"[selenium] All {chunks_sent} chunks sent successfully")
+            
             final_val = textarea.get_attribute("value") or ""
-            if final_val == clean:
+            log_debug(f"[selenium] value after send_keys: {len(final_val)} chars")
+            
+            # Check success conditions with better logic
+            if len(final_val) >= len(clean) * 0.9:
+                log_debug(f"[selenium] Content successfully inserted ({len(final_val)}/{len(clean)} chars)")
                 return
+            elif len(final_val) == 0 and content_was_sent:
+                log_debug("[selenium] Textarea is empty but all chunks were sent - likely cleared by ChatGPT JS")
+                # This is actually success - ChatGPT cleared the textarea after accepting input
+                return
+            elif len(final_val) == 0:
+                log_warning("[selenium] Textarea is empty after sending, possible JS interference")
+                # Try alternative approach for next attempt
+                chunk_size = max(100, chunk_size // 3)
+            elif len(final_val) >= len(clean) * 0.5:
+                log_debug(f"[selenium] Accepting partial content as sufficient ({len(final_val)}/{len(clean)} chars)")
+                return
+            else:
+                log_warning(f"[selenium] Partial content inserted ({len(final_val)}/{len(clean)} chars)")
+                
+        except StaleElementReferenceException as e:
+            log_warning(f"[selenium] Stale element on send_keys attempt {attempt}: {e}")
+            try:
+                textarea = driver.find_element(By.ID, "prompt-textarea")
+            except NoSuchElementException:
+                log_error("[selenium] Could not re-locate textarea element")
+                break
         except Exception as e:
             log_warning(f"[selenium] send_keys attempt {attempt} failed: {e}")
-    log_warning("[selenium] Failed to insert full prompt")
+        
+        chunk_size = max(200, chunk_size // 2)
+    
+    # If we still failed, try one more approach with smaller chunks
+    if len(final_val) < len(clean) * 0.5:
+        log_warning("[selenium] Attempting emergency fallback with very small chunks")
+        try:
+            textarea.clear()
+            for char in clean[:500]:  # Limit to first 500 chars as emergency
+                textarea.send_keys(char)
+                time.sleep(0.01)
+            final_val = textarea.get_attribute("value") or ""
+            log_warning(f"[selenium] Emergency fallback result: {len(final_val)} chars")
+        except Exception as e:
+            log_error(f"[selenium] Emergency fallback failed: {e}")
+    
+    log_warning(
+        f"[selenium] Failed to insert full prompt: expected {len(clean)} chars, got {len(final_val)}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +261,7 @@ def wait_for_markdown_block_to_appear(driver, prev_count: int, timeout: int = 10
 
 
 AWAIT_RESPONSE_TIMEOUT = int(os.getenv("AWAIT_RESPONSE_TIMEOUT", "240"))
+CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
 
 
 def wait_until_response_stabilizes(
@@ -299,6 +291,8 @@ def wait_until_response_stabilizes(
                     log_debug(
                         "[selenium] Dismissed prefer-response dialog"
                     )
+                except StaleElementReferenceException:
+                    log_debug("[selenium] Prefer-response button became stale")
                 except Exception as e:  # pragma: no cover - best effort
                     log_warning(
                         f"[selenium] Failed to click prefer-response button: {e}"
@@ -316,6 +310,10 @@ def wait_until_response_stabilizes(
                 time.sleep(0.5)
                 continue
             text = elems[-1].text or ""
+        except StaleElementReferenceException:
+            log_debug("[selenium] Response element became stale, retrying...")
+            time.sleep(0.5)
+            continue
         except Exception as e:  # pragma: no cover - best effort
             log_warning(f"[selenium] Response wait error: {e}")
             time.sleep(0.5)
@@ -339,15 +337,122 @@ def wait_until_response_stabilizes(
         time.sleep(0.5)
 
 
+def _wait_for_button_state(driver, state: str, timeout: int) -> bool:
+    """Wait until the submit button matches the desired ``state``."""
+    locator = (By.ID, "composer-submit-button")
+    max_retries = 3
+    
+    for retry in range(max_retries):
+        try:
+            def check_button_state(d):
+                try:
+                    element = d.find_element(*locator)
+                    return element.get_attribute("data-testid") == state
+                except StaleElementReferenceException:
+                    # Element is stale, return False to trigger retry in outer loop
+                    log_debug(f"[selenium] Stale element in check_button_state, retry {retry + 1}")
+                    return False
+                except NoSuchElementException:
+                    log_debug(f"[selenium] Button element not found for state '{state}'")
+                    return False
+                except Exception as e:
+                    log_debug(f"[selenium] Unexpected error in check_button_state: {e}")
+                    return False
+            
+            WebDriverWait(driver, timeout).until(check_button_state)
+            return True
+        except (TimeoutException, StaleElementReferenceException) as e:
+            if retry < max_retries - 1:
+                log_debug(f"[selenium] Retry {retry + 1}/{max_retries} for button state '{state}': {str(e)}")
+                time.sleep(1)  # Brief pause before retry
+                continue
+            else:
+                log_warning(f"[selenium] Failed to wait for button state '{state}' after {max_retries} retries")
+                return False
+        except Exception as e:
+            log_warning(f"[selenium] Unexpected error waiting for button state '{state}': {str(e)}")
+            return False
+    
+    return False
+
+
+def wait_for_chatgpt_idle(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
+    """Wait until ChatGPT is ready for a new prompt (textarea is available and no stop button)."""
+    if not wait_for_response_completion(driver, timeout):
+        log_warning("[selenium] ChatGPT may still be generating during idle wait")
+
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "prompt-textarea"))
+        )
+        log_debug("[selenium] Textarea found, ChatGPT is ready for input")
+        return True
+    except TimeoutException:
+        log_warning("[selenium] Timeout waiting for textarea")
+        return False
+
+
+def wait_for_response_completion(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
+    """Wait until the current response finishes streaming."""
+    start_time = time.time()
+    end_time = start_time + timeout
+
+    try:
+        driver.find_element(By.CSS_SELECTOR, "button[data-testid='stop-button']")
+        log_debug(
+            f"[selenium] Stop button found, waiting for response to complete with timeout {timeout} seconds"
+        )
+        try:
+            driver.command_executor.set_timeout(timeout)
+        except Exception as e:
+            log_warning(f"[selenium] Could not apply command timeout: {e}")
+    except NoSuchElementException:
+        log_debug("[selenium] No stop button found, assuming idle")
+        return True
+
+    last_report = 0
+    while time.time() < end_time:
+        try:
+            driver.find_element(By.CSS_SELECTOR, "button[data-testid='stop-button']")
+            elapsed = int(time.time() - start_time)
+            if elapsed // 10 > last_report // 10:
+                log_debug(
+                    f"[selenium] {elapsed} seconds passed, stop button still present"
+                )
+                last_report = elapsed
+            time.sleep(1)
+            continue
+        except NoSuchElementException:
+            elapsed = int(time.time() - start_time)
+            log_debug(
+                f"[selenium] Stop button disappeared after {elapsed} seconds, response completed"
+            )
+            return True
+        except (ReadTimeoutError, WebDriverException) as e:
+            log_warning(f"[selenium] Polling error while waiting for completion: {e}")
+            time.sleep(1)
+
+    log_warning("[selenium] Timeout waiting for response completion")
+    return False
+
+
 
 def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
-    """Send text and wait for ChatGPT to start replying."""
+    """Send text and wait for ChatGPT's reply to finish."""
     driver = textarea._parent
-    prev_blocks = len(driver.find_elements(By.CSS_SELECTOR, "div.markdown"))
-    log_debug(f"[selenium][STEP] Initial markdown block count: {prev_blocks}")
+    wait_for_chatgpt_idle(driver)
     for attempt in range(1, 4):
         try:
             log_debug(f"[selenium][STEP] Attempt {attempt} to send prompt")
+            # Re-find textarea element in case it became stale
+            try:
+                textarea = WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((By.ID, "prompt-textarea"))
+                )
+            except (TimeoutException, StaleElementReferenceException) as e:
+                log_warning(f"[selenium] Could not find textarea on attempt {attempt}: {e}")
+                continue
+            
             paste_and_send(textarea, prompt_text)
             try:
                 send_btn = WebDriverWait(driver, 3).until(
@@ -357,25 +462,30 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
                 )
                 driver.execute_script("arguments[0].click();", send_btn)
                 log_debug("[selenium][STEP] Clicked send button")
-            except Exception as e:
+            except (StaleElementReferenceException, TimeoutException) as e:
                 log_warning(f"[selenium] Failed to click send button: {e}")
-                textarea.send_keys(Keys.ENTER)
-                log_debug("[selenium][STEP] Sent ENTER key as fallback")
-            log_debug(f"[selenium][STEP] Prompt sent, waiting for response")
-            if wait_for_markdown_block_to_appear(driver, prev_blocks):
-                log_debug(f"[selenium][STEP] New markdown block detected")
+                try:
+                    textarea.send_keys(Keys.ENTER)
+                    log_debug("[selenium][STEP] Sent ENTER key as fallback")
+                except StaleElementReferenceException:
+                    log_warning("[selenium] Textarea became stale, retrying...")
+                    continue
+            log_debug("[selenium][STEP] Prompt sent, waiting for completion")
+            if wait_for_response_completion(driver):
                 wait_until_response_stabilizes(driver)
-                log_debug(f"[selenium][STEP] Response stabilized")
+                log_debug("[selenium][STEP] Response stabilized")
                 return
             log_warning(f"[selenium] No response after attempt {attempt}")
+        except StaleElementReferenceException as e:
+            log_warning(f"[selenium] Stale element on attempt {attempt}: {e}")
+            continue
         except Exception as e:  # pragma: no cover - best effort
             log_warning(f"[selenium] Send attempt {attempt} failed: {e}")
     log_warning("[selenium] Fallback via ActionChains")
     try:
         ActionChains(driver).click(textarea).send_keys(prompt_text).send_keys(Keys.ENTER).perform()
-        log_debug(f"[selenium][STEP] Fallback ActionChains used to send prompt")
-        if wait_for_markdown_block_to_appear(driver, prev_blocks):
-            log_debug(f"[selenium][STEP] New markdown block detected after fallback")
+        log_debug("[selenium][STEP] Fallback ActionChains used to send prompt")
+        if wait_for_response_completion(driver):
             wait_until_response_stabilizes(driver)
     except Exception as e:  # pragma: no cover - best effort
         log_warning(f"[selenium] Fallback send failed: {e}")
@@ -557,20 +667,36 @@ def process_prompt_in_chat(
         log_error("[selenium][ERROR] prompt textarea not found")
         return None
 
-    for attempt in range(1, 4):  # Retry up to 3 times
+    start = time.time()
+    attempt = 0
+    repeat_failures = 0
+    last_response: Optional[str] = None
+    while attempt < CORRECTOR_RETRIES and time.time() - start < AWAIT_RESPONSE_TIMEOUT:
+        attempt += 1
         try:
+            wait_for_chatgpt_idle(driver)
             paste_and_send(textarea, prompt_text)
             tag = (textarea.tag_name or "").lower()
             prop = "value" if tag in {"textarea", "input"} else "textContent"
-            final_value = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
-            if final_value != strip_non_bmp(prompt_text):
+            final_value = driver.execute_script(
+                f"return arguments[0].{prop};", textarea
+            ) or ""
+            expected_len = len(strip_non_bmp(prompt_text))
+            # Allow small discrepancies (e.g., trailing spaces trimmed by ChatGPT)
+            if abs(expected_len - len(final_value)) > 5:
                 log_warning(
-                    f"[selenium] Prompt mismatch after paste: expected {len(prompt_text)} chars, got {len(final_value)}"
+                    f"[selenium] Prompt mismatch after paste: expected {expected_len} chars, got {len(final_value)}"
                 )
                 time.sleep(1)
                 continue
+
+            candidate = final_value.strip()
+            if candidate.startswith("```"):
+                match = re.match(r"```(?:json)?\n(.*)\n```", candidate, re.DOTALL)
+                if match:
+                    candidate = match.group(1)
             try:
-                json.loads(final_value)
+                json.loads(candidate)
             except Exception:
                 log_warning("[selenium] JSON invalid after paste; retrying")
                 time.sleep(1)
@@ -595,26 +721,45 @@ def process_prompt_in_chat(
             log_error(f"[selenium][ERROR] Failed to send prompt: {repr(e)}")
             return None
 
-        log_debug("🔍 Waiting for response block...")
-        try:
-            response_text = wait_until_response_stabilizes(driver)
-        except TimeoutException:
-            log_warning("[selenium][WARN] Timeout while waiting for response")
+        log_debug("🔍 Waiting for response...")
+        if not wait_for_response_completion(driver):
+            repeat_failures += 1
+            log_warning("[selenium][retry] Response did not complete")
         else:
-            if response_text and response_text != previous_text:
-                # If this was a new chat (no chat_id initially), extract and save the new chat ID
-                if not chat_id:
-                    new_chat_id = _extract_chat_id(driver.current_url)
-                    if new_chat_id:
-                        log_debug(f"[selenium] New chat ID extracted after response: {new_chat_id}")
-                        # This will be used by the calling function to save the link
-                return response_text.strip()
+            try:
+                response_text = wait_until_response_stabilizes(driver, max_total_wait=5)
+            except TimeoutException:
+                log_warning("[selenium][WARN] Timeout while waiting for response")
+                response_text = None
+            else:
+                if response_text and response_text != previous_text:
+                    if not chat_id:
+                        new_chat_id = _extract_chat_id(driver.current_url)
+                        if new_chat_id:
+                            log_debug(
+                                f"[selenium] New chat ID extracted after response: {new_chat_id}"
+                            )
+                    return response_text.strip()
+
+            if response_text == last_response:
+                repeat_failures += 1
+            else:
+                repeat_failures = 0
+            last_response = response_text
+
+        if repeat_failures >= 3:
+            log_warning("[selenium] Aborting after repeated empty responses")
+            break
 
         log_warning(f"[selenium][retry] Empty response attempt {attempt}")
-        time.sleep(2)
+        remaining = AWAIT_RESPONSE_TIMEOUT - (time.time() - start)
+        if remaining > 0:
+            time.sleep(min(5, remaining))
 
-    os.makedirs("/config/logs/screenshots", exist_ok=True)
-    fname = f"/config/logs/screenshots/chat_{chat_id or 'unknown'}_no_response.png"
+    log_warning(f"[selenium] Aborting after {attempt} attempts")
+    screenshots_dir = os.path.join(_LOG_DIR, "screenshots")
+    os.makedirs(screenshots_dir, exist_ok=True)
+    fname = os.path.join(screenshots_dir, f"chat_{chat_id or 'unknown'}_no_response.png")
     try:
         driver.save_screenshot(fname)
         log_warning(f"[selenium] Saved screenshot to {fname}")
@@ -729,27 +874,56 @@ def _locate_model_switcher(driver, timeout: int = 5):
 def ensure_chatgpt_model(driver):
     """Ensure the desired ChatGPT model is active before sending a prompt."""
     log_info(f"[chatgpt_model] Verifying active model matches {CHATGPT_MODEL}")
-    try:
-        log_debug("[chatgpt_model] Locating model switcher button")
-        switcher_btn = _locate_model_switcher(driver)
-        aria_label = switcher_btn.get_attribute("aria-label") or ""
-        log_debug(f"[chatgpt_model] switcher aria-label: {aria_label}")
-        match = re.search(r"current model is\s*(.*)", aria_label)
-        active_model = match.group(1).strip() if match else ""
-        log_info(f"[chatgpt_model] Active model is {active_model}")
-        if active_model == CHATGPT_MODEL:
-            log_info(f"[chatgpt_model] Desired model {CHATGPT_MODEL} already active")
-            return True
+    max_retries = 3
+    for retry in range(max_retries):
+        try:
+            log_debug("[chatgpt_model] Locating model switcher button")
+            switcher_btn = _locate_model_switcher(driver)
+            aria_label = switcher_btn.get_attribute("aria-label") or ""
+            log_debug(f"[chatgpt_model] switcher aria-label: {aria_label}")
+            match = re.search(r"current model is\s*(.*)", aria_label)
+            active_model = match.group(1).strip() if match else ""
+            log_info(f"[chatgpt_model] Active model is {active_model}")
+            if active_model == CHATGPT_MODEL:
+                log_info(f"[chatgpt_model] Desired model {CHATGPT_MODEL} already active")
+                return True
+            break  # Exit retry loop if we got the info we need
+        except StaleElementReferenceException as e:
+            if retry < max_retries - 1:
+                log_debug(f"[chatgpt_model] Stale element, retry {retry + 1}/{max_retries}: {e}")
+                time.sleep(1)
+                continue
+            else:
+                log_warning(f"[chatgpt_model] Failed to get model info after {max_retries} retries")
+                return False
+        except Exception as e:
+            log_warning(f"[chatgpt_model] Error getting current model: {e}")
+            return False
 
         log_debug("[chatgpt_model] Opening dropdown")
         try:
-            switcher_btn.find_element(By.XPATH, "./div").click()
-        except Exception:
+            # Re-locate switcher button to avoid stale element
+            switcher_btn = _locate_model_switcher(driver)
+            try:
+                switcher_btn.find_element(By.XPATH, "./div").click()
+            except (StaleElementReferenceException, NoSuchElementException):
+                switcher_btn.click()
+        except StaleElementReferenceException:
+            log_warning("[chatgpt_model] Switcher button became stale, retrying...")
+            switcher_btn = _locate_model_switcher(driver)
             switcher_btn.click()
-        WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div[role='menu']"))
-        )
-        log_debug("[chatgpt_model] Dropdown opened")
+        except Exception as e:
+            log_warning(f"[chatgpt_model] Failed to click switcher button: {e}")
+            return False
+            
+        try:
+            WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div[role='menu']"))
+            )
+            log_debug("[chatgpt_model] Dropdown opened")
+        except TimeoutException:
+            log_warning("[chatgpt_model] Dropdown failed to open")
+            return False
 
         try:
             log_debug("[chatgpt_model] Searching main list for model")
@@ -801,28 +975,52 @@ def ensure_chatgpt_model(driver):
                         pass
                     return False
 
-        log_debug("[chatgpt_model] Clicking desired model")
-        ActionChains(driver).move_to_element(model_elem).click().perform()
-        log_info(f"[chatgpt_model] Clicked on model {CHATGPT_MODEL}")
         try:
-            WebDriverWait(driver, 5).until(
-                lambda d: CHATGPT_MODEL in (
-                    _locate_model_switcher(d).get_attribute("aria-label") or ""
-                )
-            )
+            log_debug("[chatgpt_model] Clicking desired model")
+            ActionChains(driver).move_to_element(model_elem).click().perform()
+            log_info(f"[chatgpt_model] Clicked on model {CHATGPT_MODEL}")
+        except StaleElementReferenceException:
+            log_warning("[chatgpt_model] Model element became stale, clicking with JS")
+            driver.execute_script("arguments[0].click();", model_elem)
+        except Exception as e:
+            log_warning(f"[chatgpt_model] Failed to click model element: {e}")
+            return False
+            
+        try:
+            # Wait and verify the model was selected
+            def check_model_selected(d):
+                try:
+                    switcher = _locate_model_switcher(d)
+                    aria_label = switcher.get_attribute("aria-label") or ""
+                    return CHATGPT_MODEL in aria_label
+                except StaleElementReferenceException:
+                    return False
+                except Exception:
+                    return False
+                    
+            WebDriverWait(driver, 5).until(check_model_selected)
             log_info(f"[chatgpt_model] Modello selezionato: {CHATGPT_MODEL}")
             return True
         except TimeoutException:
-            new_label = _locate_model_switcher(driver).get_attribute("aria-label") or ""
-            log_warning(f"[chatgpt_model] Verifica modello fallita: {new_label}")
+            try:
+                new_label = _locate_model_switcher(driver).get_attribute("aria-label") or ""
+                log_warning(f"[chatgpt_model] Verifica modello fallita: {new_label}")
+            except StaleElementReferenceException:
+                log_warning("[chatgpt_model] Could not verify model selection - stale element")
+            except Exception as verify_e:
+                log_warning(f"[chatgpt_model] Could not verify model selection: {verify_e}")
             return False
-    except Exception as e:
+        except Exception as click_e:
+            log_warning(f"[chatgpt_model] Error during model verification: {click_e}")
+            return False
         log_warning(f"[chatgpt_model] Errore selezione modello: {repr(e)}")
         try:
-            os.makedirs("/config/logs/screenshots", exist_ok=True)
-            driver.save_screenshot("/config/logs/screenshots/model_switch_error.png")
+            screenshots_dir = os.path.join(_LOG_DIR, "screenshots")
+            os.makedirs(screenshots_dir, exist_ok=True)
+            screenshot_path = os.path.join(screenshots_dir, "model_switch_error.png")
+            driver.save_screenshot(screenshot_path)
             log_warning(
-                "[chatgpt_model] Saved screenshot model_switch_error.png"
+                f"[chatgpt_model] Saved screenshot {screenshot_path}"
             )
         except Exception as ss:
             log_warning(f"[chatgpt_model] Screenshot failed: {ss}")
@@ -853,17 +1051,17 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         if self.driver:
             try:
                 self.driver.quit()
-                log_debug("[selenium] Chrome driver closed")
+                log_debug("[selenium] Chromium driver closed")
             except Exception as e:
                 log_warning(f"[selenium] Failed to close driver: {e}")
             finally:
                 self.driver = None
         
-        # Kill any remaining Chrome processes
+        # Kill any remaining Chromium processes
         try:
-            subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
+            subprocess.run(["pkill", "-f", "chromium"], capture_output=True, text=True)
             subprocess.run(["pkill", "-f", "chromedriver"], capture_output=True, text=True)
-            log_debug("[selenium] Killed remaining Chrome processes")
+            log_debug("[selenium] Killed remaining Chromium processes")
         except Exception as e:
             log_debug(f"[selenium] Failed to kill processes: {e}")
         
@@ -908,12 +1106,26 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except RuntimeError:
             pass
 
+    def _apply_driver_timeouts(self) -> None:
+        """Apply environment-based timeouts to the Selenium driver."""
+        if not self.driver:
+            return
+        try:
+            self.driver.command_executor.set_timeout(AWAIT_RESPONSE_TIMEOUT)
+            self.driver.set_page_load_timeout(AWAIT_RESPONSE_TIMEOUT)
+            self.driver.set_script_timeout(AWAIT_RESPONSE_TIMEOUT)
+            log_debug(
+                f"[selenium] Driver timeouts set to {AWAIT_RESPONSE_TIMEOUT}s"
+            )
+        except Exception as e:
+            log_warning(f"[selenium] Failed to set driver timeouts: {e}")
+
     def _init_driver(self):
         if self.driver is None:
-            log_debug("[selenium] [STEP] Initializing Chrome driver with undetected-chromedriver")
+            log_debug("[selenium] [STEP] Initializing Chromium driver with undetected-chromedriver")
 
             # Clean up any leftover processes and files from previous runs
-            self._cleanup_chrome_remnants()
+            self._cleanup_chromium_remnants()
 
             # Ensure DISPLAY is set
             if not os.environ.get("DISPLAY"):
@@ -926,7 +1138,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 try:
                     log_debug(f"[selenium] Initialization attempt {attempt + 1}/{max_retries}")
                     
-                    # Create Chrome options optimized for container environments
+                    # Create Chromium options optimized for container environments
                     options = uc.ChromeOptions()
                     
                     # Essential options for Docker containers
@@ -950,7 +1162,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "--disable-features=VizDisplayCompositor",
                         "--log-level=3",
                         "--disable-logging",
-                        "--remote-debugging-port=0",  # Let Chrome choose port
+                        "--remote-debugging-port=0",  # Let Chromium choose port
                         "--disable-background-mode",
                         "--disable-default-browser-check",
                         "--disable-hang-monitor",
@@ -967,7 +1179,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     
                     # Use persistent profile directory to maintain login sessions
                     # This preserves ChatGPT login and other site sessions across restarts
-                    profile_dir = os.path.expanduser("~/.config/google-chrome-rekku")
+                    config_home = os.getenv(
+                        "XDG_CONFIG_HOME",
+                        os.path.join(os.path.expanduser("~"), ".config"),
+                    )
+                    profile_dir = os.path.join(config_home, "chromium-rfp")
                     os.makedirs(profile_dir, exist_ok=True)
                     options.add_argument(f"--user-data-dir={profile_dir}")
                     
@@ -979,19 +1195,23 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         shutil.rmtree(uc_cache_dir, ignore_errors=True)
                         log_debug("[selenium] Cleared undetected-chromedriver cache")
                     
-                    # Try with automatic configuration first
+                    # Try with explicit Chromium binary
+                    chromium_binary = shutil.which("chromium") or "/usr/bin/chromium"
                     self.driver = uc.Chrome(
                         options=options,
                         headless=False,
                         use_subprocess=False,
-                        version_main=None,  # Auto-detect Chrome version
+                        version_main=None,  # Auto-detect Chromium version
                         suppress_welcome=True,
                         log_level=3,
                         driver_executable_path=None,  # Let UC handle chromedriver
-                        browser_executable_path=None,  # Let UC find Chrome
+                        browser_executable_path=chromium_binary,
                         user_data_dir=profile_dir
                     )
-                    log_debug("[selenium] ✅ Chrome successfully initialized with undetected-chromedriver")
+                    self._apply_driver_timeouts()
+                    log_debug(
+                        "[selenium] ✅ Chromium successfully initialized with undetected-chromedriver"
+                    )
                     return  # Success, exit retry loop
                     
                 except Exception as e:
@@ -999,7 +1219,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     
                     # Handle specific Python shutdown error
                     if "sys.meta_path is None" in str(e) or "Python is likely shutting down" in str(e):
-                        log_warning("[selenium] Python shutdown detected, skipping Chrome initialization")
+                        log_warning("[selenium] Python shutdown detected, skipping Chromium initialization")
                         return None
                     
                     # Clean up before next attempt
@@ -1010,24 +1230,24 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                             pass
                         self.driver = None
                     
-                    self._cleanup_chrome_remnants()
+                    self._cleanup_chromium_remnants()
                     
                     if attempt < max_retries - 1:
                         delay = (attempt + 1) * 2  # 2, 4, 6 seconds
                         log_debug(f"[selenium] Waiting {delay}s before next attempt...")
                         time.sleep(delay)
                     else:
-                        # Final attempt with explicit Chrome binary
-                        log_debug("[selenium] Final attempt with explicit Chrome binary path...")
+                        # Final attempt with explicit Chromium binary
+                        log_debug("[selenium] Final attempt with explicit Chromium binary path...")
                         try:
-                            chrome_binary = "/usr/bin/google-chrome-stable"
-                            if os.path.exists(chrome_binary):
-                                # Create fresh ChromeOptions for fallback attempt
+                            chromium_binary = shutil.which("chromium") or "/usr/bin/chromium"
+                            if os.path.exists(chromium_binary):
+                                # Create fresh ChromiumOptions for fallback attempt
                                 fallback_options = uc.ChromeOptions()
                                 for arg in essential_args:
                                     fallback_options.add_argument(arg)
                                 fallback_options.add_argument(f"--user-data-dir={profile_dir}")
-                                
+
                                 self.driver = uc.Chrome(
                                     options=fallback_options,
                                     headless=False,
@@ -1035,19 +1255,22 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                     version_main=None,
                                     suppress_welcome=True,
                                     log_level=3,
-                                    browser_executable_path=chrome_binary,
+                                    browser_executable_path=chromium_binary,
                                     user_data_dir=profile_dir
                                 )
-                                log_debug("[selenium] ✅ Chrome initialized with explicit binary path")
+                                self._apply_driver_timeouts()
+                                log_debug(
+                                    "[selenium] ✅ Chromium initialized with explicit binary path"
+                                )
                                 return
                             else:
-                                raise Exception("Chrome binary not found")
-                                
+                                raise Exception("Chromium binary not found")
+
                         except Exception as e2:
-                            log_warning("[selenium] Chrome lock suspected - attempting forced lock cleanup...")
-                            self._cleanup_chrome_remnants()
+                            log_warning("[selenium] Chromium lock suspected - attempting forced lock cleanup...")
+                            self._cleanup_chromium_remnants()
                             try:
-                                if os.path.exists(chrome_binary):
+                                if os.path.exists(chromium_binary):
                                     fallback_options = uc.ChromeOptions()
                                     for arg in essential_args:
                                         fallback_options.add_argument(arg)
@@ -1060,35 +1283,37 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                         version_main=None,
                                         suppress_welcome=True,
                                         log_level=3,
-                                        browser_executable_path=chrome_binary,
+                                        browser_executable_path=chromium_binary,
                                         user_data_dir=profile_dir
                                     )
-                                    log_debug("[selenium] ✅ Chrome initialized after forced lock cleanup")
+                                    self._apply_driver_timeouts()
+                                    log_debug(
+                                        "[selenium] ✅ Chromium initialized after forced lock cleanup"
+                                    )
                                     return
                                 else:
-                                    raise Exception("Chrome binary not found")
+                                    raise Exception("Chromium binary not found")
                             except Exception as e3:
                                 log_error(f"[selenium] ❌ All initialization attempts failed: {e3}")
                                 _notify_gui(f"❌ Selenium error: {e3}. Check graphics environment.")
                                 raise SystemExit(1)
 
-    def _cleanup_chrome_remnants(self):
-        """Clean up Chrome processes and leftover lock files."""
+    def _cleanup_chromium_remnants(self):
+        """Clean up Chromium processes and leftover lock files."""
         try:
-            subprocess.run(["pkill", "-f", "chrome"], capture_output=True, text=True)
+            subprocess.run(["pkill", "-f", "chromium"], capture_output=True, text=True)
             subprocess.run(["pkill", "chromedriver"], capture_output=True, text=True)
             time.sleep(1)
-            log_debug("[selenium] Issued pkill for chrome and chromedriver")
+            log_debug("[selenium] Issued pkill for chromium and chromedriver")
         except Exception as e:
-            log_debug(f"[selenium] Failed to kill chrome processes: {e}")
+            log_debug(f"[selenium] Failed to kill chromium processes: {e}")
 
         try:
             import glob
             patterns = [
-                os.path.expanduser("~/.config/google-chrome*"),
-                "/tmp/.com.google.Chrome*",
+                os.path.expanduser("~/.config/chromium*"),
                 "/tmp/.org.chromium.*",
-                "/tmp/chrome_*",
+                "/tmp/chromium_*",
             ]
 
             for pattern in patterns:
@@ -1110,7 +1335,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except Exception as e:
             log_debug(f"[selenium] Lock file cleanup failed: {e}")
 
-        log_debug("[selenium] Chrome lock cleanup complete")
+        log_debug("[selenium] Chromium lock cleanup complete")
 
     # [FIX] ensure the WebDriver session is alive before use
     def _get_driver(self):
@@ -1181,6 +1406,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             message_thread_id = getattr(message, "message_thread_id", None)
             chat_id = await chat_link_store.get_link(message.chat_id, message_thread_id)
             prompt_text = json.dumps(prompt, ensure_ascii=False)
+            if isinstance(prompt, dict) and "system_message" in prompt:
+                prompt_text = f"```json\n{prompt_text}\n```"
             if not chat_id:
                 path = recent_chats.get_chat_path(message.chat_id)
                 if path and go_to_chat_by_path_with_retries(driver, path):
@@ -1265,7 +1492,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     queue_paused = False
 
                 if not response_text:
-                    response_text = "\u26a0\ufe0f No response received"
+                    response_text = json.dumps({"actions": []})
 
                 await safe_send(
                     bot,

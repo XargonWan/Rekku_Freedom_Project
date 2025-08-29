@@ -12,11 +12,27 @@ from datetime import datetime
 from typing import Any, Dict, List, Tuple, Optional
 
 from core.logging_utils import log_debug, log_info, log_warning, log_error
-from core.prompt_engine import load_json_instructions
+from core.prompt_engine import build_full_json_instructions
 
 # Global dictionary to track retry attempts per chat/message thread for the corrector
 CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
 _retry_tracker = {}
+
+
+ERROR_RETRY_POLICY = {
+    "description": (
+        "If you receive a system_message of type 'error' with the phrase 'Please repeat your "
+        "previous message, not this very prompt, but your previous reply, corrected. If that was a "
+        "web search please use the content to reply with your own words.' you must automatically "
+        "re-send the exact same JSON you sent previously, but with the part indicated as invalid corrected."
+    ),
+    "steps": [
+        "1. Identify which part of your last sent JSON caused the error (e.g. an unsupported action type or missing parameter).",
+        "2. Create a new JSON that is identical to the one you previously sent, except for correcting ONLY the invalid part.",
+        "3. Do not add, remove or reorder any other actions or payload content.",
+        "4. Re-submit the corrected JSON immediately (without waiting for user instructions).",
+    ],
+}
 
 
 def _get_retry_key(message):
@@ -71,30 +87,23 @@ async def corrector(errors: list, failed_actions: list, bot, message):
     retry_count = _increment_retry(message)
 
     error_summary = "\n".join([f"- {err}" for err in errors[:5]])
-    failed_actions_json = json.dumps(failed_actions, indent=2, ensure_ascii=False)
 
-    # Build JSON structure reminder
-    try:
-        from core.core_initializer import core_initializer
-
-        actions_block = core_initializer.actions_block.get("available_actions", {})
-    except Exception as e:
-        log_warning(f"[corrector] Failed to load actions block: {e}")
-        actions_block = {}
-
-    instructions = load_json_instructions()
-    json_structure = json.dumps(
-        {"instructions": instructions, "actions": actions_block},
-        ensure_ascii=False,
-        indent=2,
+    message_text = (
+        f"{error_summary}\n"
+        "Please repeat your previous message, not this very prompt, but your previous reply, corrected. "
+        "If that was a web search please use the content to reply with your own words."
     )
-
-    correction_prompt = (
-        f"Your JSON is invalid. The error is: {error_summary}\n"
-        "Please repeat the previous message, corrected.\n\n"
-        "Here is a reminder of the JSON structure:\n"
-        f"{json_structure}\n"
-    )
+    full_json = build_full_json_instructions()
+    correction_payload = {
+        "system_message": {
+            "type": "error",
+            "message": message_text,
+            "your_reply": getattr(message, "original_text", getattr(message, "text", "")),
+            "full_json_instructions": full_json,
+            "error_retry_policy": ERROR_RETRY_POLICY,
+        }
+    }
+    correction_prompt = json.dumps(correction_payload, ensure_ascii=False)
 
     log_warning(f"[corrector] {error_summary}")
     log_info(
@@ -309,6 +318,19 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
     # Dynamic validation - delegate to plugins or interfaces that support this action type
     if isinstance(payload, dict) and action_type in supported_types:
         _validate_payload(action_type, payload, errors)
+
+        if _is_restricted_action(action_type):
+            mode = os.getenv("RESTRICT_ACTIONS", "on").lower()
+            if mode == "on":
+                errors.append(f"Action '{action_type}' is restricted")
+            elif mode == "trainer_only":
+                user_id = getattr(getattr(original_message, "from_user", None), "id", None)
+                try:
+                    from core.config import TELEGRAM_TRAINER_ID
+                except Exception:
+                    TELEGRAM_TRAINER_ID = None  # type: ignore
+                if user_id is not None and TELEGRAM_TRAINER_ID and user_id != TELEGRAM_TRAINER_ID:
+                    errors.append(f"Action '{action_type}' is restricted to trainer")
 
     return len(errors) == 0, errors
 
@@ -784,8 +806,19 @@ def get_action_plugin_instructions() -> dict[str, dict]:
     return instructions
 
 
-async def gather_static_injections() -> dict:
-    """Collect static injections from plugins supporting the static_inject action."""
+async def gather_static_injections(message=None, context_memory=None) -> dict:
+    """Collect static injections from plugins supporting the ``static_inject`` action.
+
+    Parameters
+    ----------
+    message : optional
+        The original message associated with the prompt. Passed to plugins that
+        accept it for participant resolution.
+    context_memory : optional
+        Memory structure containing recent chat messages. Also passed to
+        plugins if they accept it.
+    """
+
     injections: dict = {}
     try:
         for plugin in _load_action_plugins():
@@ -803,7 +836,13 @@ async def gather_static_injections() -> dict:
                         supported = "static_inject" in acts
                 if not supported or not hasattr(plugin, "get_static_injection"):
                     continue
-                result = plugin.get_static_injection()
+
+                # Pass message and context_memory if the plugin expects them
+                try:
+                    result = plugin.get_static_injection(message, context_memory)
+                except TypeError:
+                    result = plugin.get_static_injection()
+
                 if inspect.iscoroutine(result):
                     result = await result
                 if isinstance(result, dict):
@@ -815,6 +854,32 @@ async def gather_static_injections() -> dict:
     except Exception as e:
         log_error(f"[action_parser] Error collecting static injections: {e}")
     return injections
+
+
+def _is_restricted_action(action_type: str) -> bool:
+    """Return True if the action is marked as restricted."""
+    try:
+        for plugin in _load_action_plugins():
+            if hasattr(plugin, "get_supported_actions"):
+                actions = plugin.get_supported_actions()
+                if isinstance(actions, dict):
+                    meta = actions.get(action_type)
+                    if isinstance(meta, dict) and meta.get("restricted"):
+                        return True
+    except Exception:
+        pass
+    try:  # Check interface actions as well
+        from core.core_initializer import INTERFACE_REGISTRY
+        for iface in INTERFACE_REGISTRY.values():
+            if hasattr(iface, "get_supported_actions"):
+                actions = iface.get_supported_actions()
+                if isinstance(actions, dict):
+                    meta = actions.get(action_type)
+                    if isinstance(meta, dict) and meta.get("restricted"):
+                        return True
+    except Exception:
+        pass
+    return False
 
 
 __all__ = [

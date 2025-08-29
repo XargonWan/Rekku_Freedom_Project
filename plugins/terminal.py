@@ -19,13 +19,6 @@ except Exception:
     class ParseMode:
         MARKDOWN = "Markdown"
 
-# Import telegram utils safely
-try:
-    from core.telegram_utils import truncate_message
-except Exception:
-    def truncate_message(text, max_length=4000):
-        return text[:max_length] if len(text) > max_length else text
-
 # Import notifier safely
 try:
     from core.notifier import notify_trainer
@@ -121,15 +114,34 @@ class TerminalPlugin(AIPluginBase):
         output = await self._send_command(cmd)
 
         if bot and message:
-            truncated = output
-            if len(truncated) > 4000:
-                truncated = truncated[:4000] + "\n..."
-            await bot.send_message(
-                chat_id=message.chat_id,
-                text=f"```\n{truncated}\n```" if truncated else "(no output)",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_to_message_id=message.message_id,
+            text = output or "(no output)"
+            for i in range(0, len(text), 4000):
+                chunk = text[i:i+4000]
+                await bot.send_message(
+                    chat_id=message.chat_id,
+                    text=f"```\n{chunk}\n```",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_to_message_id=message.message_id if i == 0 else None,
+                )
+        try:
+            from core.auto_response import request_llm_delivery
+
+            delivery_context = {
+                "chat_id": getattr(message, "chat_id", None),
+                "message_id": getattr(message, "message_id", None),
+                "interface_name": "telegram_bot",
+                "message_thread_id": getattr(message, "message_thread_id", None),
+            }
+
+            await request_llm_delivery(
+                output=output or "(no output)",
+                original_context=delivery_context,
+                action_type="terminal",
+                command=cmd,
             )
+            log_debug("[terminal] Forwarded output to LLM from incoming message")
+        except Exception as e:
+            log_warning(f"[terminal] Failed to deliver output to LLM: {e}")
 
         return output
 
@@ -160,7 +172,11 @@ class TerminalPlugin(AIPluginBase):
     def get_prompt_instructions(self, action_name: str) -> dict:
         if action_name == "terminal":
             return {
-                "description": "Execute commands in a terminal session (bash, python, etc.). Optionally persistent.",
+                "description": (
+                    "Execute commands in a terminal session (bash, python, etc.). "
+                    "Optionally persistent. Escape special characters (quotes, newlines, backslashes) in "
+                    "the command so the JSON remains valid."
+                ),
                 "payload": {
                     "command": "df -h",
                     "persistent_session": False,
@@ -202,17 +218,38 @@ class TerminalPlugin(AIPluginBase):
 
             # Notify trainer about the executed command and its result
             try:
-                summary = truncate_message(output, 1000)
                 notify_trainer(
-                    f"[terminal] Command: {command}\nOutput:\n{summary}"
+                    f"[terminal] Command: {command}\nOutput:\n{output}"
                 )
             except Exception as e:
                 log_warning(f"[terminal] Failed to notify trainer: {e}")
 
-            # Output is returned to the caller; higher-level orchestrators will
-            # decide how to deliver it back to the LLM or user.
-            if not (original_message and hasattr(original_message, 'chat_id')):
-                log_warning("[terminal] No original_message context for output delivery")
+            # Deliver the output back to the LLM so it can reason about results
+            interface_name = context.get('interface', 'telegram_bot')
+            if interface_name == 'telegram':
+                interface_name = 'telegram_bot'
+            delivery_context = {
+                'chat_id': getattr(original_message, 'chat_id', context.get('chat_id')),
+                'message_id': getattr(original_message, 'message_id', context.get('message_id')),
+                'interface_name': interface_name,
+                'message_thread_id': getattr(
+                    original_message, 'message_thread_id', context.get('message_thread_id')
+                ),
+            }
+            if delivery_context['chat_id'] is not None:
+                try:
+                    from core.auto_response import request_llm_delivery
+                    await request_llm_delivery(
+                        output=output or '(no output)',
+                        original_context=delivery_context,
+                        action_type=action_type,
+                        command=command,
+                    )
+                    log_debug("[terminal] Forwarded output to LLM from execute_action")
+                except Exception as e:
+                    log_warning(f"[terminal] Failed to deliver output to LLM: {e}")
+            else:
+                log_warning("[terminal] No context available for output delivery")
 
             return output
 
@@ -241,7 +278,7 @@ class TerminalPlugin(AIPluginBase):
                     output=f"Error executing command '{command}': {str(e)}",
                     original_context=error_context,
                     action_type=f"{action_type}_error",
-                    command=command
+                    command=command,
                 )
             return f"Error executing command '{command}': {str(e)}"
 
