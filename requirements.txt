@@ -16,3 +16,4 @@ requests
 snscrape
 sphinx
 sphinx_rtd_theme
+unittest-xml-reporting

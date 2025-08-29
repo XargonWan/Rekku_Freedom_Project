@@ -9,7 +9,6 @@ source "$VENV_DIR/bin/activate"
 
 # Install runtime and development dependencies
 pip install -r requirements.txt >/dev/null
-pip install -r requirements-dev.txt >/dev/null
 
 # Ensure a local log directory is used
 export LOG_DIR=${LOG_DIR:-./logs}
