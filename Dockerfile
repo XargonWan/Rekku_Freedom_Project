@@ -33,7 +33,7 @@ RUN apt-get update && \
       git curl wget unzip nano vim \
       lsb-release ca-certificates \
       htop net-tools iputils-ping \
-      ffmpeg mariadb-client && \
+      ffmpeg mariadb-client libmariadb3 libmariadb-dev && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install gemini-cli
