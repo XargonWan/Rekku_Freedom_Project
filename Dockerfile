@@ -10,6 +10,11 @@ LABEL build_version="Rekku Freedom Project version:- ${VERSION} Build-date:- ${B
 LABEL maintainer="xargonwan"
 
 ENV TITLE="Rekku Freedom Project"
+ENV PIXELFLUX_USE_XSHM=0 \
+    PIXELFLUX_DISABLE_XSHM=1 \
+    PIXELFLUX_NO_XSHM=1 \
+    QT_X11_NO_MITSHM=1 \
+    DISABLE_XSHM=1
 
 # Block snap completely
 RUN echo 'Package: snapd' > /etc/apt/preferences.d/no-snap && \
@@ -34,34 +39,22 @@ RUN apt-get update && \
 # Install gemini-cli
 RUN pip3 install --no-cache-dir gemini-cli
 
-# Install browser based on architecture
-RUN ARCH="$TARGETARCH" && \
+# Install Chromium browser and driver without snap
+RUN ARCH="${TARGETARCH}" && \
     if [ -z "$ARCH" ]; then \
         echo "Warning: TARGETARCH not set, defaulting to amd64" && \
         ARCH=amd64; \
     fi && \
-    if [ "$ARCH" = "amd64" ]; then \
-        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/trusted.gpg.d/google-chrome.gpg && \
-        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-        apt-get update && \
-        apt-get install -y google-chrome-stable && \
-        apt-get clean && rm -rf /var/lib/apt/lists/* && \
-        google-chrome --version; \
-    elif [ "$ARCH" = "arm64" ]; then \
-        apt-get update && \
-        apt-get install -y chromium chromium-driver && \
-        apt-get clean && rm -rf /var/lib/apt/lists/* && \
-        chromium --version && \
-        ln -s /usr/bin/chromium /usr/bin/google-chrome; \
-    else \
-        echo "Warning: unsupported architecture '$ARCH', defaulting to amd64" && \
-        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/trusted.gpg.d/google-chrome.gpg && \
-        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-        apt-get update && \
-        apt-get install -y google-chrome-stable && \
-        apt-get clean && rm -rf /var/lib/apt/lists/* && \
-        google-chrome --version; \
-    fi
+    apt-get update && \
+    apt-get purge -y google-chrome google-chrome-stable || true && \
+    apt-get install -y --no-install-recommends debian-archive-keyring && \
+    echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://deb.debian.org/debian bookworm main" > /etc/apt/sources.list.d/debian-chromium.list && \
+    echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://security.debian.org/debian-security bookworm-security main" >> /etc/apt/sources.list.d/debian-chromium.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends chromium chromium-driver && \
+    rm -f /etc/apt/sources.list.d/debian-chromium.list && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    chromium --version
 
 # Install XFCE4 desktop environment
 RUN apt-get update && \
@@ -74,6 +67,7 @@ RUN apt-get update && \
       dbus-x11 \
       at-spi2-core \
       pulseaudio \
+      pulseaudio-utils \
       pavucontrol && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -118,6 +112,14 @@ RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
     mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
     echo rekku > /etc/s6-overlay/s6-rc.d/user/contents.d/rekku && \
     chown -R abc:abc /etc/s6-overlay/s6-rc.d/rekku
+
+# Copy S6 Websockify service for Selkies
+COPY s6-services/websockify /etc/s6-overlay/s6-rc.d/websockify
+RUN chmod +x /etc/s6-overlay/s6-rc.d/websockify/run && \
+    echo 'longrun' > /etc/s6-overlay/s6-rc.d/websockify/type && \
+    mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
+    echo websockify > /etc/s6-overlay/s6-rc.d/user/contents.d/websockify && \
+    chown -R abc:abc /etc/s6-overlay/s6-rc.d/websockify
 
 # Set permissions for abc user
 # Note: abc user home is /config
