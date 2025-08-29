@@ -15,7 +15,7 @@ from core.logging_utils import (
 )
 from interface.reddit_interface import start_reddit_interface
 
-.
+
 def cleanup_chromium_processes():
     """Clean up any remaining Chromium processes and lock files while preserving login sessions."""
     try:
