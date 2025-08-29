@@ -51,14 +51,28 @@ async def get_conn() -> aiomysql.Connection:
     log_debug(
         f"[db] Opening connection to {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     )
-    conn = await aiomysql.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASS,
-        db=DB_NAME,
-        autocommit=True,
-    )
+    try:
+        conn = await aiomysql.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            user=DB_USER,
+            password=DB_PASS,
+            db=DB_NAME,
+            autocommit=True,
+        )
+    except Exception as e:  # pragma: no cover - network errors
+        log_warning(f"[db] Connection to {DB_HOST} failed: {e}. Trying localhost...")
+        if DB_HOST != "localhost":
+            conn = await aiomysql.connect(
+                host="localhost",
+                port=DB_PORT,
+                user=DB_USER,
+                password=DB_PASS,
+                db=DB_NAME,
+                autocommit=True,
+            )
+        else:
+            raise
     log_debug("[db] Connection opened")
     return conn
 
