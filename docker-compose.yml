@@ -1,8 +1,8 @@
 services:
 
-  rekku_freedom_project:
+  rfp:
     image: xargonwan/rekku_freedom_project:${IMAGE_VERSION:-latest}
-    container_name: rekku_freedom_project
+    container_name: rfp
     hostname: luna-workstation
     env_file:
       - .env
@@ -12,9 +12,7 @@ services:
       - "${CLI_SERVER_PORT:-5555}:5555"
       - "${WEBUI_PORT:-8000}:${WEBUI_PORT:-8000}"
     volumes:
-      - ./persona/home:/home/rekku
-      - ./persona/mind:/app/persona
-      - ./persona/webtop_config:/config
+      - rfp_data:/config
       - ./logs:/app/logs
       - .env:/app/.env:ro
     environment:
@@ -33,11 +31,11 @@ services:
       - CLI_SERVER_PORT=${CLI_SERVER_PORT:-5555}
     depends_on:
       - rfp-db
-    links:
-      - rfp-db
     restart: unless-stopped
     stdin_open: true
     tty: true
+    depends_on:
+      - rfp-db
     networks:
       - rfp_network
 
@@ -57,6 +55,9 @@ services:
     command: --bind-address=0.0.0.0
     volumes:
       - rfp_db_data:/var/lib/mysql
+    depends_on:
+      - rfp-db
+    restart: unless-stopped
     networks:
       - rfp_network
 
@@ -87,6 +88,7 @@ services:
 
 volumes:
   rfp_db_data:
+  rfp_data:
 
 networks:
   rfp_network:

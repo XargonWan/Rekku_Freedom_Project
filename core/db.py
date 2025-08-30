@@ -32,6 +32,29 @@ DB_USER = os.getenv("DB_USER", "rekku")
 DB_PASS = os.getenv("DB_PASS", "rekku")
 DB_NAME = os.getenv("DB_NAME", "rekku")
 
+# Test di connessione con retry e logging dettagliato
+async def wait_for_db(max_attempts=10, delay=3):
+    """Wait for the DB to be reachable, with retry and detailed logging."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            log_info(f"[db] Attempt {attempt}: connecting to {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+            conn = await aiomysql.connect(
+                host=DB_HOST,
+                port=DB_PORT,
+                user=DB_USER,
+                password=DB_PASS,
+                db=DB_NAME,
+                autocommit=True,
+            )
+            log_info("[db] Successfully connected to the database!")
+            conn.close()
+            return True
+        except Exception as e:
+            log_warning(f"[db] Connection failed: {e}")
+            await asyncio.sleep(delay)
+    log_error(f"[db] Could not connect to the database after {max_attempts} attempts.")
+    return False
+
 _db_logging_initialized = False
 
 def initialize_db_logging():
