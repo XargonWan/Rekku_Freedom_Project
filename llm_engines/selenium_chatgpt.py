@@ -1184,7 +1184,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         os.path.join(os.path.expanduser("~"), ".config"),
                     )
                     profile_dir = os.path.join(config_home, "chromium-rfp")
-                    os.makedirs(profile_dir, exist_ok=True)
                     options.add_argument(f"--user-data-dir={profile_dir}")
                     
                     # Clear any existing driver cache

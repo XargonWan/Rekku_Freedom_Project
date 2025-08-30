@@ -32,6 +32,29 @@ DB_USER = os.getenv("DB_USER", "rekku")
 DB_PASS = os.getenv("DB_PASS", "rekku")
 DB_NAME = os.getenv("DB_NAME", "rekku")
 
+# Test di connessione con retry e logging dettagliato
+async def wait_for_db(max_attempts=10, delay=3):
+    """Wait for the DB to be reachable, with retry and detailed logging."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            log_info(f"[db] Attempt {attempt}: connecting to {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+            conn = await aiomysql.connect(
+                host=DB_HOST,
+                port=DB_PORT,
+                user=DB_USER,
+                password=DB_PASS,
+                db=DB_NAME,
+                autocommit=True,
+            )
+            log_info("[db] Successfully connected to the database!")
+            conn.close()
+            return True
+        except Exception as e:
+            log_warning(f"[db] Connection failed: {e}")
+            await asyncio.sleep(delay)
+    log_error(f"[db] Could not connect to the database after {max_attempts} attempts.")
+    return False
+
 _db_logging_initialized = False
 
 def initialize_db_logging():
@@ -51,14 +74,40 @@ async def get_conn() -> aiomysql.Connection:
     log_debug(
         f"[db] Opening connection to {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     )
-    conn = await aiomysql.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASS,
-        db=DB_NAME,
-        autocommit=True,
-    )
+    try:
+        conn = await aiomysql.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            user=DB_USER,
+            password=DB_PASS,
+            db=DB_NAME,
+            autocommit=True,
+        )
+    except Exception as primary_exc:  # pragma: no cover - network errors
+        primary_cause = getattr(primary_exc, "__cause__", None)
+        cause_msg = f" (cause: {primary_cause})" if primary_cause else ""
+        log_warning(
+            f"[db] Connection to {DB_HOST} failed: {primary_exc}{cause_msg}. Trying localhost..."
+        )
+        if DB_HOST != "localhost":
+            try:
+                conn = await aiomysql.connect(
+                    host="localhost",
+                    port=DB_PORT,
+                    user=DB_USER,
+                    password=DB_PASS,
+                    db=DB_NAME,
+                    autocommit=True,
+                )
+            except Exception as fallback_exc:  # pragma: no cover - network errors
+                fallback_cause = getattr(fallback_exc, "__cause__", None)
+                fb_cause_msg = f" (cause: {fallback_cause})" if fallback_cause else ""
+                log_error(
+                    f"[db] Localhost connection failed: {fallback_exc}{fb_cause_msg}."
+                )
+                raise primary_exc from fallback_exc
+        else:
+            raise
     log_debug("[db] Connection opened")
     return conn
 
