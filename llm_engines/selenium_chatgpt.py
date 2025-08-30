@@ -1192,7 +1192,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         if root_pw:
                             import subprocess
                             try:
-                                subprocess.run(["chown", "-R", f"{os.getuid()}:", profile_dir], check=True)
+                                subprocess.run(["chown", "-R", "abc:abc", profile_dir], check=True)
                                 log_debug(f"[selenium] chown executed on {profile_dir}")
                                 os.makedirs(profile_dir, exist_ok=True)
                             except Exception as chown_e:
