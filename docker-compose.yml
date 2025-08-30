@@ -43,6 +43,7 @@ services:
 
   rfp-db:
     container_name: rfp-db
+    hostname: rfp-db
     image: mariadb:11
     env_file:
       - .env
