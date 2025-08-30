@@ -61,8 +61,10 @@ async def get_conn() -> aiomysql.Connection:
             autocommit=True,
         )
     except Exception as primary_exc:  # pragma: no cover - network errors
+        primary_cause = getattr(primary_exc, "__cause__", None)
+        cause_msg = f" (cause: {primary_cause})" if primary_cause else ""
         log_warning(
-            f"[db] Connection to {DB_HOST} failed: {primary_exc}. Trying localhost..."
+            f"[db] Connection to {DB_HOST} failed: {primary_exc}{cause_msg}. Trying localhost..."
         )
         if DB_HOST != "localhost":
             try:
@@ -75,10 +77,12 @@ async def get_conn() -> aiomysql.Connection:
                     autocommit=True,
                 )
             except Exception as fallback_exc:  # pragma: no cover - network errors
+                fallback_cause = getattr(fallback_exc, "__cause__", None)
+                fb_cause_msg = f" (cause: {fallback_cause})" if fallback_cause else ""
                 log_error(
-                    f"[db] Localhost connection failed: {fallback_exc}."
+                    f"[db] Localhost connection failed: {fallback_exc}{fb_cause_msg}."
                 )
-                raise primary_exc
+                raise primary_exc from fallback_exc
         else:
             raise
     log_debug("[db] Connection opened")
