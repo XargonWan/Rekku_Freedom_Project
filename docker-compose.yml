@@ -29,6 +29,8 @@ services:
       - SECURE_CONNECTION=${SECURE_CONNECTION:-1}
       - DB_HOST=${DB_HOST:-rfp-db}
       - CLI_SERVER_PORT=${CLI_SERVER_PORT:-5555}
+    depends_on:
+      - rfp-db
     restart: unless-stopped
     stdin_open: true
     tty: true
@@ -39,6 +41,7 @@ services:
 
   rfp-db:
     container_name: rfp-db
+    hostname: rfp-db
     image: mariadb:11
     env_file:
       - .env
