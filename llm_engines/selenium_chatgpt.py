@@ -1184,22 +1184,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         os.path.join(os.path.expanduser("~"), ".config"),
                     )
                     profile_dir = os.path.join(config_home, "chromium-rfp")
-                    try:
-                        os.makedirs(profile_dir, exist_ok=True)
-                    except PermissionError as e:
-                        log_warning(f"[selenium] PermissionError on {profile_dir}: {e}")
-                        root_pw = os.environ.get("ROOT_PASSWORD")
-                        if root_pw:
-                            import subprocess
-                            try:
-                                subprocess.run(["chown", "-R", "abc:abc", profile_dir], check=True)
-                                log_debug(f"[selenium] chown executed on {profile_dir}")
-                                os.makedirs(profile_dir, exist_ok=True)
-                            except Exception as chown_e:
-                                log_error(f"[selenium] chown failed: {chown_e}")
-                        else:
-                            log_error("[selenium] ROOT_PASSWORD not set, cannot change permissions")
-                            raise
                     options.add_argument(f"--user-data-dir={profile_dir}")
                     
                     # Clear any existing driver cache
