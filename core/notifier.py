@@ -4,6 +4,7 @@ import asyncio
 import time
 from typing import List, Tuple, Callable
 from core.logging_utils import log_debug, log_info, log_warning
+from core.config import get_log_chat_id_sync
 from collections import deque
 
 _in_notify = False
@@ -91,22 +92,29 @@ def notify_trainer(message: str) -> None:
             _pending_interface_msgs.append((interface_name, trainer_id, message))
             continue
 
-        async def send():
+        targets = [trainer_id]
+        if interface_name == "telegram_bot":
+            log_chat_id = get_log_chat_id_sync()
+            if log_chat_id and log_chat_id not in targets:
+                targets.append(log_chat_id)
+
+        async def send(target: int):
             try:
-                await iface.send_message({"text": message, "target": trainer_id})
+                await iface.send_message({"text": message, "target": target})
             except Exception as e:  # pragma: no cover - best effort
                 log_warning(
                     f"[notifier] Failed to notify via {interface_name}: {repr(e)}",
                 )
 
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        if loop and loop.is_running():
-            loop.create_task(send())
-        else:
-            asyncio.run(send())
+        for tgt in targets:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop and loop.is_running():
+                loop.create_task(send(tgt))
+            else:
+                asyncio.run(send(tgt))
 
 
 def flush_pending_for_interface(interface_name: str) -> None:

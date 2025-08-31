@@ -132,7 +132,7 @@ async def send_with_thread_fallback(
     fallback_message_thread_id: int | None = None,
     fallback_reply_to_message_id: int | None = None,
     **kwargs,
-) -> None:
+) -> object | None:
     """Send a Telegram message with automatic thread fallback.
 
     ``message_thread_id`` is the correct Telegram Bot API parameter.  This
@@ -162,12 +162,12 @@ async def send_with_thread_fallback(
         send_kwargs["reply_to_message_id"] = reply_to_message_id
 
     try:
-        await bot.send_message(**send_kwargs)
+        message = await bot.send_message(**send_kwargs)
         log_info(
             f"[telegram_utils] Message sent to {chat_id}"
             f" (thread: {message_thread_id}, reply_message_id: {reply_to_message_id})"
         )
-        return
+        return message
     except Exception as e:
         error_message = str(e)
 
@@ -178,11 +178,11 @@ async def send_with_thread_fallback(
             )
             send_kwargs.pop("parse_mode", None)
             try:
-                await bot.send_message(**send_kwargs)
+                message = await bot.send_message(**send_kwargs)
                 log_info(
                     f"[telegram_utils] Message sent to {chat_id} without parse_mode"
                 )
-                return
+                return message
             except Exception as e2:
                 error_message = str(e2)
 
@@ -192,11 +192,11 @@ async def send_with_thread_fallback(
             )
             send_kwargs.pop("message_thread_id", None)
             try:
-                await bot.send_message(**send_kwargs)
+                message = await bot.send_message(**send_kwargs)
                 log_info(
                     f"[telegram_utils] Message sent to {chat_id} without thread"
                 )
-                return
+                return message
             except Exception as no_thread_error:
                 log_error(
                     f"[telegram_utils] Fallback without thread failed: {no_thread_error}"
@@ -216,11 +216,13 @@ async def send_with_thread_fallback(
             f"[telegram_utils] Retrying in fallback chat {fallback_chat_id}"
         )
         try:
-            await bot.send_message(**fallback_kwargs)
+            message = await bot.send_message(**fallback_kwargs)
             log_info(
                 f"[telegram_utils] Message sent to fallback chat {fallback_chat_id}"
             )
+            return message
         except Exception as fallback_error:
             log_error(
                 f"[telegram_utils] Final fallback failed: {fallback_error}"
             )
+    return None
