@@ -6,6 +6,7 @@ import os
 from core.logging_utils import log_debug, log_error, log_info
 from core.transport_layer import universal_send
 from core.core_initializer import core_initializer, register_interface
+from core.command_registry import execute_command
 
 
 class DiscordInterface:
@@ -62,6 +63,10 @@ class DiscordInterface:
         # Actual Discord API call would go here
         # await self.client.get_channel(channel_id).send(text)
         pass
+
+    async def handle_command(self, command_name: str, *args, **kwargs):
+        """Process a slash command via the shared backend."""
+        return await execute_command(command_name, *args, **kwargs)
 
     @staticmethod
     def get_interface_instructions():
