@@ -5,6 +5,7 @@ import re
 import asyncio
 import subprocess
 from telegram import Update, Bot
+from telegram.error import TelegramError, RetryAfter
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
@@ -34,7 +35,14 @@ from core.message_sender import (
     detect_media_type,
     extract_response_target,
 )
-from core.config import get_active_llm, set_active_llm, list_available_llms
+from core.config import (
+    get_active_llm,
+    set_active_llm,
+    list_available_llms,
+    get_log_chat_id,
+    set_log_chat_id,
+    get_log_chat_id_sync,
+)
 from core.config import BOT_TOKEN, BOT_USERNAME, TELEGRAM_TRAINER_ID
 
 from core.chat_link_store import (
@@ -42,6 +50,8 @@ from core.chat_link_store import (
     ChatLinkMultipleMatches,
 )
 from core.action_parser import corrector
+from core.action_parser import ERROR_RETRY_POLICY
+from core.prompt_engine import build_full_json_instructions
 
 chat_link_store = ChatLinkStore()
 import core.plugin_instance as plugin_instance
@@ -49,6 +59,7 @@ import traceback
 from core.action_parser import initialize_core
 from core.core_initializer import register_interface
 from typing import Any
+from types import SimpleNamespace
 
 # Load variables from .env
 load_dotenv()
@@ -137,6 +148,21 @@ async def purge_mappings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"\U0001f5d1 Removed {deleted} mappings older than {days} days."
     )
+
+
+async def logchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set the current chat as the log chat."""
+    if update.effective_user.id != TELEGRAM_TRAINER_ID:
+        return
+    chat_id = update.effective_chat.id
+    thread_id = update.effective_message.message_thread_id
+    try:
+        await set_log_chat_id(chat_id)
+        confirmation = f"This chat is now set as logchat [{chat_id}, {thread_id}]"
+        await safe_send(context.bot, chat_id, confirmation, message_thread_id=thread_id)
+    except Exception as e:
+        log_error(f"[telegram_interface] Failed to set log chat: {e}")
+        await update.message.reply_text("❌ Unable to set log chat.")
 
 async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -410,6 +436,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/last_chats` – Last active chats\n"
         "`/purge_map [days]` – Purge old mappings\n"
         "`/clean_chat_link <chat_id>` – Remove the link between a Telegram chat and ChatGPT.\n"
+        "`/logchat` – Set the current chat as the log chat\n"
     )
 
     await update.message.reply_text(help_text, parse_mode="Markdown")
@@ -679,7 +706,9 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
 
     # Se il destinatario non è il TELEGRAM_TRAINER_ID, non inviare nulla
     if chat_id != TELEGRAM_TRAINER_ID:
-        log_debug(f"[telegram_notify] Ignorato: chat_id {chat_id} != TELEGRAM_TRAINER_ID {TELEGRAM_TRAINER_ID}")
+        log_debug(
+            f"[telegram_notify] Ignorato: chat_id {chat_id} != TELEGRAM_TRAINER_ID {TELEGRAM_TRAINER_ID}"
+        )
         return
 
     # Make URLs clickable
@@ -693,30 +722,39 @@ def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None)
 
         formatted_message = url_pattern.sub(repl, html.escape(message))
 
-    async def send():
+    targets = [TELEGRAM_TRAINER_ID]
+    log_chat_id = get_log_chat_id_sync()
+    if log_chat_id and log_chat_id not in targets:
+        targets.append(log_chat_id)
+
+    async def send(target: int, reply_id: int | None):
         try:
             await safe_send(
                 bot,
-                chat_id=TELEGRAM_TRAINER_ID,
+                chat_id=target,
                 text=formatted_message or message,
-                reply_to_message_id=reply_to_message_id,
+                reply_to_message_id=reply_id,
                 parse_mode=ParseMode.HTML if formatted_message else None,
                 disable_web_page_preview=True,
             )  # [FIX][telegram retry]
-            log_debug(f"[notify] ✅ Telegram message sent to {TELEGRAM_TRAINER_ID}")
+            log_debug(f"[notify] ✅ Telegram message sent to {target}")
         except TelegramError as e:
             log_error(f"[notify] ❌ Telegram error: {repr(e)}", e)
         except Exception as e:
             log_error(f"[notify] ❌ Other error in send(): {repr(e)}", e)
+
+    async def runner():
+        for tgt in targets:
+            await send(tgt, reply_to_message_id if tgt == TELEGRAM_TRAINER_ID else None)
 
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = None
     if loop and loop.is_running():
-        loop.create_task(send())
+        loop.create_task(runner())
     else:
-        asyncio.run(send())
+        asyncio.run(runner())
 
 # === Startup ===
 
@@ -764,6 +802,7 @@ async def start_bot():
         app.add_handler(CommandHandler("block_list", block_list))
         app.add_handler(CommandHandler("unblock", unblock_user))
         app.add_handler(CommandHandler("purge_map", purge_mappings))
+        app.add_handler(CommandHandler("logchat", logchat_command))
         app.add_handler(CommandHandler("last_chats", last_chats_command))
         app.add_handler(CommandHandler("manage_chat_id", manage_chat_id_command))
         app.add_handler(CommandHandler("context", context_command))
@@ -1014,6 +1053,105 @@ class TelegramInterface:
 
         return errors
 
+    async def _emit_system_error(
+        self,
+        step: str,
+        details: str,
+        payload: dict,
+        original_message: object | None = None,
+    ) -> None:
+        try:
+            full_json = build_full_json_instructions()
+            system_payload = {
+                "system_message": {
+                    "type": "error",
+                    "step": step,
+                    "message": details,
+                    "your_reply": json.dumps(
+                        {"actions": [{"type": "message_telegram_bot", "payload": payload}]},
+                        ensure_ascii=False,
+                    ),
+                    "full_json_instructions": full_json,
+                    "error_retry_policy": ERROR_RETRY_POLICY,
+                }
+            }
+            payload_json = json.dumps(system_payload, ensure_ascii=False)
+            msg = SimpleNamespace()
+            if original_message and hasattr(original_message, "chat_id"):
+                msg.chat_id = original_message.chat_id
+                msg.message_thread_id = getattr(original_message, "message_thread_id", None)
+            else:
+                msg.chat_id = TELEGRAM_TRAINER_ID
+                msg.message_thread_id = None
+            msg.text = payload_json
+            from datetime import datetime
+            msg.date = datetime.utcnow()
+            llm = plugin_instance.get_plugin()
+            if llm and hasattr(llm, "handle_incoming_message"):
+                await llm.handle_incoming_message(self.bot, msg, payload_json)
+        except Exception as e:
+            log_error(f"[telegram_interface] Failed to emit system error: {e}")
+
+    async def _verify_delivery(
+        self,
+        sent_message: object | None,
+        payload: dict,
+        original_message: object | None = None,
+    ) -> None:
+        log_chat_id = await get_log_chat_id()
+        if not log_chat_id:
+            log_chat_id = TELEGRAM_TRAINER_ID
+        if sent_message is None:
+            await self._emit_system_error(
+                "retry_exhausted",
+                "sendMessage returned no message",
+                payload,
+                original_message,
+            )
+            return
+        if not log_chat_id:
+            return
+
+        retries = 3
+        base_delay = 2
+        for attempt in range(1, retries + 1):
+            try:
+                await self.bot.copy_message(
+                    chat_id=log_chat_id,
+                    from_chat_id=sent_message.chat_id,
+                    message_id=sent_message.message_id,
+                )
+                return
+            except RetryAfter as e:
+                wait_time = getattr(e, "retry_after", base_delay * attempt)
+            except TelegramError as e:
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status in {429, 500, 502, 503} and attempt < retries:
+                    wait_time = base_delay * (2 ** (attempt - 1))
+                else:
+                    await self._emit_system_error(
+                        "copy_check",
+                        f"copyMessage failed: {e}",
+                        payload,
+                        original_message,
+                    )
+                    return
+            except Exception as e:
+                await self._emit_system_error(
+                    "copy_check",
+                    f"copyMessage exception: {e}",
+                    payload,
+                    original_message,
+                )
+                return
+            await asyncio.sleep(wait_time)
+        await self._emit_system_error(
+            "retry_exhausted",
+            "copyMessage failed after retries",
+            payload,
+            original_message,
+        )
+
     async def send_message(self, payload: dict, original_message: object | None = None) -> None:
         """Send a message using the stored bot.
 
@@ -1122,7 +1260,7 @@ class TelegramInterface:
             if hasattr(original_message, "message_id"):
                 fallback_reply_to = original_message.message_id
 
-        await send_with_thread_fallback(
+        sent_message = await send_with_thread_fallback(
             self.bot,
             chat_id_int,
             text,
@@ -1133,6 +1271,7 @@ class TelegramInterface:
             fallback_message_thread_id=fallback_message_thread_id,
             fallback_reply_to_message_id=fallback_reply_to,
         )
+        await self._verify_delivery(sent_message, payload, original_message)
 
     async def _convert_to_voice(self, path: str) -> str:
         if path.endswith(".ogg"):
