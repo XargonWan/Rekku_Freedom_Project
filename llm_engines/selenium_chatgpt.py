@@ -1412,8 +1412,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
             log_debug("[selenium][STEP] ensuring ChatGPT is accessible")
 
-            thread_id = getattr(message, "message_thread_id", None)
-            chat_id = await chat_link_store.get_link(message.chat_id, thread_id)
+            message_thread_id = getattr(message, "message_thread_id", None)
+            chat_id = await chat_link_store.get_link(message.chat_id, message_thread_id)
             prompt_text = json.dumps(prompt, ensure_ascii=False)
             if isinstance(prompt, dict) and "system_message" in prompt:
                 prompt_text = f"```json\n{prompt_text}\n```"
@@ -1422,9 +1422,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 if path and go_to_chat_by_path_with_retries(driver, path):
                     chat_id = _extract_chat_id(driver.current_url)
                     if chat_id:
-                        await chat_link_store.save_link(message.chat_id, thread_id, chat_id)
+                        await chat_link_store.save_link(message.chat_id, message_thread_id, chat_id)
                         _safe_notify(
-                            f"\u26a0\ufe0f Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
+                            f"\u26a0\ufe0f Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, message_thread_id={message_thread_id}.\n"
                             f"A new ChatGPT chat has been created: {chat_id}"
                         )
                 else:
@@ -1443,13 +1443,13 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 except Exception as e:
                     log_warning(f"[selenium] Existing chat {chat_id} no longer accessible: {e}")
                     log_info(f"[selenium] Creating new chat to replace inaccessible chat {chat_id}")
-                    await chat_link_store.remove(message.chat_id, thread_id)
+                    await chat_link_store.remove(message.chat_id, message_thread_id)
                     recent_chats.clear_chat_path(message.chat_id)
                     _open_new_chat(driver)
                     chat_id = None
 
             log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
-            log_debug(f"[selenium][DEBUG] Telegram chat_id: {message.chat_id}, thread_id: {thread_id}")
+            log_debug(f"[selenium][DEBUG] Telegram chat_id: {message.chat_id}, message_thread_id: {message_thread_id}")
 
             if not chat_id:
                 try:
@@ -1477,10 +1477,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         log_debug(f"[selenium][DEBUG] New chat created, extracted ID: {new_chat_id}")
                         log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
                         if new_chat_id:
-                            await chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
-                            log_debug(f"[selenium][DEBUG] Saved link: {message.chat_id}/{thread_id} -> {new_chat_id}")
+                            await chat_link_store.save_link(message.chat_id, message_thread_id, new_chat_id)
+                            log_debug(f"[selenium][DEBUG] Saved link: {message.chat_id}/{message_thread_id} -> {new_chat_id}")
                             _safe_notify(
-                                f"\u26a0\ufe0f Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, thread_id={thread_id}.\n"
+                                f"\u26a0\ufe0f Couldn't find ChatGPT conversation for Telegram chat_id={message.chat_id}, message_thread_id={message_thread_id}.\n"
                                 f"A new ChatGPT chat has been created: {new_chat_id}"
                             )
                         else:
@@ -1494,7 +1494,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     response_text = process_prompt_in_chat(driver, None, prompt_text, "")
                     new_chat_id = _extract_chat_id(driver.current_url)
                     if new_chat_id:
-                        await chat_link_store.save_link(message.chat_id, thread_id, new_chat_id)
+                        await chat_link_store.save_link(message.chat_id, message_thread_id, new_chat_id)
                         log_debug(
                             f"[selenium][SUCCESS] New chat created for full conversation. Chat ID: {new_chat_id}"
                         )
@@ -1508,7 +1508,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     chat_id=message.chat_id,
                     text=response_text,
                     reply_to_message_id=getattr(message, "message_id", None),
-                    message_thread_id=thread_id,
+                    message_thread_id=message_thread_id,
                     event_id=getattr(message, "event_id", None),
                 )
                 log_debug(

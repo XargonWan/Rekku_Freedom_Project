@@ -19,7 +19,7 @@ async def test_event_id_filtered_from_helpers():
         "reply_to_message_id": 123,
         "event_id": 456,
         "parse_mode": "HTML",
-        "thread_id": 789,
+        "message_thread_id": 789,
     }
 
     mock_bot = AsyncMock()

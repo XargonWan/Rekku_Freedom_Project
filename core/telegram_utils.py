@@ -126,10 +126,10 @@ async def send_with_thread_fallback(
     chat_id: int | str,
     text: str,
     *,
-    thread_id: int | None = None,
+    message_thread_id: int | None = None,
     reply_to_message_id: int | None = None,
     fallback_chat_id: int | None = None,
-    fallback_thread_id: int | None = None,
+    fallback_message_thread_id: int | None = None,
     fallback_reply_to_message_id: int | None = None,
     **kwargs,
 ) -> object | None:
@@ -138,7 +138,7 @@ async def send_with_thread_fallback(
     ``message_thread_id`` is the correct Telegram Bot API parameter.  This
     helper mirrors the old ``_send_telegram_message`` logic so that any
     interface can reuse the same behaviour.  It first tries to send with the
-    provided ``thread_id`` (mapped to ``message_thread_id``) and falls back to sending without it if the
+    provided ``message_thread_id`` and falls back to sending without it if the
     thread does not exist.  If ``fallback_chat_id`` is provided it will then try
     sending to that chat using the accompanying fallback parameters.
     """
@@ -156,8 +156,8 @@ async def send_with_thread_fallback(
             return
 
     send_kwargs = {"chat_id": chat_id, "text": text, **kwargs}
-    if thread_id is not None:
-        send_kwargs["message_thread_id"] = thread_id  # fixed: correct param is message_thread_id
+    if message_thread_id is not None:
+        send_kwargs["message_thread_id"] = message_thread_id  # fixed: correct param is message_thread_id
     if reply_to_message_id is not None:
         send_kwargs["reply_to_message_id"] = reply_to_message_id
 
@@ -165,7 +165,7 @@ async def send_with_thread_fallback(
         message = await bot.send_message(**send_kwargs)
         log_info(
             f"[telegram_utils] Message sent to {chat_id}"
-            f" (thread: {thread_id}, reply_message_id: {reply_to_message_id})"
+            f" (thread: {message_thread_id}, reply_message_id: {reply_to_message_id})"
         )
         return message
     except Exception as e:
@@ -186,9 +186,9 @@ async def send_with_thread_fallback(
             except Exception as e2:
                 error_message = str(e2)
 
-        if thread_id and "thread not found" in error_message.lower():
+        if message_thread_id and "thread not found" in error_message.lower():
             log_warning(
-                f"[telegram_utils] Thread {thread_id} not found; retrying without thread"
+                f"[telegram_utils] Thread {message_thread_id} not found; retrying without thread"
             )
             send_kwargs.pop("message_thread_id", None)
             try:
@@ -203,13 +203,13 @@ async def send_with_thread_fallback(
                 )
         else:
             log_error(
-                f"[telegram_utils] Failed to send to {chat_id} (thread {thread_id}): {repr(e)}"
+                f"[telegram_utils] Failed to send to {chat_id} (thread {message_thread_id}): {repr(e)}"
             )
 
     if fallback_chat_id and fallback_chat_id != chat_id:
         fallback_kwargs = {"chat_id": fallback_chat_id, "text": text, **kwargs}
-        if fallback_thread_id is not None:
-            fallback_kwargs["message_thread_id"] = fallback_thread_id
+        if fallback_message_thread_id is not None:
+            fallback_kwargs["message_thread_id"] = fallback_message_thread_id
         if fallback_reply_to_message_id is not None:
             fallback_kwargs["reply_to_message_id"] = fallback_reply_to_message_id
         log_debug(
