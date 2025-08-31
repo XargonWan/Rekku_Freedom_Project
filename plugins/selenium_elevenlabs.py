@@ -4,6 +4,7 @@ import asyncio
 import os
 import tempfile
 import time
+import shutil
 from typing import Any, Dict, List, Tuple
 
 import undetected_chromedriver as uc
@@ -120,7 +121,19 @@ class SeleniumElevenLabsPlugin:
                 "safebrowsing.enabled": True,
             }
             options.add_experimental_option("prefs", prefs)
-            driver = uc.Chrome(options=options)
+
+            chromium_binary = (
+                shutil.which("chromium")
+                or shutil.which("chromium-browser")
+                or "/usr/bin/chromium"
+            )
+            log_debug(f"[selenium_elevenlabs] Using Chromium binary: {chromium_binary}")
+            driver = uc.Chrome(
+                options=options,
+                headless=False,
+                use_subprocess=False,
+                browser_executable_path=chromium_binary,
+            )
             wait = WebDriverWait(driver, 60)
             try:
                 driver.get("https://elevenlabs.io/app/speech-synthesis/text-to-speech")
