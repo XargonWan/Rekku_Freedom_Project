@@ -436,6 +436,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/last_chats` – Last active chats\n"
         "`/purge_map [days]` – Purge old mappings\n"
         "`/clean_chat_link <chat_id>` – Remove the link between a Telegram chat and ChatGPT.\n"
+        "`/logchat` – Set the current chat as the log chat\n"
     )
 
     await update.message.reply_text(help_text, parse_mode="Markdown")
