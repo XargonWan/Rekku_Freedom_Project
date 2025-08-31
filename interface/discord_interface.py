@@ -5,7 +5,7 @@ import os
 
 from core.logging_utils import log_debug, log_error, log_info
 from core.transport_layer import universal_send
-from core.core_initializer import core_initializer, register_interface
+from core.core_initializer import register_interface
 from core.command_registry import execute_command
 
 
@@ -49,6 +49,30 @@ class DiscordInterface:
             }
         return {}
 
+    @staticmethod
+    def validate_payload(action_type: str, payload: dict) -> list:
+        """Validate payload for discord actions."""
+        errors: list[str] = []
+
+        if action_type != "message_discord_bot":
+            return errors
+
+        text = payload.get("text")
+        if not isinstance(text, str) or not text:
+            errors.append("payload.text must be a non-empty string")
+
+        target = payload.get("target")
+        if target is None:
+            errors.append("payload.target is required")
+        elif not isinstance(target, (int, str)):
+            errors.append("payload.target must be an int or string")
+
+        reply_to = payload.get("reply_to_message_id")
+        if reply_to is not None and not isinstance(reply_to, int):
+            errors.append("payload.reply_to_message_id must be an int")
+
+        return errors
+
     async def send_message(self, channel_id, text):
         """Send a message to a Discord channel."""
         try:
@@ -77,9 +101,9 @@ class DiscordInterface:
             "- Markdown is supported, but avoid advanced features not supported by Discord.\n"
             "- Messages sent to the same channel as the source will appear as replies when possible.\n"
             "- Use 'reply_message_id' to reply to specific messages.\n"
-            "- Provide plain text or Markdown in the 'text' field."
+            "- Provide plain text or Markdown in the 'text' field.\n"
+            "- Supports 'ping' and predefined codewords like the Telegram bot."
         )
 
-# Expose class for dynamic loading and register default instance
+# Expose class for dynamic loading
 INTERFACE_CLASS = DiscordInterface
-discord_interface = DiscordInterface(os.getenv("DISCORD_BOT_TOKEN", ""))
