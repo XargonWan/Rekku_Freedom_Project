@@ -145,9 +145,9 @@ async def purge_mappings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Use: /purge_map [days]")
         return
     deleted = await message_map.purge_old_entries(days * 86400)
-        await update.message.reply_text(
-            f"\U0001f5d1 Removed {deleted} mappings older than {days} days."
-        )
+    await update.message.reply_text(
+        f"\U0001f5d1 Removed {deleted} mappings older than {days} days."
+    )
 
 
 async def logchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -155,9 +155,11 @@ async def logchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
     chat_id = update.effective_chat.id
+    thread_id = update.effective_message.message_thread_id
     try:
         await set_log_chat_id(chat_id)
-        await update.message.reply_text("✅ Log chat updated for this chat.")
+        confirmation = f"This chat is now set as logchat [{chat_id}, {thread_id}]"
+        await safe_send(context.bot, chat_id, confirmation, message_thread_id=thread_id)
     except Exception as e:
         log_error(f"[telegram_interface] Failed to set log chat: {e}")
         await update.message.reply_text("❌ Unable to set log chat.")
