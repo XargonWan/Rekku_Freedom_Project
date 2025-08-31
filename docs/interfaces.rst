@@ -9,6 +9,19 @@ core system.
 
 .. _Read the Docs: https://rekku.readthedocs.io
 
+Available Interfaces
+--------------------
+
+The repository currently includes the following interfaces:
+
+* ``cli`` – local command-line interface (no configuration).
+* ``discord_interface`` – Discord bot connector.  Set ``DISCORD_BOT_TOKEN`` in ``.env``.
+* ``reddit_interface`` – asynchronous Reddit client.  Requires ``REDDIT_CLIENT_ID``, ``REDDIT_CLIENT_SECRET``, ``REDDIT_USERNAME``, ``REDDIT_PASSWORD`` and ``REDDIT_USER_AGENT``.
+* ``telegram_bot`` – Telegram bot interface.  Provide ``BOTFATHER_TOKEN`` (or ``TELEGRAM_TOKEN``) and trainer ID ``TELEGRAM_TRAINER_ID``.
+* ``telethon_userbot`` – userbot using Telethon.  Set ``API_ID``, ``API_HASH`` and ``SESSION``.
+* ``webui`` – FastAPI-based web interface.  ``WEBUI_HOST`` and ``WEBUI_PORT`` control binding.
+* ``x_interface`` – experimental X (Twitter) integration.  Configure ``X_USERNAME`` for timeline features.
+
 1. **Create the module**
    Place a new ``*.py`` file under the ``interface/`` directory.  The core now
    imports all modules in ``interface/``, ``plugins/`` and ``llm_engines/``

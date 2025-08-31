@@ -15,6 +15,18 @@ or storage.
 
 .. _Read the Docs: https://rekku.readthedocs.io
 
+Available Action Plugins
+------------------------
+
+* ``bio_manager`` – manage persistent user biographies. Uses database settings ``DB_HOST``, ``DB_USER``, ``DB_PASS`` and ``DB_NAME``.
+* ``event`` – schedule and deliver reminders. Requires ``DB_HOST``, ``DB_PORT``, ``DB_USER``, ``DB_PASS``, ``DB_NAME`` and optional ``CORRECTOR_RETRIES``.
+* ``message_plugin`` – send text across registered interfaces (no configuration).
+* ``reddit_plugin`` – submit posts and comments to Reddit. Requires ``REDDIT_CLIENT_ID``, ``REDDIT_CLIENT_SECRET``, ``REDDIT_USERNAME``, ``REDDIT_PASSWORD`` and ``REDDIT_USER_AGENT``.
+* ``selenium_elevenlabs`` – generate speech audio with ElevenLabs. Set ``ELEVENLABS_EMAIL`` and ``ELEVENLABS_PASSWORD`` (``REKKU_SELENIUM_HEADLESS`` controls headless mode).
+* ``terminal`` – run shell commands or interactive sessions. Uses ``TELEGRAM_TRAINER_ID`` to authorize access.
+* ``time_plugin`` – inject current time and location (no configuration).
+* ``weather_plugin`` – provide weather info as static context. Optional ``WEATHER_FETCH_TIME`` sets refresh interval.
+
 Terminal
 --------
 
@@ -22,11 +34,17 @@ Terminal
 sent to the bot are executed in a background ``/bin/bash`` process and the
 output is returned.
 
+.. note::
+   Access is limited to the trainer ID configured via ``TELEGRAM_TRAINER_ID``.
+
 Event
 -----
 
 The ``event`` plugin stores scheduled reminders in a MariaDB table. A background
 scheduler checks for due events and sends them back to Rekku when the time comes.
+
+.. note::
+   Requires database credentials (``DB_HOST``, ``DB_PORT``, ``DB_USER``, ``DB_PASS``, ``DB_NAME``).
 
 All Python modules under ``plugins/``, ``llm_engines/`` and ``interface/`` are
 imported recursively on startup. Plugin files no longer need a special naming
@@ -38,7 +56,8 @@ Reddit Interface
 
 ``reddit_interface`` allows Rekku to read posts, handle direct messages and
 manage subreddit subscriptions. Credentials for Reddit must be provided in the
-``.env`` file.
+``.env`` file (``REDDIT_CLIENT_ID``, ``REDDIT_CLIENT_SECRET``, ``REDDIT_USERNAME``,
+``REDDIT_PASSWORD`` and ``REDDIT_USER_AGENT``).
 
 Reddit Actions
 --------------
