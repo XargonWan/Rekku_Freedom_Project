@@ -1120,6 +1120,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except Exception as e:
             log_warning(f"[selenium] Failed to set driver timeouts: {e}")
 
+    def _locate_chromium_binary(self) -> str:
+        """Return path to the Chromium executable, checking common locations."""
+        chromium_binary = (
+            shutil.which("chromium")
+            or shutil.which("chromium-browser")
+            or "/usr/bin/chromium"
+        )
+        log_debug(f"[selenium] Using Chromium binary: {chromium_binary}")
+        return chromium_binary
+
     def _init_driver(self):
         if self.driver is None:
             log_debug("[selenium] [STEP] Initializing Chromium driver with undetected-chromedriver")
@@ -1195,7 +1205,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         log_debug("[selenium] Cleared undetected-chromedriver cache")
                     
                     # Try with explicit Chromium binary
-                    chromium_binary = shutil.which("chromium") or "/usr/bin/chromium"
+                    chromium_binary = self._locate_chromium_binary()
                     self.driver = uc.Chrome(
                         options=options,
                         headless=False,
@@ -1239,7 +1249,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         # Final attempt with explicit Chromium binary
                         log_debug("[selenium] Final attempt with explicit Chromium binary path...")
                         try:
-                            chromium_binary = shutil.which("chromium") or "/usr/bin/chromium"
+                            chromium_binary = self._locate_chromium_binary()
                             if os.path.exists(chromium_binary):
                                 # Create fresh ChromiumOptions for fallback attempt
                                 fallback_options = uc.ChromeOptions()
