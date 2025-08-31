@@ -44,6 +44,7 @@ from core.config import (
     get_log_chat_id_sync,
 )
 from core.config import BOT_TOKEN, BOT_USERNAME, TELEGRAM_TRAINER_ID
+from core.command_registry import execute_command
 
 from core.chat_link_store import (
     ChatLinkStore,
@@ -378,67 +379,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text("⚠️ Error processing message.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from core.context import get_context_state
-    from core.config import get_active_llm
-
     if update.effective_user.id != TELEGRAM_TRAINER_ID:
         return
-
-    context_status = "active ✅" if get_context_state() else "inactive ❌"
-    llm_mode = await get_active_llm()
-
-    help_text = (
-        f"🧞‍♀️ *Rekku – Available Commands*\n\n"
-        "*🧠 Context Mode*\n"
-        f"`/context` – Enable/disable history in forwarded messages, currently *{context_status}*\n\n"
-        "*✏️ /say Command*\n"
-        "`/say` – Select a chat from recent ones\n"
-        "`/say <id> <message>` – Send a message directly to a chat\n\n"
-        "*🧩 Manual Mode*\n"
-        "Reply to a forwarded message with text or content (stickers, photos, audio, files, etc.)\n"
-        "`/cancel` – Cancel a pending send\n\n"
-        "*🧱 User Management*\n"
-        "`/block <user_id>` – Block a user\n"
-        "`/unblock <user_id>` – Unblock a user\n"
-        "`/block_list` – List blocked users\n\n"
-        "*⚙️ LLM Mode*\n"
-        f"`/llm` – Show and select current engine (active: `{llm_mode}`)\n"
-    )
-
-    # Add /model if supported
-    try:
-        models = plugin_instance.get_supported_models()
-        if models:
-            current_model = plugin_instance.get_current_model() or models[0]
-            help_text += f"`/model` – View or set active model (active: `{current_model}`)\n"
-    except Exception:
-        pass
-        current_model = None
-        try:
-            models = plugin_instance.get_supported_models()
-            if models:
-                current_model = plugin_instance.get_current_model() or models[0]
-                help_text += f"`/model` – View or set active model (active: `{current_model}`)\n"
-        except Exception:
-            pass
-            try:
-                current_model = plugin_instance.get_current_model()
-            except Exception:
-                pass
-
-        if current_model:
-            help_text += f"`/model` – View or set active model (active: `{current_model}`)\n"
-        else:
-            help_text += "`/model` – View or set active model\n"
-
-    help_text += (
-        "\n*📋 Misc*\n"
-        "`/last_chats` – Last active chats\n"
-        "`/purge_map [days]` – Purge old mappings\n"
-        "`/clean_chat_link <chat_id>` – Remove the link between a Telegram chat and ChatGPT.\n"
-        "`/logchat` – Set the current chat as the log chat\n"
-    )
-
+    help_text = await execute_command("help")
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
 def escape_markdown(text):
