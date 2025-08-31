@@ -229,7 +229,7 @@ class SeleniumElevenLabsPlugin:
             return
         payload = {"audio": file_path, "target": {"chat_id": chat_id}}
         if thread_id is not None:
-            payload["target"]["message_thread_id"] = thread_id
+            payload["target"]["thread_id"] = thread_id
         try:
             await iface.send_audio(payload)
         except Exception as e:

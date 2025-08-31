@@ -48,7 +48,7 @@ async def build_json_prompt(message, context_memory) -> dict:
         log_warning(f"[json_prompt] Failed to gather static injections: {e}")
 
     # === 4. Input payload ===
-    message_thread_id = getattr(message, "message_thread_id", None)
+    thread_id = getattr(message, "message_thread_id", None)
     input_payload = {
         "text": text,
         "source": {
@@ -56,7 +56,7 @@ async def build_json_prompt(message, context_memory) -> dict:
             "message_id": message.message_id,
             "username": message.from_user.full_name,
             "usertag": f"@{message.from_user.username}" if message.from_user.username else "(no tag)",
-            "message_thread_id": message_thread_id,
+            "thread_id": thread_id,
         },
         "timestamp": message.date.isoformat(),
         "privacy": "default",

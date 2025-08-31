@@ -130,7 +130,7 @@ class TerminalPlugin(AIPluginBase):
                 "chat_id": getattr(message, "chat_id", None),
                 "message_id": getattr(message, "message_id", None),
                 "interface_name": "telegram_bot",
-                "message_thread_id": getattr(message, "message_thread_id", None),
+                "thread_id": getattr(message, "message_thread_id", None),
             }
 
             await request_llm_delivery(
@@ -232,8 +232,8 @@ class TerminalPlugin(AIPluginBase):
                 'chat_id': getattr(original_message, 'chat_id', context.get('chat_id')),
                 'message_id': getattr(original_message, 'message_id', context.get('message_id')),
                 'interface_name': interface_name,
-                'message_thread_id': getattr(
-                    original_message, 'message_thread_id', context.get('message_thread_id')
+                'thread_id': getattr(
+                    original_message, 'message_thread_id', context.get('thread_id')
                 ),
             }
             if delivery_context['chat_id'] is not None:

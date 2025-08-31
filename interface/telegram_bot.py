@@ -854,22 +854,22 @@ class TelegramInterface:
         """Store the python-telegram-bot ``Bot`` instance."""
         self.bot = bot
         # Register resolver to fetch chat/thread names automatically
-        async def _resolver(chat_id, message_thread_id, bot_instance=None):
+        async def _resolver(chat_id, thread_id, bot_instance=None):
             b = bot_instance or self.bot
             chat_name = None
-            thread_name = None
+            thread_title = None
             try:
                 chat = await b.getChat(chat_id)
                 chat_name = getattr(chat, "title", None) or getattr(chat, "username", None)
             except Exception as e:  # pragma: no cover - network failures
                 log_warning(f"[telegram_interface] chat name lookup failed: {e}")
-            if message_thread_id:
+            if thread_id:
                 try:
-                    topic = await b.getForumTopic(chat_id, message_thread_id)
-                    thread_name = getattr(topic, "name", None) or getattr(topic, "title", None)
+                    topic = await b.getForumTopic(chat_id, int(thread_id))
+                    thread_title = getattr(topic, "name", None) or getattr(topic, "title", None)
                 except Exception as e:  # pragma: no cover
                     log_warning(f"[telegram_interface] thread name lookup failed: {e}")
-            return {"chat_name": chat_name, "message_thread_name": thread_name}
+            return {"chat_name": chat_name, "thread_name": thread_title}
 
         chat_link_store.set_name_resolver(_resolver)
 
@@ -887,8 +887,8 @@ class TelegramInterface:
                 "optional_fields": [
                     "target",
                     "chat_name",
-                    "message_thread_id",
-                    "message_thread_name",
+                    "thread_id",
+                    "thread_name",
                 ],
                 "description": "Send a text message via Telegram",
             },
@@ -897,8 +897,8 @@ class TelegramInterface:
                 "optional_fields": [
                     "target",
                     "chat_name",
-                    "message_thread_id",
-                    "message_thread_name",
+                    "thread_id",
+                    "thread_name",
                 ],
                 "description": "Send a voice message via Telegram",
             },
@@ -924,16 +924,16 @@ class TelegramInterface:
                         "description": "Alternative to target for specifying the chat by name",
                         "optional": True,
                     },
-                    "message_thread_id": {
+                    "thread_id": {
                         "type": "integer",
                         "example": 456,
                         "description": "Optional thread ID for group chats",
                         "optional": True,
                     },
-                    "message_thread_name": {
+                    "thread_name": {
                         "type": "string",
                         "example": "Generale",
-                        "description": "Alternative to message_thread_id to specify the thread by name",
+                        "description": "Alternative to thread_id to specify the thread by name",
                         "optional": True,
                     },
                     "reply_to_message_id": {
@@ -961,7 +961,7 @@ class TelegramInterface:
                         "description": "Alternative to target for specifying the chat by name",
                         "optional": True,
                     },
-                    "message_thread_id": {
+                    "thread_id": {
                         "type": "integer",
                         "example": 456,
                         "description": "Optional thread ID for group chats",
@@ -996,21 +996,21 @@ class TelegramInterface:
             if target is not None:
                 if isinstance(target, dict):
                     chat_id = target.get("chat_id")
-                    message_thread_id = target.get("message_thread_id")
+                    thread_id = target.get("thread_id")
                     if chat_id is not None and not isinstance(chat_id, (int, str)):
                         errors.append("payload.target.chat_id must be an int or string")
-                    if message_thread_id is not None and not isinstance(message_thread_id, int):
-                        errors.append("payload.target.message_thread_id must be an int")
+                    if thread_id is not None and not isinstance(thread_id, int):
+                        errors.append("payload.target.thread_id must be an int")
                 elif not isinstance(target, (int, str)):
                     errors.append("payload.target must be an int, string or dict")
 
-        message_thread_id = payload.get("message_thread_id")
-        if message_thread_id is not None and not isinstance(message_thread_id, int):
-            errors.append("payload.message_thread_id must be an int")
+        thread_id = payload.get("thread_id")
+        if thread_id is not None and not isinstance(thread_id, int):
+            errors.append("payload.thread_id must be an int")
 
-        thread_name = payload.get("message_thread_name")
+        thread_name = payload.get("thread_name")
         if thread_name is not None and not isinstance(thread_name, str):
-            errors.append("payload.message_thread_name must be a string")
+            errors.append("payload.thread_name must be a string")
 
         return errors
 
@@ -1021,22 +1021,22 @@ class TelegramInterface:
         ----------
         payload: dict
             Must contain at least ``text`` and ``target``. Optionally may include
-            ``message_thread_id``.
+            ``thread_id``.
         original_message: object | None
             The triggering message; used for reply fallback handling.
 
         ``message_thread_id`` is the correct Telegram parameter for replies in
-        topics and replaces the legacy ``thread_id`` name.
+        topics; internally we use ``thread_id``.
         """
 
         text = payload.get("text", "")
         target = payload.get("target")
         chat_name = payload.get("chat_name")
-        message_thread_id = payload.get("message_thread_id")
-        thread_name = payload.get("message_thread_name")
+        thread_id = payload.get("thread_id")
+        thread_name = payload.get("thread_name")
 
         log_debug(
-            f"[telegram_interface] Sending to target={target} chat_name={chat_name} thread_id={message_thread_id} thread_name={thread_name}"
+            f"[telegram_interface] Sending to target={target} chat_name={chat_name} thread_id={thread_id} thread_name={thread_name}"
         )
 
         if not text or (target is None and chat_name is None):
@@ -1047,8 +1047,8 @@ class TelegramInterface:
 
         if isinstance(target, dict):
             chat_id = target.get("chat_id")
-            message_thread_id = target.get("message_thread_id", message_thread_id)
-            thread_name = target.get("message_thread_name", thread_name)
+            thread_id = target.get("thread_id", thread_id)
+            thread_name = target.get("thread_name", thread_name)
         elif target is not None:
             if isinstance(target, str) and not target.lstrip("-").isdigit():
                 chat_name = target
@@ -1058,13 +1058,13 @@ class TelegramInterface:
                 except Exception:
                     chat_name = target
 
-        if chat_id is None or (message_thread_id is None and thread_name is not None):
+        if chat_id is None or (thread_id is None and thread_name is not None):
             try:
                 row = await chat_link_store.resolve(
                     chat_id=chat_id,
-                    message_thread_id=message_thread_id,
+                    thread_id=thread_id,
                     chat_name=chat_name,
-                    message_thread_name=thread_name,
+                    thread_name=thread_name,
                 )
             except ChatLinkMultipleMatches:
                 await corrector(
@@ -1087,7 +1087,7 @@ class TelegramInterface:
                 )
                 return
             chat_id = row.get("chat_id", chat_id)
-            message_thread_id = row.get("message_thread_id", message_thread_id)
+            thread_id = row.get("thread_id", thread_id)
 
         try:
             target_for_comparison = int(chat_id)
@@ -1095,7 +1095,7 @@ class TelegramInterface:
             log_warning(f"[telegram_interface] Invalid chat identifier: {chat_id}")
             return
 
-        await chat_link_store.update_names_from_resolver(chat_id, message_thread_id, bot=self.bot)
+        await chat_link_store.update_names_from_resolver(chat_id, thread_id, bot=self.bot)
 
         chat_id_int = target_for_comparison
 
@@ -1110,7 +1110,7 @@ class TelegramInterface:
             log_debug(f"[telegram_interface] reply_to_message_id: {reply_message_id}")
 
         fallback_chat_id = None
-        fallback_message_thread_id = None
+        fallback_thread_id = None
         fallback_reply_to = None
         if (
             original_message
@@ -1118,7 +1118,7 @@ class TelegramInterface:
             and chat_id_int != getattr(original_message, "chat_id")
         ):
             fallback_chat_id = original_message.chat_id
-            fallback_message_thread_id = getattr(original_message, "message_thread_id", None)
+            fallback_thread_id = getattr(original_message, "message_thread_id", None)
             if hasattr(original_message, "message_id"):
                 fallback_reply_to = original_message.message_id
 
@@ -1127,10 +1127,10 @@ class TelegramInterface:
             chat_id_int,
             text,
             parse_mode="Markdown",
-            message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
+            message_thread_id=thread_id,  # fixed: correct param is message_thread_id
             reply_to_message_id=reply_message_id,
             fallback_chat_id=fallback_chat_id,
-            fallback_message_thread_id=fallback_message_thread_id,
+            fallback_message_thread_id=fallback_thread_id,
             fallback_reply_to_message_id=fallback_reply_to,
         )
 
@@ -1150,8 +1150,8 @@ class TelegramInterface:
         audio = payload.get("audio")
         target = payload.get("target")
         chat_name = payload.get("chat_name")
-        message_thread_id = payload.get("message_thread_id")
-        thread_name = payload.get("message_thread_name")
+        thread_id = payload.get("thread_id")
+        thread_name = payload.get("thread_name")
 
         if not audio or (target is None and chat_name is None):
             log_warning("[telegram_interface] Missing audio or destination, aborting")
@@ -1161,8 +1161,8 @@ class TelegramInterface:
 
         if isinstance(target, dict):
             chat_id = target.get("chat_id")
-            message_thread_id = target.get("message_thread_id", message_thread_id)
-            thread_name = target.get("message_thread_name", thread_name)
+            thread_id = target.get("thread_id", thread_id)
+            thread_name = target.get("thread_name", thread_name)
         elif target is not None:
             if isinstance(target, str) and not target.lstrip("-").isdigit():
                 chat_name = target
@@ -1172,13 +1172,13 @@ class TelegramInterface:
                 except Exception:
                     chat_name = target
 
-        if chat_id is None or (message_thread_id is None and thread_name is not None):
+        if chat_id is None or (thread_id is None and thread_name is not None):
             try:
                 row = await chat_link_store.resolve(
                     chat_id=chat_id,
-                    message_thread_id=message_thread_id,
+                    thread_id=thread_id,
                     chat_name=chat_name,
-                    message_thread_name=thread_name,
+                    thread_name=thread_name,
                 )
             except ChatLinkMultipleMatches:
                 await corrector(
@@ -1201,7 +1201,7 @@ class TelegramInterface:
                 )
                 return
             chat_id = row.get("chat_id", chat_id)
-            message_thread_id = row.get("message_thread_id", message_thread_id)
+            thread_id = row.get("thread_id", thread_id)
 
         try:
             target_for_comparison = int(chat_id)
@@ -1219,8 +1219,8 @@ class TelegramInterface:
             reply_message_id = original_message.message_id
 
         send_kwargs = {"chat_id": target_for_comparison}
-        if message_thread_id is not None:
-            send_kwargs["message_thread_id"] = message_thread_id
+        if thread_id is not None:
+            send_kwargs["message_thread_id"] = thread_id
         if reply_message_id is not None:
             send_kwargs["reply_to_message_id"] = reply_message_id
 
@@ -1231,7 +1231,7 @@ class TelegramInterface:
             return
         except Exception as e:
             error_message = str(e)
-            if message_thread_id and "thread not found" in error_message.lower():
+            if thread_id and "thread not found" in error_message.lower():
                 send_kwargs.pop("message_thread_id", None)
                 converted = await self._convert_to_voice(audio)
                 with open(converted, "rb") as f:
@@ -1257,7 +1257,7 @@ class TelegramInterface:
         return (
             "TELEGRAM INTERFACE INSTRUCTIONS:\n"
             "- Use chat_id or chat_name for targets (chat_id can be negative for groups/channels).\n"
-            "- Include message_thread_id or message_thread_name when replying in topics; omit otherwise.\n"
+            "- Include thread_id or thread_name when replying in topics; omit otherwise.\n"
             "- Keep messages under 4096 characters.\n"
             "- Markdown is supported and preferred.\n"
             "- Replying to a message in the same chat will automatically use that message as the reply target.\n"

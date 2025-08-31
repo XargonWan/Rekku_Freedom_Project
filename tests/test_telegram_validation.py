@@ -16,7 +16,7 @@ def _action(payload):
 
 
 def _payload(target):
-    payload = {"text": "Test message", "target": target, "message_thread_id": 2}
+    payload = {"text": "Test message", "target": target, "thread_id": 2}
     return payload
 
 
