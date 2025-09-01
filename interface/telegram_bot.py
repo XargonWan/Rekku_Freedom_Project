@@ -835,6 +835,7 @@ class TelegramInterface:
     def __init__(self, bot: Bot):
         """Store the python-telegram-bot ``Bot`` instance."""
         self.bot = bot
+        setattr(self.bot, "get_interface_id", self.get_interface_id)
         # Register resolver to fetch chat/thread names automatically
         async def _resolver(chat_id, message_thread_id, bot_instance=None):
             b = bot_instance or self.bot

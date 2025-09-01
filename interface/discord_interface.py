@@ -34,6 +34,7 @@ class DiscordInterface:
             intents = discord.Intents.default()
             intents.message_content = True
             self.client = discord.Client(intents=intents)
+            setattr(self.client, "get_interface_id", self.get_interface_id)
 
             @self.client.event
             async def on_ready():
