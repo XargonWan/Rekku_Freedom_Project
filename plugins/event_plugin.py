@@ -587,7 +587,7 @@ For recurring events, you can use:
             chat=SimpleNamespace(
                 id="SYSTEM_SCHEDULER", type="private", title="System Scheduler"
             ),
-            message_thread_id=None,
+            thread_id=None,
         )
 
     async def _execute_action_silently(self, action: dict, event_id: int):
@@ -617,7 +617,7 @@ For recurring events, you can use:
         try:
             text = payload.get("text", "")
             target_chat_id = payload.get("target")
-            message_thread_id = payload.get("message_thread_id")
+            thread_id = payload.get("thread_id")
 
             if not text or not target_chat_id:
                 log_error(
@@ -631,7 +631,7 @@ For recurring events, you can use:
 
             # Get the appropriate transport layer directly
             await self._send_via_transport_layer(
-                target_chat_id, text, message_thread_id, event_id
+                target_chat_id, text, thread_id, event_id
             )
 
         except Exception as e:
@@ -643,7 +643,7 @@ For recurring events, you can use:
         self,
         chat_id: int,
         text: str,
-        message_thread_id: int = None,
+        thread_id: int = None,
         event_id: int = None,
     ):
         """Send message directly via transport layer, bypassing interfaces."""
@@ -652,12 +652,12 @@ For recurring events, you can use:
             if chat_id < 0:
                 # Negative IDs are typically Telegram groups/channels
                 await self._send_via_telegram_transport(
-                    chat_id, text, message_thread_id, event_id
+                    chat_id, text, thread_id, event_id
                 )
             else:
                 # Positive IDs could be Telegram private chats or other platforms
                 await self._send_via_telegram_transport(
-                    chat_id, text, message_thread_id, event_id
+                    chat_id, text, thread_id, event_id
                 )
 
         except Exception as e:
@@ -669,7 +669,7 @@ For recurring events, you can use:
         self,
         chat_id: int,
         text: str,
-        message_thread_id: int = None,
+        thread_id: int = None,
         event_id: int = None,
     ):
         """Send message directly via Telegram transport layer."""
@@ -690,7 +690,7 @@ For recurring events, you can use:
                 bot,
                 chat_id,
                 text,
-                message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
+                message_thread_id=thread_id,  # fixed: correct param is message_thread_id
                 parse_mode="Markdown",
             )
 
@@ -704,7 +704,7 @@ For recurring events, you can use:
             )
             # Fallback: use the bot instance directly if available
             await self._fallback_send_telegram(
-                chat_id, text, message_thread_id, event_id
+                chat_id, text, thread_id, event_id
             )
         except Exception as e:
             log_error(
@@ -715,7 +715,7 @@ For recurring events, you can use:
         self,
         chat_id: int,
         text: str,
-        message_thread_id: int = None,
+        thread_id: int = None,
         event_id: int = None,
     ):
         """Fallback method to send via Telegram bot directly."""
@@ -735,7 +735,7 @@ For recurring events, you can use:
                     bot,
                     chat_id,
                     text,
-                    message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
+                    message_thread_id=thread_id,  # fixed: correct param is message_thread_id
                     parse_mode="Markdown",
                 )
                 log_info(
@@ -860,7 +860,7 @@ For recurring events, you can use:
         target_chat_id = action.get("payload", {}).get(
             "target", SCHEDULED_EVENTS_CHAT_ID
         )
-        message_thread_id = action.get("payload", {}).get("message_thread_id")
+        thread_id = action.get("payload", {}).get("thread_id")
 
         # Extract lateness info
         is_late = event_info.get("is_late", False) if event_info else False
@@ -893,11 +893,11 @@ For recurring events, you can use:
             ),
             # Store the real target info for final message routing
             _scheduled_target_chat_id=target_chat_id,
-            _scheduled_message_thread_id=message_thread_id,
+            _scheduled_thread_id=thread_id,
             # Store lateness info
             _is_late=is_late,
             _minutes_late=minutes_late,
-            # Add message_thread_id if present (for topic support)
+            # Add thread_id if present (for topic support)
             message_thread_id=None,  # Scheduled events don't use threads in their own chat
         )
 
@@ -1051,7 +1051,7 @@ Weekly recurring reminder:
                 """Handle LLM responses and delegate to action parser."""
                 text = kwargs.get("text", "")
                 chat_id = kwargs.get("chat_id")
-                message_thread_id = kwargs.get("message_thread_id")
+                thread_id = kwargs.get("thread_id")
 
                 log_debug(f"[event_plugin] LLM responded with: {text[:100]}...")
 
@@ -1078,7 +1078,7 @@ Weekly recurring reminder:
                                 ),
                                 "message_thread_id": response_action.get(
                                     "payload", {}
-                                ).get("message_thread_id", message_thread_id),
+                                ).get("thread_id", thread_id),
                             },
                         )()
 

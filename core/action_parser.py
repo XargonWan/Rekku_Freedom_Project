@@ -686,7 +686,7 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             "chat_id": getattr(original_message, "chat_id", None),
             "message_id": getattr(original_message, "message_id", None),
             "interface_name": interface_name,
-            "message_thread_id": getattr(original_message, "message_thread_id", None),
+            "thread_id": getattr(original_message, "message_thread_id", None),
         }
 
         try:

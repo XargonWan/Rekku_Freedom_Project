@@ -232,7 +232,7 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
             message.chat_id = chat_id_value
             message.text = ""
             message.original_text = text
-            message.message_thread_id = kwargs.get('message_thread_id')
+            message.message_thread_id = kwargs.get('thread_id')
             from datetime import datetime
             message.date = datetime.utcnow()
 
@@ -289,7 +289,7 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
         message.chat_id = kwargs.get('chat_id') or (args[0] if args else None)
         message.text = text
         message.original_text = text
-        message.message_thread_id = kwargs.get('message_thread_id')
+        message.message_thread_id = kwargs.get('thread_id')
         from datetime import datetime
         message.date = datetime.utcnow()
         errors = ["Invalid or missing JSON in LLM response"]
@@ -382,7 +382,7 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
             message.chat_id = chat_id
             message.text = ""
             message.original_text = text
-            message.message_thread_id = kwargs.get('message_thread_id')
+            message.message_thread_id = kwargs.get('thread_id')
             if 'event_id' in kwargs:
                 message.event_id = kwargs['event_id']
 
@@ -431,7 +431,7 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
         message.chat_id = chat_id
         message.text = text
         message.original_text = text
-        message.message_thread_id = kwargs.get('message_thread_id')
+        message.message_thread_id = kwargs.get('thread_id')
         if 'event_id' in kwargs:
             message.event_id = kwargs['event_id']
         from datetime import datetime

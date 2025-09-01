@@ -4,20 +4,21 @@ Chat Link Resolution
 Rekku maintains a central **ChatLinkStore** that records the relationship
 between chat identifiers and human‑readable names. Each entry stores:
 
+* ``chatgpt_link`` – ChatGPT conversation identifier
 * ``chat_id`` – numeric identifier for the chat
-* ``message_thread_id`` – optional thread/topic id
+* ``thread_id`` – optional thread/topic id
 * ``chat_name`` – optional chat title
-* ``message_thread_name`` – optional thread/topic title
+* ``thread_name`` – optional thread/topic title
 
 Interfaces can resolve a link by supplying any combination of IDs or names.
-This allows actions to target a conversation using ``chat_id``/``message_thread_id``
-or by specifying ``chat_name``/``message_thread_name``.
+This allows actions to target a conversation using ``chat_id``/``thread_id``
+or by specifying ``chat_name``/``thread_name``.
 
 Updating names
 --------------
 
 The core action ``update_chat_name`` refreshes the stored titles for a chat
-or its thread. At least one of ``chat_name`` or ``message_thread_name`` must
+or its thread. At least one of ``chat_name`` or ``thread_name`` must
 be provided. Interfaces call this after fetching names from their own APIs
 (e.g. Telegram's ``getChat`` and ``getForumTopic``).
 
