@@ -1150,9 +1150,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     options = uc.ChromeOptions()
 
                     # Configure Chromium logging based on LOGGING_LEVEL
-                    log_file = "/app/log/chromium.log"
-                    os.makedirs(os.path.dirname(log_file), exist_ok=True)
-                    os.environ["CHROME_LOG_FILE"] = log_file
+                    log_path = "/app/log/chromium.log"
+                    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                    os.environ["CHROME_LOG_FILE"] = log_path
                     log_map = {"DEBUG": "0", "INFO": "0", "WARNING": "1", "ERROR": "2"}
                     chromium_level = log_map.get(
                         os.getenv("LOGGING_LEVEL", "ERROR").upper(), "2"
@@ -1179,7 +1179,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "--disable-features=VizDisplayCompositor",
                         "--enable-logging",
                         f"--log-level={chromium_level}",
-                        f"--log-file={log_file}",
+                        f"--log-path={log_path}",
                         "--remote-debugging-port=0",
                         "--disable-background-mode",
                         "--disable-default-browser-check",
