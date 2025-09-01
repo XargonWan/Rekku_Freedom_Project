@@ -12,14 +12,16 @@ try:  # pragma: no cover - import may fail if dependency missing
 except Exception:  # pragma: no cover - graceful fallback for tests without install
     discord = None
 
-from core.logging_utils import log_debug, log_error, log_info
+from core.logging_utils import log_debug, log_error, log_info, log_warning
 from core.transport_layer import universal_send
 from core.core_initializer import register_interface
 from core.command_registry import execute_command
 from core import message_queue
+from core.chat_link_store import ChatLinkStore
 
 
 context_memory: dict[int, deque] = {}
+chat_link_store = ChatLinkStore()
 
 
 class DiscordInterface:
@@ -40,6 +42,31 @@ class DiscordInterface:
             @self.client.event
             async def on_message(message):
                 await self._process_message(message)
+
+            async def _resolver(guild_id, channel_id, bot_instance=None):
+                b = bot_instance or self.client
+                guild_name = None
+                channel_name = None
+                try:
+                    if b:
+                        channel = b.get_channel(int(channel_id))
+                        if channel is None:
+                            channel = await b.fetch_channel(int(channel_id))
+                        if channel:
+                            channel_name = getattr(channel, "name", None)
+                            guild = getattr(channel, "guild", None)
+                            if guild is None and guild_id is not None:
+                                try:
+                                    guild = b.get_guild(int(guild_id)) or await b.fetch_guild(int(guild_id))
+                                except Exception as e:  # pragma: no cover
+                                    log_warning(f"[discord_interface] guild name lookup failed: {e}")
+                            if guild:
+                                guild_name = getattr(guild, "name", None)
+                except Exception as e:  # pragma: no cover
+                    log_warning(f"[discord_interface] name lookup failed: {e}")
+                return {"chat_name": guild_name, "message_thread_name": channel_name}
+
+            ChatLinkStore.set_name_resolver("discord", _resolver)
         else:  # pragma: no cover - library not available
             self.client = None
 
@@ -144,6 +171,17 @@ class DiscordInterface:
             log_debug(
                 f"[discord_interface] Received message in {getattr(message.channel, 'id', 'unknown')}: {content}"
             )
+
+            if getattr(message, "guild", None):
+                try:
+                    await chat_link_store.update_names_from_resolver(
+                        message.guild.id,
+                        message.channel.id,
+                        interface="discord",
+                        bot=self.client,
+                    )
+                except Exception as e:  # pragma: no cover
+                    log_warning(f"[discord_interface] update_names failed: {e}")
 
             bot_user = getattr(self.client, "user", None)
             entities = []

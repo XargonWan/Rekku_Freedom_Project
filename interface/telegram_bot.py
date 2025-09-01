@@ -853,7 +853,7 @@ class TelegramInterface:
                     log_warning(f"[telegram_interface] thread name lookup failed: {e}")
             return {"chat_name": chat_name, "message_thread_name": thread_name}
 
-        chat_link_store.set_name_resolver(_resolver)
+        ChatLinkStore.set_name_resolver("telegram", _resolver)
 
     @staticmethod
     def get_interface_id() -> str:
@@ -1143,6 +1143,7 @@ class TelegramInterface:
                     message_thread_id=message_thread_id,
                     chat_name=chat_name,
                     message_thread_name=thread_name,
+                    interface="telegram",
                 )
             except ChatLinkMultipleMatches:
                 await corrector(
@@ -1173,7 +1174,9 @@ class TelegramInterface:
             log_warning(f"[telegram_interface] Invalid chat identifier: {chat_id}")
             return
 
-        await chat_link_store.update_names_from_resolver(chat_id, message_thread_id, bot=self.bot)
+        await chat_link_store.update_names_from_resolver(
+            chat_id, message_thread_id, interface="telegram", bot=self.bot
+        )
 
         chat_id_int = target_for_comparison
 
@@ -1274,6 +1277,7 @@ class TelegramInterface:
                     message_thread_id=message_thread_id,
                     chat_name=chat_name,
                     message_thread_name=thread_name,
+                    interface="telegram",
                 )
             except ChatLinkMultipleMatches:
                 await corrector(
