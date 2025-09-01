@@ -52,6 +52,13 @@ class DiscordInterface:
         except Exception:
             pass
 
+        # Launch Discord client so it can receive messages
+        if self.client and self.bot_token:
+            try:  # pragma: no cover - if loop not running
+                asyncio.get_event_loop().create_task(self.client.start(self.bot_token))
+            except Exception as e:  # pragma: no cover - startup errors
+                log_error(f"[discord_interface] Failed to start Discord client: {e}")
+
     @staticmethod
     def get_interface_id() -> str:
         """Return the unique identifier for this interface."""
