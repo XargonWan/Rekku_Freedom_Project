@@ -1149,6 +1149,15 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     # Create Chromium options optimized for container environments
                     options = uc.ChromeOptions()
 
+                    # Configure Chromium logging based on LOGGING_LEVEL
+                    log_file = "/app/log/chromium.log"
+                    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+                    os.environ["CHROME_LOG_FILE"] = log_file
+                    log_map = {"DEBUG": "0", "INFO": "0", "WARNING": "1", "ERROR": "2"}
+                    chromium_level = log_map.get(
+                        os.getenv("LOGGING_LEVEL", "ERROR").upper(), "2"
+                    )
+
                     # Essential options for Docker containers
                     essential_args = [
                         "--no-sandbox",
@@ -1168,8 +1177,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "--disable-renderer-backgrounding",
                         "--memory-pressure-off",
                         "--disable-features=VizDisplayCompositor",
-                        "--log-level=3",
-                        "--disable-logging",
+                        "--enable-logging",
+                        f"--log-level={chromium_level}",
+                        f"--log-file={log_file}",
                         "--remote-debugging-port=0",
                         "--disable-background-mode",
                         "--disable-default-browser-check",
@@ -1179,7 +1189,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "--metrics-recording-only",
                         "--no-default-browser-check",
                         "--safebrowsing-disable-auto-update",
-                        "--disable-client-side-phishing-detection"
+                        "--disable-client-side-phishing-detection",
                     ]
 
                     for arg in essential_args:
@@ -1210,7 +1220,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         use_subprocess=False,
                         version_main=None,  # Auto-detect Chromium version
                         suppress_welcome=True,
-                        log_level=3,
+                        log_level=int(chromium_level),
                         driver_executable_path=None,  # Let UC handle chromedriver
                         browser_executable_path=chromium_binary,
                         user_data_dir=profile_dir
@@ -1261,7 +1271,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                     use_subprocess=False,
                                     version_main=None,
                                     suppress_welcome=True,
-                                    log_level=3,
+                                    log_level=int(chromium_level),
                                     browser_executable_path=chromium_binary,
                                     user_data_dir=profile_dir
                                 )
@@ -1289,7 +1299,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                         use_subprocess=False,
                                         version_main=None,
                                         suppress_welcome=True,
-                                        log_level=3,
+                                        log_level=int(chromium_level),
                                         browser_executable_path=chromium_binary,
                                         user_data_dir=profile_dir
                                     )
