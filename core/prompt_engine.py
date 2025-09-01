@@ -65,15 +65,20 @@ async def build_json_prompt(message, context_memory) -> dict:
 
     if message.reply_to_message:
         reply = message.reply_to_message
-        reply_text = reply.text or getattr(reply, "caption", None)
+        reply_text = getattr(reply, "text", None) or getattr(reply, "caption", None)
         if not reply_text:
             reply_text = "[Non-text content]"
+        reply_date = getattr(reply, "date", None)
+        reply_timestamp = reply_date.isoformat() if reply_date else ""
+        reply_from = getattr(reply, "from_user", None)
+        reply_full_name = getattr(reply_from, "full_name", "Unknown") if reply_from else "Unknown"
+        reply_username = getattr(reply_from, "username", None) if reply_from else None
         input_payload["reply_message_id"] = {
             "text": reply_text,
-            "timestamp": reply.date.isoformat(),
+            "timestamp": reply_timestamp,
             "from": {
-                "username": reply.from_user.full_name,
-                "usertag": f"@{reply.from_user.username}" if reply.from_user.username else "(no tag)",
+                "username": reply_full_name,
+                "usertag": f"@{reply_username}" if reply_username else "(no tag)",
             },
         }
 

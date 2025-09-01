@@ -212,6 +212,9 @@ class DiscordInterface:
                 if replied is not None:
                     reply_to = SimpleNamespace(
                         message_id=getattr(replied, "id", None),
+                        text=getattr(replied, "content", None),
+                        caption=None,
+                        date=getattr(replied, "created_at", None),
                         from_user=SimpleNamespace(
                             id=getattr(replied.author, "id", None),
                             username=getattr(replied.author, "name", None),
