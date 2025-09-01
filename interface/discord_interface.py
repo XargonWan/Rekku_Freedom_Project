@@ -204,6 +204,7 @@ class DiscordInterface:
                 message_id=getattr(message, "id", None),
                 chat_id=channel_id,
                 text=content,
+                caption=None,
                 date=getattr(message, "created_at", None),
                 from_user=SimpleNamespace(
                     id=getattr(message.author, "id", None),

@@ -55,6 +55,8 @@ def test_message_forwarding(monkeypatch):
     calls = []
 
     async def fake_enqueue(bot, msg, ctx):
+        # Ensure forwarded message includes caption attribute like Telegram messages
+        assert hasattr(msg, 'caption') and msg.caption is None
         calls.append(msg.text)
 
     monkeypatch.setattr('interface.discord_interface.message_queue.enqueue', fake_enqueue)
