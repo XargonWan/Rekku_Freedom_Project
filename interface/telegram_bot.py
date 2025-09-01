@@ -1344,6 +1344,7 @@ class TelegramInterface:
             "- Markdown is supported and preferred.\n"
             "- Replying to a message in the same chat will automatically use that message as the reply target.\n"
             "- To send to another chat, specify the other chat's identifier; these will not appear as replies.\n"
+            "- When a message originates on Telegram, reply using the message_telegram_bot action; do not switch interfaces unless explicitly asked.\n"
         )
 
 # Register TelegramInterface for discovery by the core

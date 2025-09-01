@@ -46,6 +46,7 @@ REKKU_ALIASES_LOWER = [alias.lower() for alias in REKKU_ALIASES]
 
 
 from core.logging_utils import log_debug
+from core.config import DISCORD_REACT_ROLES
 
 
 
@@ -101,10 +102,17 @@ async def is_message_for_bot(
         # Get bot username and id if not provided
         if not bot_username:
             try:
-                bot_user = await bot.get_me() if hasattr(bot, 'get_me') else None
+                if hasattr(bot, 'get_me'):
+                    bot_user = await bot.get_me()
+                elif hasattr(bot, 'user'):
+                    bot_user = bot.user
+                else:
+                    bot_user = None
                 if bot_user:
-                    if hasattr(bot_user, 'username') and bot_user.username:
+                    if getattr(bot_user, 'username', None):
                         bot_username = bot_user.username.lower()
+                    elif getattr(bot_user, 'name', None):
+                        bot_username = bot_user.name.lower()
                     bot_id = getattr(bot_user, 'id', None)
                 else:
                     from core.config import BOT_USERNAME
@@ -187,7 +195,17 @@ async def is_message_for_bot(
                     return True, None
             
             log_debug(f"[mention] Reply detected but not to bot (replied to: {replied_user.username or replied_user.id})")
-        
+
+        # Check for role mentions (Discord-specific)
+        if DISCORD_REACT_ROLES:
+            mentioned_roles = getattr(message, "role_mentions", None)
+            bot_roles = getattr(message, "bot_roles", None)
+            if mentioned_roles and bot_roles:
+                for role_id in mentioned_roles:
+                    if role_id in bot_roles:
+                        log_debug(f"[mention] Bot role mentioned: {role_id}")
+                        return True, None
+
         # Check for Rekku aliases in text
         if is_rekku_mentioned(text):
             log_debug("[mention] Rekku alias mentioned in text")

@@ -17,3 +17,4 @@ snscrape
 sphinx
 sphinx_rtd_theme
 unittest-xml-reporting
+discord.py
