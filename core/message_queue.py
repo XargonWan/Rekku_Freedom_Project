@@ -261,6 +261,23 @@ async def _consumer_loop() -> None:
                 log_error(
                     f"[ERROR] Failed to process message from chat {final['chat_id']}: {e}\n{traceback.format_exc()}",
                 )
+                bot = final.get("bot")
+                chat_id = final.get("chat_id")
+                thread_id = final.get("thread_id")
+                try:
+                    if bot and chat_id:
+                        kwargs = {"chat_id": chat_id, "text": "😵‍💫"}
+                        if thread_id:
+                            kwargs["message_thread_id"] = thread_id
+                        reply_msg = final.get("message")
+                        reply_id = getattr(reply_msg, "message_id", None)
+                        if reply_id:
+                            kwargs["reply_to_message_id"] = reply_id
+                        await bot.send_message(**kwargs)
+                except Exception as send_err:  # pragma: no cover - best effort
+                    log_warning(
+                        f"[QUEUE] Failed to send fallback message: {send_err}"
+                    )
             finally:
                 for _ in batch:
                     _queue.task_done()
