@@ -145,6 +145,24 @@ class DiscordInterface:
                 f"[discord_interface] Received message in {getattr(message.channel, 'id', 'unknown')}: {content}"
             )
 
+            bot_user = getattr(self.client, "user", None)
+            entities = []
+            if getattr(message, "mentions", None) and bot_user:
+                for m in message.mentions:
+                    if m.id == getattr(bot_user, "id", None):
+                        mention_text = f"@{getattr(bot_user, 'name', '')}"
+                        content = content.replace(f"<@{m.id}>", mention_text).replace(
+                            f"<@!{m.id}>", mention_text
+                        )
+                        offset = content.find(mention_text)
+                        if offset != -1:
+                            entities.append(
+                                SimpleNamespace(type="mention", offset=offset, length=len(mention_text))
+                            )
+                        break
+            if not entities:
+                entities = None
+
             # Simple ping check
             if content.lower() == "ping":
                 await self._discord_send(message.channel.id, "pong")
@@ -189,7 +207,7 @@ class DiscordInterface:
                     first_name=None,
                     human_count=None,
                 ),
-                entities=None,
+                entities=entities,
                 reply_to_message=None,
             )
 

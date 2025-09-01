@@ -46,6 +46,7 @@ REKKU_ALIASES_LOWER = [alias.lower() for alias in REKKU_ALIASES]
 
 
 from core.logging_utils import log_debug
+from core.config import REACT_TO_GROUPS
 
 
 
@@ -101,10 +102,17 @@ async def is_message_for_bot(
         # Get bot username and id if not provided
         if not bot_username:
             try:
-                bot_user = await bot.get_me() if hasattr(bot, 'get_me') else None
+                if hasattr(bot, 'get_me'):
+                    bot_user = await bot.get_me()
+                elif hasattr(bot, 'user'):
+                    bot_user = bot.user
+                else:
+                    bot_user = None
                 if bot_user:
-                    if hasattr(bot_user, 'username') and bot_user.username:
+                    if getattr(bot_user, 'username', None):
                         bot_username = bot_user.username.lower()
+                    elif getattr(bot_user, 'name', None):
+                        bot_username = bot_user.name.lower()
                     bot_id = getattr(bot_user, 'id', None)
                 else:
                     from core.config import BOT_USERNAME
@@ -196,6 +204,9 @@ async def is_message_for_bot(
         log_debug(
             f"[mention] No bot mention detected in group message (human_count={human_count})"
         )
+        if REACT_TO_GROUPS:
+            log_debug("[mention] REACT_TO_GROUPS enabled - accepting group message")
+            return True, None
         if human_count is None:
             return False, "missing_human_count"
         return False, "multiple_humans"
