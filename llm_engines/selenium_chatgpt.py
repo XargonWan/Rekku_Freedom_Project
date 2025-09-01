@@ -1038,6 +1038,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         log_debug(f"[selenium] notify_fn passed: {bool(notify_fn)}")
         set_notifier(self._notify_fn)
 
+        # Unique identifier for this instance to isolate Chromium resources
+        self.instance_id = os.getenv("RFP_INSTANCE_ID", str(os.getpid()))
+        self.profile_dir: Optional[str] = None
+
     def cleanup(self):
         """Clean up resources when the plugin is stopped."""
         log_debug("[selenium] Starting cleanup...")
@@ -1057,14 +1061,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             finally:
                 self.driver = None
         
-        # Kill any remaining Chromium processes
-        try:
-            subprocess.run(["pkill", "-f", "chromium"], capture_output=True, text=True)
-            subprocess.run(["pkill", "-f", "chromedriver"], capture_output=True, text=True)
-            log_debug("[selenium] Killed remaining Chromium processes")
-        except Exception as e:
-            log_debug(f"[selenium] Failed to kill processes: {e}")
-        
+        # Remove any remaining Chromium processes and locks
+        self._cleanup_chromium_remnants()
+
         log_debug("[selenium] Cleanup completed")
 
     async def stop(self):
@@ -1147,10 +1146,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             for attempt in range(max_retries):
                 try:
                     log_debug(f"[selenium] Initialization attempt {attempt + 1}/{max_retries}")
-                    
+
                     # Create Chromium options optimized for container environments
                     options = uc.ChromeOptions()
-                    
+
                     # Essential options for Docker containers
                     essential_args = [
                         "--no-sandbox",
@@ -1172,7 +1171,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "--disable-features=VizDisplayCompositor",
                         "--log-level=3",
                         "--disable-logging",
-                        "--remote-debugging-port=0",  # Let Chromium choose port
+                        "--remote-debugging-port=0",
                         "--disable-background-mode",
                         "--disable-default-browser-check",
                         "--disable-hang-monitor",
@@ -1183,17 +1182,17 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "--safebrowsing-disable-auto-update",
                         "--disable-client-side-phishing-detection"
                     ]
-                    
+
                     for arg in essential_args:
                         options.add_argument(arg)
-                    
-                    # Use persistent profile directory to maintain login sessions
-                    # This preserves ChatGPT login and other site sessions across restarts
+
+                    # Use a shared profile directory to maintain login sessions
                     config_home = os.getenv(
                         "XDG_CONFIG_HOME",
                         os.path.join(os.path.expanduser("~"), ".config"),
                     )
                     profile_dir = os.path.join(config_home, "chromium-rfp")
+                    self.profile_dir = profile_dir
                     options.add_argument(f"--user-data-dir={profile_dir}")
                     
                     # Clear any existing driver cache
@@ -1310,20 +1309,28 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     def _cleanup_chromium_remnants(self):
         """Clean up Chromium processes and leftover lock files."""
         try:
-            subprocess.run(["pkill", "-f", "chromium"], capture_output=True, text=True)
-            subprocess.run(["pkill", "chromedriver"], capture_output=True, text=True)
+            parent_pid = str(os.getpid())
+            subprocess.run(
+                ["pkill", "-P", parent_pid, "-f", "chromium"],
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                ["pkill", "-P", parent_pid, "-f", "chromedriver"],
+                capture_output=True,
+                text=True,
+            )
+            log_debug("[selenium] Issued pkill for chromium and chromedriver owned by this process")
             time.sleep(1)
-            log_debug("[selenium] Issued pkill for chromium and chromedriver")
         except Exception as e:
             log_debug(f"[selenium] Failed to kill chromium processes: {e}")
 
         try:
             import glob
-            patterns = [
-                os.path.expanduser("~/.config/chromium*"),
-                "/tmp/.org.chromium.*",
-                "/tmp/chromium_*",
-            ]
+            patterns = []
+            if self.instance_id:
+                patterns.append(f"/tmp/.org.chromium.*{self.instance_id}*")
+                patterns.append(f"/tmp/chromium_{self.instance_id}*")
 
             for pattern in patterns:
                 log_debug(f"[selenium] Scanning {pattern}")
