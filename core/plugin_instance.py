@@ -128,8 +128,11 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt):
         log_debug(f"[plugin_instance] Received message: {message_text}")
         log_debug(f"[plugin_instance] Context memory: {context_memory_or_prompt}")
         user_id = message.from_user.id if message.from_user else "unknown"
+        interface_name = (
+            bot.get_interface_id() if hasattr(bot, "get_interface_id") else bot.__class__.__name__
+        )
         log_debug(
-            f"[plugin] Incoming for {plugin.__class__.__name__}: chat_id={message.chat_id}, user_id={user_id}, text={message_text!r}"
+            f"[plugin] Incoming for {plugin.__class__.__name__}: chat_id={message.chat_id}, user_id={user_id}, text={message_text!r} via {interface_name}"
         )
         if isinstance(context_memory_or_prompt, str):
             try:
@@ -138,9 +141,9 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt):
                 prompt = json.loads(context_memory_or_prompt)
             except Exception as e:
                 log_warning(f"[plugin_instance] Failed to parse direct prompt: {e}")
-                prompt = await build_json_prompt(message, {})
+                prompt = await build_json_prompt(message, {}, interface_name)
         else:
-            prompt = await build_json_prompt(message, context_memory_or_prompt)
+            prompt = await build_json_prompt(message, context_memory_or_prompt, interface_name)
 
     prompt = sanitize_for_json(prompt)
     log_debug("🌐 JSON PROMPT built for the plugin:")

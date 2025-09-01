@@ -7,15 +7,17 @@ from core.json_utils import dumps as json_dumps
 import aiomysql
 
 
-async def build_json_prompt(message, context_memory) -> dict:
+async def build_json_prompt(message, context_memory, interface_name: str | None = None) -> dict:
     """Build the JSON prompt expected by plugins.
 
     Parameters
     ----------
     message : telegram.Message
-        Incoming message object from telegram bot.
+        Incoming message object from an interface.
     context_memory : dict[int, deque]
         Dictionary storing last messages per chat.
+    interface_name : str | None
+        Identifier of the interface that delivered the message.
     """
 
     chat_id = getattr(message, "chat_id", None)
@@ -82,7 +84,11 @@ async def build_json_prompt(message, context_memory) -> dict:
             },
         }
 
-    input_section = {"type": "message", "payload": input_payload}
+    input_section = {
+        "type": "message",
+        "interface": interface_name,
+        "payload": input_payload,
+    }
 
     # Debug output for both sections
     log_debug("[json_prompt] context = " + json_dumps(context_section))
