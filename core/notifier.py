@@ -4,7 +4,7 @@ import asyncio
 import time
 from typing import List, Tuple, Callable
 from core.logging_utils import log_debug, log_info, log_warning
-from core.config import get_log_chat_id_sync
+from core.config import get_log_chat_id_sync, DISCORD_NOTIFY_ERRORS_DM
 from collections import deque
 
 _in_notify = False
@@ -92,11 +92,20 @@ def notify_trainer(message: str) -> None:
             _pending_interface_msgs.append((interface_name, trainer_id, message))
             continue
 
-        targets = [trainer_id]
+        targets: list[int] = []
         if interface_name == "telegram_bot":
+            targets.append(trainer_id)
             log_chat_id = get_log_chat_id_sync()
             if log_chat_id and log_chat_id not in targets:
                 targets.append(log_chat_id)
+        elif interface_name == "discord_bot":
+            if DISCORD_NOTIFY_ERRORS_DM:
+                targets.append(trainer_id)
+        else:
+            targets.append(trainer_id)
+
+        if not targets:
+            continue
 
         async def send(target: int):
             try:

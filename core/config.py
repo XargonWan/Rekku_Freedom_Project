@@ -77,6 +77,11 @@ def get_trainer_id(interface_name: str) -> int | None:
 BOT_TOKEN = os.getenv("BOTFATHER_TOKEN") or os.getenv("TELEGRAM_TOKEN")
 BOT_USERNAME = "rekku_freedom_project"
 DISCORD_REACT_ROLES = os.getenv("DISCORD_REACT_ROLES", "true").lower() in ("1", "true", "yes")
+DISCORD_NOTIFY_ERRORS_DM = os.getenv("DISCORD_NOTIFY_ERRORS_DM", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 LLM_MODE = os.getenv("LLM_MODE", "manual")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_API_KEY")
 
