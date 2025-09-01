@@ -99,6 +99,32 @@ def test_role_mention_forwarding(monkeypatch):
     assert calls == ['hello @Dev Team']
 
 
+def test_reply_forwarding(monkeypatch):
+    calls = []
+
+    async def fake_enqueue(bot, msg, ctx):
+        calls.append(getattr(getattr(msg, 'reply_to_message', None), 'from_user').id)
+
+    monkeypatch.setattr('interface.discord_interface.message_queue.enqueue', fake_enqueue)
+
+    bot_author = SimpleNamespace(id=999, name='rekku', display_name='rekku')
+    replied = SimpleNamespace(id=321, author=bot_author)
+    reference = SimpleNamespace(resolved=replied, message_id=321)
+
+    message = SimpleNamespace(
+        content='hi',
+        author=SimpleNamespace(id=2, bot=False, name='user', display_name='user'),
+        channel=SimpleNamespace(id=55, name='chan'),
+        id=444,
+        created_at=None,
+        guild=SimpleNamespace(id=1),
+        reference=reference,
+    )
+
+    asyncio.run(discord_interface._process_message(message))
+    assert calls == [999]
+
+
 def test_execute_action(monkeypatch):
     sent = []
 

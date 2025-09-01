@@ -199,6 +199,30 @@ class DiscordInterface:
                 history = context_memory.setdefault(channel_id, deque(maxlen=20))
                 history.append(content)
 
+            # Handle Discord replies
+            reply_to = None
+            ref = getattr(message, "reference", None)
+            if ref is not None:
+                replied = getattr(ref, "resolved", None)
+                if replied is None and getattr(ref, "message_id", None):
+                    try:  # pragma: no cover - network dependent
+                        replied = await message.channel.fetch_message(ref.message_id)
+                    except Exception as e:
+                        log_debug(f"[discord_interface] Failed to fetch referenced message: {e}")
+                if replied is not None:
+                    reply_to = SimpleNamespace(
+                        message_id=getattr(replied, "id", None),
+                        from_user=SimpleNamespace(
+                            id=getattr(replied.author, "id", None),
+                            username=getattr(replied.author, "name", None),
+                            full_name=getattr(
+                                replied.author,
+                                "display_name",
+                                getattr(replied.author, "name", None),
+                            ),
+                        ),
+                    )
+
             # Prepare simplified message for core queue
             wrapped = SimpleNamespace(
                 message_id=getattr(message, "id", None),
@@ -222,7 +246,7 @@ class DiscordInterface:
                 entities=entities,
                 role_mentions=role_mentions_ids or None,
                 bot_roles=bot_role_ids or None,
-                reply_to_message=None,
+                reply_to_message=reply_to,
             )
 
             try:
