@@ -1302,9 +1302,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                 else:
                                     raise Exception("Chromium binary not found")
                             except Exception as e3:
-                                log_error(f"[selenium] ❌ All initialization attempts failed: {e3}")
-                                _notify_gui(f"❌ Selenium error: {e3}. Check graphics environment.")
-                                raise SystemExit(1)
+                                log_error(
+                                    f"[selenium] ❌ All initialization attempts failed: {e3}"
+                                )
+                                _notify_gui(
+                                    f"❌ Selenium error: {e3}. Check graphics environment."
+                                )
+                                # Propagate error without shutting down the whole process
+                                raise RuntimeError(
+                                    f"Chromium initialization failed after retries: {e3}"
+                                )
 
     def _cleanup_chromium_remnants(self):
         """Clean up Chromium processes and leftover lock files."""
@@ -1402,6 +1409,17 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             if not driver:
                 log_error("[selenium] WebDriver unavailable, aborting")
                 _notify_gui("\u274c Selenium driver not available. Open UI")
+                try:
+                    kwargs = {"chat_id": message.chat_id, "text": "😵‍💫"}
+                    thread_id = getattr(message, "message_thread_id", None)
+                    if thread_id:
+                        kwargs["message_thread_id"] = thread_id
+                    reply_to = getattr(message, "message_id", None)
+                    if reply_to:
+                        kwargs["reply_to_message_id"] = reply_to
+                    await bot.send_message(**kwargs)
+                except Exception as send_err:
+                    log_warning(f"[selenium] Failed to send failure message: {send_err}")
                 return
             if (
                 not driver.service
@@ -1413,6 +1431,19 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 if not driver:
                     log_error("[selenium] Failed to restart WebDriver")
                     _notify_gui("\u274c Selenium driver not available. Open UI")
+                    try:
+                        kwargs = {"chat_id": message.chat_id, "text": "😵‍💫"}
+                        thread_id = getattr(message, "message_thread_id", None)
+                        if thread_id:
+                            kwargs["message_thread_id"] = thread_id
+                        reply_to = getattr(message, "message_id", None)
+                        if reply_to:
+                            kwargs["reply_to_message_id"] = reply_to
+                        await bot.send_message(**kwargs)
+                    except Exception as send_err:
+                        log_warning(
+                            f"[selenium] Failed to send failure message: {send_err}"
+                        )
                     return
             if not self._ensure_logged_in():
                 return
