@@ -2,6 +2,12 @@
 """Example Discord interface using the universal transport layer."""
 
 import os
+from typing import List
+
+try:  # pragma: no cover - import may fail if dependency missing
+    import discord  # type: ignore
+except Exception:  # pragma: no cover - graceful fallback for tests without install
+    discord = None
 
 from core.logging_utils import log_debug, log_error, log_info
 from core.transport_layer import universal_send
@@ -10,8 +16,26 @@ from core.command_registry import execute_command
 
 
 class DiscordInterface:
-    def __init__(self, bot_token):
-        # Initialize Discord client
+    """Discord interface mirroring Telegram bot behaviour."""
+
+    def __init__(self, bot_token: str):
+        self.bot_token = bot_token
+        intents = None
+        if discord is not None:  # pragma: no branch
+            intents = discord.Intents.default()
+            intents.message_content = True
+            self.client = discord.Client(intents=intents)
+
+            @self.client.event
+            async def on_ready():
+                log_info("[discord_interface] Discord client ready")
+
+            @self.client.event
+            async def on_message(message):
+                await self._process_message(message)
+        else:  # pragma: no cover - library not available
+            self.client = None
+
         register_interface("discord_bot", self)
         log_info("[discord_interface] Registered DiscordInterface")
 
@@ -84,9 +108,45 @@ class DiscordInterface:
 
     async def _discord_send(self, channel_id, text):
         """Internal Discord send method."""
-        # Actual Discord API call would go here
-        # await self.client.get_channel(channel_id).send(text)
-        pass
+        if self.client is None:  # pragma: no cover - safety
+            raise RuntimeError("Discord client not initialized")
+        channel = self.client.get_channel(int(channel_id))
+        if channel is None:  # pragma: no cover - invalid channel
+            raise RuntimeError("Unknown channel")
+        await channel.send(text)
+
+    async def _process_message(self, message):
+        """Handle incoming Discord messages."""
+        try:
+            if self.client and message.author == getattr(self.client, "user", None):
+                return
+
+            content = (message.content or "").strip()
+            log_debug(
+                f"[discord_interface] Received message in {getattr(message.channel, 'id', 'unknown')}: {content}"
+            )
+
+            # Simple ping check
+            if content.lower() == "ping":
+                await self._discord_send(message.channel.id, "pong")
+                return
+
+            # Slash-style command handling
+            if content.startswith("/"):
+                parts: List[str] = content[1:].split()
+                if not parts:
+                    return
+                command, *args = parts
+                try:
+                    response = await execute_command(command, *args)
+                    if response:
+                        await self._discord_send(message.channel.id, response)
+                except Exception as e:  # pragma: no cover - command errors
+                    log_error(f"[discord_interface] Command {command} failed: {e}")
+                return
+
+        except Exception as e:  # pragma: no cover - unexpected errors
+            log_error(f"[discord_interface] Error processing message: {e}")
 
     async def handle_command(self, command_name: str, *args, **kwargs):
         """Process a slash command via the shared backend."""
