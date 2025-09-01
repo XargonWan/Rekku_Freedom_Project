@@ -105,7 +105,11 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
     await recent_chats.track_chat(chat_id, meta)
 
     thread_id = getattr(message, "message_thread_id", None)
-    interface = bot.__class__.__name__ if bot else None
+    interface = (
+        bot.get_interface_id()
+        if bot and hasattr(bot, "get_interface_id")
+        else bot.__class__.__name__ if bot else None
+    )
 
     item = {
         "bot": bot,
