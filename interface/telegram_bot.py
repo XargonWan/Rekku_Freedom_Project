@@ -1010,10 +1010,6 @@ class TelegramInterface:
                     "type": "error",
                     "step": step,
                     "message": details,
-                    "your_reply": json.dumps(
-                        {"actions": [{"type": "message_telegram_bot", "payload": payload}]},
-                        ensure_ascii=False,
-                    ),
                     "full_json_instructions": full_json,
                     "error_retry_policy": ERROR_RETRY_POLICY,
                 }
@@ -1029,6 +1025,7 @@ class TelegramInterface:
             msg.text = payload_json
             from datetime import datetime
             msg.date = datetime.utcnow()
+            msg.from_user = SimpleNamespace(id=TELEGRAM_TRAINER_ID)
             llm = plugin_instance.get_plugin()
             if llm and hasattr(llm, "handle_incoming_message"):
                 await llm.handle_incoming_message(self.bot, msg, payload_json)
