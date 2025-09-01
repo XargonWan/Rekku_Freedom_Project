@@ -7,19 +7,21 @@ from core.json_utils import dumps as json_dumps
 import aiomysql
 
 
-async def build_json_prompt(message, context_memory) -> dict:
+async def build_json_prompt(message, context_memory, interface_name: str | None = None) -> dict:
     """Build the JSON prompt expected by plugins.
 
     Parameters
     ----------
     message : telegram.Message
-        Incoming message object from telegram bot.
+        Incoming message object from an interface.
     context_memory : dict[int, deque]
         Dictionary storing last messages per chat.
+    interface_name : str | None
+        Identifier of the interface that delivered the message.
     """
 
-    chat_id = message.chat_id
-    text = message.text or ""
+    chat_id = getattr(message, "chat_id", None)
+    text = getattr(message, "text", "") or ""
 
     # === 1. Context messages ===
     messages = list(context_memory.get(chat_id, []))[-10:]
@@ -63,21 +65,30 @@ async def build_json_prompt(message, context_memory) -> dict:
         "scope": "local",
     }
 
-    if message.reply_to_message:
-        reply = message.reply_to_message
-        reply_text = reply.text or getattr(reply, "caption", None)
+    reply = getattr(message, "reply_to_message", None)
+    if reply:
+        reply_text = getattr(reply, "text", None) or getattr(reply, "caption", None)
         if not reply_text:
             reply_text = "[Non-text content]"
+        reply_date = getattr(reply, "date", None)
+        reply_timestamp = reply_date.isoformat() if reply_date else ""
+        reply_from = getattr(reply, "from_user", None)
+        reply_full_name = getattr(reply_from, "full_name", "Unknown") if reply_from else "Unknown"
+        reply_username = getattr(reply_from, "username", None) if reply_from else None
         input_payload["reply_message_id"] = {
             "text": reply_text,
-            "timestamp": reply.date.isoformat(),
+            "timestamp": reply_timestamp,
             "from": {
-                "username": reply.from_user.full_name,
-                "usertag": f"@{reply.from_user.username}" if reply.from_user.username else "(no tag)",
+                "username": reply_full_name,
+                "usertag": f"@{reply_username}" if reply_username else "(no tag)",
             },
         }
 
-    input_section = {"type": "message", "payload": input_payload}
+    input_section = {
+        "type": "message",
+        "interface": interface_name,
+        "payload": input_payload,
+    }
 
     # Debug output for both sections
     log_debug("[json_prompt] context = " + json_dumps(context_section))
