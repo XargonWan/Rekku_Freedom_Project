@@ -217,9 +217,11 @@ class ChatLinkStore:
         )
 
         # Populate names automatically if resolver available
-        if (chat_name is None or message_thread_name is None) and self._get_resolver():
+        if (chat_name is None or message_thread_name is None) and self._get_resolver(interface):
             try:
-                await self.update_names_from_resolver(chat_id, message_thread_id)
+                await self.update_names_from_resolver(
+                    chat_id, message_thread_id, interface=interface
+                )
             except Exception as e:  # pragma: no cover - best effort
                 log_warning(f"[chatlink] name resolution failed: {e}")
 
