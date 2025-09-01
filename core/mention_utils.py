@@ -46,7 +46,7 @@ REKKU_ALIASES_LOWER = [alias.lower() for alias in REKKU_ALIASES]
 
 
 from core.logging_utils import log_debug
-from core.config import REACT_TO_GROUPS
+from core.config import DISCORD_REACT_ROLES
 
 
 
@@ -195,7 +195,17 @@ async def is_message_for_bot(
                     return True, None
             
             log_debug(f"[mention] Reply detected but not to bot (replied to: {replied_user.username or replied_user.id})")
-        
+
+        # Check for role mentions (Discord-specific)
+        if DISCORD_REACT_ROLES:
+            mentioned_roles = getattr(message, "role_mentions", None)
+            bot_roles = getattr(message, "bot_roles", None)
+            if mentioned_roles and bot_roles:
+                for role_id in mentioned_roles:
+                    if role_id in bot_roles:
+                        log_debug(f"[mention] Bot role mentioned: {role_id}")
+                        return True, None
+
         # Check for Rekku aliases in text
         if is_rekku_mentioned(text):
             log_debug("[mention] Rekku alias mentioned in text")
@@ -204,9 +214,6 @@ async def is_message_for_bot(
         log_debug(
             f"[mention] No bot mention detected in group message (human_count={human_count})"
         )
-        if REACT_TO_GROUPS:
-            log_debug("[mention] REACT_TO_GROUPS enabled - accepting group message")
-            return True, None
         if human_count is None:
             return False, "missing_human_count"
         return False, "multiple_humans"

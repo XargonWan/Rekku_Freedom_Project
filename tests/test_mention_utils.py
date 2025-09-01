@@ -46,7 +46,7 @@ async def test_one_to_one_detection_with_explicit_count():
 
 
 @pytest.mark.asyncio
-async def test_no_auto_detection_when_count_unknown(monkeypatch):
+async def test_role_mention_detection(monkeypatch):
     bot = DummyBot()
     chat = SimpleNamespace(id=-100, type="group", title="Test")
     user = SimpleNamespace(id=1, is_bot=False, username="alice")
@@ -57,12 +57,14 @@ async def test_no_auto_detection_when_count_unknown(monkeypatch):
         caption=None,
         entities=None,
         reply_to_message=None,
+        role_mentions=[1],
+        bot_roles=[1],
     )
 
-    directed, reason = await mention_utils.is_message_for_bot(message, bot)
+    directed, reason = await mention_utils.is_message_for_bot(message, bot, human_count=3)
     assert directed and reason is None
 
-    monkeypatch.setattr(mention_utils, "REACT_TO_GROUPS", False)
-    directed, reason = await mention_utils.is_message_for_bot(message, bot)
-    assert not directed and reason == "missing_human_count"
+    monkeypatch.setattr(mention_utils, "DISCORD_REACT_ROLES", False)
+    directed, reason = await mention_utils.is_message_for_bot(message, bot, human_count=3)
+    assert not directed and reason == "multiple_humans"
 

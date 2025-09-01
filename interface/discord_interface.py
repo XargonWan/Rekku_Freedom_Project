@@ -160,6 +160,17 @@ class DiscordInterface:
                                 SimpleNamespace(type="mention", offset=offset, length=len(mention_text))
                             )
                         break
+
+            role_mentions_ids = []
+            bot_role_ids = []
+            if getattr(message, "role_mentions", None):
+                for r in message.role_mentions:
+                    role_mentions_ids.append(getattr(r, "id", None))
+                    role_name = getattr(r, "name", "")
+                    content = content.replace(f"<@&{getattr(r, 'id', '')}>", f"@{role_name}")
+            if getattr(getattr(message, "guild", None), "me", None):
+                bot_role_ids = [getattr(r, "id", None) for r in getattr(message.guild.me, "roles", [])]
+
             if not entities:
                 entities = None
 
@@ -208,6 +219,8 @@ class DiscordInterface:
                     human_count=None,
                 ),
                 entities=entities,
+                role_mentions=role_mentions_ids or None,
+                bot_roles=bot_role_ids or None,
                 reply_to_message=None,
             )
 
