@@ -49,3 +49,37 @@ def test_slash_command(monkeypatch):
         asyncio.run(discord_interface._process_message(message))
         mock_exec.assert_called_once_with('help')
         assert sent == [(999, 'ok')]
+
+
+def test_message_forwarding(monkeypatch):
+    calls = []
+
+    async def fake_enqueue(bot, msg, ctx):
+        calls.append(msg.text)
+
+    monkeypatch.setattr('interface.discord_interface.message_queue.enqueue', fake_enqueue)
+
+    message = SimpleNamespace(
+        content='hi rekku',
+        author=SimpleNamespace(id=2, bot=False, name='user', display_name='user'),
+        channel=SimpleNamespace(id=55, name='chan'),
+        id=444,
+        created_at=None,
+        guild=SimpleNamespace(id=1),
+    )
+
+    asyncio.run(discord_interface._process_message(message))
+    assert calls == ['hi rekku']
+
+
+def test_execute_action(monkeypatch):
+    sent = []
+
+    async def fake_send(channel_id, text):
+        sent.append((channel_id, text))
+
+    monkeypatch.setattr(discord_interface, '_discord_send', fake_send)
+
+    action = {'type': 'message_discord_bot', 'payload': {'text': 'hi', 'target': '42'}}
+    asyncio.run(discord_interface.execute_action(action, {}, None))
+    assert sent == [('42', 'hi')]

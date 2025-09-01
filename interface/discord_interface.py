@@ -2,7 +2,10 @@
 """Example Discord interface using the universal transport layer."""
 
 import os
-from typing import List
+import asyncio
+from collections import deque
+from types import SimpleNamespace
+from typing import List, Any
 
 try:  # pragma: no cover - import may fail if dependency missing
     import discord  # type: ignore
@@ -13,6 +16,10 @@ from core.logging_utils import log_debug, log_error, log_info
 from core.transport_layer import universal_send
 from core.core_initializer import register_interface
 from core.command_registry import execute_command
+from core import message_queue
+
+
+context_memory: dict[int, deque] = {}
 
 
 class DiscordInterface:
@@ -38,6 +45,12 @@ class DiscordInterface:
 
         register_interface("discord_bot", self)
         log_info("[discord_interface] Registered DiscordInterface")
+
+        # Start message_queue consumer
+        try:  # pragma: no cover - if no running loop
+            asyncio.get_event_loop().create_task(message_queue.run())
+        except Exception:
+            pass
 
     @staticmethod
     def get_interface_id() -> str:
@@ -100,8 +113,7 @@ class DiscordInterface:
     async def send_message(self, channel_id, text):
         """Send a message to a Discord channel."""
         try:
-            # Use universal_send to automatically handle JSON actions
-            await universal_send(self._discord_send, channel_id, text=text)
+            await self._discord_send(channel_id, text)
             log_debug(f"[discord_interface] Message sent to {channel_id}: {text}")
         except Exception as e:
             log_error(f"[discord_interface] Failed to send message to {channel_id}: {repr(e)}")
@@ -145,8 +157,54 @@ class DiscordInterface:
                     log_error(f"[discord_interface] Command {command} failed: {e}")
                 return
 
+            # Track context memory
+            channel_id = getattr(message.channel, "id", None)
+            if channel_id is not None:
+                history = context_memory.setdefault(channel_id, deque(maxlen=20))
+                history.append(content)
+
+            # Prepare simplified message for core queue
+            wrapped = SimpleNamespace(
+                message_id=getattr(message, "id", None),
+                chat_id=channel_id,
+                text=content,
+                date=getattr(message, "created_at", None),
+                from_user=SimpleNamespace(
+                    id=getattr(message.author, "id", None),
+                    username=getattr(message.author, "name", None),
+                    full_name=getattr(message.author, "display_name", getattr(message.author, "name", None)),
+                ),
+                chat=SimpleNamespace(
+                    id=channel_id,
+                    type="private" if getattr(message, "guild", None) is None else "group",
+                    title=getattr(getattr(message, "channel", None), "name", None),
+                    username=None,
+                    first_name=None,
+                    human_count=None,
+                ),
+                entities=None,
+                reply_to_message=None,
+            )
+
+            try:
+                await message_queue.enqueue(self.client, wrapped, context_memory)
+            except Exception as e:  # pragma: no cover - queue errors
+                log_error(f"[discord_interface] message_queue enqueue failed: {e}")
+
         except Exception as e:  # pragma: no cover - unexpected errors
             log_error(f"[discord_interface] Error processing message: {e}")
+
+    async def execute_action(
+        self, action: dict, context: dict, bot: Any, original_message: object | None = None
+    ) -> None:
+        """Execute actions for this interface."""
+        action_type = action.get("type")
+        if action_type == "message_discord_bot":
+            payload = action.get("payload", {})
+            target = payload.get("target")
+            text = payload.get("text")
+            if text and target is not None:
+                await self.send_message(target, text)
 
     async def handle_command(self, command_name: str, *args, **kwargs):
         """Process a slash command via the shared backend."""
