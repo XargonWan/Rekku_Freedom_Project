@@ -617,6 +617,32 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
         try:
             action_type = action.get("type")
 
+            # Ensure message actions respond on the same interface that originated
+            # the request. Derive the current interface from context or the bot
+            # instance if not explicitly provided. If the LLM selects the wrong
+            # interface (e.g. message_telegram_bot for a Discord chat), rewrite the
+            # action type to match the source interface to avoid cross-interface
+            # loops and delivery errors.
+            context_iface = context.get("interface")
+            if not context_iface and bot:
+                module = getattr(getattr(bot, "__class__", bot), "__module__", "")
+                if module.startswith("discord"):
+                    context_iface = "discord_bot"
+                elif module.startswith("telegram"):
+                    context_iface = "telegram_bot"
+
+            if context_iface and action_type and action_type.startswith("message_"):
+                # Normalize interface identifier
+                if not context_iface.endswith("_bot"):
+                    context_iface = f"{context_iface}_bot"
+                expected_action = f"message_{context_iface}"
+                if action_type != expected_action:
+                    log_warning(
+                        f"[action_parser] Interface mismatch: {action_type} -> {expected_action}"
+                    )
+                    action_type = expected_action
+                    action["type"] = expected_action
+
             # Halt processing of subsequent non-terminal actions until the LLM
             # has seen the outputs from executed terminal commands.
             if terminal_seen and action_type != "terminal":

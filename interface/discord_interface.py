@@ -259,7 +259,8 @@ class DiscordInterface:
             "- Messages sent to the same channel as the source will appear as replies when possible.\n"
             "- Use 'reply_message_id' to reply to specific messages.\n"
             "- Provide plain text or Markdown in the 'text' field.\n"
-            "- Supports 'ping' and predefined codewords like the Telegram bot."
+            "- Supports 'ping' and predefined codewords like the Telegram bot.\n"
+            "- When a message arrives from Discord, respond using the message_discord_bot action; do not use other interfaces unless explicitly requested."
         )
 
 # Expose class for dynamic loading
