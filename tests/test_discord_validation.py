@@ -7,6 +7,7 @@ os.environ.setdefault('DISCORD_BOT_TOKEN', 'test')
 os.environ.setdefault('BOTFATHER_TOKEN', 'test')
 
 from interface.discord_interface import DiscordInterface
+from core.core_initializer import INTERFACE_REGISTRY
 
 
 def _payload(target):
@@ -27,3 +28,7 @@ def test_validate_payload_rejects_invalid_target():
 def test_validate_payload_requires_fields():
     assert DiscordInterface.validate_payload("message_discord_bot", {"target": "123"}) != []
     assert DiscordInterface.validate_payload("message_discord_bot", {"text": "hi"}) != []
+
+
+def test_discord_interface_registers_itself():
+    assert "discord_bot" in INTERFACE_REGISTRY

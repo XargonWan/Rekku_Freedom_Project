@@ -107,3 +107,9 @@ class DiscordInterface:
 
 # Expose class for dynamic loading
 INTERFACE_CLASS = DiscordInterface
+
+# Instantiate and register the interface at import time so the core
+# initializer can discover it during startup.
+_token = os.getenv("DISCORD_BOT_TOKEN", "")
+discord_interface = DiscordInterface(_token)
+
