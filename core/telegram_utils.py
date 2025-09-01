@@ -170,6 +170,11 @@ async def send_with_thread_fallback(
         return message
     except Exception as e:
         error_message = str(e)
+        if "chat not found" in error_message.lower():
+            log_error(
+                f"[telegram_utils] Failed to send to {chat_id} (thread {message_thread_id}): {repr(e)}"
+            )
+            raise
 
         # Retry without parse_mode if Markdown/HTML entities are malformed
         if "can't parse entities" in error_message.lower() and send_kwargs.get("parse_mode"):
@@ -201,10 +206,12 @@ async def send_with_thread_fallback(
                 log_error(
                     f"[telegram_utils] Fallback without thread failed: {no_thread_error}"
                 )
+                raise
         else:
             log_error(
                 f"[telegram_utils] Failed to send to {chat_id} (thread {message_thread_id}): {repr(e)}"
             )
+            raise
 
     if fallback_chat_id and fallback_chat_id != chat_id:
         fallback_kwargs = {"chat_id": fallback_chat_id, "text": text, **kwargs}
@@ -225,4 +232,5 @@ async def send_with_thread_fallback(
             log_error(
                 f"[telegram_utils] Final fallback failed: {fallback_error}"
             )
+            raise
     return None

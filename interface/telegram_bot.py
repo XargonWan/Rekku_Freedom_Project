@@ -5,7 +5,7 @@ import re
 import asyncio
 import subprocess
 from telegram import Update, Bot
-from telegram.error import TelegramError, RetryAfter
+from telegram.error import TelegramError, RetryAfter, BadRequest, TimedOut
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
@@ -1200,17 +1200,33 @@ class TelegramInterface:
             if hasattr(original_message, "message_id"):
                 fallback_reply_to = original_message.message_id
 
-        sent_message = await send_with_thread_fallback(
-            self.bot,
-            chat_id_int,
-            text,
-            parse_mode="Markdown",
-            message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
-            reply_to_message_id=reply_message_id,
-            fallback_chat_id=fallback_chat_id,
-            fallback_message_thread_id=fallback_message_thread_id,
-            fallback_reply_to_message_id=fallback_reply_to,
-        )
+        try:
+            sent_message = await send_with_thread_fallback(
+                self.bot,
+                chat_id_int,
+                text,
+                parse_mode="Markdown",
+                message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
+                reply_to_message_id=reply_message_id,
+                fallback_chat_id=fallback_chat_id,
+                fallback_message_thread_id=fallback_message_thread_id,
+                fallback_reply_to_message_id=fallback_reply_to,
+            )
+        except BadRequest as e:
+            if "chat not found" in str(e).lower():
+                await corrector(
+                    [f"Chat {chat_id_int} not found"],
+                    [payload],
+                    self.bot,
+                    original_message,
+                )
+            else:
+                await corrector([str(e)], [payload], self.bot, original_message)
+            return
+        except TelegramError as e:
+            await self._emit_system_error("send", f"{e}", payload, original_message)
+            return
+
         await self._verify_delivery(sent_message, payload, original_message)
 
     async def _convert_to_voice(self, path: str) -> str:

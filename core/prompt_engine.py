@@ -18,8 +18,8 @@ async def build_json_prompt(message, context_memory) -> dict:
         Dictionary storing last messages per chat.
     """
 
-    chat_id = message.chat_id
-    text = message.text or ""
+    chat_id = getattr(message, "chat_id", None)
+    text = getattr(message, "text", "") or ""
 
     # === 1. Context messages ===
     messages = list(context_memory.get(chat_id, []))[-10:]
@@ -63,8 +63,8 @@ async def build_json_prompt(message, context_memory) -> dict:
         "scope": "local",
     }
 
-    if message.reply_to_message:
-        reply = message.reply_to_message
+    reply = getattr(message, "reply_to_message", None)
+    if reply:
         reply_text = getattr(reply, "text", None) or getattr(reply, "caption", None)
         if not reply_text:
             reply_text = "[Non-text content]"

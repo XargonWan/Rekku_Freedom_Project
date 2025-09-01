@@ -14,6 +14,8 @@ telegram.Bot = object
 telegram.error = types.ModuleType("error")
 telegram.error.TelegramError = Exception
 telegram.error.RetryAfter = Exception
+telegram.error.BadRequest = Exception
+telegram.error.TimedOut = Exception
 telegram.ext = types.ModuleType("ext")
 telegram.ext.ApplicationBuilder = object
 telegram.ext.MessageHandler = object
@@ -52,3 +54,32 @@ async def test_emit_system_error_avoids_retry():
     assert "your_reply" not in data["system_message"]
     assert hasattr(plugin.calls[0][1], "from_user")
     plugin_instance.plugin = orig_plugin
+
+
+class FailingBot:
+    def __init__(self):
+        self.calls = 0
+
+    async def send_message(self, *args, **kwargs):
+        self.calls += 1
+        raise telegram.error.BadRequest("Chat not found")
+
+
+@pytest.mark.asyncio
+async def test_chat_not_found_triggers_corrector(monkeypatch):
+    captured = {}
+
+    async def fake_corrector(errors, failed, bot, original):
+        captured["errors"] = errors
+
+    monkeypatch.setattr("interface.telegram_bot.corrector", fake_corrector)
+
+    bot = FailingBot()
+    interface = TelegramInterface(bot)
+    payload = {"text": "hi", "target": "999"}
+    original = types.SimpleNamespace(chat_id=111, message_id=1)
+
+    await interface.send_message(payload, original)
+
+    assert bot.calls == 1
+    assert captured["errors"][0].startswith("Chat 999 not found")
