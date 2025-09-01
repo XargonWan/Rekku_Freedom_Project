@@ -4,7 +4,7 @@ import asyncio
 import time
 from typing import List, Tuple, Callable
 from core.logging_utils import log_debug, log_info, log_warning
-from core.config import get_log_chat_id_sync, DISCORD_NOTIFY_ERRORS_DM
+from core.config import get_log_chat_id_sync
 from collections import deque
 
 _in_notify = False
@@ -99,8 +99,7 @@ def notify_trainer(message: str) -> None:
             if log_chat_id and log_chat_id not in targets:
                 targets.append(log_chat_id)
         elif interface_name == "discord_bot":
-            if DISCORD_NOTIFY_ERRORS_DM:
-                targets.append(trainer_id)
+            targets.append(trainer_id)
         else:
             targets.append(trainer_id)
 
