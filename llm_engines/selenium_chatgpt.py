@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import threading
 import asyncio
+import logging
 from collections import defaultdict
 from typing import Optional, Dict
 import subprocess
@@ -1142,16 +1143,37 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
             # Precompute logging and service configuration so they remain available
             chromium_level = os.environ.get("CHROMIUM_LOG_LEVEL", "1")
-            log_path = "/app/logs/chromium.log"
-            os.makedirs(os.path.dirname(log_path), exist_ok=True)
-            service_log_path = "/app/logs/undetected_chromedriver.log"
-            service = Service(log_path=service_log_path)
+            log_dir = "/app/logs"
+            os.makedirs(log_dir, exist_ok=True)
+            chromium_log_path = os.path.join(log_dir, "chromium.log")
+            uc_log_path = os.path.join(log_dir, "undetected_chromedriver.log")
+            selenium_log_path = os.path.join(log_dir, "selenium.log")
+            service = Service(log_path=uc_log_path)
 
             # Ensure Chromium writes verbose logs to the desired location
-            os.environ["CHROME_LOG_FILE"] = log_path
+            os.environ["CHROME_LOG_FILE"] = chromium_log_path
             log_debug(
-                f"[selenium] Chromium logs directed to {log_path} with verbosity {chromium_level}"
+                f"[selenium] Chromium logs directed to {chromium_log_path} with verbosity {chromium_level}"
             )
+
+            # Configure Python logging for selenium and undetected-chromedriver modules
+            formatter = logging.Formatter(
+                "[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
+                "%Y-%m-%d %H:%M:%S",
+            )
+            for name, path in (
+                ("selenium", selenium_log_path),
+                ("undetected_chromedriver", uc_log_path),
+            ):
+                logger = logging.getLogger(name)
+                if not any(
+                    isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == path
+                    for h in logger.handlers
+                ):
+                    fh = logging.FileHandler(path)
+                    fh.setFormatter(formatter)
+                    logger.addHandler(fh)
+                logger.setLevel(logging.DEBUG)
 
             # Essential Chromium arguments reused across attempts
             essential_args = [
@@ -1174,7 +1196,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 "--disable-features=VizDisplayCompositor",
                 "--enable-logging=stderr",
                 f"--v={chromium_level}",
-                f"--log-file={log_path}",
+                f"--log-file={chromium_log_path}",
                 "--remote-debugging-port=0",
                 "--headless=new",
                 "--disable-background-mode",
