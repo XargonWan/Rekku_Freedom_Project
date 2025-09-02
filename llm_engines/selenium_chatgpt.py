@@ -1240,6 +1240,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
                     # Try with explicit Chromium binary
                     chromium_binary = self._locate_chromium_binary()
+                    log_debug(
+                        f"[selenium] Calling {chromium_binary} {' '.join(options.arguments)}"
+                    )
                     self.driver = uc.Chrome(
                         options=options,
                         service=service,
@@ -1291,7 +1294,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                 for arg in essential_args:
                                     fallback_options.add_argument(arg)
                                 fallback_options.add_argument(f"--user-data-dir={profile_dir}")
-
+                                log_debug(
+                                    f"[selenium] Calling {chromium_binary} {' '.join(fallback_options.arguments)}"
+                                )
                                 self.driver = uc.Chrome(
                                     options=fallback_options,
                                     service=service,
@@ -1320,7 +1325,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                     for arg in essential_args:
                                         fallback_options.add_argument(arg)
                                     fallback_options.add_argument(f"--user-data-dir={profile_dir}")
-
+                                    log_debug(
+                                        f"[selenium] Calling {chromium_binary} {' '.join(fallback_options.arguments)}"
+                                    )
                                     self.driver = uc.Chrome(
                                         options=fallback_options,
                                         service=service,
