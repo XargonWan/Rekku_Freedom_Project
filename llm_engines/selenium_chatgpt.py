@@ -1418,17 +1418,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             if not driver:
                 log_error("[selenium] WebDriver unavailable, aborting")
                 _notify_gui("\u274c Selenium driver not available. Open UI")
-                try:
-                    kwargs = {"chat_id": message.chat_id, "text": "😵‍💫"}
-                    thread_id = getattr(message, "message_thread_id", None)
-                    if thread_id:
-                        kwargs["message_thread_id"] = thread_id
-                    reply_to = getattr(message, "message_id", None)
-                    if reply_to:
-                        kwargs["reply_to_message_id"] = reply_to
-                    await bot.send_message(**kwargs)
-                except Exception as send_err:
-                    log_warning(f"[selenium] Failed to send failure message: {send_err}")
+                await self._send_error_message(bot, message)
                 return
             if (
                 not driver.service
@@ -1440,20 +1430,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 if not driver:
                     log_error("[selenium] Failed to restart WebDriver")
                     _notify_gui("\u274c Selenium driver not available. Open UI")
-                    try:
-                        kwargs = {"chat_id": message.chat_id, "text": "😵‍💫"}
-                        thread_id = getattr(message, "message_thread_id", None)
-                        if thread_id:
-                            kwargs["message_thread_id"] = thread_id
-                        reply_to = getattr(message, "message_id", None)
-                        if reply_to:
-                            kwargs["reply_to_message_id"] = reply_to
-                        await bot.send_message(**kwargs)
-                    except Exception as send_err:
-                        log_warning(
-                            f"[selenium] Failed to send failure message: {send_err}"
-                        )
+                    await self._send_error_message(bot, message)
                     return
+
             if not self._ensure_logged_in():
                 return
 
