@@ -373,7 +373,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # === Forward to centralized queue
     try:
-        await message_queue.enqueue(context.bot, message, context_memory)
+        await message_queue.enqueue(context.bot, message, context_memory, interface_id="telegram_bot")
     except Exception as e:
         log_error(f"message_queue enqueue failed: {repr(e)}", e)
         await message.reply_text("⚠️ Error processing message.")
@@ -835,7 +835,7 @@ class TelegramInterface:
     def __init__(self, bot: Bot):
         """Store the python-telegram-bot ``Bot`` instance."""
         self.bot = bot
-        setattr(self.bot, "get_interface_id", self.get_interface_id)
+        # setattr(self.bot, "get_interface_id", self.get_interface_id)
         # Register resolver to fetch chat/thread names automatically
         async def _resolver(chat_id, message_thread_id, bot_instance=None):
             b = bot_instance or self.bot
