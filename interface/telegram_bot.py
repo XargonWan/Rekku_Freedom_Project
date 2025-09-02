@@ -78,10 +78,19 @@ async def ensure_plugin_loaded(update: Update):
     If absent, reply to the user with an error message and log the issue.
     """
     if plugin_instance.plugin is None:
-        log_error("No LLM plugin loaded.")
-        from core.notifier import notify_trainer
-        notify_trainer("⚠️ No LLM plugin active. Use /llm to select one.")
-        return False
+        try:
+            current = await get_active_llm()
+            await plugin_instance.load_plugin(current, notify_fn=telegram_notify)
+        except Exception as e:  # pragma: no cover - runtime safeguard
+            log_error("No LLM plugin loaded.")
+            from core.notifier import notify_trainer
+            notify_trainer("⚠️ No LLM plugin active. Use /llm to select one.")
+            return False
+        if plugin_instance.plugin is None:
+            log_error("No LLM plugin loaded.")
+            from core.notifier import notify_trainer
+            notify_trainer("⚠️ No LLM plugin active. Use /llm to select one.")
+            return False
     return True
 
 def resolve_forwarded_target(message):

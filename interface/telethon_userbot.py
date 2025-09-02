@@ -41,9 +41,17 @@ def escape_markdown(text):
 
 async def ensure_plugin_loaded(event):
     if plugin_instance.plugin is None:
-        log_error("No LLM plugin loaded.")
-        await event.reply("⚠️ No active LLM plugin. Use .llm to select one.")
-        return False
+        try:
+            current = await get_active_llm()
+            await plugin_instance.load_plugin(current)
+        except Exception:
+            log_error("No LLM plugin loaded.")
+            await event.reply("⚠️ No active LLM plugin. Use .llm to select one.")
+            return False
+        if plugin_instance.plugin is None:
+            log_error("No LLM plugin loaded.")
+            await event.reply("⚠️ No active LLM plugin. Use .llm to select one.")
+            return False
     return True
 
 def resolve_forwarded_target(message):
