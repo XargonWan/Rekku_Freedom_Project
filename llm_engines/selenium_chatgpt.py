@@ -1152,10 +1152,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     # Configure Chromium logging based on LOGGING_LEVEL
                     log_path = "/app/logs/chromium.log"
                     os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                    log_map = {"DEBUG": "0", "INFO": "0", "WARNING": "1", "ERROR": "2"}
-                    chromium_level = log_map.get(
-                        os.getenv("LOGGING_LEVEL", "ERROR").upper(), "2"
-                    )
+                    service_log_path = "/app/logs/undetected_chromedriver.log"
+                    service = Service(log_path=service_log_path)
 
                     # Essential options for Docker containers
                     essential_args = [
@@ -1215,6 +1213,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     chromium_binary = self._locate_chromium_binary()
                     self.driver = uc.Chrome(
                         options=options,
+                        service=service,
                         headless=False,
                         use_subprocess=False,
                         version_main=None,  # Auto-detect Chromium version
@@ -1227,6 +1226,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     self._apply_driver_timeouts()
                     log_debug(
                         "[selenium] ✅ Chromium successfully initialized with undetected-chromedriver"
+                    )
+                    return  # Success, exit
                     )
                     return  # Success, exit retry loop
                     
@@ -1266,6 +1267,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
                                 self.driver = uc.Chrome(
                                     options=fallback_options,
+                                    service=service,
                                     headless=False,
                                     use_subprocess=False,
                                     version_main=None,
@@ -1294,6 +1296,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
                                     self.driver = uc.Chrome(
                                         options=fallback_options,
+                                        service=service,
                                         headless=False,
                                         use_subprocess=False,
                                         version_main=None,
