@@ -256,11 +256,11 @@ async def _consumer_loop() -> None:
                     
                     # Deliver the structured event prompt using the standard pipeline
                     await plugin_instance.handle_incoming_message(
-                        final["bot"], mock_message, final["event_prompt"]
+                        final["bot"], mock_message, final["event_prompt"], final.get("interface")
                     )
                 else:
                     await plugin_instance.handle_incoming_message(
-                        final["bot"], final["message"], final["context"]
+                        final["bot"], final["message"], final["context"], final.get("interface")
                     )
             except Exception as e:  # pragma: no cover - plugin may misbehave
                 log_error(

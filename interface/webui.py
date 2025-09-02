@@ -186,7 +186,7 @@ class WebUIInterface:
         )
         log_debug(f"[webui] message from {session_id}: {text}")
         try:
-            response = await plugin_instance.handle_incoming_message(self, message, {})
+            response = await plugin_instance.handle_incoming_message(self, message, {}, "webui")
             if response and session_id in self.connections:
                 await self.connections[session_id].send_json(
                     {"type": "message", "sender": "rekku", "text": response}

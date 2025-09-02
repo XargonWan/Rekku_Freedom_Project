@@ -218,7 +218,7 @@ async def request_llm_delivery(
 
                 if message is not None:
                     await plugin_instance.handle_incoming_message(
-                        interface, message, payload_json
+                        interface, message, payload_json, interface.get_interface_id()
                     )
                 else:
                     from types import SimpleNamespace
@@ -233,7 +233,7 @@ async def request_llm_delivery(
                     mock_message.chat = SimpleNamespace(id=-1, type="private")
 
                     await plugin_instance.handle_incoming_message(
-                        interface, mock_message, payload_json
+                        interface, mock_message, payload_json, interface.get_interface_id()
                     )
 
                 return True

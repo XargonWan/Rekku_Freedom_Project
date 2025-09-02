@@ -554,7 +554,7 @@ async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if target_chat:
         log_debug(f"Forwarding via plugin_instance.handle_incoming_message (chat_id={target_chat})")
         try:
-            await plugin_instance.handle_incoming_message(context.bot, message, context.user_data)
+            await plugin_instance.handle_incoming_message(context.bot, message, context.user_data, "telegram_bot")
             response_proxy.clear_target(TELEGRAM_TRAINER_ID)
             say_proxy.clear(TELEGRAM_TRAINER_ID)
         except Exception as e:
