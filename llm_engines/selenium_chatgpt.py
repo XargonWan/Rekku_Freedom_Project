@@ -1409,6 +1409,23 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         log_debug("[selenium] Logged in and ready")
         return True
 
+    async def _send_error_message(self, bot, message, error_text="😵‍💫"):
+        """Send an error message to the chat."""
+        send_params = {
+            "chat_id": message.chat_id,
+            "text": error_text,
+        }
+        reply_id = getattr(message, "message_id", None)
+        if reply_id is not None:
+            send_params["reply_to_message_id"] = reply_id
+        message_thread_id = getattr(message, "message_thread_id", None)
+        if message_thread_id is not None:
+            send_params["message_thread_id"] = message_thread_id
+        await bot.send_message(**send_params)
+        log_debug(
+            f"[selenium][STEP] error response forwarded to {message.chat_id}"
+        )
+
     async def _process_message(self, bot, message, prompt):
         """Send the prompt to ChatGPT and forward the response."""
         log_debug(f"[selenium][STEP] processing prompt: {prompt}")
