@@ -9,9 +9,15 @@ import shutil
 import tempfile
 import threading
 import asyncio
+import logging
 from collections import defaultdict
 from typing import Optional, Dict
 import subprocess
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover - fallback if python-dotenv not installed
+    def load_dotenv(*args, **kwargs):
+        return False
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -35,6 +41,9 @@ from core.logging_utils import log_debug, log_error, log_warning, log_info, _LOG
 from core.notifier import set_notifier
 import core.recent_chats as recent_chats
 from core.ai_plugin_base import AIPluginBase
+
+# Load environment variables for root password and other settings
+load_dotenv()
 
 # ChatLinkStore: gestisce la mappatura tra le chat dell'interfaccia e le conversazioni ChatGPT
 from core.chat_link_store import ChatLinkStore
@@ -1140,6 +1149,102 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 os.environ["DISPLAY"] = ":1"
                 log_debug("[selenium] DISPLAY not set, defaulting to :1")
 
+            # Precompute logging and service configuration so they remain available
+            chromium_level = os.environ.get("CHROMIUM_LOG_LEVEL", "1")
+            log_dir = "/app/logs"
+            os.makedirs(log_dir, exist_ok=True)
+            chromium_log_path = os.path.join(log_dir, "chromium.log")
+            uc_log_path = os.path.join(log_dir, "undetected_chromedriver.log")
+            selenium_log_path = os.path.join(log_dir, "selenium.log")
+            service = Service(log_path=uc_log_path)
+
+            # Ensure Chromium writes verbose logs to the desired location
+            os.environ["CHROME_LOG_FILE"] = chromium_log_path
+            log_debug(
+                f"[selenium] Chromium logs directed to {chromium_log_path} with verbosity {chromium_level}"
+            )
+
+            # Configure Python logging for selenium and undetected-chromedriver modules
+            formatter = logging.Formatter(
+                "[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
+                "%Y-%m-%d %H:%M:%S",
+            )
+            for name, path in (
+                ("selenium", selenium_log_path),
+                ("undetected_chromedriver", uc_log_path),
+            ):
+                logger = logging.getLogger(name)
+                if not any(
+                    isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == path
+                    for h in logger.handlers
+                ):
+                    fh = logging.FileHandler(path)
+                    fh.setFormatter(formatter)
+                    logger.addHandler(fh)
+                logger.setLevel(logging.DEBUG)
+
+            # Determine headless mode:
+            # - If CHROMIUM_HEADLESS is explicitly set, honor it.
+            # - Otherwise, default to headful when WEBVIEW is available (Selkies), headless elsewhere.
+            env_headless = os.getenv("CHROMIUM_HEADLESS")
+            if env_headless is None:
+                default_headless = not bool(os.getenv("WEBVIEW_PORT"))
+                headless_mode = default_headless
+            else:
+                headless_mode = str(env_headless).strip().lower() not in ("0", "false", "no", "off")
+
+            # Essential Chromium arguments reused across attempts
+            essential_args = [
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-setuid-sandbox",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                "--disable-extensions",
+                "--disable-web-security",
+                "--start-maximized",
+                "--no-first-run",
+                "--disable-default-apps",
+                "--disable-popup-blocking",
+                "--disable-infobars",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--memory-pressure-off",
+                "--disable-features=VizDisplayCompositor",
+                "--enable-logging",
+                f"--v={chromium_level}",
+                "--remote-debugging-port=0",
+                "--disable-background-mode",
+                "--disable-default-browser-check",
+                "--disable-hang-monitor",
+                "--disable-prompt-on-repost",
+                "--disable-sync",
+                "--metrics-recording-only",
+                "--no-default-browser-check",
+                "--safebrowsing-disable-auto-update",
+                "--disable-client-side-phishing-detection",
+            ]
+
+            # Only add headless flag when desired
+            if headless_mode:
+                essential_args.append("--headless=new")
+                log_debug("[selenium] Launching Chromium in headless mode")
+            else:
+                log_debug("[selenium] Launching Chromium in headful mode (visible UI)")
+
+            # Use a shared profile directory to maintain login sessions
+            config_home = os.getenv(
+                "XDG_CONFIG_HOME",
+                os.path.join(os.path.expanduser("~"), ".config"),
+            )
+            profile_dir = os.path.join(config_home, "chromium-rfp")
+            self.profile_dir = profile_dir
+            try:
+                os.makedirs(profile_dir, exist_ok=True)
+            except Exception as e:
+                log_warning(f"[selenium] Failed to ensure profile dir: {profile_dir}: {e}")
+
             # Try multiple times with increasing delays
             max_retries = 3
             for attempt in range(max_retries):
@@ -1148,59 +1253,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
                     # Create Chromium options optimized for container environments
                     options = uc.ChromeOptions()
-
-                    # Configure Chromium logging based on LOGGING_LEVEL
-                    log_path = "/app/logs/chromium.log"
-                    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                    service_log_path = "/app/logs/undetected_chromedriver.log"
-                    service = Service(log_path=service_log_path)
-
-                    # Essential options for Docker containers
-                    essential_args = [
-                        "--no-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-setuid-sandbox",
-                        "--disable-gpu",
-                        "--disable-software-rasterizer",
-                        "--disable-extensions",
-                        "--disable-web-security",
-                        "--start-maximized",
-                        "--no-first-run",
-                        "--disable-default-apps",
-                        "--disable-popup-blocking",
-                        "--disable-infobars",
-                        "--disable-background-timer-throttling",
-                        "--disable-backgrounding-occluded-windows",
-                        "--disable-renderer-backgrounding",
-                        "--memory-pressure-off",
-                        "--disable-features=VizDisplayCompositor",
-                        "--enable-logging",
-                        f"--log-level={chromium_level}",
-                        f"--log-path={log_path}",
-                        "--remote-debugging-port=0",
-                        "--disable-background-mode",
-                        "--disable-default-browser-check",
-                        "--disable-hang-monitor",
-                        "--disable-prompt-on-repost",
-                        "--disable-sync",
-                        "--metrics-recording-only",
-                        "--no-default-browser-check",
-                        "--safebrowsing-disable-auto-update",
-                        "--disable-client-side-phishing-detection",
-                    ]
-
                     for arg in essential_args:
                         options.add_argument(arg)
-
-                    # Use a shared profile directory to maintain login sessions
-                    config_home = os.getenv(
-                        "XDG_CONFIG_HOME",
-                        os.path.join(os.path.expanduser("~"), ".config"),
-                    )
-                    profile_dir = os.path.join(config_home, "chromium-rfp")
-                    self.profile_dir = profile_dir
                     options.add_argument(f"--user-data-dir={profile_dir}")
-                    
+
                     # Clear any existing driver cache
                     import tempfile
                     import shutil
@@ -1208,14 +1264,17 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     if os.path.exists(uc_cache_dir):
                         shutil.rmtree(uc_cache_dir, ignore_errors=True)
                         log_debug("[selenium] Cleared undetected-chromedriver cache")
-                    
+
                     # Try with explicit Chromium binary
                     chromium_binary = self._locate_chromium_binary()
+                    log_debug(
+                        f"[selenium] Calling {chromium_binary} {' '.join(options.arguments)}"
+                    )
                     self.driver = uc.Chrome(
                         options=options,
                         service=service,
-                        headless=False,
-                        use_subprocess=False,
+                        headless=headless_mode,
+                        use_subprocess=True,
                         version_main=None,  # Auto-detect Chromium version
                         suppress_welcome=True,
                         log_level=int(chromium_level),
@@ -1228,17 +1287,15 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "[selenium] ✅ Chromium successfully initialized with undetected-chromedriver"
                     )
                     return  # Success, exit
-                    )
-                    return  # Success, exit retry loop
-                    
+
                 except Exception as e:
                     log_warning(f"[selenium] Attempt {attempt + 1} failed: {e}")
-                    
+
                     # Handle specific Python shutdown error
                     if "sys.meta_path is None" in str(e) or "Python is likely shutting down" in str(e):
                         log_warning("[selenium] Python shutdown detected, skipping Chromium initialization")
                         return None
-                    
+
                     # Clean up before next attempt
                     if self.driver:
                         try:
@@ -1246,9 +1303,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         except:
                             pass
                         self.driver = None
-                    
+
                     self._cleanup_chromium_remnants()
-                    
+
                     if attempt < max_retries - 1:
                         delay = (attempt + 1) * 2  # 2, 4, 6 seconds
                         log_debug(f"[selenium] Waiting {delay}s before next attempt...")
@@ -1264,12 +1321,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                 for arg in essential_args:
                                     fallback_options.add_argument(arg)
                                 fallback_options.add_argument(f"--user-data-dir={profile_dir}")
-
+                                log_debug(
+                                    f"[selenium] Calling {chromium_binary} {' '.join(fallback_options.arguments)}"
+                                )
                                 self.driver = uc.Chrome(
                                     options=fallback_options,
                                     service=service,
-                                    headless=False,
-                                    use_subprocess=False,
+                                    headless=headless_mode,
+                                    use_subprocess=True,
                                     version_main=None,
                                     suppress_welcome=True,
                                     log_level=int(chromium_level),
@@ -1293,12 +1352,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                     for arg in essential_args:
                                         fallback_options.add_argument(arg)
                                     fallback_options.add_argument(f"--user-data-dir={profile_dir}")
-
+                                    log_debug(
+                                        f"[selenium] Calling {chromium_binary} {' '.join(fallback_options.arguments)}"
+                                    )
                                     self.driver = uc.Chrome(
                                         options=fallback_options,
                                         service=service,
-                                        headless=False,
-                                        use_subprocess=False,
+                                        headless=headless_mode,
+                                        use_subprocess=True,
                                         version_main=None,
                                         suppress_welcome=True,
                                         log_level=int(chromium_level),
@@ -1370,6 +1431,84 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             log_debug(f"[selenium] Lock file cleanup failed: {e}")
 
         log_debug("[selenium] Chromium lock cleanup complete")
+        try:
+            root_pwd = os.getenv("ROOT_PASSWORD")
+            if not root_pwd:
+                log_debug("[selenium] ROOT_PASSWORD not set; skipping /config permission reset")
+            else:
+                cmds = [
+                    ["chown", "-R", "abc:abc", "/config"],
+                    ["chmod", "ug+rwx", "-R", "/config"],
+                ]
+                for cmd in cmds:
+                    subprocess.run(
+                        ["sudo", "-S", *cmd],
+                        input=f"{root_pwd}\n",
+                        text=True,
+                        check=False,
+                    )
+        except Exception as e:
+            log_debug(f"[selenium] Failed to reset /config permissions: {e}")
+
+        # Best-effort permission fix for /config if present (common on LSIO images)
+        try:
+            if os.path.exists("/config"):
+                subprocess.run(["chown", "-R", "abc:abc", "/config"], check=False)
+                subprocess.run(["chmod", "-R", "ug+rwx", "/config"], check=False)
+                log_debug("[selenium] /config ownership and permissions normalized to abc:abc ug+rwx")
+        except Exception as e:
+            log_warning(f"[selenium] Failed to normalize /config permissions: {e}")
+
+    def _detect_cloudflare_or_login(self) -> str | None:
+        """Return a reason string if an interstitial (Cloudflare/login) is detected, else None."""
+        try:
+            url = self.driver.current_url or ""
+        except Exception:
+            url = ""
+        try:
+            # Cloudflare Turnstile and challenge-platform signals
+            if "challenges.cloudflare.com" in url:
+                return "Cloudflare challenge"
+            if self.driver.find_elements(By.CSS_SELECTOR, "iframe[src*='challenge-platform']") or \
+               self.driver.find_elements(By.CSS_SELECTOR, "script[src*='challenge-platform']") or \
+               self.driver.find_elements(By.CSS_SELECTOR, "div[class*='cf-challenge']"):
+                return "Cloudflare challenge"
+            # Login/auth interstitials
+            if any(s in url for s in ("/login", "auth0.com", "/auth/")):
+                return "Login required"
+            if self.driver.find_elements(By.CSS_SELECTOR, "input[type='email']") and \
+               self.driver.find_elements(By.CSS_SELECTOR, "input[type='password']"):
+                return "Login required"
+        except Exception:
+            pass
+        return None
+
+    def _wait_for_ui_ready_or_intervention(self, timeout: int = 180) -> bool:
+        """Wait until ChatGPT UI is ready (prompt-textarea present).
+        If Cloudflare/login is detected, notify and wait for manual intervention.
+        Returns True when ready, False on timeout.
+        """
+        start = time.time()
+        notified = False
+        while time.time() - start < timeout:
+            try:
+                if self.driver.find_elements(By.ID, "prompt-textarea"):
+                    log_debug("[selenium] UI ready: prompt-textarea present")
+                    return True
+            except Exception:
+                pass
+
+            reason = self._detect_cloudflare_or_login()
+            if reason and not notified:
+                _notify_gui(f"\u26a0\ufe0f {reason}. Please solve via VNC.")
+                notified = True
+                # If running headless, there's nothing the user can do – log and break early
+                if str(os.getenv("CHROMIUM_HEADLESS", "")).strip().lower() not in ("0", "false", "no", "off") and not os.getenv("WEBVIEW_PORT"):
+                    log_warning("[selenium] Headless mode without WEBVIEW: cannot handle interstitials automatically")
+                    break
+            time.sleep(1)
+        log_warning("[selenium] UI not ready within timeout")
+        return False
 
     # [FIX] ensure the WebDriver session is alive before use
     def _get_driver(self):
@@ -1404,9 +1543,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except Exception:
             current_url = ""
         log_debug(f"[selenium] [STEP] Checking login state at {current_url}")
-        if current_url and ("login" in current_url or "auth0" in current_url):
-            log_debug("[selenium] Login required, notifying user")
-            _notify_gui("🔐 Login required. Open")
+        reason = self._detect_cloudflare_or_login()
+        if reason:
+            log_debug(f"[selenium] Interstitial detected: {reason}")
+            _notify_gui(f"🔐 {reason}. Open UI")
             return False
         log_debug("[selenium] Logged in and ready")
         return True
@@ -1491,9 +1631,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 chat_url = f"https://chat.openai.com/c/{chat_id}"
                 try:
                     driver.get(chat_url)
-                    WebDriverWait(driver, 5).until(
-                        EC.presence_of_element_located((By.ID, "prompt-textarea"))
-                    )
+                    if not self._wait_for_ui_ready_or_intervention(timeout=120):
+                        log_warning("[selenium] ChatGPT UI not ready after loading existing chat")
+                        _notify_gui("\u274c ChatGPT UI not ready. Open UI")
+                        return
                     log_debug(f"[selenium] Successfully accessed existing chat: {chat_id}")
                 except Exception as e:
                     log_warning(f"[selenium] Existing chat {chat_id} no longer accessible: {e}")
@@ -1513,9 +1654,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             if not chat_id:
                 try:
                     driver.get("https://chat.openai.com")
-                    WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.TAG_NAME, "main"))
-                    )
+                    if not self._wait_for_ui_ready_or_intervention(timeout=180):
+                        log_warning("[selenium][ERROR] ChatGPT UI failed to become ready")
+                        _notify_gui("\u274c Selenium error: ChatGPT UI not ready. Open UI")
+                        return
                 except Exception:
                     log_warning("[selenium][ERROR] ChatGPT UI failed to load")
                     _notify_gui("\u274c Selenium error: ChatGPT UI not ready. Open UI")
