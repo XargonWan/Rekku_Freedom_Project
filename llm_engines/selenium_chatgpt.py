@@ -1141,7 +1141,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 log_debug("[selenium] DISPLAY not set, defaulting to :1")
 
             # Precompute logging and service configuration so they remain available
-            chromium_level = os.environ.get("CHROMIUM_LOG_LEVEL", "3")
+            chromium_level = os.environ.get("CHROMIUM_LOG_LEVEL", "1")
             log_path = "/app/logs/chromium.log"
             os.makedirs(os.path.dirname(log_path), exist_ok=True)
             service_log_path = "/app/logs/undetected_chromedriver.log"
@@ -1149,6 +1149,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
             # Ensure Chromium writes verbose logs to the desired location
             os.environ["CHROME_LOG_FILE"] = log_path
+            log_debug(
+                f"[selenium] Chromium logs directed to {log_path} with verbosity {chromium_level}"
+            )
 
             # Essential Chromium arguments reused across attempts
             essential_args = [
@@ -1169,8 +1172,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 "--disable-renderer-backgrounding",
                 "--memory-pressure-off",
                 "--disable-features=VizDisplayCompositor",
-                "--enable-logging",
-                f"--log-level={chromium_level}",
+                "--enable-logging=stderr",
+                f"--v={chromium_level}",
                 f"--log-file={log_path}",
                 "--remote-debugging-port=0",
                 "--headless=new",
