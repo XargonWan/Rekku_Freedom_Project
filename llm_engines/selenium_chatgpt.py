@@ -1147,6 +1147,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             service_log_path = "/app/logs/undetected_chromedriver.log"
             service = Service(log_path=service_log_path)
 
+            # Ensure Chromium writes verbose logs to the desired location
+            os.environ["CHROME_LOG_FILE"] = log_path
+
             # Essential Chromium arguments reused across attempts
             essential_args = [
                 "--no-sandbox",
@@ -1168,8 +1171,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 "--disable-features=VizDisplayCompositor",
                 "--enable-logging",
                 f"--log-level={chromium_level}",
-                f"--log-path={log_path}",
+                f"--log-file={log_path}",
                 "--remote-debugging-port=0",
+                "--headless=new",
                 "--disable-background-mode",
                 "--disable-default-browser-check",
                 "--disable-hang-monitor",
@@ -1214,8 +1218,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     self.driver = uc.Chrome(
                         options=options,
                         service=service,
-                        headless=False,
-                        use_subprocess=False,
+                        headless=True,
+                        use_subprocess=True,
                         version_main=None,  # Auto-detect Chromium version
                         suppress_welcome=True,
                         log_level=int(chromium_level),
@@ -1266,8 +1270,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                 self.driver = uc.Chrome(
                                     options=fallback_options,
                                     service=service,
-                                    headless=False,
-                                    use_subprocess=False,
+                                    headless=True,
+                                    use_subprocess=True,
                                     version_main=None,
                                     suppress_welcome=True,
                                     log_level=int(chromium_level),
@@ -1295,8 +1299,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                     self.driver = uc.Chrome(
                                         options=fallback_options,
                                         service=service,
-                                        headless=False,
-                                        use_subprocess=False,
+                                        headless=True,
+                                        use_subprocess=True,
                                         version_main=None,
                                         suppress_welcome=True,
                                         log_level=int(chromium_level),
