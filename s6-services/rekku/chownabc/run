@@ -7,9 +7,8 @@ ABC_GID=$(id -g "$ABC_USER")
 
 mkdir -p /config/.config/chromium-rfp || true
 
-# Fix ownership for /config and chromium profile
+# Ensure /config is owned by abc and has user rwx permissions
 chown -R "$ABC_UID:$ABC_GID" /config || true
-chown -R "$ABC_UID:$ABC_GID" /config/.config/chromium-rfp || true
-chmod -R 700 /config/.config || true
+chmod -R u+rwX /config || true
 
-echo "[S6 Rekku] Ownership of /config and chromium-rfp set to abc."
+echo "[S6 Rekku] Ownership and permissions of /config set to abc."
