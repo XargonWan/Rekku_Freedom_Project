@@ -105,7 +105,7 @@ async def load_plugin(name: str, notify_fn=None):
 
     await set_active_llm(name)
 
-async def handle_incoming_message(bot, message, context_memory_or_prompt):
+async def handle_incoming_message(bot, message, context_memory_or_prompt, interface: str = None):
     """Process incoming messages or pre-built prompts."""
 
     if plugin is None:
@@ -128,7 +128,7 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt):
         log_debug(f"[plugin_instance] Received message: {message_text}")
         log_debug(f"[plugin_instance] Context memory: {context_memory_or_prompt}")
         user_id = message.from_user.id if message.from_user else "unknown"
-        interface_name = (
+        interface_name = interface if interface else (
             bot.get_interface_id() if hasattr(bot, "get_interface_id") else bot.__class__.__name__
         )
         log_debug(

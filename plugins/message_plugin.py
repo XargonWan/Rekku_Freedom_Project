@@ -3,7 +3,7 @@
 
 import asyncio
 from core.logging_utils import log_debug, log_info, log_warning, log_error
-from core.interfaces import INTERFACE_REGISTRY
+from core.core_initializer import INTERFACE_REGISTRY
 
 
 class MessagePlugin:

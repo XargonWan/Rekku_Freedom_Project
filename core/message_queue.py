@@ -38,7 +38,7 @@ async def _delayed_put(item: dict, delay: float) -> None:
     await _queue.put((priority, item))
 
 
-async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
+async def enqueue(bot, message, context_memory, priority: bool = False, interface_id: str = None) -> None:
     """Enqueue a message for serialized processing with rate limiting.
 
     Args:
@@ -46,6 +46,7 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
         message: The message to process
         context_memory: Message context
         priority: If True, message is added to front of queue (for events)
+        interface_id: The interface identifier (e.g., 'telegram_bot')
     """
     human_count = getattr(message, "human_count", None)
     if human_count is None and hasattr(message, "chat"):
@@ -105,7 +106,7 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
     await recent_chats.track_chat(chat_id, meta)
 
     thread_id = getattr(message, "message_thread_id", None)
-    interface = (
+    interface = interface_id if interface_id else (
         bot.get_interface_id()
         if bot and hasattr(bot, "get_interface_id")
         else bot.__class__.__name__ if bot else None
@@ -255,11 +256,11 @@ async def _consumer_loop() -> None:
                     
                     # Deliver the structured event prompt using the standard pipeline
                     await plugin_instance.handle_incoming_message(
-                        final["bot"], mock_message, final["event_prompt"]
+                        final["bot"], mock_message, final["event_prompt"], final.get("interface")
                     )
                 else:
                     await plugin_instance.handle_incoming_message(
-                        final["bot"], final["message"], final["context"]
+                        final["bot"], final["message"], final["context"], final.get("interface")
                     )
             except Exception as e:  # pragma: no cover - plugin may misbehave
                 log_error(

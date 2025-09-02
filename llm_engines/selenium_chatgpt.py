@@ -1149,6 +1149,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     # Create Chromium options optimized for container environments
                     options = uc.ChromeOptions()
 
+                    # Configure Chromium logging based on LOGGING_LEVEL
+                    log_path = "/app/logs/chromium.log"
+                    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                    service_log_path = "/app/logs/undetected_chromedriver.log"
+                    service = Service(log_path=service_log_path)
+
                     # Essential options for Docker containers
                     essential_args = [
                         "--no-sandbox",
@@ -1168,8 +1174,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "--disable-renderer-backgrounding",
                         "--memory-pressure-off",
                         "--disable-features=VizDisplayCompositor",
-                        "--log-level=3",
-                        "--disable-logging",
+                        "--enable-logging",
+                        f"--log-level={chromium_level}",
+                        f"--log-path={log_path}",
                         "--remote-debugging-port=0",
                         "--disable-background-mode",
                         "--disable-default-browser-check",
@@ -1179,7 +1186,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "--metrics-recording-only",
                         "--no-default-browser-check",
                         "--safebrowsing-disable-auto-update",
-                        "--disable-client-side-phishing-detection"
+                        "--disable-client-side-phishing-detection",
                     ]
 
                     for arg in essential_args:
@@ -1206,11 +1213,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     chromium_binary = self._locate_chromium_binary()
                     self.driver = uc.Chrome(
                         options=options,
+                        service=service,
                         headless=False,
                         use_subprocess=False,
                         version_main=None,  # Auto-detect Chromium version
                         suppress_welcome=True,
-                        log_level=3,
+                        log_level=int(chromium_level),
                         driver_executable_path=None,  # Let UC handle chromedriver
                         browser_executable_path=chromium_binary,
                         user_data_dir=profile_dir
@@ -1218,6 +1226,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     self._apply_driver_timeouts()
                     log_debug(
                         "[selenium] ✅ Chromium successfully initialized with undetected-chromedriver"
+                    )
+                    return  # Success, exit
                     )
                     return  # Success, exit retry loop
                     
@@ -1257,11 +1267,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
                                 self.driver = uc.Chrome(
                                     options=fallback_options,
+                                    service=service,
                                     headless=False,
                                     use_subprocess=False,
                                     version_main=None,
                                     suppress_welcome=True,
-                                    log_level=3,
+                                    log_level=int(chromium_level),
                                     browser_executable_path=chromium_binary,
                                     user_data_dir=profile_dir
                                 )
@@ -1285,11 +1296,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
                                     self.driver = uc.Chrome(
                                         options=fallback_options,
+                                        service=service,
                                         headless=False,
                                         use_subprocess=False,
                                         version_main=None,
                                         suppress_welcome=True,
-                                        log_level=3,
+                                        log_level=int(chromium_level),
                                         browser_executable_path=chromium_binary,
                                         user_data_dir=profile_dir
                                     )
@@ -1399,6 +1411,23 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         log_debug("[selenium] Logged in and ready")
         return True
 
+    async def _send_error_message(self, bot, message, error_text="😵‍💫"):
+        """Send an error message to the chat."""
+        send_params = {
+            "chat_id": message.chat_id,
+            "text": error_text,
+        }
+        reply_id = getattr(message, "message_id", None)
+        if reply_id is not None:
+            send_params["reply_to_message_id"] = reply_id
+        message_thread_id = getattr(message, "message_thread_id", None)
+        if message_thread_id is not None:
+            send_params["message_thread_id"] = message_thread_id
+        await bot.send_message(**send_params)
+        log_debug(
+            f"[selenium][STEP] error response forwarded to {message.chat_id}"
+        )
+
     async def _process_message(self, bot, message, prompt):
         """Send the prompt to ChatGPT and forward the response."""
         log_debug(f"[selenium][STEP] processing prompt: {prompt}")
@@ -1408,17 +1437,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             if not driver:
                 log_error("[selenium] WebDriver unavailable, aborting")
                 _notify_gui("\u274c Selenium driver not available. Open UI")
-                try:
-                    kwargs = {"chat_id": message.chat_id, "text": "😵‍💫"}
-                    thread_id = getattr(message, "message_thread_id", None)
-                    if thread_id:
-                        kwargs["message_thread_id"] = thread_id
-                    reply_to = getattr(message, "message_id", None)
-                    if reply_to:
-                        kwargs["reply_to_message_id"] = reply_to
-                    await bot.send_message(**kwargs)
-                except Exception as send_err:
-                    log_warning(f"[selenium] Failed to send failure message: {send_err}")
+                await self._send_error_message(bot, message)
                 return
             if (
                 not driver.service
@@ -1430,20 +1449,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 if not driver:
                     log_error("[selenium] Failed to restart WebDriver")
                     _notify_gui("\u274c Selenium driver not available. Open UI")
-                    try:
-                        kwargs = {"chat_id": message.chat_id, "text": "😵‍💫"}
-                        thread_id = getattr(message, "message_thread_id", None)
-                        if thread_id:
-                            kwargs["message_thread_id"] = thread_id
-                        reply_to = getattr(message, "message_id", None)
-                        if reply_to:
-                            kwargs["reply_to_message_id"] = reply_to
-                        await bot.send_message(**kwargs)
-                    except Exception as send_err:
-                        log_warning(
-                            f"[selenium] Failed to send failure message: {send_err}"
-                        )
+                    await self._send_error_message(bot, message)
                     return
+
             if not self._ensure_logged_in():
                 return
 

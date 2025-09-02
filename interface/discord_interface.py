@@ -34,7 +34,6 @@ class DiscordInterface:
             intents = discord.Intents.default()
             intents.message_content = True
             self.client = discord.Client(intents=intents)
-            setattr(self.client, "get_interface_id", self.get_interface_id)
 
             @self.client.event
             async def on_ready():
@@ -292,7 +291,7 @@ class DiscordInterface:
             )
 
             try:
-                await message_queue.enqueue(self.client, wrapped, context_memory)
+                await message_queue.enqueue(self, wrapped, context_memory, interface_id="discord_bot")
             except Exception as e:  # pragma: no cover - queue errors
                 log_error(f"[discord_interface] message_queue enqueue failed: {e}")
 
