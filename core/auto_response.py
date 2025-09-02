@@ -113,18 +113,11 @@ class AutoResponseSystem:
                 )
                 return
 
-            bot = getattr(interface, "bot", None)
-            if bot is None:
-                log_error(
-                    f"[auto_response] Interface '{interface_name}' has no bot instance"
-                )
-                return
-
             # Enqueue the LLM request
             import json
 
             await enqueue(
-                bot,
+                interface,
                 mock_message,
                 json.dumps(system_payload, ensure_ascii=False),
                 priority=True,
@@ -215,6 +208,17 @@ async def request_llm_delivery(
                     )
                     await asyncio.sleep(1)
                     continue
+
+                # Get the bot instance - prefer interface itself if it has send_message, otherwise look for bot attribute
+                if hasattr(interface, "send_message"):
+                    bot = interface
+                else:
+                    bot = getattr(interface, "bot", None)
+                    if bot is None:
+                        log_error(
+                            f"[auto_response] Interface '{interface_name}' has no bot instance or send_message method"
+                        )
+                        return
 
                 if message is not None:
                     await plugin_instance.handle_incoming_message(
