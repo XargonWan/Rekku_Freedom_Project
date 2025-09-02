@@ -40,7 +40,9 @@ def setup_logging() -> logging.Logger:
             "[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
             "%Y-%m-%d %H:%M:%S",
         )
-        fh = RotatingFileHandler(_LOG_FILE, maxBytes=1_000_000, backupCount=3)
+        fh = RotatingFileHandler(
+            _LOG_FILE, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+        )
         fh.setFormatter(formatter)
         ch = logging.StreamHandler(sys.stdout)
         ch.setFormatter(formatter)
