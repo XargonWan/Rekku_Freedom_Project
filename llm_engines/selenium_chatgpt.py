@@ -1140,6 +1140,55 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 os.environ["DISPLAY"] = ":1"
                 log_debug("[selenium] DISPLAY not set, defaulting to :1")
 
+            # Precompute logging and service configuration so they remain available
+            chromium_level = os.environ.get("CHROMIUM_LOG_LEVEL", "3")
+            log_path = "/app/logs/chromium.log"
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            service_log_path = "/app/logs/undetected_chromedriver.log"
+            service = Service(log_path=service_log_path)
+
+            # Essential Chromium arguments reused across attempts
+            essential_args = [
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-setuid-sandbox",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                "--disable-extensions",
+                "--disable-web-security",
+                "--start-maximized",
+                "--no-first-run",
+                "--disable-default-apps",
+                "--disable-popup-blocking",
+                "--disable-infobars",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--memory-pressure-off",
+                "--disable-features=VizDisplayCompositor",
+                "--enable-logging",
+                f"--log-level={chromium_level}",
+                f"--log-path={log_path}",
+                "--remote-debugging-port=0",
+                "--disable-background-mode",
+                "--disable-default-browser-check",
+                "--disable-hang-monitor",
+                "--disable-prompt-on-repost",
+                "--disable-sync",
+                "--metrics-recording-only",
+                "--no-default-browser-check",
+                "--safebrowsing-disable-auto-update",
+                "--disable-client-side-phishing-detection",
+            ]
+
+            # Use a shared profile directory to maintain login sessions
+            config_home = os.getenv(
+                "XDG_CONFIG_HOME",
+                os.path.join(os.path.expanduser("~"), ".config"),
+            )
+            profile_dir = os.path.join(config_home, "chromium-rfp")
+            self.profile_dir = profile_dir
+
             # Try multiple times with increasing delays
             max_retries = 3
             for attempt in range(max_retries):
@@ -1148,59 +1197,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
                     # Create Chromium options optimized for container environments
                     options = uc.ChromeOptions()
-
-                    # Configure Chromium logging based on LOGGING_LEVEL
-                    log_path = "/app/logs/chromium.log"
-                    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                    service_log_path = "/app/logs/undetected_chromedriver.log"
-                    service = Service(log_path=service_log_path)
-
-                    # Essential options for Docker containers
-                    essential_args = [
-                        "--no-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-setuid-sandbox",
-                        "--disable-gpu",
-                        "--disable-software-rasterizer",
-                        "--disable-extensions",
-                        "--disable-web-security",
-                        "--start-maximized",
-                        "--no-first-run",
-                        "--disable-default-apps",
-                        "--disable-popup-blocking",
-                        "--disable-infobars",
-                        "--disable-background-timer-throttling",
-                        "--disable-backgrounding-occluded-windows",
-                        "--disable-renderer-backgrounding",
-                        "--memory-pressure-off",
-                        "--disable-features=VizDisplayCompositor",
-                        "--enable-logging",
-                        f"--log-level={chromium_level}",
-                        f"--log-path={log_path}",
-                        "--remote-debugging-port=0",
-                        "--disable-background-mode",
-                        "--disable-default-browser-check",
-                        "--disable-hang-monitor",
-                        "--disable-prompt-on-repost",
-                        "--disable-sync",
-                        "--metrics-recording-only",
-                        "--no-default-browser-check",
-                        "--safebrowsing-disable-auto-update",
-                        "--disable-client-side-phishing-detection",
-                    ]
-
                     for arg in essential_args:
                         options.add_argument(arg)
-
-                    # Use a shared profile directory to maintain login sessions
-                    config_home = os.getenv(
-                        "XDG_CONFIG_HOME",
-                        os.path.join(os.path.expanduser("~"), ".config"),
-                    )
-                    profile_dir = os.path.join(config_home, "chromium-rfp")
-                    self.profile_dir = profile_dir
                     options.add_argument(f"--user-data-dir={profile_dir}")
-                    
+
                     # Clear any existing driver cache
                     import tempfile
                     import shutil
@@ -1208,7 +1208,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     if os.path.exists(uc_cache_dir):
                         shutil.rmtree(uc_cache_dir, ignore_errors=True)
                         log_debug("[selenium] Cleared undetected-chromedriver cache")
-                    
+
                     # Try with explicit Chromium binary
                     chromium_binary = self._locate_chromium_binary()
                     self.driver = uc.Chrome(
@@ -1228,15 +1228,15 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "[selenium] ✅ Chromium successfully initialized with undetected-chromedriver"
                     )
                     return  # Success, exit
-                    
+
                 except Exception as e:
                     log_warning(f"[selenium] Attempt {attempt + 1} failed: {e}")
-                    
+
                     # Handle specific Python shutdown error
                     if "sys.meta_path is None" in str(e) or "Python is likely shutting down" in str(e):
                         log_warning("[selenium] Python shutdown detected, skipping Chromium initialization")
                         return None
-                    
+
                     # Clean up before next attempt
                     if self.driver:
                         try:
@@ -1244,9 +1244,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         except:
                             pass
                         self.driver = None
-                    
+
                     self._cleanup_chromium_remnants()
-                    
+
                     if attempt < max_retries - 1:
                         delay = (attempt + 1) * 2  # 2, 4, 6 seconds
                         log_debug(f"[selenium] Waiting {delay}s before next attempt...")
