@@ -1228,8 +1228,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "[selenium] ✅ Chromium successfully initialized with undetected-chromedriver"
                     )
                     return  # Success, exit
-                    )
-                    return  # Success, exit retry loop
                     
                 except Exception as e:
                     log_warning(f"[selenium] Attempt {attempt + 1} failed: {e}")

@@ -22,9 +22,9 @@ import traceback
 
 load_dotenv()
 
-# Provide safe defaults so this module can be imported even when env vars are missing
-API_ID = int(os.getenv("API_ID", "0") or "0")
-API_HASH = os.getenv("API_HASH", "")
+# Defer TelegramClient initialization if credentials are missing
+API_ID = os.getenv("API_ID")
+API_HASH = os.getenv("API_HASH")
 SESSION = os.getenv("SESSION", "rekku_userbot")
 
 say_sessions = {}
@@ -32,9 +32,20 @@ context_memory = {}
 last_selected_chat = {}
 message_id = None
 
-client = TelegramClient(SESSION, API_ID, API_HASH)
-register_interface("telegram_userbot", client)
-log_info("[telethon_userbot] Registered TelethonUserbot")
+client = None
+if API_ID and API_HASH:
+    client = TelegramClient(SESSION, int(API_ID), API_HASH)
+    register_interface("telegram_userbot", client)
+    log_info("[telethon_userbot] Registered TelethonUserbot")
+else:
+    log_warning("[telethon_userbot] API_ID or API_HASH missing; userbot disabled")
+
+def optional_on(*args, **kwargs):
+    def decorator(func):
+        if client:
+            client.on(*args, **kwargs)(func)
+        return func
+    return decorator
 
 def escape_markdown(text):
     return re.sub(r'([_*\[\]()~`>#+=|{}.!-])', r'\\\1', text)
@@ -45,9 +56,7 @@ async def ensure_plugin_loaded(event):
             current = await get_active_llm()
             await plugin_instance.load_plugin(current)
         except Exception:
-            log_error("No LLM plugin loaded.")
-            await event.reply("⚠️ No active LLM plugin. Use .llm to select one.")
-            return False
+            pass
         if plugin_instance.plugin is None:
             log_error("No LLM plugin loaded.")
             await event.reply("⚠️ No active LLM plugin. Use .llm to select one.")
@@ -63,7 +72,7 @@ def resolve_forwarded_target(message):
         return tracked["chat_id"], tracked["message_id"]
     return None, None
 
-@client.on(events.NewMessage(pattern=r"\.block (\d+)"))
+@optional_on(events.NewMessage(pattern=r"\.block (\d+)"))
 async def block_user(event):
     if event.sender_id != TELEGRAM_TRAINER_ID:
         return
@@ -74,7 +83,7 @@ async def block_user(event):
     except Exception:
         await event.reply("❌ Use: .block <user_id>")
 
-@client.on(events.NewMessage(pattern=r"\.block_list"))
+@optional_on(events.NewMessage(pattern=r"\.block_list"))
 async def block_list(event):
     if event.sender_id != TELEGRAM_TRAINER_ID:
         return
@@ -84,7 +93,7 @@ async def block_list(event):
     else:
         await event.reply("🚫 Blocked users:\n" + "\n".join(map(str, blocked)))
 
-@client.on(events.NewMessage(pattern=r"\.unblock (\d+)"))
+@optional_on(events.NewMessage(pattern=r"\.unblock (\d+)"))
 async def unblock_user(event):
     if event.sender_id != TELEGRAM_TRAINER_ID:
         return
@@ -95,7 +104,7 @@ async def unblock_user(event):
     except Exception:
         await event.reply("❌ Use: .unblock <user_id>")
 
-@client.on(events.NewMessage(pattern=r"\.last_chats"))
+@optional_on(events.NewMessage(pattern=r"\.last_chats"))
 async def last_chats_command(event):
     if event.sender_id != TELEGRAM_TRAINER_ID:
         return
@@ -109,7 +118,7 @@ async def last_chats_command(event):
         parse_mode="md"
     )
 
-@client.on(events.NewMessage(pattern=r"\.help"))
+@optional_on(events.NewMessage(pattern=r"\.help"))
 async def help_command(event):
     if event.sender_id != TELEGRAM_TRAINER_ID:
         return
@@ -137,7 +146,7 @@ async def help_command(event):
     )
     await event.reply(help_text, parse_mode="md")
 
-@client.on(events.NewMessage(pattern=r"\.llm(?: (.+))?"))
+@optional_on(events.NewMessage(pattern=r"\.llm(?: (.+))?"))
 async def llm_command(event):
     if event.sender_id != TELEGRAM_TRAINER_ID:
         return
@@ -164,7 +173,7 @@ async def llm_command(event):
     except Exception as e:
         await event.reply(f"❌ Error changing LLM: {e}")
 
-@client.on(events.NewMessage(pattern=r"\.say(?: (\d+) (.+))?"))
+@optional_on(events.NewMessage(pattern=r"\.say(?: (\d+) (.+))?"))
 async def say_command(event):
     if event.sender_id != TELEGRAM_TRAINER_ID:
         return
@@ -191,7 +200,7 @@ async def say_command(event):
     say_sessions[event.sender_id] = entries
     await event.reply(numbered)
 
-@client.on(events.NewMessage())
+@optional_on(events.NewMessage())
 async def handle_message(event):
     if not await ensure_plugin_loaded(event):
         return
@@ -249,6 +258,10 @@ async def handle_message(event):
         )
 
 async def main():
+    if not client:
+        log_error("Telethon client not initialized.")
+        return
+
     def telegram_notify(chat_id: int, message: str, reply_to_message_id: int = None):
         async def send():
             try:
