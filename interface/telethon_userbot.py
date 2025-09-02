@@ -54,13 +54,18 @@ async def ensure_plugin_loaded(event):
     if plugin_instance.plugin is None:
         try:
             current = await get_active_llm()
-            await plugin_instance.load_plugin(current)
-        except Exception:
-            pass
+            if current:
+                await plugin_instance.load_plugin(current)
+        except Exception as e:
+            log_warning(f"[telethon_userbot] Failed to autoload LLM: {e}")
         if plugin_instance.plugin is None:
-            log_error("No LLM plugin loaded.")
-            await event.reply("⚠️ No active LLM plugin. Use .llm to select one.")
-            return False
+            try:
+                await plugin_instance.load_plugin("manual")
+                log_warning("[telethon_userbot] Falling back to ManualAIPlugin")
+            except Exception:
+                log_error("No LLM plugin loaded.")
+                await event.reply("⚠️ No active LLM plugin. Use .llm to select one.")
+                return False
     return True
 
 def resolve_forwarded_target(message):

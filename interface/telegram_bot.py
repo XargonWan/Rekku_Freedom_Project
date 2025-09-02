@@ -80,14 +80,19 @@ async def ensure_plugin_loaded(update: Update):
     if plugin_instance.plugin is None:
         try:
             current = await get_active_llm()
-            await plugin_instance.load_plugin(current, notify_fn=telegram_notify)
-        except Exception:  # pragma: no cover - runtime safeguard
-            pass
+            if current:
+                await plugin_instance.load_plugin(current, notify_fn=telegram_notify)
+        except Exception as e:  # pragma: no cover - runtime safeguard
+            log_warning(f"[telegram_interface] Failed to autoload LLM: {e}")
         if plugin_instance.plugin is None:
-            log_error("No LLM plugin loaded.")
-            from core.notifier import notify_trainer
-            notify_trainer("⚠️ No LLM plugin active. Use /llm to select one.")
-            return False
+            try:
+                await plugin_instance.load_plugin("manual", notify_fn=telegram_notify)
+                log_warning("[telegram_interface] Falling back to ManualAIPlugin")
+            except Exception:
+                log_error("No LLM plugin loaded.")
+                from core.notifier import notify_trainer
+                notify_trainer("⚠️ No LLM plugin active. Use /llm to select one.")
+                return False
     return True
 
 def resolve_forwarded_target(message):
