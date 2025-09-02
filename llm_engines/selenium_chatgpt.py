@@ -13,6 +13,11 @@ import logging
 from collections import defaultdict
 from typing import Optional, Dict
 import subprocess
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover - fallback if python-dotenv not installed
+    def load_dotenv(*args, **kwargs):
+        return False
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -36,6 +41,9 @@ from core.logging_utils import log_debug, log_error, log_warning, log_info, _LOG
 from core.notifier import set_notifier
 import core.recent_chats as recent_chats
 from core.ai_plugin_base import AIPluginBase
+
+# Load environment variables for root password and other settings
+load_dotenv()
 
 # ChatLinkStore: gestisce la mappatura tra le chat dell'interfaccia e le conversazioni ChatGPT
 from core.chat_link_store import ChatLinkStore
@@ -1403,6 +1411,24 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             log_debug(f"[selenium] Lock file cleanup failed: {e}")
 
         log_debug("[selenium] Chromium lock cleanup complete")
+        try:
+            root_pwd = os.getenv("ROOT_PASSWORD")
+            if not root_pwd:
+                log_debug("[selenium] ROOT_PASSWORD not set; skipping /config permission reset")
+            else:
+                cmds = [
+                    ["chown", "-R", "abc:abc", "/config"],
+                    ["chmod", "ug+rwx", "-R", "/config"],
+                ]
+                for cmd in cmds:
+                    subprocess.run(
+                        ["sudo", "-S", *cmd],
+                        input=f"{root_pwd}\n",
+                        text=True,
+                        check=False,
+                    )
+        except Exception as e:
+            log_debug(f"[selenium] Failed to reset /config permissions: {e}")
 
     # [FIX] ensure the WebDriver session is alive before use
     def _get_driver(self):
