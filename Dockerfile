@@ -51,7 +51,9 @@ RUN ARCH="${TARGETARCH}" && \
     echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://deb.debian.org/debian bookworm main" > /etc/apt/sources.list.d/debian-chromium.list && \
     echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://security.debian.org/debian-security bookworm-security main" >> /etc/apt/sources.list.d/debian-chromium.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends chromium chromium-driver && \
+    CHROMIUM_VERSION=$(apt-cache policy chromium | awk '/Candidate:/ {print $2}') && \
+    apt-get install -y --no-install-recommends chromium=$CHROMIUM_VERSION chromium-driver=$CHROMIUM_VERSION && \
+    apt-mark hold chromium chromium-driver && \
     rm -f /etc/apt/sources.list.d/debian-chromium.list && \
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
     chromium --version
@@ -59,7 +61,7 @@ RUN ARCH="${TARGETARCH}" && \
 # Prepare chrome profile folder
 RUN mkdir -p '/config/.config/chromium-rfp' && \
     chown -R abc:abc /config && \
-    chmod -R 755 /config
+    chmod -R 775 /config
 
 # Install XFCE4 desktop environment
 RUN apt-get update && \
@@ -125,6 +127,14 @@ RUN chmod +x /etc/s6-overlay/s6-rc.d/websockify/run && \
     mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
     echo websockify > /etc/s6-overlay/s6-rc.d/user/contents.d/websockify && \
     chown -R abc:abc /etc/s6-overlay/s6-rc.d/websockify
+
+# Fix permissions on /config at startup
+COPY s6-services/fix-config-perms /etc/s6-overlay/s6-rc.d/fix-config-perms
+RUN chmod +x /etc/s6-overlay/s6-rc.d/fix-config-perms/up && \
+    echo 'oneshot' > /etc/s6-overlay/s6-rc.d/fix-config-perms/type && \
+    mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
+    echo fix-config-perms > /etc/s6-overlay/s6-rc.d/user/contents.d/fix-config-perms && \
+    chown -R abc:abc /etc/s6-overlay/s6-rc.d/fix-config-perms
 
 # Set permissions for abc user
 # Note: abc user home is /config

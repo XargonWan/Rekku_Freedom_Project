@@ -5,15 +5,24 @@ import os
 import tempfile
 import time
 import shutil
+import re
+import subprocess
 from typing import Any, Dict, List, Tuple
 
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.service import Service
 
 from core.core_initializer import core_initializer, register_plugin
-from core.logging_utils import log_debug, log_error, log_info, log_warning
+from core.logging_utils import (
+    log_debug,
+    log_error,
+    log_info,
+    log_warning,
+    _LOG_DIR,
+)
 
 # Optional imports with fallbacks for test environments
 try:
@@ -122,16 +131,35 @@ class SeleniumElevenLabsPlugin:
             }
             options.add_experimental_option("prefs", prefs)
 
+            os.makedirs(_LOG_DIR, exist_ok=True)
+            chromium_log = os.path.join(_LOG_DIR, "chromium.log")
+            chromedriver_log = os.path.join(_LOG_DIR, "chromedriver.log")
+            service = Service(log_path=chromedriver_log, service_args=["--verbose"])
+            options.add_argument("--enable-logging")
+            options.add_argument("--log-level=0")
+            options.add_argument(f"--log-file={chromium_log}")
+            log_debug(
+                f"[selenium_elevenlabs] Chromium log -> {chromium_log}, chromedriver log -> {chromedriver_log}"
+            )
+
             chromium_binary = (
                 shutil.which("chromium")
                 or shutil.which("chromium-browser")
                 or "/usr/bin/chromium"
             )
             log_debug(f"[selenium_elevenlabs] Using Chromium binary: {chromium_binary}")
+            try:
+                output = subprocess.check_output([chromium_binary, "--version"], text=True)
+                match = re.search(r"(\d+)\.", output)
+                chromium_major = int(match.group(1)) if match else None
+            except Exception:
+                chromium_major = None
             driver = uc.Chrome(
                 options=options,
+                service=service,
                 headless=False,
                 use_subprocess=False,
+                version_main=chromium_major,
                 browser_executable_path=chromium_binary,
             )
             wait = WebDriverWait(driver, 60)

@@ -1251,6 +1251,53 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
                     # Create Chromium options optimized for container environments
                     options = uc.ChromeOptions()
+
+                    # Configure Chromium/chromedriver logging based on LOGGING_LEVEL
+                    os.makedirs(_LOG_DIR, exist_ok=True)
+                    log_path = os.path.join(_LOG_DIR, "chromium.log")
+                    service_log_path = os.path.join(_LOG_DIR, "chromedriver.log")
+                    service = Service(log_path=service_log_path, service_args=["--verbose"])
+                    log_debug(
+                        f"[selenium] Chromium log -> {log_path}, chromedriver log -> {service_log_path}"
+                    )
+
+                    logging_level = os.getenv("LOGGING_LEVEL", "ERROR").upper()
+                    level_map = {"DEBUG": 0, "INFO": 0, "WARNING": 1, "ERROR": 2, "CRITICAL": 2}
+                    chromium_level = level_map.get(logging_level, 2)
+
+                    # Essential options for Docker containers
+                    essential_args = [
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-setuid-sandbox",
+                        "--disable-gpu",
+                        "--disable-software-rasterizer",
+                        "--disable-extensions",
+                        "--disable-web-security",
+                        "--start-maximized",
+                        "--no-first-run",
+                        "--disable-default-apps",
+                        "--disable-popup-blocking",
+                        "--disable-infobars",
+                        "--disable-background-timer-throttling",
+                        "--disable-backgrounding-occluded-windows",
+                        "--disable-renderer-backgrounding",
+                        "--memory-pressure-off",
+                        "--disable-features=VizDisplayCompositor",
+                        "--enable-logging",
+                        f"--log-level={chromium_level}",
+                        f"--log-file={log_path}",
+                        "--remote-debugging-port=0",
+                        "--disable-background-mode",
+                        "--disable-default-browser-check",
+                        "--disable-hang-monitor",
+                        "--disable-prompt-on-repost",
+                        "--disable-sync",
+                        "--metrics-recording-only",
+                        "--no-default-browser-check",
+                        "--safebrowsing-disable-auto-update",
+                        "--disable-client-side-phishing-detection",
+                    ]
                     for arg in essential_args:
                         options.add_argument(arg)
                     options.add_argument(f"--user-data-dir={profile_dir}")
@@ -1318,7 +1365,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                     fallback_options.add_argument(arg)
                                 fallback_options.add_argument(f"--user-data-dir={profile_dir}")
                                 log_debug(
-                                    f"[selenium] Calling {chromium_binary} {' '.join(fallback_options.arguments)}"
+                                    f"[selenium] Calling chromium with command: {chromium_binary} {' '.join(fallback_options.arguments)}"
                                 )
                                 self.driver = uc.Chrome(
                                     options=fallback_options,
@@ -1349,7 +1396,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                         fallback_options.add_argument(arg)
                                     fallback_options.add_argument(f"--user-data-dir={profile_dir}")
                                     log_debug(
-                                        f"[selenium] Calling {chromium_binary} {' '.join(fallback_options.arguments)}"
+                                        f"[selenium] Calling chromium with command: {chromium_binary} {' '.join(fallback_options.arguments)}"
                                     )
                                     self.driver = uc.Chrome(
                                         options=fallback_options,
@@ -1401,7 +1448,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             log_debug(f"[selenium] Failed to kill chromium processes: {e}")
 
         try:
-            import glob
             patterns = []
             if self.instance_id:
                 patterns.append(f"/tmp/.org.chromium.*{self.instance_id}*")
@@ -1479,9 +1525,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except Exception:
             current_url = ""
         log_debug(f"[selenium] [STEP] Checking login state at {current_url}")
-        if current_url and ("login" in current_url or "auth0" in current_url):
-            log_debug("[selenium] Login required, notifying user")
-            _notify_gui("🔐 Login required. Open")
+        reason = self._detect_cloudflare_or_login()
+        if reason:
+            log_debug(f"[selenium] Interstitial detected: {reason}")
+            _notify_gui(f"🔐 {reason}. Open UI")
             return False
         log_debug("[selenium] Logged in and ready")
         return True
@@ -1566,9 +1613,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 chat_url = f"https://chat.openai.com/c/{chat_id}"
                 try:
                     driver.get(chat_url)
-                    WebDriverWait(driver, 5).until(
-                        EC.presence_of_element_located((By.ID, "prompt-textarea"))
-                    )
+                    if not self._wait_for_ui_ready_or_intervention(timeout=120):
+                        log_warning("[selenium] ChatGPT UI not ready after loading existing chat")
+                        _notify_gui("\u274c ChatGPT UI not ready. Open UI")
+                        return
                     log_debug(f"[selenium] Successfully accessed existing chat: {chat_id}")
                 except Exception as e:
                     log_warning(f"[selenium] Existing chat {chat_id} no longer accessible: {e}")
@@ -1588,9 +1636,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             if not chat_id:
                 try:
                     driver.get("https://chat.openai.com")
-                    WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.TAG_NAME, "main"))
-                    )
+                    if not self._wait_for_ui_ready_or_intervention(timeout=180):
+                        log_warning("[selenium][ERROR] ChatGPT UI failed to become ready")
+                        _notify_gui("\u274c Selenium error: ChatGPT UI not ready. Open UI")
+                        return
                 except Exception:
                     log_warning("[selenium][ERROR] ChatGPT UI failed to load")
                     _notify_gui("\u274c Selenium error: ChatGPT UI not ready. Open UI")
