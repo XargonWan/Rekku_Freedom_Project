@@ -73,7 +73,7 @@ RUN apt-get update && \
       mousepad \
       ristretto \
       adwaita-icon-theme \
-      adwaita-gtk3-theme \
+      adw-gtk3 \
       util-linux \
       dbus-x11 \
       at-spi2-core \
