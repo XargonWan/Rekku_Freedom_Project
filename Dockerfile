@@ -51,7 +51,9 @@ RUN ARCH="${TARGETARCH}" && \
     echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://deb.debian.org/debian bookworm main" > /etc/apt/sources.list.d/debian-chromium.list && \
     echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://security.debian.org/debian-security bookworm-security main" >> /etc/apt/sources.list.d/debian-chromium.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends chromium chromium-driver && \
+    CHROMIUM_VERSION=$(apt-cache policy chromium | awk '/Candidate:/ {print $2}') && \
+    apt-get install -y --no-install-recommends chromium=$CHROMIUM_VERSION chromium-driver=$CHROMIUM_VERSION && \
+    apt-mark hold chromium chromium-driver && \
     rm -f /etc/apt/sources.list.d/debian-chromium.list && \
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
     chromium --version

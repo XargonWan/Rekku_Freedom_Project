@@ -5,6 +5,8 @@ import os
 import tempfile
 import time
 import shutil
+import re
+import subprocess
 from typing import Any, Dict, List, Tuple
 
 import undetected_chromedriver as uc
@@ -128,10 +130,17 @@ class SeleniumElevenLabsPlugin:
                 or "/usr/bin/chromium"
             )
             log_debug(f"[selenium_elevenlabs] Using Chromium binary: {chromium_binary}")
+            try:
+                output = subprocess.check_output([chromium_binary, "--version"], text=True)
+                match = re.search(r"(\d+)\.", output)
+                chromium_major = int(match.group(1)) if match else None
+            except Exception:
+                chromium_major = None
             driver = uc.Chrome(
                 options=options,
                 headless=False,
                 use_subprocess=False,
+                version_main=chromium_major,
                 browser_executable_path=chromium_binary,
             )
             wait = WebDriverWait(driver, 60)

@@ -1231,12 +1231,13 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
                     # Try with explicit Chromium binary
                     chromium_binary = self._locate_chromium_binary()
+                    chromium_major = self._get_chromium_major_version(chromium_binary)
                     self.driver = uc.Chrome(
                         options=options,
                         service=service,
                         headless=False,
                         use_subprocess=False,
-                        version_main=None,  # Auto-detect Chromium version
+                        version_main=chromium_major,  # Pin driver to Chromium major version
                         suppress_welcome=True,
                         log_level=int(chromium_level),
                         driver_executable_path=None,  # Let UC handle chromedriver
