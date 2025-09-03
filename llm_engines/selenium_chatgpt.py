@@ -1313,10 +1313,15 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     log_debug(
                         f"[selenium] Calling {chromium_binary} {' '.join(options.arguments)}"
                     )
+                    headless_env = os.getenv("CHROMIUM_HEADLESS", "0").lower()
+                    headless = headless_env in ("1", "true", "yes")
+                    log_debug(
+                        f"[selenium] Headless mode {'enabled' if headless else 'disabled'}"
+                    )
                     self.driver = uc.Chrome(
                         options=options,
                         service=service,
-                        headless=False,
+                        headless=headless,
                         use_subprocess=True,
                         version_main=chromium_major,
                         suppress_welcome=True,

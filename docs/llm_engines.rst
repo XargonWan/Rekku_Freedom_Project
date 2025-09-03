@@ -9,12 +9,12 @@ Available Engines
 * ``manual`` – forward prompts to a human trainer (no configuration).
 * ``openai_chatgpt`` – access OpenAI's ChatGPT API.  Set ``OPENAI_API_KEY`` and optional ``CHATGPT_MODEL``.
 * ``google_cli`` – use Google's Gemini via the ``gemini`` command-line client.  Requires ``GEMINI_API_KEY`` and the ``gemini`` tool.
-* ``selenium_chatgpt`` – drive a browser session of ChatGPT.  Use ``REKKU_SELENIUM_HEADLESS`` and ``CHATGPT_MODEL``; ``WEBVIEW_HOST``/``WEBVIEW_PORT`` expose the desktop.
+* ``selenium_chatgpt`` – drive a browser session of ChatGPT.  Use ``CHROMIUM_HEADLESS`` and ``CHATGPT_MODEL``; ``WEBVIEW_HOST``/``WEBVIEW_PORT`` expose the desktop.
 
 Selenium ChatGPT
 ----------------
 
-The ``selenium_chatgpt`` plugin drives a real ChatGPT session using a browser. A manual login is required the first time.  Set ``CHATGPT_MODEL`` to pick a model and ``REKKU_SELENIUM_HEADLESS=0`` to view the browser. ``WEBVIEW_HOST`` and ``WEBVIEW_PORT`` determine the remote desktop address.
+The ``selenium_chatgpt`` plugin drives a real ChatGPT session using a browser. A manual login is required the first time.  Set ``CHATGPT_MODEL`` to pick a model and ``CHROMIUM_HEADLESS=0`` (default) to view the browser. ``WEBVIEW_HOST`` and ``WEBVIEW_PORT`` determine the remote desktop address.
 
 Steps:
 
