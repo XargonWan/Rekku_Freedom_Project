@@ -1722,19 +1722,21 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         )
                     queue_paused = False
 
-                if not response_text:
-                    response_text = json.dumps({"actions": []})
+                if response_text is None:
+                    response_text = ""
 
-                send_params = {
-                    "chat_id": message.chat_id,
+                payload = {
                     "text": response_text,
+                    "target": message.chat_id,
                 }
-                reply_id = getattr(message, "message_id", None)
-                if reply_id is not None:
-                    send_params["reply_to_message_id"] = reply_id
                 if message_thread_id is not None:
-                    send_params["message_thread_id"] = message_thread_id
-                await bot.send_message(**send_params)
+                    payload["message_thread_id"] = message_thread_id
+
+                try:
+                    await bot.send_message(payload, message)
+                except TypeError:
+                    # Some interfaces expect parameters directly
+                    await bot.send_message(**payload)
                 log_debug(
                     f"[selenium][STEP] response forwarded to {message.chat_id}"
                 )

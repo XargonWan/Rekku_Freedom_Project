@@ -144,8 +144,36 @@ class DiscordInterface:
 
         return errors
 
-    async def send_message(self, channel_id, text):
-        """Send a message to a Discord channel."""
+    async def send_message(self, channel_id=None, text=None, **kwargs):
+        """Send a message to a Discord channel.
+
+        Supports multiple calling conventions:
+        - send_message(channel_id, text)
+        - send_message(chat_id=..., text=...)
+        - send_message({"target": ..., "text": ...})
+        """
+        if isinstance(channel_id, dict):
+            payload = channel_id
+            text = payload.get("text", text)
+            channel_id = (
+                payload.get("target")
+                or payload.get("channel_id")
+                or payload.get("chat_id")
+            )
+        else:
+            if channel_id is None:
+                channel_id = (
+                    kwargs.get("channel_id")
+                    or kwargs.get("chat_id")
+                    or kwargs.get("target")
+                )
+            if text is None:
+                text = kwargs.get("text")
+
+        if channel_id is None or text is None:
+            log_warning("[discord_interface] Missing channel_id or text in send_message")
+            return
+
         try:
             await universal_send(self._discord_send, channel_id, text=text)
             log_debug(f"[discord_interface] Message sent to {channel_id}: {text}")

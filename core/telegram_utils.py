@@ -155,14 +155,21 @@ async def send_with_thread_fallback(
             log_error(f"[telegram_utils] Invalid chat_id format: {chat_id}")
             return
 
-    send_kwargs = {"chat_id": chat_id, "text": text, **kwargs}
+    send_kwargs = {**kwargs}
     if message_thread_id is not None:
-        send_kwargs["message_thread_id"] = message_thread_id  # fixed: correct param is message_thread_id
+        send_kwargs["message_thread_id"] = message_thread_id
     if reply_to_message_id is not None:
         send_kwargs["reply_to_message_id"] = reply_to_message_id
 
+    from core.transport_layer import telegram_safe_send
+
     try:
-        message = await bot.send_message(**send_kwargs)
+        message = await telegram_safe_send(
+            bot,
+            chat_id,
+            text,
+            **send_kwargs,
+        )
         log_info(
             f"[telegram_utils] Message sent to {chat_id}"
             f" (thread: {message_thread_id}, reply_message_id: {reply_to_message_id})"
@@ -176,45 +183,24 @@ async def send_with_thread_fallback(
             )
             raise
 
-        # Retry without parse_mode if Markdown/HTML entities are malformed
-        if "can't parse entities" in error_message.lower() and send_kwargs.get("parse_mode"):
-            log_warning(
-                f"[telegram_utils] Parse error with parse_mode={send_kwargs['parse_mode']}; retrying without parse_mode"
-            )
-            send_kwargs.pop("parse_mode", None)
-            try:
-                message = await bot.send_message(**send_kwargs)
-                log_info(
-                    f"[telegram_utils] Message sent to {chat_id} without parse_mode"
-                )
-                return message
-            except Exception as e2:
-                error_message = str(e2)
-
         if message_thread_id and "thread not found" in error_message.lower():
             log_warning(
                 f"[telegram_utils] Thread {message_thread_id} not found; retrying without thread"
             )
             send_kwargs.pop("message_thread_id", None)
-            try:
-                message = await bot.send_message(**send_kwargs)
-                log_info(
-                    f"[telegram_utils] Message sent to {chat_id} without thread"
-                )
-                return message
-            except Exception as no_thread_error:
-                log_error(
-                    f"[telegram_utils] Fallback without thread failed: {no_thread_error}"
-                )
-                raise
-        else:
-            log_error(
-                f"[telegram_utils] Failed to send to {chat_id} (thread {message_thread_id}): {repr(e)}"
+            message = await telegram_safe_send(bot, chat_id, text, **send_kwargs)
+            log_info(
+                f"[telegram_utils] Message sent to {chat_id} without thread"
             )
-            raise
+            return message
+
+        log_error(
+            f"[telegram_utils] Failed to send to {chat_id} (thread {message_thread_id}): {repr(e)}"
+        )
+        raise
 
     if fallback_chat_id and fallback_chat_id != chat_id:
-        fallback_kwargs = {"chat_id": fallback_chat_id, "text": text, **kwargs}
+        fallback_kwargs = {**kwargs}
         if fallback_message_thread_id is not None:
             fallback_kwargs["message_thread_id"] = fallback_message_thread_id
         if fallback_reply_to_message_id is not None:
@@ -222,15 +208,11 @@ async def send_with_thread_fallback(
         log_debug(
             f"[telegram_utils] Retrying in fallback chat {fallback_chat_id}"
         )
-        try:
-            message = await bot.send_message(**fallback_kwargs)
-            log_info(
-                f"[telegram_utils] Message sent to fallback chat {fallback_chat_id}"
-            )
-            return message
-        except Exception as fallback_error:
-            log_error(
-                f"[telegram_utils] Final fallback failed: {fallback_error}"
-            )
-            raise
+        message = await telegram_safe_send(
+            bot, fallback_chat_id, text, **fallback_kwargs
+        )
+        log_info(
+            f"[telegram_utils] Message sent to fallback chat {fallback_chat_id}"
+        )
+        return message
     return None
