@@ -1519,6 +1519,37 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     return None
         return self.driver
 
+    def _detect_cloudflare_or_login(self) -> Optional[str]:
+        """Check the current page for Cloudflare or login interstitials.
+
+        Returns a short description string if an interstitial requiring
+        user action is detected, otherwise ``None``.
+        """
+        if not self.driver:
+            return "Browser not started"
+        try:
+            url = (self.driver.current_url or "").lower()
+            page = (self.driver.page_source or "").lower()
+        except Exception as e:
+            log_warning(f"[selenium] Unable to inspect page: {e}")
+            return None
+
+        # Detect Cloudflare challenge pages
+        cloudflare_markers = ["cloudflare", "cdn-cgi", "checking if the site connection is secure"]
+        if any(marker in url for marker in cloudflare_markers) or any(
+            marker in page for marker in cloudflare_markers
+        ):
+            return "Cloudflare challenge"
+
+        # Detect login pages
+        login_markers = ["login", "signin", "auth0"]
+        if any(marker in url for marker in login_markers) or (
+            "sign in" in page or "log in" in page
+        ):
+            return "Login required"
+
+        return None
+
     def _ensure_logged_in(self):
         try:
             current_url = self.driver.current_url
