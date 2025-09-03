@@ -73,7 +73,7 @@ RUN apt-get update && \
       mousepad \
       ristretto \
       adwaita-icon-theme \
-      adw-gtk3 \
+      # adw-gtk3 \ # cannot find package
       util-linux \
       dbus-x11 \
       at-spi2-core \
