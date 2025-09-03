@@ -1251,6 +1251,53 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
                     # Create Chromium options optimized for container environments
                     options = uc.ChromeOptions()
+
+                    # Configure Chromium/chromedriver logging based on LOGGING_LEVEL
+                    os.makedirs(_LOG_DIR, exist_ok=True)
+                    log_path = os.path.join(_LOG_DIR, "chromium.log")
+                    service_log_path = os.path.join(_LOG_DIR, "chromedriver.log")
+                    service = Service(log_path=service_log_path, service_args=["--verbose"])
+                    log_debug(
+                        f"[selenium] Chromium log -> {log_path}, chromedriver log -> {service_log_path}"
+                    )
+
+                    logging_level = os.getenv("LOGGING_LEVEL", "ERROR").upper()
+                    level_map = {"DEBUG": 0, "INFO": 0, "WARNING": 1, "ERROR": 2, "CRITICAL": 2}
+                    chromium_level = level_map.get(logging_level, 2)
+
+                    # Essential options for Docker containers
+                    essential_args = [
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-setuid-sandbox",
+                        "--disable-gpu",
+                        "--disable-software-rasterizer",
+                        "--disable-extensions",
+                        "--disable-web-security",
+                        "--start-maximized",
+                        "--no-first-run",
+                        "--disable-default-apps",
+                        "--disable-popup-blocking",
+                        "--disable-infobars",
+                        "--disable-background-timer-throttling",
+                        "--disable-backgrounding-occluded-windows",
+                        "--disable-renderer-backgrounding",
+                        "--memory-pressure-off",
+                        "--disable-features=VizDisplayCompositor",
+                        "--enable-logging",
+                        f"--log-level={chromium_level}",
+                        f"--log-file={log_path}",
+                        "--remote-debugging-port=0",
+                        "--disable-background-mode",
+                        "--disable-default-browser-check",
+                        "--disable-hang-monitor",
+                        "--disable-prompt-on-repost",
+                        "--disable-sync",
+                        "--metrics-recording-only",
+                        "--no-default-browser-check",
+                        "--safebrowsing-disable-auto-update",
+                        "--disable-client-side-phishing-detection",
+                    ]
                     for arg in essential_args:
                         options.add_argument(arg)
                     options.add_argument(f"--user-data-dir={profile_dir}")
@@ -1318,7 +1365,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                     fallback_options.add_argument(arg)
                                 fallback_options.add_argument(f"--user-data-dir={profile_dir}")
                                 log_debug(
-                                    f"[selenium] Calling {chromium_binary} {' '.join(fallback_options.arguments)}"
+                                    f"[selenium] Calling chromium with command: {chromium_binary} {' '.join(fallback_options.arguments)}"
                                 )
                                 self.driver = uc.Chrome(
                                     options=fallback_options,
@@ -1349,7 +1396,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                         fallback_options.add_argument(arg)
                                     fallback_options.add_argument(f"--user-data-dir={profile_dir}")
                                     log_debug(
-                                        f"[selenium] Calling {chromium_binary} {' '.join(fallback_options.arguments)}"
+                                        f"[selenium] Calling chromium with command: {chromium_binary} {' '.join(fallback_options.arguments)}"
                                     )
                                     self.driver = uc.Chrome(
                                         options=fallback_options,

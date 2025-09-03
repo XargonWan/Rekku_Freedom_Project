@@ -29,4 +29,7 @@ done
 
 echo "[S6 Rekku] Avvio Rekku Freedom Project..."
 cd /app
-exec s6-setuidgid abc env HOME="$ABC_HOME" XDG_CONFIG_HOME="$XDG_CONFIG_HOME" /usr/local/bin/rekku.sh run
+LOG_DIR=/app/logs
+mkdir -p "$LOG_DIR"
+chown "$ABC_UID:$ABC_GID" "$LOG_DIR" || true
+exec s6-setuidgid abc env HOME="$ABC_HOME" XDG_CONFIG_HOME="$XDG_CONFIG_HOME" LOG_DIR="$LOG_DIR" /usr/local/bin/rekku.sh run
