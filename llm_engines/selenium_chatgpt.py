@@ -36,7 +36,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from urllib3.exceptions import ReadTimeoutError
 
 
-# Funzioni e classi locali
+# Local functions and classes
 from core.logging_utils import log_debug, log_error, log_warning, log_info, _LOG_DIR
 from core.notifier import set_notifier
 import core.recent_chats as recent_chats
@@ -45,10 +45,11 @@ from core.ai_plugin_base import AIPluginBase
 # Load environment variables for root password and other settings
 load_dotenv()
 
-# ChatLinkStore: gestisce la mappatura tra le chat dell'interfaccia e le conversazioni ChatGPT
+# ChatLinkStore: manages mapping between interface chats and ChatGPT conversations
 from core.chat_link_store import ChatLinkStore
+from core.telegram_utils import safe_send
 
-# Fallback per notify_trainer se il modulo core.notifier non è disponibile
+# Fallback for notify_trainer when core.notifier module is unavailable
 def notify_trainer(message: str) -> None:
     """Best-effort trainer notification used during tests.
 
@@ -555,7 +556,7 @@ def _notify_gui(message: str = ""):
     """Send a notification with the VNC URL, optionally prefixed."""
     url = _build_vnc_url()
     text = f"{message} {url}".strip()
-    log_debug(f"[selenium] Invio notifica VNC: {text}")
+    log_debug(f"[selenium] Sending VNC notification: {text}")
     _safe_notify(text)
 
 
@@ -1529,27 +1530,39 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except Exception:
             current_url = ""
         log_debug(f"[selenium] [STEP] Checking login state at {current_url}")
-        try:
-            self.driver.find_element(By.TAG_NAME, "textarea")
-            log_debug("[selenium] Logged in and ready")
-            return True
-        except Exception:
-            _notify_gui("🔐 Login or challenge detected. Open UI")
+
+        if not current_url.startswith("https://chat.openai.com") and not current_url.startswith("https://chatgpt.com"):
+            try:
+                self.driver.get("https://chat.openai.com")
+                current_url = self.driver.current_url
+            except Exception as e:
+                log_warning(f"[selenium] Failed to navigate to ChatGPT home: {e}")
+
+        if current_url and ("login" in current_url or "auth0" in current_url):
+            log_debug("[selenium] Login required, notifying user")
+            _notify_gui("🔐 Login required. Open UI")
             return False
+
+        log_debug("[selenium] Logged in and ready")
+        return True
 
     async def _send_error_message(self, bot, message, error_text="😵‍💫"):
         """Send an error message to the chat."""
-        send_params = {
-            "chat_id": message.chat_id,
-            "text": error_text,
-        }
+        send_params = {"chat_id": message.chat_id, "text": error_text}
         reply_id = getattr(message, "message_id", None)
         if reply_id is not None:
             send_params["reply_to_message_id"] = reply_id
         message_thread_id = getattr(message, "message_thread_id", None)
         if message_thread_id is not None:
             send_params["message_thread_id"] = message_thread_id
-        await bot.send_message(**send_params)
+
+        interface_name = (
+            bot.get_interface_id() if hasattr(bot, "get_interface_id") else ""
+        )
+        if interface_name == "telegram_bot":
+            await safe_send(bot, **send_params)
+        else:
+            await bot.send_message(**send_params)
         log_debug(
             f"[selenium][STEP] error response forwarded to {message.chat_id}"
         )
@@ -1725,18 +1738,27 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 if response_text is None:
                     response_text = ""
 
-                payload = {
-                    "text": response_text,
-                    "target": message.chat_id,
-                }
-                if message_thread_id is not None:
-                    payload["message_thread_id"] = message_thread_id
+                interface_name = (
+                    bot.get_interface_id() if hasattr(bot, "get_interface_id") else ""
+                )
+                if interface_name == "telegram_bot":
+                    await safe_send(
+                        bot,
+                        chat_id=message.chat_id,
+                        text=response_text,
+                        reply_to_message_id=getattr(message, "message_id", None),
+                        message_thread_id=message_thread_id,
+                        event_id=getattr(message, "event_id", None),
+                    )
+                else:
+                    payload = {"text": response_text, "target": message.chat_id}
+                    if message_thread_id is not None:
+                        payload["message_thread_id"] = message_thread_id
+                    try:
+                        await bot.send_message(payload, message)
+                    except TypeError:
+                        await bot.send_message(**payload)
 
-                try:
-                    await bot.send_message(payload, message)
-                except TypeError:
-                    # Some interfaces expect parameters directly
-                    await bot.send_message(**payload)
                 log_debug(
                     f"[selenium][STEP] response forwarded to {message.chat_id}"
                 )
