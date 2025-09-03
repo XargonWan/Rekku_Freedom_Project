@@ -61,7 +61,7 @@ RUN ARCH="${TARGETARCH}" && \
 # Prepare chrome profile folder
 RUN mkdir -p '/config/.config/chromium-rfp' && \
     chown -R abc:abc /config && \
-    chmod -R 755 /config
+    chmod -R 775 /config
 
 # Install XFCE4 desktop environment
 RUN apt-get update && \
@@ -127,6 +127,14 @@ RUN chmod +x /etc/s6-overlay/s6-rc.d/websockify/run && \
     mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
     echo websockify > /etc/s6-overlay/s6-rc.d/user/contents.d/websockify && \
     chown -R abc:abc /etc/s6-overlay/s6-rc.d/websockify
+
+# Fix permissions on /config at startup
+COPY s6-services/fix-config-perms /etc/s6-overlay/s6-rc.d/fix-config-perms
+RUN chmod +x /etc/s6-overlay/s6-rc.d/fix-config-perms/run && \
+    echo 'oneshot' > /etc/s6-overlay/s6-rc.d/fix-config-perms/type && \
+    mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
+    echo fix-config-perms > /etc/s6-overlay/s6-rc.d/user/contents.d/fix-config-perms && \
+    chown -R abc:abc /etc/s6-overlay/s6-rc.d/fix-config-perms
 
 # Set permissions for abc user
 # Note: abc user home is /config
