@@ -1519,6 +1519,46 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     return None
         return self.driver
 
+    def _detect_cloudflare_or_login(self) -> str:
+        """Detect Cloudflare challenges or login screens.
+
+        Returns a human readable reason if an interstitial page is detected,
+        otherwise returns an empty string.  This prevents caller code from
+        failing when the expected method is missing and allows the caller to
+        notify the user when manual intervention is required.
+        """
+
+        if not self.driver:
+            return "WebDriver not initialized"
+
+        try:
+            page_source = (self.driver.page_source or "").lower()
+            current_url = self.driver.current_url
+        except Exception as e:
+            log_warning(f"[selenium] Unable to inspect page: {e}")
+            return ""
+
+        # Detect common Cloudflare interstitial markers
+        if (
+            "cloudflare" in page_source
+            and (
+                "attention required" in page_source
+                or "cf-browser-verification" in page_source
+                or "just a moment" in page_source
+            )
+        ):
+            return "Cloudflare challenge"
+
+        # Detect login pages based on url or page content
+        if (
+            "login" in current_url.lower()
+            or "log in" in page_source
+            or "sign in" in page_source
+        ):
+            return "Login page"
+
+        return ""
+
     def _ensure_logged_in(self):
         try:
             current_url = self.driver.current_url

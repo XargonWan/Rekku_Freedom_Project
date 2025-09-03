@@ -4,16 +4,13 @@
 mkdir -p /app/logs
 
 # Wait for the X server to become available before launching Selkies.
-# When Selkies starts too early pynput fails to connect to the display
-# which causes an ImportError and the service restarts in a loop.
-if [ -n "${DISPLAY}" ]; then
-  for _ in $(seq 1 30); do
-    if xset q >/dev/null 2>&1; then
-      break
-    fi
-    sleep 1
-  done
-fi
+# When Selkies starts too early pynput fails to connect to the display which
+# causes an ImportError and the service restarts in a loop.
+# Always default to :0 and block until the display is responsive.
+export DISPLAY="${DISPLAY:-:0}"
+while ! xset q >/dev/null 2>&1; do
+  sleep 1
+done
 
 # Some environments disallow X MIT-SHM attachments; disable XShm in capture to avoid BadAccess
 export PIXELFLUX_USE_XSHM=0
