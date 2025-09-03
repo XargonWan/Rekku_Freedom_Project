@@ -43,7 +43,8 @@ def extract_json_from_text(text: str, processed_messages: set = None):
         processed_messages: A set to track already processed messages
         
     Returns:
-        A Python dictionary, list, or None if no valid JSON is found.
+        A Python dictionary, list, or None if no valid JSON is found. Any
+        non-JSON text before or after the first JSON block is ignored.
     """
     global LAST_JSON_ERROR_INFO
     LAST_JSON_ERROR_INFO = None
@@ -98,13 +99,13 @@ def extract_json_from_text(text: str, processed_messages: set = None):
 
         decoder = json.JSONDecoder()
 
-        # First, attempt to parse the entire text strictly
+        # First, attempt to parse the entire text.  If extra characters follow
+        # a valid JSON block, simply warn and return the parsed object.
         try:
             obj, end = decoder.raw_decode(text)
             remainder = text[end:].strip()
             if remainder:
                 log_warning("[extract_json_from_text] Extra content detected after JSON block")
-                raise json.JSONDecodeError("Extra data", text, end)
             return obj
         except json.JSONDecodeError:
             pass
@@ -124,7 +125,6 @@ def extract_json_from_text(text: str, processed_messages: set = None):
             suffix = text[obj_end:].strip()
             if prefix or suffix:
                 log_warning("[extract_json_from_text] Extra content detected around JSON block")
-                raise json.JSONDecodeError("Extra data", text, obj_end)
             return obj
         
         # Scan for JSON arrays starting from each '['
@@ -139,7 +139,6 @@ def extract_json_from_text(text: str, processed_messages: set = None):
             suffix = text[obj_end:].strip()
             if prefix or suffix:
                 log_warning("[extract_json_from_text] Extra content detected around JSON block")
-                raise json.JSONDecodeError("Extra data", text, obj_end)
             return obj
 
         # Handle additional cases where JSON is embedded in text
@@ -156,7 +155,6 @@ def extract_json_from_text(text: str, processed_messages: set = None):
                     suffix = text[obj_end:].strip()
                     if prefix or suffix:
                         log_warning("[extract_json_from_text] Extra content detected around JSON block")
-                        raise json.JSONDecodeError("Extra data", text, obj_end)
                     return obj
 
         # Log a warning if no JSON is found
