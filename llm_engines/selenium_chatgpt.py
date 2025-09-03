@@ -1537,6 +1537,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 current_url = self.driver.current_url
             except Exception as e:
                 log_warning(f"[selenium] Failed to navigate to ChatGPT home: {e}")
+            if not current_url.startswith(("https://chat.openai.com", "https://chatgpt.com")):
+                _notify_gui("🔐 Login or challenge detected. Open UI")
+                return False
 
         if current_url and ("login" in current_url or "auth0" in current_url):
             log_debug("[selenium] Login required, notifying user")
@@ -1739,8 +1742,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     response_text = ""
 
                 # Detect interface type for dispatch
-                module_name = getattr(bot.__class__, "__module__", "")
-                if module_name.startswith("telegram"):
+                interface_name = (
+                    bot.get_interface_id() if hasattr(bot, "get_interface_id") else ""
+                )
+                if interface_name == "telegram_bot":
                     await safe_send(
                         bot,
                         chat_id=message.chat_id,
@@ -1754,9 +1759,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     if message_thread_id is not None:
                         payload["message_thread_id"] = message_thread_id
                     try:
-                        await bot.send_message(payload)
+                        await bot.send_message(payload, message)
                     except TypeError:
-                        await bot.send_message(**payload)
+                        await bot.send_message(payload)
 
                 log_debug(
                     f"[selenium][STEP] response forwarded to {message.chat_id}"
