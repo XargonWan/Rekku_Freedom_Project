@@ -1564,6 +1564,22 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         log_debug("[selenium] Logged in and ready")
         return True
 
+    def _wait_for_ui_ready_or_intervention(self, timeout: int = 120) -> bool:
+        """Wait until ChatGPT UI is ready or a manual intervention is needed."""
+        end_time = time.time() + timeout
+        while time.time() < end_time:
+            reason = self._detect_cloudflare_or_login()
+            if reason:
+                log_warning(f"[selenium] {reason} detected while waiting for UI")
+                _notify_gui(f"🔐 {reason}. Open UI")
+                return False
+            try:
+                self.driver.find_element(By.TAG_NAME, "textarea")
+                return True
+            except Exception:
+                time.sleep(1)
+        return False
+
     async def _send_error_message(self, bot, message, error_text="😵‍💫"):
         """Send an error message to the chat."""
         send_params = {
@@ -1585,7 +1601,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         """Send the prompt to ChatGPT and forward the response."""
         log_debug(f"[selenium][STEP] processing prompt: {prompt}")
 
-        for attempt in range(2):
+        max_attempts = 3
+        for attempt in range(max_attempts):
             driver = self._get_driver()
             if not driver:
                 log_error("[selenium] WebDriver unavailable, aborting")
@@ -1606,7 +1623,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     return
 
             if not self._ensure_logged_in():
-                return
+                if attempt == max_attempts - 1:
+                    await self._send_error_message(bot, message)
+                    return
+                time.sleep(2 * (attempt + 1))
+                continue
 
             log_debug("[selenium][STEP] ensuring ChatGPT is accessible")
 
@@ -1646,8 +1667,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     driver.get(chat_url)
                     if not self._wait_for_ui_ready_or_intervention(timeout=120):
                         log_warning("[selenium] ChatGPT UI not ready after loading existing chat")
-                        _notify_gui("\u274c ChatGPT UI not ready. Open UI")
-                        return
+                        if attempt == max_attempts - 1:
+                            _notify_gui("\u274c ChatGPT UI not ready. Open UI")
+                            await self._send_error_message(bot, message)
+                            return
+                        time.sleep(2 * (attempt + 1))
+                        continue
                     log_debug(f"[selenium] Successfully accessed existing chat: {chat_id}")
                 except Exception as e:
                     log_warning(f"[selenium] Existing chat {chat_id} no longer accessible: {e}")
@@ -1669,12 +1694,20 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     driver.get("https://chat.openai.com")
                     if not self._wait_for_ui_ready_or_intervention(timeout=180):
                         log_warning("[selenium][ERROR] ChatGPT UI failed to become ready")
-                        _notify_gui("\u274c Selenium error: ChatGPT UI not ready. Open UI")
-                        return
+                        if attempt == max_attempts - 1:
+                            _notify_gui("\u274c Selenium error: ChatGPT UI not ready. Open UI")
+                            await self._send_error_message(bot, message)
+                            return
+                        time.sleep(2 * (attempt + 1))
+                        continue
                 except Exception:
                     log_warning("[selenium][ERROR] ChatGPT UI failed to load")
-                    _notify_gui("\u274c Selenium error: ChatGPT UI not ready. Open UI")
-                    return
+                    if attempt == max_attempts - 1:
+                        _notify_gui("\u274c Selenium error: ChatGPT UI not ready. Open UI")
+                        await self._send_error_message(bot, message)
+                        return
+                    time.sleep(2 * (attempt + 1))
+                    continue
 
             try:
                 if chat_id:
