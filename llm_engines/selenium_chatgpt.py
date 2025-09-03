@@ -1157,8 +1157,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
             # Ensure DISPLAY is set
             if not os.environ.get("DISPLAY"):
-                os.environ["DISPLAY"] = ":1"
-                log_debug("[selenium] DISPLAY not set, defaulting to :1")
+                os.environ["DISPLAY"] = ":0"
+                log_debug("[selenium] DISPLAY not set, defaulting to :0")
 
             # Precompute logging and service configuration so they remain available
             chromium_level = os.environ.get("CHROMIUM_LOG_LEVEL", "1")
@@ -1216,7 +1216,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 "--enable-logging",
                 f"--v={chromium_level}",
                 "--remote-debugging-port=0",
-                "--headless=new",
                 "--disable-background-mode",
                 "--disable-default-browser-check",
                 "--disable-hang-monitor",
@@ -1314,10 +1313,15 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     log_debug(
                         f"[selenium] Calling {chromium_binary} {' '.join(options.arguments)}"
                     )
+                    headless_env = os.getenv("CHROMIUM_HEADLESS", "0").lower()
+                    headless = headless_env in ("1", "true", "yes")
+                    log_debug(
+                        f"[selenium] Headless mode {'enabled' if headless else 'disabled'}"
+                    )
                     self.driver = uc.Chrome(
                         options=options,
                         service=service,
-                        headless=True,
+                        headless=headless,
                         use_subprocess=True,
                         version_main=chromium_major,
                         suppress_welcome=True,
@@ -1370,7 +1374,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                 self.driver = uc.Chrome(
                                     options=fallback_options,
                                     service=service,
-                                    headless=True,
+                                    headless=False,
                                     use_subprocess=True,
                                     version_main=chromium_major,
                                     suppress_welcome=True,
@@ -1401,7 +1405,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                     self.driver = uc.Chrome(
                                         options=fallback_options,
                                         service=service,
-                                        headless=True,
+                                        headless=False,
                                         use_subprocess=True,
                                         version_main=chromium_major,
                                         suppress_welcome=True,
@@ -1525,13 +1529,13 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         except Exception:
             current_url = ""
         log_debug(f"[selenium] [STEP] Checking login state at {current_url}")
-        reason = self._detect_cloudflare_or_login()
-        if reason:
-            log_debug(f"[selenium] Interstitial detected: {reason}")
-            _notify_gui(f"🔐 {reason}. Open UI")
+        try:
+            self.driver.find_element(By.TAG_NAME, "textarea")
+            log_debug("[selenium] Logged in and ready")
+            return True
+        except Exception:
+            _notify_gui("🔐 Login or challenge detected. Open UI")
             return False
-        log_debug("[selenium] Logged in and ready")
-        return True
 
     async def _send_error_message(self, bot, message, error_text="😵‍💫"):
         """Send an error message to the chat."""
@@ -1554,7 +1558,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         """Send the prompt to ChatGPT and forward the response."""
         log_debug(f"[selenium][STEP] processing prompt: {prompt}")
 
-        for attempt in range(2):
+        max_attempts = 3
+        for attempt in range(max_attempts):
             driver = self._get_driver()
             if not driver:
                 log_error("[selenium] WebDriver unavailable, aborting")
@@ -1575,7 +1580,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     return
 
             if not self._ensure_logged_in():
-                return
+                if attempt == max_attempts - 1:
+                    await self._send_error_message(bot, message)
+                    return
+                time.sleep(2 * (attempt + 1))
+                continue
 
             log_debug("[selenium][STEP] ensuring ChatGPT is accessible")
 
@@ -1613,11 +1622,18 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 chat_url = f"https://chat.openai.com/c/{chat_id}"
                 try:
                     driver.get(chat_url)
-                    if not self._wait_for_ui_ready_or_intervention(timeout=120):
-                        log_warning("[selenium] ChatGPT UI not ready after loading existing chat")
-                        _notify_gui("\u274c ChatGPT UI not ready. Open UI")
-                        return
+                    WebDriverWait(driver, 120).until(
+                        EC.presence_of_element_located((By.TAG_NAME, "textarea"))
+                    )
                     log_debug(f"[selenium] Successfully accessed existing chat: {chat_id}")
+                except TimeoutException:
+                    log_warning("[selenium] ChatGPT UI not ready after loading existing chat")
+                    if attempt == max_attempts - 1:
+                        _notify_gui("\u274c ChatGPT UI not ready. Open UI")
+                        await self._send_error_message(bot, message)
+                        return
+                    time.sleep(2 * (attempt + 1))
+                    continue
                 except Exception as e:
                     log_warning(f"[selenium] Existing chat {chat_id} no longer accessible: {e}")
                     log_info(f"[selenium] Creating new chat to replace inaccessible chat {chat_id}")
@@ -1636,14 +1652,25 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             if not chat_id:
                 try:
                     driver.get("https://chat.openai.com")
-                    if not self._wait_for_ui_ready_or_intervention(timeout=180):
-                        log_warning("[selenium][ERROR] ChatGPT UI failed to become ready")
+                    WebDriverWait(driver, 180).until(
+                        EC.presence_of_element_located((By.TAG_NAME, "textarea"))
+                    )
+                except TimeoutException:
+                    log_warning("[selenium][ERROR] ChatGPT UI failed to become ready")
+                    if attempt == max_attempts - 1:
                         _notify_gui("\u274c Selenium error: ChatGPT UI not ready. Open UI")
+                        await self._send_error_message(bot, message)
                         return
+                    time.sleep(2 * (attempt + 1))
+                    continue
                 except Exception:
                     log_warning("[selenium][ERROR] ChatGPT UI failed to load")
-                    _notify_gui("\u274c Selenium error: ChatGPT UI not ready. Open UI")
-                    return
+                    if attempt == max_attempts - 1:
+                        _notify_gui("\u274c Selenium error: ChatGPT UI not ready. Open UI")
+                        await self._send_error_message(bot, message)
+                        return
+                    time.sleep(2 * (attempt + 1))
+                    continue
 
             try:
                 if chat_id:
