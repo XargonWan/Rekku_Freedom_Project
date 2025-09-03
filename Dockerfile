@@ -130,7 +130,7 @@ RUN chmod +x /etc/s6-overlay/s6-rc.d/websockify/run && \
 
 # Fix permissions on /config at startup
 COPY s6-services/fix-config-perms /etc/s6-overlay/s6-rc.d/fix-config-perms
-RUN chmod +x /etc/s6-overlay/s6-rc.d/fix-config-perms/run && \
+RUN chmod +x /etc/s6-overlay/s6-rc.d/fix-config-perms/up && \
     echo 'oneshot' > /etc/s6-overlay/s6-rc.d/fix-config-perms/type && \
     mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
     echo fix-config-perms > /etc/s6-overlay/s6-rc.d/user/contents.d/fix-config-perms && \
