@@ -1169,11 +1169,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     # Create Chromium options optimized for container environments
                     options = uc.ChromeOptions()
 
-                    # Configure Chromium logging based on LOGGING_LEVEL
-                    log_path = "/app/logs/chromium.log"
-                    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                    service_log_path = "/app/logs/undetected_chromedriver.log"
-                    service = Service(log_path=service_log_path)
+                    # Configure Chromium/chromedriver logging based on LOGGING_LEVEL
+                    os.makedirs(_LOG_DIR, exist_ok=True)
+                    log_path = os.path.join(_LOG_DIR, "chromium.log")
+                    service_log_path = os.path.join(_LOG_DIR, "chromedriver.log")
+                    service = Service(log_path=service_log_path, service_args=["--verbose"])
+                    log_debug(
+                        f"[selenium] Chromium log -> {log_path}, chromedriver log -> {service_log_path}"
+                    )
 
                     logging_level = os.getenv("LOGGING_LEVEL", "ERROR").upper()
                     level_map = {"DEBUG": 0, "INFO": 0, "WARNING": 1, "ERROR": 2, "CRITICAL": 2}
@@ -1200,7 +1203,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "--disable-features=VizDisplayCompositor",
                         "--enable-logging",
                         f"--log-level={chromium_level}",
-                        f"--log-path={log_path}",
+                        f"--log-file={log_path}",
                         "--remote-debugging-port=0",
                         "--disable-background-mode",
                         "--disable-default-browser-check",
