@@ -156,7 +156,13 @@ class TestTransportLayerRetry(unittest.TestCase):
         result = extract_json_from_text(chatgpt_text)
         self.assertIsNotNone(result)
         self.assertEqual(result["type"], "message")
-        
+
+        # Test with "json\nCopy code\n" prefix
+        chatgpt_copycode = 'json\nCopy code\n{"type": "message", "payload": {"text": "Hello"}}'
+        result = extract_json_from_text(chatgpt_copycode)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["type"], "message")
+
         # Test with just "json\n" prefix
         simple_json_text = 'json\n{"type": "bash", "payload": {"command": "ls"}}'
         result = extract_json_from_text(simple_json_text)

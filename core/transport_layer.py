@@ -84,17 +84,17 @@ def extract_json_from_text(text: str, processed_messages: set = None):
             )
             return None
         
-        # Handle the common ChatGPT pattern: "json\nCopy\nEdit\n{...}"
-        if text.startswith("json\nCopy\nEdit\n"):
-            text = text[len("json\nCopy\nEdit\n"):].strip()
-            log_debug("[extract_json_from_text] Removed ChatGPT prefix 'json\\nCopy\\nEdit\\n'")
-        elif text.startswith("json\n"):
-            # Also handle just "json\n" prefix
+        # Handle common ChatGPT prefixes like "json\nCopy code\n{...}" or
+        # "json\nCopy\nEdit\n{...}" by removing the leading non-JSON lines.
+        if text.startswith("json\n"):
             lines = text.split('\n')
-            if len(lines) >= 4 and lines[1].strip() in ['Copy', ''] and lines[2].strip() in ['Edit', '']:
-                # Skip the first 3-4 lines that contain json/Copy/Edit
-                text = '\n'.join(lines[3:]).strip()
-                log_debug("[extract_json_from_text] Removed ChatGPT prefix lines")
+            # Drop the leading "json" line
+            lines = lines[1:]
+            # Skip optional helper lines such as "Copy", "Edit", or "Copy code"
+            while lines and lines[0].strip().lower() in ("copy", "edit", "copy code"):
+                lines = lines[1:]
+            text = '\n'.join(lines).strip()
+            log_debug("[extract_json_from_text] Removed ChatGPT prefix lines")
 
         decoder = json.JSONDecoder()
 
