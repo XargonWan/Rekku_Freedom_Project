@@ -1738,10 +1738,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 if response_text is None:
                     response_text = ""
 
-                interface_name = (
-                    bot.get_interface_id() if hasattr(bot, "get_interface_id") else ""
-                )
-                if interface_name == "telegram_bot":
+                # Detect interface type for dispatch
+                module_name = getattr(bot.__class__, "__module__", "")
+                if module_name.startswith("telegram"):
                     await safe_send(
                         bot,
                         chat_id=message.chat_id,
@@ -1751,11 +1750,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         event_id=getattr(message, "event_id", None),
                     )
                 else:
-                    payload = {"text": response_text, "target": message.chat_id}
+                    payload = {"target": message.chat_id, "text": response_text}
                     if message_thread_id is not None:
                         payload["message_thread_id"] = message_thread_id
                     try:
-                        await bot.send_message(payload, message)
+                        await bot.send_message(payload)
                     except TypeError:
                         await bot.send_message(**payload)
 
