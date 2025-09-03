@@ -71,6 +71,10 @@ RUN apt-get update && \
       xfce4-terminal \
       thunar \
       mousepad \
+      ristretto \
+      adwaita-icon-theme \
+      adwaita-gtk3-theme \
+      util-linux \
       dbus-x11 \
       at-spi2-core \
       pulseaudio \
@@ -89,8 +93,8 @@ RUN python3 -m venv /app/venv && \
 
 # Copy essential scripts
 COPY automation_tools/cleanup_chrome.sh /usr/local/bin/cleanup_chrome.sh
-COPY automation_tools/container_rekku.sh /usr/local/bin/rekku.sh
-RUN chmod +x /usr/local/bin/cleanup_chrome.sh /usr/local/bin/rekku.sh
+COPY automation_tools/container_rekku.sh /app/rekku.sh
+RUN chmod +x /usr/local/bin/cleanup_chrome.sh /app/rekku.sh
 
 # Copy project code last to leverage layer caching
 COPY . /app
@@ -103,7 +107,7 @@ RUN echo "$GITVERSION_TAG" > /app/version.txt && \
     echo "Building with tag: $GITVERSION_TAG"
 
 # Create S6 service for Rekku
-COPY s6-services/rekku /etc/s6-overlay/s6-rc.d/rekku
+COPY webtop/s6-services/rekku /etc/s6-overlay/s6-rc.d/rekku
 RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
     mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
     echo rekku > /etc/s6-overlay/s6-rc.d/user/contents.d/rekku && \
@@ -113,7 +117,7 @@ RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
 RUN echo xfce4-session > /config/desktop-session
 
 # Copy S6 Rekku service
-COPY s6-services/rekku /etc/s6-overlay/s6-rc.d/rekku
+COPY webtop/s6-services/rekku /etc/s6-overlay/s6-rc.d/rekku
 RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
     echo 'longrun' > /etc/s6-overlay/s6-rc.d/rekku/type && \
     mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
@@ -121,20 +125,27 @@ RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
     chown -R abc:abc /etc/s6-overlay/s6-rc.d/rekku
 
 # Copy S6 Websockify service for Selkies
-COPY s6-services/websockify /etc/s6-overlay/s6-rc.d/websockify
+COPY webtop/s6-services/websockify /etc/s6-overlay/s6-rc.d/websockify
 RUN chmod +x /etc/s6-overlay/s6-rc.d/websockify/run && \
     echo 'longrun' > /etc/s6-overlay/s6-rc.d/websockify/type && \
     mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
     echo websockify > /etc/s6-overlay/s6-rc.d/user/contents.d/websockify && \
     chown -R abc:abc /etc/s6-overlay/s6-rc.d/websockify
 
-# Fix permissions on /config at startup
-COPY s6-services/fix-config-perms /etc/s6-overlay/s6-rc.d/fix-config-perms
-RUN chmod +x /etc/s6-overlay/s6-rc.d/fix-config-perms/up && \
-    echo 'oneshot' > /etc/s6-overlay/s6-rc.d/fix-config-perms/type && \
-    mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
-    echo fix-config-perms > /etc/s6-overlay/s6-rc.d/user/contents.d/fix-config-perms && \
-    chown -R abc:abc /etc/s6-overlay/s6-rc.d/fix-config-perms
+# Do Webtop cleanup and tweaks
+RUN mv \
+    /usr/bin/thunar \
+    /usr/bin/thunar-real && \
+  echo "**** cleanup ****" && \
+  rm -f \
+    /etc/xdg/autostart/xfce4-power-manager.desktop \
+    /etc/xdg/autostart/xscreensaver.desktop \
+    /usr/share/xfce4/panel/plugins/power-manager-plugin.desktop && \
+  rm -rf \
+    /tmp/*
+
+# Copy the root folder (used by original webtop, without chromium: https://github.com/linuxserver/docker-webtop/blob/master/Dockerfile)
+COPY webtop/root /
 
 # Set permissions for abc user
 # Note: abc user home is /config

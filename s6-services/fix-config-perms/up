@@ -1,2 +1,0 @@
-#!/usr/bin/with-contenv bash
-chmod -R 775 /config
