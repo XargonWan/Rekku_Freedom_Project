@@ -1175,6 +1175,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     service_log_path = "/app/logs/undetected_chromedriver.log"
                     service = Service(log_path=service_log_path)
 
+                    logging_level = os.getenv("LOGGING_LEVEL", "ERROR").upper()
+                    level_map = {"DEBUG": 0, "INFO": 0, "WARNING": 1, "ERROR": 2, "CRITICAL": 2}
+                    chromium_level = level_map.get(logging_level, 2)
+
                     # Essential options for Docker containers
                     essential_args = [
                         "--no-sandbox",
