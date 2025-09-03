@@ -1160,6 +1160,89 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 os.environ["DISPLAY"] = ":1"
                 log_debug("[selenium] DISPLAY not set, defaulting to :1")
 
+            # Precompute logging and service configuration so they remain available
+            chromium_level = os.environ.get("CHROMIUM_LOG_LEVEL", "1")
+            log_dir = "/app/logs"
+            os.makedirs(log_dir, exist_ok=True)
+            chromium_log_path = os.path.join(log_dir, "chromium.log")
+            uc_log_path = os.path.join(log_dir, "undetected_chromedriver.log")
+            selenium_log_path = os.path.join(log_dir, "selenium.log")
+            service = Service(log_path=uc_log_path)
+
+            # Ensure Chromium writes verbose logs to the desired location
+            os.environ["CHROME_LOG_FILE"] = chromium_log_path
+            log_debug(
+                f"[selenium] Chromium logs directed to {chromium_log_path} with verbosity {chromium_level}"
+            )
+
+            # Configure Python logging for selenium and undetected-chromedriver modules
+            formatter = logging.Formatter(
+                "[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
+                "%Y-%m-%d %H:%M:%S",
+            )
+            for name, path in (
+                ("selenium", selenium_log_path),
+                ("undetected_chromedriver", uc_log_path),
+            ):
+                logger = logging.getLogger(name)
+                if not any(
+                    isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == path
+                    for h in logger.handlers
+                ):
+                    fh = logging.FileHandler(path)
+                    fh.setFormatter(formatter)
+                    logger.addHandler(fh)
+                logger.setLevel(logging.DEBUG)
+
+            # Essential Chromium arguments reused across attempts
+            essential_args = [
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-setuid-sandbox",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                "--disable-extensions",
+                "--disable-web-security",
+                "--start-maximized",
+                "--no-first-run",
+                "--disable-default-apps",
+                "--disable-popup-blocking",
+                "--disable-infobars",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--memory-pressure-off",
+                "--disable-features=VizDisplayCompositor",
+                "--enable-logging",
+                f"--v={chromium_level}",
+                "--remote-debugging-port=0",
+                "--headless=new",
+                "--disable-background-mode",
+                "--disable-default-browser-check",
+                "--disable-hang-monitor",
+                "--disable-prompt-on-repost",
+                "--disable-sync",
+                "--metrics-recording-only",
+                "--no-default-browser-check",
+                "--safebrowsing-disable-auto-update",
+                "--disable-client-side-phishing-detection",
+            ]
+
+            # Use a shared profile directory to maintain login sessions
+            config_home = os.getenv(
+                "XDG_CONFIG_HOME",
+                os.path.join(os.path.expanduser("~"), ".config"),
+            )
+            profile_dir = os.path.join(config_home, "chromium-rfp")
+            self.profile_dir = profile_dir
+
+            chromium_binary = self._locate_chromium_binary()
+            chromium_major = self._get_chromium_major_version(chromium_binary)
+            if chromium_major:
+                log_debug(f"[selenium] Detected Chromium major version {chromium_major}")
+            else:
+                log_warning("[selenium] Could not detect Chromium version; using default driver")
+
             # Try multiple times with increasing delays
             max_retries = 3
             for attempt in range(max_retries):
@@ -1215,17 +1298,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         "--safebrowsing-disable-auto-update",
                         "--disable-client-side-phishing-detection",
                     ]
-
                     for arg in essential_args:
                         options.add_argument(arg)
-
-                    # Use a shared profile directory to maintain login sessions
-                    config_home = os.getenv(
-                        "XDG_CONFIG_HOME",
-                        os.path.join(os.path.expanduser("~"), ".config"),
-                    )
-                    profile_dir = os.path.join(config_home, "chromium-rfp")
-                    self.profile_dir = profile_dir
                     options.add_argument(f"--user-data-dir={profile_dir}")
 
                     # Clear any existing driver cache
@@ -1237,17 +1311,15 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         log_debug("[selenium] Cleared undetected-chromedriver cache")
 
                     # Try with explicit Chromium binary
-                    chromium_binary = self._locate_chromium_binary()
                     log_debug(
-                        f"[selenium] Calling chromium with command: {chromium_binary} {' '.join(options.arguments)}"
+                        f"[selenium] Calling {chromium_binary} {' '.join(options.arguments)}"
                     )
-                    chromium_major = self._get_chromium_major_version(chromium_binary)
                     self.driver = uc.Chrome(
                         options=options,
                         service=service,
-                        headless=False,
-                        use_subprocess=False,
-                        version_main=chromium_major,  # Pin driver to Chromium major version
+                        headless=True,
+                        use_subprocess=True,
+                        version_main=chromium_major,
                         suppress_welcome=True,
                         log_level=int(chromium_level),
                         driver_executable_path=None,  # Let UC handle chromedriver
@@ -1298,9 +1370,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                 self.driver = uc.Chrome(
                                     options=fallback_options,
                                     service=service,
-                                    headless=False,
-                                    use_subprocess=False,
-                                    version_main=None,
+                                    headless=True,
+                                    use_subprocess=True,
+                                    version_main=chromium_major,
                                     suppress_welcome=True,
                                     log_level=int(chromium_level),
                                     browser_executable_path=chromium_binary,
@@ -1329,9 +1401,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                     self.driver = uc.Chrome(
                                         options=fallback_options,
                                         service=service,
-                                        headless=False,
-                                        use_subprocess=False,
-                                        version_main=None,
+                                        headless=True,
+                                        use_subprocess=True,
+                                        version_main=chromium_major,
                                         suppress_welcome=True,
                                         log_level=int(chromium_level),
                                         browser_executable_path=chromium_binary,
@@ -1401,6 +1473,24 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             log_debug(f"[selenium] Lock file cleanup failed: {e}")
 
         log_debug("[selenium] Chromium lock cleanup complete")
+        try:
+            root_pwd = os.getenv("ROOT_PASSWORD")
+            if not root_pwd:
+                log_debug("[selenium] ROOT_PASSWORD not set; skipping /config permission reset")
+            else:
+                cmds = [
+                    ["chown", "-R", "abc:abc", "/config"],
+                    ["chmod", "ug+rwx", "-R", "/config"],
+                ]
+                for cmd in cmds:
+                    subprocess.run(
+                        ["sudo", "-S", *cmd],
+                        input=f"{root_pwd}\n",
+                        text=True,
+                        check=False,
+                    )
+        except Exception as e:
+            log_debug(f"[selenium] Failed to reset /config permissions: {e}")
 
     # [FIX] ensure the WebDriver session is alive before use
     def _get_driver(self):
