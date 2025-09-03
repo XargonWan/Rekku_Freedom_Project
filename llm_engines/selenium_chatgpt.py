@@ -1559,10 +1559,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         if message_thread_id is not None:
             send_params["message_thread_id"] = message_thread_id
 
-        interface_name = (
-            bot.get_interface_id() if hasattr(bot, "get_interface_id") else ""
-        )
-        if interface_name == "telegram_bot":
+        module_name = getattr(bot.__class__, "__module__", "")
+        if module_name.startswith("telegram"):
             await safe_send(bot, **send_params)
         else:
             await bot.send_message(**send_params)
@@ -1604,9 +1602,13 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
             log_debug("[selenium][STEP] ensuring ChatGPT is accessible")
 
-            interface_name = (
-                bot.get_interface_id() if hasattr(bot, "get_interface_id") else "generic"
-            )
+            module_name = getattr(bot.__class__, "__module__", "")
+            if module_name.startswith("telegram"):
+                interface_name = "telegram"
+            elif hasattr(bot, "get_interface_id"):
+                interface_name = bot.get_interface_id()
+            else:
+                interface_name = "generic"
             message_thread_id = getattr(message, "message_thread_id", None)
             chat_id = await chat_link_store.get_link(
                 message.chat_id, message_thread_id, interface=interface_name
@@ -1742,10 +1744,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     response_text = ""
 
                 # Detect interface type for dispatch
-                interface_name = (
-                    bot.get_interface_id() if hasattr(bot, "get_interface_id") else ""
-                )
-                if interface_name == "telegram_bot":
+                module_name = getattr(bot.__class__, "__module__", "")
+                if module_name.startswith("telegram"):
                     await safe_send(
                         bot,
                         chat_id=message.chat_id,
@@ -1758,10 +1758,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     payload = {"target": message.chat_id, "text": response_text}
                     if message_thread_id is not None:
                         payload["message_thread_id"] = message_thread_id
-                    try:
-                        await bot.send_message(payload, message)
-                    except TypeError:
-                        await bot.send_message(payload)
+                    await bot.send_message(payload)
 
                 log_debug(
                     f"[selenium][STEP] response forwarded to {message.chat_id}"
