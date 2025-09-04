@@ -843,7 +843,7 @@ async def start_bot():
 class TelegramInterface:
     """Interface wrapper providing a standard send_message method for Telegram."""
 
-    def __init__(self, bot: Bot):
+    def __init__(self, bot: Bot = None):
         """Store the python-telegram-bot ``Bot`` instance."""
         self.bot = bot
         # setattr(self.bot, "get_interface_id", self.get_interface_id)
@@ -866,6 +866,10 @@ class TelegramInterface:
             return {"chat_name": chat_name, "message_thread_name": thread_name}
 
         ChatLinkStore.set_name_resolver("telegram", _resolver)
+
+        # Register this interface instance
+        from core.core_initializer import register_interface
+        register_interface("telegram_bot", self)
 
     @staticmethod
     def get_interface_id() -> str:
@@ -1189,6 +1193,8 @@ class TelegramInterface:
             chat_id, message_thread_id, bot=self.bot
         )
 
+        chat_id_int = target_for_comparison
+
         reply_message_id = None
         if (
             original_message
@@ -1354,6 +1360,7 @@ class TelegramInterface:
         self, action: dict, context: dict, bot: Any, original_message: object | None = None
     ) -> None:
         """Execute actions for this interface."""
+        self.bot = bot  # Set the bot instance
         action_type = action.get("type")
         if action_type == "message_telegram_bot":
             payload = action.get("payload", {})
