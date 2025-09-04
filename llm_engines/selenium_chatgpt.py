@@ -652,7 +652,7 @@ def process_prompt_in_chat(
     # dialog. Dismiss it if present before looking for the textarea.
 
     log_info(f"[chatgpt_model] Ensuring model {CHATGPT_MODEL} is active")
-    if not ensure_chatgpt_model(driver):
+    if not select_chatgpt_model(driver):
         log_warning(f"[chatgpt_model] Failed to ensure model {CHATGPT_MODEL}")
 
     try:
@@ -851,188 +851,77 @@ def process_prompt_in_chat(
     # return response_text.strip()
 
 
-# Funzione di selezione modello ChatGPT
-CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "GPT-4o")
+"""Model selection helpers."""
+
+CHATGPT_MODEL = os.environ.get("CHATGPT_MODEL")
 
 
-def _locate_model_switcher(driver, timeout: int = 5):
-    """Return the model switcher button using current DOM selectors.
+def select_chatgpt_model(driver) -> bool:
+    """Seleziona il modello di ChatGPT in base alla variabile ``CHATGPT_MODEL``.
 
-    The ChatGPT interface recently switched to Radix-generated element IDs,
-    so we try the previous ``data-testid`` selector first and fall back to
-    a more generic XPath search based on the ``radix-`` prefix.
+    Returns ``True`` if the model is selected successfully, ``False`` otherwise.
+    ``RuntimeError`` is raised if ``CHATGPT_MODEL`` is missing.
     """
+
+    target_model = os.environ.get("CHATGPT_MODEL")
+    if not target_model:
+        raise RuntimeError("La variabile d'ambiente CHATGPT_MODEL non è definita")
+
+    log_debug(f"[chatgpt_model] attempting to select '{target_model}'")
+
     try:
-        return WebDriverWait(driver, timeout).until(
+        selector = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, "button[data-testid='model-switcher-dropdown-button']")
+                (By.CSS_SELECTOR, "button[aria-label='Model picker'],button[data-qa='model-switcher']")
             )
         )
-    except TimeoutException:
-        log_debug("[chatgpt_model] Falling back to Radix model switcher selector")
-        return WebDriverWait(driver, timeout).until(
-            EC.element_to_be_clickable(
-                (
-                    By.XPATH,
-                    "//button[starts-with(@id,'radix-') and contains(@aria-label,'model')]",
-                )
-            )
+        log_debug("[chatgpt_model] picker button located, clicking")
+        selector.click()
+
+        WebDriverWait(driver, 10).until(
+            EC.visibility_of_element_located((By.CSS_SELECTOR, "div[role='menu']"))
         )
+        time.sleep(0.5)
+        log_debug("[chatgpt_model] model menu visible")
 
-
-def ensure_chatgpt_model(driver):
-    """Ensure the desired ChatGPT model is active before sending a prompt."""
-    log_info(f"[chatgpt_model] Verifying active model matches {CHATGPT_MODEL}")
-    max_retries = 3
-    for retry in range(max_retries):
-        try:
-            log_debug("[chatgpt_model] Locating model switcher button")
-            switcher_btn = _locate_model_switcher(driver)
-            aria_label = switcher_btn.get_attribute("aria-label") or ""
-            log_debug(f"[chatgpt_model] switcher aria-label: {aria_label}")
-            match = re.search(r"current model is\s*(.*)", aria_label)
-            active_model = match.group(1).strip() if match else ""
-            log_info(f"[chatgpt_model] Active model is {active_model}")
-            if active_model == CHATGPT_MODEL:
-                log_info(f"[chatgpt_model] Desired model {CHATGPT_MODEL} already active")
-                return True
-            break  # Exit retry loop if we got the info we need
-        except StaleElementReferenceException as e:
-            if retry < max_retries - 1:
-                log_debug(f"[chatgpt_model] Stale element, retry {retry + 1}/{max_retries}: {e}")
-                time.sleep(1)
-                continue
-            else:
-                log_warning(f"[chatgpt_model] Failed to get model info after {max_retries} retries")
-                return False
-        except Exception as e:
-            log_warning(f"[chatgpt_model] Error getting current model: {e}")
-            return False
-
-        log_debug("[chatgpt_model] Opening dropdown")
-        try:
-            # Re-locate switcher button to avoid stale element
-            switcher_btn = _locate_model_switcher(driver)
-            try:
-                switcher_btn.find_element(By.XPATH, "./div").click()
-            except (StaleElementReferenceException, NoSuchElementException):
-                switcher_btn.click()
-        except StaleElementReferenceException:
-            log_warning("[chatgpt_model] Switcher button became stale, retrying...")
-            switcher_btn = _locate_model_switcher(driver)
-            switcher_btn.click()
-        except Exception as e:
-            log_warning(f"[chatgpt_model] Failed to click switcher button: {e}")
-            return False
-            
-        try:
-            WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "div[role='menu']"))
-            )
-            log_debug("[chatgpt_model] Dropdown opened")
-        except TimeoutException:
-            log_warning("[chatgpt_model] Dropdown failed to open")
-            return False
-
-        try:
-            log_debug("[chatgpt_model] Searching main list for model")
-            model_elem = WebDriverWait(driver, 3).until(
-                EC.element_to_be_clickable(
-                    (By.CSS_SELECTOR, f"[data-testid='model-switcher-gpt-{CHATGPT_MODEL}']")
-                )
-            )
-            log_info(f"[chatgpt_model] Found desired model in main list: {CHATGPT_MODEL}")
-        except TimeoutException:
-            try:
-                log_debug("[chatgpt_model] Falling back to Radix selector for model option")
-                model_elem = WebDriverWait(driver, 5).until(
-                    EC.element_to_be_clickable(
-                        (
-                            By.XPATH,
-                            f"//div[starts-with(@id,'radix-')]/div//div[contains(., '{CHATGPT_MODEL}')]",
-                        )
-                    )
-                )
-                log_info(f"[chatgpt_model] Found desired model via fallback: {CHATGPT_MODEL}")
-            except Exception as e:
-                try:
-                    log_debug("[chatgpt_model] Trying nested provider list")
-                    provider_elem = WebDriverWait(driver, 2).until(
-                        EC.element_to_be_clickable((By.XPATH, "//div[@role='menu']//div[@role='menuitem'][1]"))
-                    )
-                    provider_elem.click()
-                    model_elem = WebDriverWait(driver, 5).until(
-                        EC.element_to_be_clickable(
-                            (
-                                By.XPATH,
-                                f"//div[@role='menu']//div[contains(., '{CHATGPT_MODEL}')]",
-                            )
-                        )
-                    )
-                    log_info(
-                        f"[chatgpt_model] Found desired model via nested fallback: {CHATGPT_MODEL}"
-                    )
-                except Exception as inner:
-                    log_warning(
-                        f"[chatgpt_model] Desired model {CHATGPT_MODEL} not found: {inner}"
-                    )
-                    try:
-                        items = driver.find_elements(By.CSS_SELECTOR, "div[role='menuitem']")
-                        names = [i.text for i in items]
-                        log_debug(f"[chatgpt_model] Available models: {names}")
-                    except Exception:
-                        pass
-                    return False
-
-        try:
-            log_debug("[chatgpt_model] Clicking desired model")
-            ActionChains(driver).move_to_element(model_elem).click().perform()
-            log_info(f"[chatgpt_model] Clicked on model {CHATGPT_MODEL}")
-        except StaleElementReferenceException:
-            log_warning("[chatgpt_model] Model element became stale, clicking with JS")
-            driver.execute_script("arguments[0].click();", model_elem)
-        except Exception as e:
-            log_warning(f"[chatgpt_model] Failed to click model element: {e}")
-            return False
-            
-        try:
-            # Wait and verify the model was selected
-            def check_model_selected(d):
-                try:
-                    switcher = _locate_model_switcher(d)
-                    aria_label = switcher.get_attribute("aria-label") or ""
-                    return CHATGPT_MODEL in aria_label
-                except StaleElementReferenceException:
-                    return False
-                except Exception:
-                    return False
-                    
-            WebDriverWait(driver, 5).until(check_model_selected)
-            log_info(f"[chatgpt_model] Modello selezionato: {CHATGPT_MODEL}")
+        model_elements = driver.find_elements(
+            By.XPATH,
+            f"//div[@role='menu']//span[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{target_model.lower()}')]",
+        )
+        log_debug(f"[chatgpt_model] found {len(model_elements)} matches in main menu")
+        if model_elements:
+            model_elements[0].click()
+            log_info(f"[chatgpt_model] selected model '{target_model}' from main menu")
             return True
-        except TimeoutException:
-            try:
-                new_label = _locate_model_switcher(driver).get_attribute("aria-label") or ""
-                log_warning(f"[chatgpt_model] Verifica modello fallita: {new_label}")
-            except StaleElementReferenceException:
-                log_warning("[chatgpt_model] Could not verify model selection - stale element")
-            except Exception as verify_e:
-                log_warning(f"[chatgpt_model] Could not verify model selection: {verify_e}")
-            return False
-        except Exception as click_e:
-            log_warning(f"[chatgpt_model] Error during model verification: {click_e}")
-            return False
-        log_warning(f"[chatgpt_model] Errore selezione modello: {repr(e)}")
-        try:
-            screenshots_dir = os.path.join(_LOG_DIR, "screenshots")
-            os.makedirs(screenshots_dir, exist_ok=True)
-            screenshot_path = os.path.join(screenshots_dir, "model_switch_error.png")
-            driver.save_screenshot(screenshot_path)
-            log_warning(
-                f"[chatgpt_model] Saved screenshot {screenshot_path}"
+
+        log_debug("[chatgpt_model] model not in main menu, expanding legacy")
+        legacy_toggle = driver.find_element(
+            By.XPATH,
+            "//div[@role='menu']//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'legacy')]",
+        )
+        legacy_toggle.click()
+
+        WebDriverWait(driver, 5).until(
+            EC.visibility_of_element_located(
+                (By.XPATH, "//div[@role='menu']//div[contains(., 'Legacy')]//span")
             )
-        except Exception as ss:
-            log_warning(f"[chatgpt_model] Screenshot failed: {ss}")
+        )
+        legacy_models = driver.find_elements(
+            By.XPATH,
+            f"//div[@role='menu']//span[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{target_model.lower()}')]",
+        )
+        log_debug(f"[chatgpt_model] found {len(legacy_models)} matches in legacy menu")
+        if legacy_models:
+            legacy_models[0].click()
+            log_info(f"[chatgpt_model] selected legacy model '{target_model}'")
+            return True
+
+        log_warning(f"[chatgpt_model] Il modello '{target_model}' non è stato trovato nel menu.")
+        return False
+    except Exception as e:
+        log_warning(
+            f"[chatgpt_model] Errore durante la selezione del modello '{target_model}': {e}"
+        )
         return False
 
 class SeleniumChatGPTPlugin(AIPluginBase):
