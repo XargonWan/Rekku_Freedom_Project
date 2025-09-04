@@ -52,9 +52,7 @@ NOTIFY_ERRORS_TO_INTERFACES = _parse_notify_interfaces(
 TELEGRAM_TRAINER_ID = int(os.getenv("TELEGRAM_TRAINER_ID", "0") or 0)
 if TELEGRAM_TRAINER_ID == 0:
     TELEGRAM_TRAINER_ID = NOTIFY_ERRORS_TO_INTERFACES.get("telegram_bot", 0)
-    if TELEGRAM_TRAINER_ID:
-        log_info(f"[config] TELEGRAM_TRAINER_ID resolved from NOTIFY_ERRORS_TO_INTERFACES: {TELEGRAM_TRAINER_ID}")
-    else:
+    if not TELEGRAM_TRAINER_ID:
         log_warning("[config] TELEGRAM_TRAINER_ID not configured; trainer-only commands will be rejected")
 else:
     log_info(f"[config] TELEGRAM_TRAINER_ID loaded from environment: {TELEGRAM_TRAINER_ID}")
