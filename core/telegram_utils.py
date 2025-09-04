@@ -35,7 +35,8 @@ async def _send_with_retry(
     if bot is None:
         log_error("[telegram_utils] _send_with_retry called with None bot")
         return None
-    if chat_id is None or not isinstance(chat_id, int):
+    # Accept either int or str chat identifiers (some interfaces use alphanumeric ids)
+    if chat_id is None or not isinstance(chat_id, (int, str)):
         log_error("[telegram_utils] Cannot send message: chat_id is invalid")
         return None
     
@@ -97,7 +98,8 @@ async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retrie
     if bot is None:
         log_error("[telegram_utils] safe_send called with None bot")
         return None
-    if chat_id is None or not isinstance(chat_id, int):
+    # Accept either int or str chat identifiers (some interfaces use alphanumeric ids)
+    if chat_id is None or not isinstance(chat_id, (int, str)):
         log_error("[telegram_utils] Cannot send message: chat_id is invalid")
         return None
     from core.transport_layer import telegram_safe_send
@@ -163,13 +165,9 @@ async def send_with_thread_fallback(
         log_error("[telegram_utils] send_with_thread_fallback called with None bot")
         return
 
-    # Convert string chat_id to integer if needed
-    if isinstance(chat_id, str):
-        try:
-            chat_id = int(chat_id)
-        except ValueError:
-            log_error(f"[telegram_utils] Invalid chat_id format: {chat_id}")
-            return
+    # Do not coerce/convert chat_id: allow string identifiers for non-Telegram
+    # interfaces (e.g., Revolt/Mastodon). Validation is handled downstream.
+    # chat_id remains as provided (int or str).
 
     send_kwargs = {**kwargs}
     if message_thread_id is not None:
