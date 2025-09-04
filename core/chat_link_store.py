@@ -52,10 +52,12 @@ class ChatLinkStore:
 
     @classmethod
     def _get_resolver(
-        cls, interface: str
+        cls, interface: Optional[str] = None
     ) -> Optional[
         Callable[[int | str, Optional[int | str], Any], Awaitable[Dict[str, Optional[str]]]]
     ]:
+        if interface is None:
+            interface = "telegram"
         return cls._name_resolvers.get(interface)
 
     # ------------------------------------------------------------------
@@ -318,11 +320,13 @@ class ChatLinkStore:
         chat_id: int | str,
         message_thread_id: Optional[int | str],
         *,
-        interface: str = "telegram",
+        interface: Optional[str] = None,
         bot: Any | None = None,
     ) -> bool:
         """Use the registered resolver to update chat/thread names."""
 
+        if interface is None:
+            interface = "telegram"
         resolver = self._get_resolver(interface)
         if not resolver:
             return False
@@ -351,7 +355,7 @@ class ChatLinkStore:
         message_thread_id: Optional[int | str] = None,
         chat_name: Optional[str] = None,
         message_thread_name: Optional[str] = None,
-        interface: str = "telegram",
+        interface: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Resolve a chat link using any combination of identifiers."""
 
@@ -359,8 +363,11 @@ class ChatLinkStore:
         conn = await get_conn()
         try:
             async with conn.cursor(aiomysql.DictCursor) as cursor:
-                clauses = ["interface = %s"]
-                params: list[Any] = [interface]
+                clauses = []
+                params: list[Any] = []
+                if interface is not None:
+                    clauses.append("interface = %s")
+                    params.append(interface)
                 if chat_id is not None:
                     clauses.append("chat_id = %s")
                     params.append(str(chat_id))
@@ -373,7 +380,7 @@ class ChatLinkStore:
                 if message_thread_name is not None:
                     clauses.append("message_thread_name = %s")
                     params.append(message_thread_name)
-                if len(clauses) == 1:
+                if not clauses:
                     return None
                 query = (
                     "SELECT chat_id, message_thread_id, link, chat_name, message_thread_name"

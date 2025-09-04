@@ -59,6 +59,7 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
             "username": message.from_user.full_name,
             "usertag": f"@{message.from_user.username}" if message.from_user.username else "(no tag)",
             "message_thread_id": message_thread_id,
+            "interface": interface_name,
         },
         "timestamp": message.date.isoformat(),
         "privacy": "default",

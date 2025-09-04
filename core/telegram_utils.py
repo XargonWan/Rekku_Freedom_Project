@@ -55,14 +55,26 @@ async def _send_with_retry(
                 await asyncio.sleep(delay)
             else:
                 print(f"[telegram retry] send_message failed after {retries} retries: {e}")
-        except Exception:
-            raise
+        except Exception as e:
+            error_message = str(e)
+            # Retry without parse_mode if Markdown/HTML entities are malformed
+            if "can't parse entities" in error_message.lower() and valid_kwargs.get("parse_mode"):
+                log_warning(
+                    f"[telegram retry] Parse error with parse_mode={valid_kwargs['parse_mode']}; retrying without parse_mode"
+                )
+                valid_kwargs.pop("parse_mode", None)
+                try:
+                    return await bot.send_message(chat_id=chat_id, text=text, **valid_kwargs)
+                except Exception as e2:
+                    raise e2
+            else:
+                raise
     trainer_id = TELEGRAM_TRAINER_ID
     if trainer_id:
         try:
             await bot.send_message(
                 chat_id=trainer_id,
-                text=f"\u274c Telegram send_message failed after {retries} retries (TimedOut)"
+                text=f"\u274c Telegram send_message failed after {retries} retries"
             )
         except Exception:
             pass
@@ -208,11 +220,14 @@ async def send_with_thread_fallback(
         log_debug(
             f"[telegram_utils] Retrying in fallback chat {fallback_chat_id}"
         )
-        message = await telegram_safe_send(
-            bot, fallback_chat_id, text, **fallback_kwargs
-        )
-        log_info(
-            f"[telegram_utils] Message sent to fallback chat {fallback_chat_id}"
-        )
-        return message
+        try:
+            message = await telegram_safe_send(bot, fallback_chat_id, text, **fallback_kwargs)
+            log_info(
+                f"[telegram_utils] Message sent to fallback chat {fallback_chat_id}"
+            )
+            return message
+        except Exception as fallback_error:
+            log_error(
+                f"[telegram_utils] Final fallback failed: {fallback_error}"
+            )
     return None
