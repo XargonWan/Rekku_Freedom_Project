@@ -184,6 +184,13 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
     if text is None:
         text = ""
 
+    # Diagnostic: log interface function and runtime send parameters
+    try:
+        bot_self = getattr(interface_send_func, '__self__', None)
+        log_debug(f"[transport] universal_send called: interface_send_func={interface_send_func} bot_self={bot_self} args={args} kwargs_keys={list(kwargs.keys())}")
+    except Exception as _:
+        log_debug("[transport] universal_send diagnostic logging failed to inspect interface_send_func")
+
     # Log LLM response for debugging
     if text:
         preview = text[:200] + "..." if len(text) > 200 else text
@@ -318,6 +325,13 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
         log_warning("[telegram_transport] telegram utilities unavailable; skipping send")
         return None
 
+    # Diagnostic: show bot and chat_id information and kwargs
+    try:
+        log_debug(f"[telegram_transport] Called with bot={repr(bot)} (type={type(bot)}), chat_id={chat_id} (type={type(chat_id)}), kwargs={kwargs}")
+    except Exception:
+        log_debug("[telegram_transport] Called with bot (repr failed), chat_id and kwargs logged separately")
+        log_debug(f"[telegram_transport] chat_id={chat_id} (type={type(chat_id)}) kwargs_keys={list(kwargs.keys())}")
+
     log_debug(f"[telegram_transport] Called with text: {text}")
 
     if 'reply_to_message_id' in kwargs and not kwargs['reply_to_message_id']:
@@ -326,7 +340,7 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
 
     # Validate chat_id first
     if chat_id is None or not isinstance(chat_id, int):
-        log_error(f"[telegram_transport] Invalid chat_id provided: {chat_id}")
+        log_error(f"[telegram_transport] Invalid chat_id provided: {chat_id} (type={type(chat_id)})")
         return None
 
     # Don't try to parse JSON from system/error messages
@@ -456,6 +470,8 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
     try:
         for i in range(0, len(text), chunk_size):
             chunk = text[i : i + chunk_size]
+            # Diagnostic: log each chunk send attempt
+            log_debug(f"[telegram_transport] Sending chunk {i//chunk_size + 1} (len={len(chunk)}) to chat_id={chat_id} kwargs={kwargs}")
             await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
     except Exception as e:
         log_error(f"[telegram_transport] Failed to send text chunks: {repr(e)}")

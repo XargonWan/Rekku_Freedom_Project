@@ -245,7 +245,15 @@ async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT
     content_type = target["type"]
 
     log_debug(f"Sending media_type={content_type} to chat_id={chat_id}, reply_message_id={reply_message_id}")
+    # Diagnostic: log detailed send_content params
+    try:
+        log_debug(f"[telegram_interface] Calling send_content with bot={repr(context.bot)}, chat_id={chat_id}, message_id={message.message_id}, content_type={content_type}, reply_message_id={reply_message_id}")
+    except Exception:
+        log_debug("[telegram_interface] Failed to repr context.bot for diagnostics")
     success, feedback = await send_content(context.bot, chat_id, message, content_type, reply_message_id)
+
+    # Diagnostic: log result from send_content
+    log_debug(f"[telegram_interface] send_content returned: success={success}, feedback={feedback}")
 
     await message.reply_text(feedback)
 
