@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timezone, timedelta
 import calendar
 import asyncio
+import time
 
 from types import SimpleNamespace
 from typing import Any
@@ -69,11 +70,22 @@ def initialize_db_logging():
 _db_initialized = False
 _db_init_lock = asyncio.Lock()
 
+# Throttle DB 'Opening connection' debug logs to at most one per X seconds
+_DB_LOG_THROTTLE_SEC = 2
+_last_db_log_time = 0
+
 async def get_conn() -> aiomysql.Connection:
     """Return an async MariaDB connection using aiomysql."""
-    log_debug(
-        f"[db] Opening connection to {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    )
+    global _last_db_log_time
+    try:
+        now = time.time()
+        if now - _last_db_log_time > _DB_LOG_THROTTLE_SEC:
+            log_debug(
+                f"[db] Opening connection to {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+            )
+            _last_db_log_time = now
+    except Exception:
+        pass
     try:
         conn = await aiomysql.connect(
             host=DB_HOST,

@@ -4,6 +4,7 @@ import os
 import re
 import asyncio
 import subprocess
+import time
 from telegram import Update, Bot
 from telegram.error import TelegramError, RetryAfter, BadRequest, TimedOut
 from telegram.ext import (
@@ -860,6 +861,13 @@ class TelegramInterface:
             b = bot_instance or self.bot
             chat_name = None
             thread_name = None
+            if b is None:
+                global _last_bot_none_lookup_log_time
+                now = time.time()
+                if now - _last_bot_none_lookup_log_time >= _bot_none_log_throttle_sec:
+                    log_warning("[telegram_interface] Bot is None, cannot lookup chat name")
+                    _last_bot_none_lookup_log_time = now
+                return {"chat_name": None, "message_thread_name": None}
             try:
                 chat = await b.getChat(chat_id)
                 chat_name = getattr(chat, "title", None) or getattr(chat, "username", None)

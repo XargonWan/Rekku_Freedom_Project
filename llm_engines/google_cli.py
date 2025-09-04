@@ -6,6 +6,7 @@ from core.ai_plugin_base import AIPluginBase
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.notifier import set_notifier
 from core.config import GEMINI_API_KEY
+from core.transport_layer import llm_to_interface
 
 class GoogleCLIPlugin(AIPluginBase):
     """
@@ -55,7 +56,20 @@ class GoogleCLIPlugin(AIPluginBase):
         """
         query = prompt.get("query") or prompt.get("text") or ""
         if not query:
-            await bot.send_message(message.chat_id, "⚠️ No query provided.")
+            try:
+                from core.transport_layer import interface_to_llm
+            except Exception:
+                interface_to_llm = None
+            if interface_to_llm is None:
+                await bot.send_message(message.chat_id, "⚠️ No query provided.")
+            else:
+                await interface_to_llm(bot.send_message, chat_id=message.chat_id, text="⚠️ No query provided.")
             return
         response = await self.generate_response([{"role": "user", "content": query}])
-        await bot.send_message(message.chat_id, response)
+        # Forward model output through the centralized LLM->interface path
+        await llm_to_interface(
+            bot.send_message,
+            chat_id=message.chat_id,
+            text=response,
+            interface='telegram' if getattr(bot.__class__, '__module__', '').startswith('telegram') else 'generic',
+        )

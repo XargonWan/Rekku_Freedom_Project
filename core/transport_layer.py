@@ -3,6 +3,8 @@
 
 import json
 import re
+import asyncio
+import contextvars
 from typing import Any, Dict, Optional
 from types import SimpleNamespace
 from core.logging_utils import log_debug, log_warning, log_error, log_info
@@ -113,7 +115,7 @@ def extract_json_from_text(text: str, processed_messages: set = None):
         # Scan greedily for JSON blocks starting from each '{'
         start_indices = [i for i, char in enumerate(text) if char == '{']
         if not start_indices:
-            log_warning("[extract_json_from_text] No starting braces found in text")
+            log_debug("[extract_json_from_text] No starting braces found in text")
             return None
         for start in start_indices:
             try:
@@ -158,7 +160,7 @@ def extract_json_from_text(text: str, processed_messages: set = None):
                     return obj
 
         # Log a warning if no JSON is found
-        log_warning("[extract_json_from_text] No valid JSON found in text")
+        log_debug("[extract_json_from_text] No valid JSON found in text")
     except json.JSONDecodeError as e:
         LAST_JSON_ERROR_INFO = _format_json_error(text, e)
         log_warning(f"[extract_json_from_text] JSON decoding error: {LAST_JSON_ERROR_INFO}")
@@ -187,8 +189,7 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
     # Diagnostic: log interface function and runtime send parameters
     try:
         bot_self = getattr(interface_send_func, '__self__', None)
-        is_llm = kwargs.get('is_llm_response', False)
-        log_debug(f"[transport] universal_send called: interface_send_func={interface_send_func} bot_self={bot_self} args={args} kwargs_keys={list(kwargs.keys())} is_llm_response={is_llm}")
+        log_debug(f"[transport] universal_send called: interface_send_func={interface_send_func} bot_self={bot_self} args={args} kwargs_keys={list(kwargs.keys())}")
     except Exception as _:
         log_debug("[transport] universal_send diagnostic logging failed to inspect interface_send_func")
 
@@ -198,7 +199,7 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
         log_info(f"[transport] 🤖 LLM Response: {preview}")
     # Flow trace: record that transport received LLM output
     try:
-        log_debug(f"[flow] transport.received -> text_len={len(text)} is_llm_response={kwargs.get('is_llm_response', False)}")
+        log_debug(f"[flow] transport.received -> text_len={len(text)}")
     except Exception:
         pass
 
@@ -208,13 +209,13 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
         log_debug(f"[transport] Detected JSON data, parsing: {json_data}")
         try:
             log_debug(f"[flow] transport.detects_json -> will attempt run_actions")
-             # Handle new nested actions format
-             if isinstance(json_data, dict) and "actions" in json_data:
-                 actions = json_data["actions"]
-                 if not isinstance(actions, list):
-                     log_warning("[transport] actions field must be a list")
-                     return await interface_send_func(*args, text=text, **kwargs)
-             # Fallback to legacy array format
+            # Handle new nested actions format
+            if isinstance(json_data, dict) and "actions" in json_data:
+                actions = json_data["actions"]
+                if not isinstance(actions, list):
+                    log_warning("[transport] actions field must be a list")
+                    return await interface_send_func(*args, text=text, **kwargs)
+            # Fallback to legacy array format
             elif isinstance(json_data, list):
                 actions = json_data
             # Fallback to legacy single action format
@@ -289,38 +290,19 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
                 log_warning(f"[transport] Failed to process actions: {e}")
             finally:
                 log_debug(f"[flow] transport.after_run_actions -> processed_count={len(processed_actions)}")
-             
-             log_info(
-                 f"[transport] Processed {len(processed_actions)} unique JSON actions via plugin system"
-             )
-             return
+
+            log_info(
+                f"[transport] Processed {len(processed_actions)} unique JSON actions via plugin system"
+            )
+            return
 
         except Exception as e:
             log_warning(f"[transport] Failed to process JSON actions: {e}")
 
-    # Trigger corrector for non-JSON responses (excluding system messages)
+    # Non-JSON plain text — forward directly. Corrector is only run in llm_to_interface.
     if text and not text.startswith(("[ERROR]", "[WARNING]", "[INFO]", "[DEBUG]")):
-        log_debug(f"[flow] transport.non_json -> invoking corrector for chat_id={kwargs.get('chat_id')} is_llm_response={kwargs.get('is_llm_response', False)}")
-         try:
-             from core.action_parser import corrector  # type: ignore
-         except Exception as e:  # pragma: no cover - executed when action_parser missing
-             log_warning(f"[transport] corrector unavailable: {e}")
-             return await interface_send_func(*args, text=text, **kwargs)
-
-         bot = getattr(interface_send_func, '__self__', None)
-         message = SimpleNamespace()
-         message.chat_id = kwargs.get('chat_id') or (args[0] if args else None)
-         message.text = text
-         message.original_text = text
-         message.message_thread_id = kwargs.get('message_thread_id')
-         from datetime import datetime
-         message.date = datetime.utcnow()
-         errors = ["Invalid or missing JSON in LLM response"]
-         if LAST_JSON_ERROR_INFO:
-             errors.append(LAST_JSON_ERROR_INFO)
-         await corrector(errors, [], bot, message)
-         log_debug(f"[flow] transport.corrector_invoked -> chat_id={message.chat_id}")
-         return
+        log_debug(f"[flow] transport.non_json -> forwarding plain text (no in-line corrector) chat_id={kwargs.get('chat_id')}")
+        return await interface_send_func(*args, text=text, **kwargs)
 
     # Send as normal text
     log_debug(f"[flow] transport.forward_plain -> calling interface_send_func for chat_id={kwargs.get('chat_id')}")
@@ -335,7 +317,7 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
     2. Built-in retry logic with delays
     3. Telegram-specific error handling
     4. Direct bot instance access
-    
+
     For other interfaces, use universal_send which is more generic.
     """
     if text is None:
@@ -373,11 +355,6 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
     # Don't try to parse JSON from system/error messages
     is_system_message = text.startswith(('[ERROR]', '[WARNING]', '[INFO]', '[DEBUG]'))
 
-    # If this text originates from the LLM but is empty/whitespace, skip corrector
-    if kwargs.get('is_llm_response', False) and (not text or not text.strip()):
-        log_warning("[telegram_transport] Empty LLM response received; skipping corrector and not forwarding")
-        return None
-    
     json_data = None
     if not is_system_message:
         json_data = extract_json_from_text(text)
@@ -386,14 +363,14 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
         else:
             # Check if text looks like it might contain JSON but failed to parse
             if ('{' in text and '}' in text) or ('[' in text and ']' in text):
-                log_warning(f"[telegram_transport] Text contains JSON-like content but failed to parse: {text[:200]}...")
+                log_debug(f"[telegram_transport] Text contains JSON-like content but failed to parse: {text[:200]}...")
                 # Try to extract and log the potential JSON part for debugging
                 if '{' in text:
                     start_brace = text.find('{')
                     log_debug(f"[telegram_transport] JSON-like content starting at position {start_brace}: {text[start_brace:start_brace+100]}...")
             else:
                 log_debug("[telegram_transport] No JSON-like content detected, sending as normal text")
-    
+
     if json_data:
         log_debug(f"[telegram_transport] JSON parsed successfully: {json_data}")
         try:
@@ -464,34 +441,6 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
         except Exception as e:
             log_warning(f"[telegram_transport] Failed to process JSON actions: {e}")
 
-    # If there's no JSON and it's not a system message, but the text is empty/whitespace,
-    # skip invoking the corrector to avoid correction loops.
-    if not json_data and not is_system_message:
-        if not text or not text.strip():
-            log_warning("[telegram_transport] Received empty or whitespace text; skipping corrector and not forwarding")
-            return
-
-        try:
-            from core.action_parser import corrector  # type: ignore
-        except Exception as e:  # pragma: no cover - executed when action_parser missing
-            log_warning(f"[telegram_transport] corrector unavailable: {e}")
-            return
-
-        message = SimpleNamespace()
-        message.chat_id = chat_id
-        message.text = text
-        message.original_text = text
-        message.message_thread_id = kwargs.get('message_thread_id')
-        if 'event_id' in kwargs:
-            message.event_id = kwargs['event_id']
-        from datetime import datetime
-        message.date = datetime.utcnow()
-        errors = ["Invalid or missing JSON in LLM response"]
-        if LAST_JSON_ERROR_INFO:
-            errors.append(LAST_JSON_ERROR_INFO)
-        await corrector(errors, [], bot, message)
-        return
-
     # Send system messages or plain text with chunking
     log_debug(f"[telegram_transport] Sending as normal text with chunking")
     try:
@@ -503,3 +452,164 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
     except Exception as e:
         log_error(f"[telegram_transport] Failed to send text chunks: {repr(e)}")
         raise
+
+
+# Guard to avoid recursive corrector invocation when plugins re-enter transport
+CORRECTOR_IN_PROGRESS: contextvars.ContextVar[bool] = contextvars.ContextVar('CORRECTOR_IN_PROGRESS', default=False)
+
+async def run_corrector_middleware(text: str, bot=None, context: dict = None, chat_id=None) -> str:
+    """Attempt to obtain a corrected LLM output that contains valid JSON actions.
+
+    Strategy:
+    - If the text already contains valid JSON, return it immediately.
+    - Otherwise, attempt up to CORRECTOR_RETRIES to ask the active LLM plugin to produce
+      a corrected reply. If the plugin returns a reply that contains valid JSON, return it.
+    - If no correction succeeds, return the original text unchanged.
+
+    This function is intentionally best-effort and non-blocking for the system: if no
+    active LLM plugin is available it will log and return the original text.
+    """
+    try:
+        # Avoid circular imports at module import time
+        from core import action_parser
+        from core.logging_utils import log_debug, log_info, log_warning
+        from core.prompt_engine import build_full_json_instructions
+        from types import SimpleNamespace
+    except Exception as e:
+        try:
+            log_warning(f"[corrector_middleware] Import error: {e}")
+        except Exception:
+            pass
+        return text
+
+    max_retries = getattr(action_parser, 'CORRECTOR_RETRIES', 2)
+
+    # If already valid JSON, nothing to do
+    try:
+        if extract_json_from_text(text):
+            log_debug = globals().get('log_debug')
+            if log_debug:
+                log_debug("[corrector_middleware] Input already contains JSON; skipping correction")
+            return text
+    except Exception:
+        pass
+
+    last_error_hint = LAST_JSON_ERROR_INFO or "Invalid or missing JSON"
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            # Try to get active plugin instance
+            try:
+                import core.plugin_instance as plugin_instance
+            except Exception:
+                plugin_instance = None
+
+            llm_plugin = None
+            if plugin_instance is not None:
+                # plugin_instance may export get_plugin() or plugin attribute
+                llm_plugin = getattr(plugin_instance, 'get_plugin', lambda: None)()
+                if llm_plugin is None:
+                    llm_plugin = getattr(plugin_instance, 'plugin', None)
+
+            if not llm_plugin or not hasattr(llm_plugin, 'handle_incoming_message'):
+                log_warning(f"[corrector_middleware] No active LLM plugin available (attempt {attempt}/{max_retries})")
+                # no plugin available — stop trying
+                return text
+
+            # Build a correction payload similar to action_parser.corrector
+            full_json = ""
+            try:
+                full_json = build_full_json_instructions()
+            except Exception:
+                full_json = {}
+
+            correction_payload = {
+                "system_message": {
+                    "type": "error",
+                    "message": f"Please repeat your previous message, corrected so it returns valid JSON actions. Hint: {last_error_hint}",
+                    "your_reply": text,
+                    "full_json_instructions": full_json,
+                }
+            }
+            correction_prompt = json.dumps(correction_payload, ensure_ascii=False)
+
+            # Construct a lightweight message object expected by plugins
+            correction_message = SimpleNamespace()
+            correction_message.chat_id = chat_id or getattr(bot, 'chat_id', None) or -1
+            correction_message.text = correction_prompt
+            correction_message.message_thread_id = None
+            correction_message.date = None
+            correction_message.from_user = None
+            correction_message.chat = SimpleNamespace(id=correction_message.chat_id, type='private')
+
+            log_debug(f"[corrector_middleware] Requesting correction from LLM (attempt {attempt}/{max_retries})")
+            # Call plugin directly and await returned value when available
+            try:
+                corrected = await llm_plugin.handle_incoming_message(bot, correction_message, correction_prompt)
+            except TypeError:
+                # Some plugins expect different signature; try fallback
+                corrected = await llm_plugin.handle_incoming_message(bot, correction_message, correction_prompt)
+
+            if corrected and isinstance(corrected, str):
+                log_debug(f"[corrector_middleware] LLM returned text len={len(corrected)}")
+                # If corrected contains valid JSON, return it
+                try:
+                    if extract_json_from_text(corrected):
+                        log_info("[corrector_middleware] Received corrected JSON from LLM")
+                        return corrected
+                except Exception:
+                    pass
+                # Not valid JSON yet — update text and retry
+                text = corrected
+
+            # small backoff between attempts
+            await asyncio.sleep(1)
+
+        except Exception as e:
+            try:
+                log_warning(f"[corrector_middleware] attempt {attempt} failed: {e}")
+            except Exception:
+                pass
+            await asyncio.sleep(1)
+
+    # Exhausted retries — return original/last seen text
+    return text
+
+
+async def interface_to_llm(send_to_llm_func, *args, text: str = None, **kwargs):
+    """Entry point for messages going from an interface/plugin TO the LLM.
+
+    This is a thin wrapper that records direction and forwards the call to the
+    LLM-facing send function provided by a plugin. It does NOT run the
+    corrector.
+    """
+    try:
+        log_debug(f"[chain] interface_to_llm called -> send_to_llm_func={send_to_llm_func} kwargs_keys={list(kwargs.keys())}")
+    except Exception:
+        pass
+    return await send_to_llm_func(*args, text=text, **kwargs)
+
+
+async def llm_to_interface(interface_send_func, *args, text: str = None, **kwargs):
+    """Entry point for messages coming FROM the LLM TO an interface.
+
+    Responsibilities:
+    - Ensure a single LLM->interface path for all model outputs (centralized diagnostics)
+    - Run the corrector middleware (with retries) only for LLM outputs that are non-empty
+    - Forward the (possibly corrected) text into the transport via `universal_send`
+    """
+    if text is None:
+        text = ""
+
+    try:
+        log_debug(f"[chain] llm_to_interface called -> interface_send_func={interface_send_func}")
+    except Exception:
+        pass
+
+    # Suppress empty/whitespace LLM replies early — centralize handling here
+    if kwargs.get('is_llm_response', False) and (not text or not text.strip()):
+        log_debug("[telegram_transport] Empty LLM response received; skipping corrector and not forwarding")
+        return None
+
+    # Forward into the neutral universal send which will parse JSON/actions
+    return await universal_send(interface_send_func, *args, text=text, **kwargs)

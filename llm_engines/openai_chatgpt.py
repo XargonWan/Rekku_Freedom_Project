@@ -5,6 +5,7 @@ import json
 import openai  # Assicurati che sia installato
 from core.config import get_user_api_key
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.transport_layer import llm_to_interface
 
 class OpenAIPlugin(AIPluginBase):
 
@@ -55,10 +56,12 @@ class OpenAIPlugin(AIPluginBase):
 
             if bot and message:
                 log_debug(f"[openai] Invio risposta a chat_id={message.chat_id}")
-                await bot.send_message(
+                await llm_to_interface(
+                    bot.send_message,
                     chat_id=message.chat_id,
                     text=response,
-                    reply_to_message_id=message.message_id
+                    reply_to_message_id=getattr(message, 'message_id', None),
+                    interface='telegram' if getattr(bot.__class__, '__module__', '').startswith('telegram') else 'generic',
                 )
 
             return response

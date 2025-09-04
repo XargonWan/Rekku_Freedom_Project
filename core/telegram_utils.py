@@ -9,6 +9,18 @@ from core.logging_utils import (
     log_error,
     setup_logging,
 )
+import traceback
+import time
+from telegram.error import RetryAfter, NetworkError
+
+# Track whether we've already warned about None bot to avoid log spam
+_BOT_NONE_WARNED = False
+_LAST_BOT_NONE_LOG_TIME = 0
+_BOT_NONE_LOG_THROTTLE_SEC = 5  # Log at most once every 5 seconds
+
+# Per-chat cooldowns to avoid retry storms when Telegram reports flood/network errors
+_CHAT_COOLDOWNS: dict = {}
+DEFAULT_COOLDOWN_SECONDS = 30
 
 # Maximum preview length for logging failed messages
 max_message_preview_len = 100
@@ -32,14 +44,33 @@ async def _send_with_retry(
     **kwargs,
 ):
     """Send a single message with retry support."""
+    global _BOT_NONE_WARNED
+    # Cooldown check: avoid sending repeatedly to a chat under cooldown
+    try:
+        cd_until = _CHAT_COOLDOWNS.get(chat_id)
+        if cd_until and time.time() < cd_until:
+            log_debug(f"[telegram_utils] Chat {chat_id} is in cooldown until {cd_until}; skipping send")
+            return None
+    except Exception:
+        pass
     if bot is None:
-        log_error("[telegram_utils] _send_with_retry called with None bot")
+        # Log a single diagnostic warning with stacktrace to find the caller, then suppress repeats
+        if not _BOT_NONE_WARNED:
+            log_warning("[telegram_utils] _send_with_retry called with None bot — capturing stack for diagnostics")
+            stack = ''.join(traceback.format_stack(limit=10))
+            log_debug(f"[telegram_utils] Caller stack (first occurrence) for _send_with_retry:\n{stack}")
+            _BOT_NONE_WARNED = True
+        else:
+            current_time = time.time()
+            if current_time - _LAST_BOT_NONE_LOG_TIME > _BOT_NONE_LOG_THROTTLE_SEC:
+                log_debug("[telegram_utils] _send_with_retry called with None bot (suppressed)")
+                _LAST_BOT_NONE_LOG_TIME = current_time
         return None
     # Accept either int or str chat identifiers (some interfaces use alphanumeric ids)
     if chat_id is None or not isinstance(chat_id, (int, str)):
         log_error("[telegram_utils] Cannot send message: chat_id is invalid")
         return None
-    
+
     # Filter kwargs to only include valid Telegram bot parameters
     # Remove custom parameters that are not supported by bot.send_message()
     valid_kwargs = {k: v for k, v in kwargs.items() if k not in ['event_id']}
@@ -66,6 +97,22 @@ async def _send_with_retry(
                 log_error(f"[telegram_utils] TimedOut persisted after {retries} retries for chat_id={chat_id}")
         except Exception as e:
             error_message = str(e)
+            # On network-like errors, set a cooldown for this chat to avoid tight retry loops
+            try:
+                if isinstance(e, RetryAfter):
+                    seconds = getattr(e, 'retry_after', None) or getattr(e, 'retry_after_seconds', None)
+                    if seconds is None:
+                        # Try to parse number from message as fallback
+                        import re
+                        m = re.search(r"Retry in (\d+) second", error_message)
+                        if m:
+                            seconds = int(m.group(1))
+                    cooldown = time.time() + (int(seconds) if seconds else DEFAULT_COOLDOWN_SECONDS)
+                    _CHAT_COOLDOWNS[chat_id] = cooldown
+                elif isinstance(e, NetworkError):
+                    _CHAT_COOLDOWNS[chat_id] = time.time() + DEFAULT_COOLDOWN_SECONDS
+            except Exception:
+                pass
             log_warning(f"[telegram_utils] send_message exception on attempt {attempt}/{retries} for chat_id={chat_id}: {error_message}")
             # Retry without parse_mode if Markdown/HTML entities are malformed
             if "can't parse entities" in error_message.lower() and valid_kwargs.get("parse_mode"):
@@ -78,6 +125,15 @@ async def _send_with_retry(
                     log_debug(f"[telegram_utils] _send_with_retry success after removing parse_mode for chat_id={chat_id}")
                     return result
                 except Exception as e2:
+                    # If this retry fails due to network, apply cooldown
+                    try:
+                        if isinstance(e2, RetryAfter):
+                            seconds = getattr(e2, 'retry_after', None) or getattr(e2, 'retry_after_seconds', None)
+                            _CHAT_COOLDOWNS[chat_id] = time.time() + (int(seconds) if seconds else DEFAULT_COOLDOWN_SECONDS)
+                        elif isinstance(e2, NetworkError):
+                            _CHAT_COOLDOWNS[chat_id] = time.time() + DEFAULT_COOLDOWN_SECONDS
+                    except Exception:
+                        pass
                     log_error(f"[telegram_utils] Retry after parse_mode removal failed: {e2}")
                     raise e2
             else:
@@ -102,14 +158,25 @@ async def _send_with_retry(
         raise last_error
 
 
-async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retries: int = 3, delay: int = 2, is_llm_response: bool = False, **kwargs):
+async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retries: int = 3, delay: int = 2, **kwargs):
     """Send ``text`` in chunks using the universal transport layer.
 
-    is_llm_response: when True indicates the text originated from the LLM and
-    allows the transport layer to run the corrector or other LLM-specific logic.
+    This wrapper forwards to the transport layer's Telegram sender which handles
+    JSON detection and chunking/retries. Any custom keyword arguments are
+    forwarded as-is.
     """  # [FIX]
+    global _BOT_NONE_WARNED
     if bot is None:
-        log_error("[telegram_utils] safe_send called with None bot")
+        if not _BOT_NONE_WARNED:
+            log_warning("[telegram_utils] safe_send called with None bot — capturing stack for diagnostics")
+            stack = ''.join(traceback.format_stack(limit=10))
+            log_debug(f"[telegram_utils] Caller stack (first occurrence) for safe_send:\n{stack}")
+            _BOT_NONE_WARNED = True
+        else:
+            current_time = time.time()
+            if current_time - _LAST_BOT_NONE_LOG_TIME > _BOT_NONE_LOG_THROTTLE_SEC:
+                log_debug("[telegram_utils] safe_send called with None bot (suppressed)")
+                _LAST_BOT_NONE_LOG_TIME = current_time
         return None
     # Accept either int or str chat identifiers (some interfaces use alphanumeric ids)
     if chat_id is None or not isinstance(chat_id, (int, str)):
@@ -117,10 +184,10 @@ async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retrie
         return None
 
     # Diagnostic: log safe_send entry and kwargs
-    log_debug(f"[telegram_utils] safe_send called: chat_id={chat_id} type={type(chat_id)} is_llm_response={is_llm_response} kwargs_keys={list(kwargs.keys())} chunk_size={chunk_size} retries={retries} delay={delay}")
+    log_debug(f"[telegram_utils] safe_send called: chat_id={chat_id} type={type(chat_id)} kwargs_keys={list(kwargs.keys())} chunk_size={chunk_size} retries={retries} delay={delay}")
 
     from core.transport_layer import telegram_safe_send
-    result = await telegram_safe_send(bot, chat_id, text, chunk_size, retries, delay, is_llm_response=is_llm_response, **kwargs)
+    result = await telegram_safe_send(bot, chat_id, text, chunk_size, retries, delay, **kwargs)
 
     # Diagnostic: log return value
     log_debug(f"[telegram_utils] safe_send result for chat_id={chat_id}: {repr(result)}")
@@ -161,6 +228,7 @@ async def safe_edit(bot, chat_id: int, message_id: int, text: str, retries: int 
         raise last_error
 
 
+
 async def send_with_thread_fallback(
     bot,
     chat_id: int | str,
@@ -183,9 +251,29 @@ async def send_with_thread_fallback(
     sending to that chat using the accompanying fallback parameters.
     """
 
+    global _BOT_NONE_WARNED
     if bot is None:
-        log_error("[telegram_utils] send_with_thread_fallback called with None bot")
+        # Log a single warning to avoid flooding logs; subsequent calls are debug.
+        if not _BOT_NONE_WARNED:
+            log_warning("[telegram_utils] send_with_thread_fallback called with None bot — capturing stack for diagnostics")
+            stack = ''.join(traceback.format_stack(limit=10))
+            log_debug(f"[telegram_utils] Caller stack (first occurrence) for send_with_thread_fallback:\n{stack}")
+            _BOT_NONE_WARNED = True
+        else:
+            current_time = time.time()
+            if current_time - _LAST_BOT_NONE_LOG_TIME > _BOT_NONE_LOG_THROTTLE_SEC:
+                log_debug("[telegram_utils] send_with_thread_fallback called with None bot (suppressed)")
+                _LAST_BOT_NONE_LOG_TIME = current_time
         return
+
+    # Respect per-chat cooldowns to avoid retry storms
+    try:
+        cd = _CHAT_COOLDOWNS.get(chat_id)
+        if cd and time.time() < cd:
+            log_debug(f"[telegram_utils] send_with_thread_fallback: chat {chat_id} in cooldown until {cd}; skipping")
+            return None
+    except Exception:
+        pass
 
     # Do not coerce/convert chat_id: allow string identifiers for non-Telegram
     # interfaces (e.g., Revolt/Mastodon). Validation is handled downstream.
@@ -214,6 +302,15 @@ async def send_with_thread_fallback(
         log_debug(f"[telegram_utils] telegram_safe_send returned: {repr(message)}")
         return message
     except Exception as e:
+        # On network/flood errors, set a cooldown for this chat
+        try:
+            if isinstance(e, RetryAfter):
+                seconds = getattr(e, 'retry_after', None) or getattr(e, 'retry_after_seconds', None)
+                _CHAT_COOLDOWNS[chat_id] = time.time() + (int(seconds) if seconds else DEFAULT_COOLDOWN_SECONDS)
+            elif isinstance(e, NetworkError):
+                _CHAT_COOLDOWNS[chat_id] = time.time() + DEFAULT_COOLDOWN_SECONDS
+        except Exception:
+            pass
         log_error(f"[telegram_utils] send_with_thread_fallback caught error: {repr(e)}")
         error_message = str(e)
         if "chat not found" in error_message.lower():
