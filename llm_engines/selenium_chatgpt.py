@@ -1747,22 +1747,32 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 # Detect interface type for dispatch
                 module_name = getattr(bot.__class__, "__module__", "")
                 if module_name.startswith("telegram"):
-                    await safe_send(
-                        bot,
-                        chat_id=message.chat_id,
-                        text=response_text,
-                        reply_to_message_id=getattr(message, "message_id", None),
-                        message_thread_id=message_thread_id,
-                        event_id=getattr(message, "event_id", None),
-                        # Indicate this text is the raw LLM response so transport can
-                        # run the corrector or JSON parsing logic.
-                        is_llm_response=True,
-                    )
+                    # Only forward non-empty LLM responses to Telegram transport
+                    if response_text and response_text.strip():
+                        await safe_send(
+                            bot,
+                            chat_id=message.chat_id,
+                            text=response_text,
+                            reply_to_message_id=getattr(message, "message_id", None),
+                            message_thread_id=message_thread_id,
+                            event_id=getattr(message, "event_id", None),
+                            # Indicate this text is the raw LLM response so transport can
+                            # run the corrector or JSON parsing logic.
+                            is_llm_response=True,
+                        )
+                    else:
+                        log_warning(f"[selenium] Empty LLM response for chat {message.chat_id}; sending error notification instead of forwarding")
+                        await self._send_error_message(bot, message, error_text="[31mNo response from LLM[0m")
                 else:
-                    payload = {"target": message.chat_id, "text": response_text}
-                    if message_thread_id is not None:
-                        payload["message_thread_id"] = message_thread_id
-                    await bot.send_message(payload)
+                    # Non-Telegram interfaces expect a payload dict
+                    if response_text and response_text.strip():
+                        payload = {"target": message.chat_id, "text": response_text}
+                        if message_thread_id is not None:
+                            payload["message_thread_id"] = message_thread_id
+                        await bot.send_message(payload)
+                    else:
+                        log_warning(f"[selenium] Empty LLM response for non-telegram interface {interface_name}; sending error notification")
+                        await self._send_error_message(bot, message, error_text="No response from LLM")
 
                 log_debug(
                     f"[selenium][STEP] response forwarded to {message.chat_id}"

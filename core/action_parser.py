@@ -86,6 +86,28 @@ async def corrector(errors: list, failed_actions: list, bot, message):
 
     retry_count = _increment_retry(message)
 
+    # If the LLM provided no original reply, avoid requesting a correction loop.
+    original_reply = getattr(message, "original_text", getattr(message, "text", "")) or ""
+    if not original_reply.strip():
+        log_warning(f"[corrector] Aborting correction: original LLM reply empty for chat {getattr(message, 'chat_id', None)}")
+        # Try to notify the chat/trainer that no correction can be requested
+        try:
+            if hasattr(bot, "send_message"):
+                await bot.send_message(chat_id=message.chat_id, text="⚠️ Unable to request correction: original LLM reply was empty.")
+        except Exception as e:
+            log_debug(f"[corrector] Failed to notify about empty original reply: {e}")
+        return
+
+    # If the original reply already contains a system_message, likely we're in a correction loop.
+    if '"system_message"' in original_reply:
+        log_warning(f"[corrector] Aborting correction: original reply already contains system_message for chat {getattr(message, 'chat_id', None)}")
+        try:
+            if hasattr(bot, "send_message"):
+                await bot.send_message(chat_id=message.chat_id, text="⚠️ Correction aborted: LLM returned a system error response repeatedly.")
+        except Exception as e:
+            log_debug(f"[corrector] Failed to notify about repeated system_message: {e}")
+        return
+
     error_summary = "\n".join([f"- {err}" for err in errors[:5]])
 
     message_text = (

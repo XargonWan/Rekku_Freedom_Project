@@ -331,6 +331,11 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
 
     # Don't try to parse JSON from system/error messages
     is_system_message = text.startswith(('[ERROR]', '[WARNING]', '[INFO]', '[DEBUG]'))
+
+    # If this text originates from the LLM but is empty/whitespace, skip corrector
+    if kwargs.get('is_llm_response', False) and (not text or not text.strip()):
+        log_warning("[telegram_transport] Empty LLM response received; skipping corrector and not forwarding")
+        return None
     
     json_data = None
     if not is_system_message:
@@ -418,7 +423,13 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
         except Exception as e:
             log_warning(f"[telegram_transport] Failed to process JSON actions: {e}")
 
+    # If there's no JSON and it's not a system message, but the text is empty/whitespace,
+    # skip invoking the corrector to avoid correction loops.
     if not json_data and not is_system_message:
+        if not text or not text.strip():
+            log_warning("[telegram_transport] Received empty or whitespace text; skipping corrector and not forwarding")
+            return
+
         try:
             from core.action_parser import corrector  # type: ignore
         except Exception as e:  # pragma: no cover - executed when action_parser missing
