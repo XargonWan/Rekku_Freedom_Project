@@ -1561,7 +1561,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
         module_name = getattr(bot.__class__, "__module__", "")
         if module_name.startswith("telegram"):
-            await safe_send(bot, **send_params)
+            # Error messages originate from the system, not the LLM output
+            await safe_send(bot, is_llm_response=False, **send_params)
         else:
             await bot.send_message(**send_params)
         log_debug(
@@ -1753,6 +1754,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         reply_to_message_id=getattr(message, "message_id", None),
                         message_thread_id=message_thread_id,
                         event_id=getattr(message, "event_id", None),
+                        # Indicate this text is the raw LLM response so transport can
+                        # run the corrector or JSON parsing logic.
+                        is_llm_response=True,
                     )
                 else:
                     payload = {"target": message.chat_id, "text": response_text}

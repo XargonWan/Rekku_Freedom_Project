@@ -88,8 +88,12 @@ async def _send_with_retry(
         raise last_error
 
 
-async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retries: int = 3, delay: int = 2, **kwargs):
-    """Send ``text`` in chunks using the universal transport layer."""  # [FIX]
+async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retries: int = 3, delay: int = 2, is_llm_response: bool = False, **kwargs):
+    """Send ``text`` in chunks using the universal transport layer.
+
+    is_llm_response: when True indicates the text originated from the LLM and
+    allows the transport layer to run the corrector or other LLM-specific logic.
+    """  # [FIX]
     if bot is None:
         log_error("[telegram_utils] safe_send called with None bot")
         return None
@@ -97,7 +101,7 @@ async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retrie
         log_error("[telegram_utils] Cannot send message: chat_id is invalid")
         return None
     from core.transport_layer import telegram_safe_send
-    return await telegram_safe_send(bot, chat_id, text, chunk_size, retries, delay, **kwargs)
+    return await telegram_safe_send(bot, chat_id, text, chunk_size, retries, delay, is_llm_response=is_llm_response, **kwargs)
 
 
 async def safe_edit(bot, chat_id: int, message_id: int, text: str, retries: int = 3, delay: int = 2, **kwargs):
