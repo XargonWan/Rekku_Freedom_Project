@@ -152,7 +152,23 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt, interf
     except Exception as e:
         log_error(f"Failed to serialize prompt: {e}")
 
-    return await plugin.handle_incoming_message(bot, message, prompt)
+    # Trace handoff to LLM plugin
+    try:
+        log_info(f"[flow] -> LLM plugin: handing off chat_id={getattr(message, 'chat_id', None)} interface={interface} prompt_len={len(json_dumps(prompt)) if isinstance(prompt, (dict, list)) else len(str(prompt))}")
+    except Exception:
+        log_info(f"[flow] -> LLM plugin: handing off chat_id={getattr(message, 'chat_id', None)} interface={interface}")
+
+    try:
+        result = await plugin.handle_incoming_message(bot, message, prompt)
+        # Log that plugin finished processing
+        try:
+            log_info(f"[flow] <- LLM plugin: completed for chat_id={getattr(message, 'chat_id', None)} result_type={type(result)}")
+        except Exception:
+            log_info(f"[flow] <- LLM plugin: completed for chat_id={getattr(message, 'chat_id', None)}")
+        return result
+    except Exception as e:
+        log_error(f"[plugin_instance] LLM plugin raised an exception: {e}")
+        raise
 
 
 def get_supported_models():

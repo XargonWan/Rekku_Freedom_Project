@@ -36,10 +36,22 @@ ERROR_RETRY_POLICY = {
 
 
 def _get_retry_key(message):
-    """Generate a unique key for tracking retries based on chat/thread."""
+    """Generate a unique key for tracking retries based on chat/thread.
+
+    Preserve chat_id and message_thread_id as strings (no numeric coercion),
+    since external interfaces may represent identifiers as strings. This
+    ensures consistent retry keys without changing original identifier types.
+    """
     chat_id = getattr(message, "chat_id", None)
     thread_id = getattr(message, "message_thread_id", None)
-    return f"{chat_id}_{thread_id}"
+
+    def _norm(value):
+        if value is None:
+            return "none"
+        # Keep original representation as string (don't coerce to int)
+        return str(value)
+
+    return f"{_norm(chat_id)}_{_norm(thread_id)}"
 
 
 def _should_retry(message, max_retries: int = CORRECTOR_RETRIES) -> bool:

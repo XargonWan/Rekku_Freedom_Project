@@ -196,19 +196,25 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
     if text:
         preview = text[:200] + "..." if len(text) > 200 else text
         log_info(f"[transport] 🤖 LLM Response: {preview}")
+    # Flow trace: record that transport received LLM output
+    try:
+        log_debug(f"[flow] transport.received -> text_len={len(text)} is_llm_response={kwargs.get('is_llm_response', False)}")
+    except Exception:
+        pass
 
     # Extract JSON from text
     json_data = extract_json_from_text(text)
     if json_data:
         log_debug(f"[transport] Detected JSON data, parsing: {json_data}")
         try:
-            # Handle new nested actions format
-            if isinstance(json_data, dict) and "actions" in json_data:
-                actions = json_data["actions"]
-                if not isinstance(actions, list):
-                    log_warning("[transport] actions field must be a list")
-                    return await interface_send_func(*args, text=text, **kwargs)
-            # Fallback to legacy array format
+            log_debug(f"[flow] transport.detects_json -> will attempt run_actions")
+             # Handle new nested actions format
+             if isinstance(json_data, dict) and "actions" in json_data:
+                 actions = json_data["actions"]
+                 if not isinstance(actions, list):
+                     log_warning("[transport] actions field must be a list")
+                     return await interface_send_func(*args, text=text, **kwargs)
+             # Fallback to legacy array format
             elif isinstance(json_data, list):
                 actions = json_data
             # Fallback to legacy single action format
@@ -281,38 +287,43 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
                     processed_actions = unique_actions
             except Exception as e:
                 log_warning(f"[transport] Failed to process actions: {e}")
-
-            log_info(
-                f"[transport] Processed {len(processed_actions)} unique JSON actions via plugin system"
-            )
-            return
+            finally:
+                log_debug(f"[flow] transport.after_run_actions -> processed_count={len(processed_actions)}")
+             
+             log_info(
+                 f"[transport] Processed {len(processed_actions)} unique JSON actions via plugin system"
+             )
+             return
 
         except Exception as e:
             log_warning(f"[transport] Failed to process JSON actions: {e}")
 
     # Trigger corrector for non-JSON responses (excluding system messages)
     if text and not text.startswith(("[ERROR]", "[WARNING]", "[INFO]", "[DEBUG]")):
-        try:
-            from core.action_parser import corrector  # type: ignore
-        except Exception as e:  # pragma: no cover - executed when action_parser missing
-            log_warning(f"[transport] corrector unavailable: {e}")
-            return await interface_send_func(*args, text=text, **kwargs)
+        log_debug(f"[flow] transport.non_json -> invoking corrector for chat_id={kwargs.get('chat_id')} is_llm_response={kwargs.get('is_llm_response', False)}")
+         try:
+             from core.action_parser import corrector  # type: ignore
+         except Exception as e:  # pragma: no cover - executed when action_parser missing
+             log_warning(f"[transport] corrector unavailable: {e}")
+             return await interface_send_func(*args, text=text, **kwargs)
 
-        bot = getattr(interface_send_func, '__self__', None)
-        message = SimpleNamespace()
-        message.chat_id = kwargs.get('chat_id') or (args[0] if args else None)
-        message.text = text
-        message.original_text = text
-        message.message_thread_id = kwargs.get('message_thread_id')
-        from datetime import datetime
-        message.date = datetime.utcnow()
-        errors = ["Invalid or missing JSON in LLM response"]
-        if LAST_JSON_ERROR_INFO:
-            errors.append(LAST_JSON_ERROR_INFO)
-        await corrector(errors, [], bot, message)
-        return
+         bot = getattr(interface_send_func, '__self__', None)
+         message = SimpleNamespace()
+         message.chat_id = kwargs.get('chat_id') or (args[0] if args else None)
+         message.text = text
+         message.original_text = text
+         message.message_thread_id = kwargs.get('message_thread_id')
+         from datetime import datetime
+         message.date = datetime.utcnow()
+         errors = ["Invalid or missing JSON in LLM response"]
+         if LAST_JSON_ERROR_INFO:
+             errors.append(LAST_JSON_ERROR_INFO)
+         await corrector(errors, [], bot, message)
+         log_debug(f"[flow] transport.corrector_invoked -> chat_id={message.chat_id}")
+         return
 
     # Send as normal text
+    log_debug(f"[flow] transport.forward_plain -> calling interface_send_func for chat_id={kwargs.get('chat_id')}")
     return await interface_send_func(*args, text=text, **kwargs)
 
 
