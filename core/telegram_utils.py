@@ -43,32 +43,45 @@ async def _send_with_retry(
     # Filter kwargs to only include valid Telegram bot parameters
     # Remove custom parameters that are not supported by bot.send_message()
     valid_kwargs = {k: v for k, v in kwargs.items() if k not in ['event_id']}
+
+    # Diagnostic: log attempt and kwargs
+    log_debug(f"[telegram_utils] _send_with_retry prepare send: chat_id={chat_id} type={type(chat_id)} len_text={len(text) if text else 0} valid_kwargs={valid_kwargs}")
     
     last_error = None
     logger = setup_logging()
     for attempt in range(1, retries + 1):
         try:
-            return await bot.send_message(chat_id=chat_id, text=text, **valid_kwargs)
+            result = await bot.send_message(chat_id=chat_id, text=text, **valid_kwargs)
+            try:
+                log_debug(f"[telegram_utils] _send_with_retry success: chat_id={chat_id} result_message_id={getattr(result, 'message_id', None)}")
+            except Exception:
+                log_debug("[telegram_utils] _send_with_retry success (unable to repr result)")
+            return result
         except TimedOut as e:
             last_error = e
+            log_warning(f"[telegram_utils] TimedOut on attempt {attempt}/{retries} for chat_id={chat_id}: {e}")
             if attempt < retries:
-                print(f"[telegram retry] send_message timed out ({attempt}/{retries}), retrying...")
                 await asyncio.sleep(delay)
             else:
-                print(f"[telegram retry] send_message failed after {retries} retries: {e}")
+                log_error(f"[telegram_utils] TimedOut persisted after {retries} retries for chat_id={chat_id}")
         except Exception as e:
             error_message = str(e)
+            log_warning(f"[telegram_utils] send_message exception on attempt {attempt}/{retries} for chat_id={chat_id}: {error_message}")
             # Retry without parse_mode if Markdown/HTML entities are malformed
             if "can't parse entities" in error_message.lower() and valid_kwargs.get("parse_mode"):
                 log_warning(
-                    f"[telegram retry] Parse error with parse_mode={valid_kwargs['parse_mode']}; retrying without parse_mode"
+                    f"[telegram_utils] Parse error with parse_mode={valid_kwargs['parse_mode']}; retrying without parse_mode"
                 )
                 valid_kwargs.pop("parse_mode", None)
                 try:
-                    return await bot.send_message(chat_id=chat_id, text=text, **valid_kwargs)
+                    result = await bot.send_message(chat_id=chat_id, text=text, **valid_kwargs)
+                    log_debug(f"[telegram_utils] _send_with_retry success after removing parse_mode for chat_id={chat_id}")
+                    return result
                 except Exception as e2:
+                    log_error(f"[telegram_utils] Retry after parse_mode removal failed: {e2}")
                     raise e2
             else:
+                # If it's a non-parse error and not recoverable, re-raise to be handled by caller
                 raise
     trainer_id = TELEGRAM_TRAINER_ID
     if trainer_id:
@@ -102,8 +115,16 @@ async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retrie
     if chat_id is None or not isinstance(chat_id, (int, str)):
         log_error("[telegram_utils] Cannot send message: chat_id is invalid")
         return None
+
+    # Diagnostic: log safe_send entry and kwargs
+    log_debug(f"[telegram_utils] safe_send called: chat_id={chat_id} type={type(chat_id)} is_llm_response={is_llm_response} kwargs_keys={list(kwargs.keys())} chunk_size={chunk_size} retries={retries} delay={delay}")
+
     from core.transport_layer import telegram_safe_send
-    return await telegram_safe_send(bot, chat_id, text, chunk_size, retries, delay, is_llm_response=is_llm_response, **kwargs)
+    result = await telegram_safe_send(bot, chat_id, text, chunk_size, retries, delay, is_llm_response=is_llm_response, **kwargs)
+
+    # Diagnostic: log return value
+    log_debug(f"[telegram_utils] safe_send result for chat_id={chat_id}: {repr(result)}")
+    return result
 
 
 async def safe_edit(bot, chat_id: int, message_id: int, text: str, retries: int = 3, delay: int = 2, **kwargs):
@@ -116,6 +137,7 @@ async def safe_edit(bot, chat_id: int, message_id: int, text: str, retries: int 
     last_error = None
     for attempt in range(1, retries + 1):
         try:
+            log_debug(f"[telegram_utils] edit_message_text attempt {attempt}/{retries} chat_id={chat_id} message_id={message_id} kwargs={valid_kwargs}")
             return await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, **valid_kwargs)
         except TimedOut as e:
             last_error = e
@@ -178,6 +200,7 @@ async def send_with_thread_fallback(
     from core.transport_layer import telegram_safe_send
 
     try:
+        log_debug(f"[telegram_utils] send_with_thread_fallback calling telegram_safe_send chat_id={chat_id} send_kwargs={send_kwargs}")
         message = await telegram_safe_send(
             bot,
             chat_id,
@@ -188,8 +211,10 @@ async def send_with_thread_fallback(
             f"[telegram_utils] Message sent to {chat_id}"
             f" (thread: {message_thread_id}, reply_message_id: {reply_to_message_id})"
         )
+        log_debug(f"[telegram_utils] telegram_safe_send returned: {repr(message)}")
         return message
     except Exception as e:
+        log_error(f"[telegram_utils] send_with_thread_fallback caught error: {repr(e)}")
         error_message = str(e)
         if "chat not found" in error_message.lower():
             log_error(

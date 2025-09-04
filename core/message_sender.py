@@ -12,7 +12,11 @@ async def send_content(bot, chat_id, message, content_type, reply_to_message_id=
                 log_debug("Sending audio...")
                 file_id = message.audio.file_id if message.audio else message.document.file_id
                 log_debug(f"Detected file_id: {file_id}")
-                await bot.send_audio(chat_id=chat_id, audio=file_id, reply_to_message_id=reply_to_message_id)
+                result = await bot.send_audio(chat_id=chat_id, audio=file_id, reply_to_message_id=reply_to_message_id)
+                try:
+                    log_debug(f"send_audio result message_id={getattr(result, 'message_id', None)}")
+                except Exception:
+                    log_debug("send_audio returned (unable to repr result)")
                 return True, "\u2705 Audio sent successfully."
             except Exception as e_audio:
                 log_warning(f"Audio send failed: {e_audio}")
@@ -20,7 +24,8 @@ async def send_content(bot, chat_id, message, content_type, reply_to_message_id=
                 if message.document:
                     try:
                         log_debug("Retrying send as document (fallback)...")
-                        await bot.send_document(chat_id=chat_id, document=message.document.file_id, reply_to_message_id=reply_to_message_id)
+                        result = await bot.send_document(chat_id=chat_id, document=message.document.file_id, reply_to_message_id=reply_to_message_id)
+                        log_debug(f"send_document (fallback) result message_id={getattr(result, 'message_id', None)}")
                         return True, "\u2705 Sent as document (audio fallback)."
                     except Exception as e_fallback:
                         log_error(f"Document fallback also failed: {e_fallback}")
@@ -31,7 +36,8 @@ async def send_content(bot, chat_id, message, content_type, reply_to_message_id=
         elif content_type == "document":
             try:
                 log_debug("Sending document...")
-                await bot.send_document(chat_id=chat_id, document=message.document.file_id, reply_to_message_id=reply_to_message_id)
+                result = await bot.send_document(chat_id=chat_id, document=message.document.file_id, reply_to_message_id=reply_to_message_id)
+                log_debug(f"send_document result message_id={getattr(result, 'message_id', None)}")
                 return True, "\u2705 Document sent successfully."
             except Exception as e_doc:
                 log_warning(f"Document send failed: {e_doc}")
@@ -41,7 +47,8 @@ async def send_content(bot, chat_id, message, content_type, reply_to_message_id=
                 if mime.startswith("audio/") or filename.lower().endswith(".mp3"):
                     try:
                         log_debug("Retrying send as audio (fallback)...")
-                        await bot.send_audio(chat_id=chat_id, audio=message.document.file_id, reply_to_message_id=reply_to_message_id)
+                        result = await bot.send_audio(chat_id=chat_id, audio=message.document.file_id, reply_to_message_id=reply_to_message_id)
+                        log_debug(f"send_audio (fallback) result message_id={getattr(result, 'message_id', None)}")
                         return True, "\u2705 Sent as audio (document fallback)."
                     except Exception as e_audio:
                         log_error(f"Audio fallback also failed: {e_audio}")
@@ -51,27 +58,46 @@ async def send_content(bot, chat_id, message, content_type, reply_to_message_id=
 
         elif content_type == "voice":
             log_debug("Sending voice...")
-            await bot.send_voice(chat_id=chat_id, voice=message.voice.file_id, reply_to_message_id=reply_to_message_id)
+            result = await bot.send_voice(chat_id=chat_id, voice=message.voice.file_id, reply_to_message_id=reply_to_message_id)
+            log_debug(f"send_voice result message_id={getattr(result, 'message_id', None)}")
 
         elif content_type == "photo":
             log_debug("Sending photo...")
-            await bot.send_photo(chat_id=chat_id, photo=message.photo[-1].file_id, reply_to_message_id=reply_to_message_id)
+            result = await bot.send_photo(chat_id=chat_id, photo=message.photo[-1].file_id, reply_to_message_id=reply_to_message_id)
+            log_debug(f"send_photo result message_id={getattr(result, 'message_id', None)}")
 
         elif content_type == "video":
             log_debug("Sending video...")
-            await bot.send_video(chat_id=chat_id, video=message.video.file_id, reply_to_message_id=reply_to_message_id)
+            result = await bot.send_video(chat_id=chat_id, video=message.video.file_id, reply_to_message_id=reply_to_message_id)
+            log_debug(f"send_video result message_id={getattr(result, 'message_id', None)}")
 
         elif content_type == "sticker":
             log_debug("Sending sticker...")
-            await bot.send_sticker(chat_id=chat_id, sticker=message.sticker.file_id, reply_to_message_id=reply_to_message_id)
+            result = await bot.send_sticker(chat_id=chat_id, sticker=message.sticker.file_id, reply_to_message_id=reply_to_message_id)
+            log_debug(f"send_sticker result message_id={getattr(result, 'message_id', None)}")
 
         elif content_type == "text":
             log_debug("Sending text...")
-            await bot.send_message(chat_id=chat_id, text=message.text, reply_to_message_id=reply_to_message_id)
+            kwargs = {"chat_id": chat_id, "text": message.text}
+            if reply_to_message_id:
+                kwargs["reply_to_message_id"] = reply_to_message_id
+            # Use getattr to protect against bots lacking specific methods or attributes
+            send_fn = getattr(bot, "send_message", None)
+            if send_fn is None:
+                log_error("[message_sender] Bot instance has no send_message method")
+                return False, "Bot missing send method"
+            sent = await send_fn(**kwargs)
+            # Log returned message identifier when available
+            try:
+                msg_id = getattr(sent, "message_id", None) or getattr(sent, "id", None) or sent
+                log_debug(f"[message_sender] send_message result: {msg_id}")
+            except Exception:
+                log_debug("[message_sender] send_message returned an uninspectable result")
 
         elif content_type == "file":
             log_debug("Sending file...")
-            await bot.send_document(chat_id=chat_id, document=message.document.file_id, reply_to_message_id=reply_to_message_id)
+            result = await bot.send_document(chat_id=chat_id, document=message.document.file_id, reply_to_message_id=reply_to_message_id)
+            log_debug(f"send_document(result) message_id={getattr(result, 'message_id', None)}")
 
         else:
             log_error(f"Unhandled content type: {content_type}")

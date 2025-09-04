@@ -1769,7 +1769,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         payload = {"target": message.chat_id, "text": response_text}
                         if message_thread_id is not None:
                             payload["message_thread_id"] = message_thread_id
-                        await bot.send_message(payload)
+                        # Mark this forwarded text as an LLM response so transport can
+                        # distinguish it and avoid triggering correction loops.
+                        await bot.send_message(payload, is_llm_response=True)
                     else:
                         log_warning(f"[selenium] Empty LLM response for non-telegram interface {interface_name}; sending error notification")
                         await self._send_error_message(bot, message, error_text="No response from LLM")

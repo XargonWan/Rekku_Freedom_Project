@@ -187,7 +187,8 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
     # Diagnostic: log interface function and runtime send parameters
     try:
         bot_self = getattr(interface_send_func, '__self__', None)
-        log_debug(f"[transport] universal_send called: interface_send_func={interface_send_func} bot_self={bot_self} args={args} kwargs_keys={list(kwargs.keys())}")
+        is_llm = kwargs.get('is_llm_response', False)
+        log_debug(f"[transport] universal_send called: interface_send_func={interface_send_func} bot_self={bot_self} args={args} kwargs_keys={list(kwargs.keys())} is_llm_response={is_llm}")
     except Exception as _:
         log_debug("[transport] universal_send diagnostic logging failed to inspect interface_send_func")
 
@@ -229,10 +230,18 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
             message = SimpleNamespace()
             chat_id_value = kwargs.get('chat_id') or (args[0] if args else None)
 
-            # Validate chat_id before proceeding
-            if chat_id_value is None or not isinstance(chat_id_value, int):
+            # Accept int or numeric string chat IDs (some interfaces provide strings)
+            if chat_id_value is None or not isinstance(chat_id_value, (int, str)):
                 log_warning(f"[transport] Invalid chat_id for action processing: {chat_id_value}")
                 return await interface_send_func(*args, text=text, **kwargs)
+
+            # Coerce numeric string to int when possible for internal consistency
+            if isinstance(chat_id_value, str) and chat_id_value.strip().lstrip('-').isdigit():
+                try:
+                    chat_id_value = int(chat_id_value)
+                except Exception:
+                    # Keep as string if coercion fails
+                    pass
 
             message.chat_id = chat_id_value
             message.text = ""
@@ -339,9 +348,16 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
         kwargs.pop('reply_to_message_id')
 
     # Validate chat_id first
-    if chat_id is None or not isinstance(chat_id, int):
+    if chat_id is None or not isinstance(chat_id, (int, str)):
         log_error(f"[telegram_transport] Invalid chat_id provided: {chat_id} (type={type(chat_id)})")
         return None
+
+    # If chat_id is numeric string, coerce to int where possible
+    if isinstance(chat_id, str) and chat_id.strip().lstrip('-').isdigit():
+        try:
+            chat_id = int(chat_id)
+        except Exception:
+            pass
 
     # Don't try to parse JSON from system/error messages
     is_system_message = text.startswith(('[ERROR]', '[WARNING]', '[INFO]', '[DEBUG]'))
