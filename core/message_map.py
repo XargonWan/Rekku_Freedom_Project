@@ -17,7 +17,7 @@ async def init_table():
                 """
                 CREATE TABLE IF NOT EXISTS message_map (
                     trainer_message_id INTEGER PRIMARY KEY,
-                    chat_id INTEGER NOT NULL,
+                    chat_id BIGINT NOT NULL,
                     message_id INTEGER NOT NULL,
                     timestamp REAL
                 )

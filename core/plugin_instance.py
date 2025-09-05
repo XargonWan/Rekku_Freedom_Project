@@ -108,8 +108,20 @@ async def load_plugin(name: str, notify_fn=None):
 async def handle_incoming_message(bot, message, context_memory_or_prompt, interface: str = None):
     """Process incoming messages or pre-built prompts."""
 
+    # Check if plugin is loaded
     if plugin is None:
-        raise RuntimeError("No LLM plugin loaded.")
+        log_error("[plugin_instance] No LLM plugin loaded! Cannot handle incoming message.")
+        log_error(f"[plugin_instance] Available plugins: {dir()}")
+        # Try to load manual plugin as fallback
+        try:
+            log_warning("[plugin_instance] Attempting to load manual plugin as fallback...")
+            await load_plugin("manual")
+            if plugin is None:
+                raise ValueError("Manual plugin failed to load")
+            log_info("[plugin_instance] Manual plugin loaded successfully as fallback")
+        except Exception as fallback_e:
+            log_error(f"[plugin_instance] Fallback plugin loading failed: {fallback_e}")
+            raise ValueError("No LLM plugin loaded and fallback failed")
 
     if message is None and isinstance(context_memory_or_prompt, dict):
         prompt = context_memory_or_prompt
@@ -159,6 +171,10 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt, interf
         log_info(f"[flow] -> LLM plugin: handing off chat_id={getattr(message, 'chat_id', None)} interface={interface}")
 
     try:
+        if plugin is None:
+            log_error("[plugin_instance] No LLM plugin loaded, cannot process message")
+            raise ValueError("No LLM plugin loaded")
+            
         result = await plugin.handle_incoming_message(bot, message, prompt)
         # Log that plugin finished processing
         try:

@@ -818,6 +818,12 @@ async def start_bot():
         await app.initialize()
         log_info("[telegram_bot] Telegram application initialized")
 
+        # Stop any existing updater before starting a new one
+        if app.updater and app.updater.running:
+            log_info("[telegram_bot] Stopping existing updater...")
+            await app.updater.stop()
+            log_info("[telegram_bot] Existing updater stopped")
+
         # Register interface instance for plugins. This automatically exposes
         # its actions to the core initializer.
         telegram_interface = TelegramInterface(app.bot)
@@ -929,7 +935,7 @@ class TelegramInterface:
                     "target": {
                         "type": "string",
                         "example": "-123456789",
-                        "description": "Numeric chat_id or chat_name of the recipient",
+                        "description": "Numeric chat_id or chat_name of the recipient. REQUIRED when sending to a different chat than the original message.",
                         "optional": True,
                     },
                     "chat_name": {
@@ -941,7 +947,7 @@ class TelegramInterface:
                     "message_thread_id": {
                         "type": "integer",
                         "example": 456,
-                        "description": "Optional thread ID for group chats",
+                        "description": "Thread ID when replying in a topic/thread. OMIT this field for main chat replies (interface will use default). Only include when replying IN a specific thread!",
                         "optional": True,
                     },
                     "message_thread_name": {
@@ -957,6 +963,11 @@ class TelegramInterface:
                         "optional": True,
                     },
                 },
+                "important_notes": [
+                    "When replying to a message that was in a thread/topic, ALWAYS include message_thread_id to ensure the reply appears in the correct thread",
+                    "If you omit message_thread_id when it should be included, the message may appear in the main chat instead of the thread",
+                    "For group chats with topics enabled, check if the original message has a thread_id and include it in your response"
+                ]
             }
         if action_name == "audio_telegram_bot":
             return {
@@ -1205,6 +1216,10 @@ class TelegramInterface:
             log_warning(f"[telegram_interface] Invalid chat identifier: {chat_id}")
             return
 
+        log_debug(
+            f"[telegram_interface] Resolved: chat_id={chat_id}, final_thread_id={message_thread_id}"
+        )
+
         await chat_link_store.update_names_from_resolver(
             chat_id, message_thread_id, bot=self.bot
         )
@@ -1220,6 +1235,13 @@ class TelegramInterface:
         ):
             reply_message_id = original_message.message_id
             log_debug(f"[telegram_interface] reply_to_message_id: {reply_message_id}")
+            
+            # Also set message_thread_id from original message if not already set
+            if message_thread_id is None and hasattr(original_message, "message_thread_id"):
+                orig_thread_id = getattr(original_message, "message_thread_id")
+                if orig_thread_id is not None:
+                    message_thread_id = orig_thread_id
+                    log_debug(f"[telegram_interface] message_thread_id from original message: {message_thread_id}")
 
         fallback_chat_id = None
         fallback_message_thread_id = None
@@ -1233,6 +1255,18 @@ class TelegramInterface:
             fallback_message_thread_id = getattr(original_message, "message_thread_id", None)
             if hasattr(original_message, "message_id"):
                 fallback_reply_to = original_message.message_id
+        elif (
+            original_message
+            and hasattr(original_message, "chat_id")
+            and chat_id_int == getattr(original_message, "chat_id")
+            and message_thread_id is None
+        ):
+            # Same chat but no thread specified - try to use original message's thread
+            if hasattr(original_message, "message_thread_id"):
+                orig_thread_id = getattr(original_message, "message_thread_id")
+                if orig_thread_id is not None:
+                    message_thread_id = orig_thread_id
+                    log_debug(f"[telegram_interface] Using original message thread for same chat: {message_thread_id}")
 
         try:
             sent_message = await send_with_thread_fallback(
@@ -1338,6 +1372,10 @@ class TelegramInterface:
             log_warning(f"[telegram_interface] Invalid chat identifier: {chat_id}")
             return
 
+        log_debug(
+            f"[telegram_interface] Resolved: chat_id={chat_id}, final_thread_id={message_thread_id}"
+        )
+
         await chat_link_store.update_names_from_resolver(
             chat_id, message_thread_id, bot=self.bot
         )
@@ -1391,12 +1429,16 @@ class TelegramInterface:
         return (
             "TELEGRAM INTERFACE INSTRUCTIONS:\n"
             "- Use chat_id or chat_name for targets (chat_id can be negative for groups/channels).\n"
-            "- Include message_thread_id or message_thread_name when replying in topics; omit otherwise.\n"
+            "- 🔴 THREAD HANDLING: For main chat replies, OMIT message_thread_id entirely\n"
+            "- For thread replies, include the specific message_thread_id from the original message\n"
+            "- Interface defaults: Telegram uses None for main chat, Discord uses channel ID for threads\n"
+            "- Include message_thread_id or message_thread_name when replying in topics; omit only for main chat messages.\n"
             "- Keep messages under 4096 characters.\n"
             "- Markdown is supported and preferred.\n"
             "- Replying to a message in the same chat will automatically use that message as the reply target.\n"
             "- To send to another chat, specify the other chat's identifier; these will not appear as replies.\n"
             "- When a message originates on Telegram, reply using the message_telegram_bot action; do not switch interfaces unless explicitly asked.\n"
+            "- THREAD SAFETY: Always check if the incoming message has a message_thread_id and include it in your response payload.\n"
         )
 
 # Register TelegramInterface for discovery by the core

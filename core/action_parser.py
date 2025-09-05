@@ -153,6 +153,10 @@ async def corrector(errors: list, failed_actions: list, bot, message):
         correction_message.message_thread_id = getattr(message, "message_thread_id", None)
         correction_message.date = getattr(message, "date", datetime.utcnow())
         correction_message.from_user = getattr(message, "from_user", None)
+        
+        # Ensure from_user has an id attribute
+        if correction_message.from_user and not hasattr(correction_message.from_user, 'id'):
+            correction_message.from_user.id = getattr(message, "from_user", SimpleNamespace()).id if hasattr(getattr(message, "from_user", None), 'id') else None
 
         llm_plugin = getattr(plugin_instance, "plugin", None)
         if llm_plugin and hasattr(llm_plugin, "handle_incoming_message"):
@@ -411,6 +415,10 @@ def _plugins_for(action_type: str) -> List[Any]:
                     log_debug(
                         f"[action_parser] ✅ Plugin {plugin.__class__.__name__} supports {action_type} (via action_types)"
                     )
+                    # Optimization: Stop searching for message actions after first match
+                    if action_type.startswith("message_"):
+                        log_debug(f"[action_parser] ⚡ Optimization: Stopping search for message action {action_type} after first match")
+                        break
                     continue
 
             if hasattr(plugin, "get_supported_actions"):
@@ -423,11 +431,11 @@ def _plugins_for(action_type: str) -> List[Any]:
                     log_debug(
                         f"[action_parser] ✅ Plugin {plugin.__class__.__name__} supports {action_type} (via actions_dict)"
                     )
+                    # Optimization: Stop searching for message actions after first match
+                    if action_type.startswith("message_"):
+                        log_debug(f"[action_parser] ⚡ Optimization: Stopping search for message action {action_type} after first match")
+                        break
                     continue
-
-            log_debug(
-                f"[action_parser] ❌ Plugin {plugin.__class__.__name__} does not support {action_type}"
-            )
 
         except Exception as e:
             log_error(f"[action_parser] Error querying plugin {plugin}: {repr(e)}")
@@ -451,6 +459,10 @@ def _plugins_for(action_type: str) -> List[Any]:
                     log_debug(
                         f"[action_parser] ✅ Interface {name} supports {action_type} (via action_types)"
                     )
+                    # Optimization: Stop searching for message actions after first match
+                    if action_type.startswith("message_"):
+                        log_debug(f"[action_parser] ⚡ Optimization: Stopping search for message action {action_type} after first match")
+                        break
                     continue
 
             if hasattr(iface, "get_supported_actions"):
@@ -463,6 +475,10 @@ def _plugins_for(action_type: str) -> List[Any]:
                     log_debug(
                         f"[action_parser] ✅ Interface {name} supports {action_type} (via actions_dict)"
                     )
+                    # Optimization: Stop searching for message actions after first match
+                    if action_type.startswith("message_"):
+                        log_debug(f"[action_parser] ⚡ Optimization: Stopping search for message action {action_type} after first match")
+                        break
                     continue
 
             log_debug(
@@ -518,6 +534,13 @@ async def _handle_plugin_action(
 
         # Determine target interface from action or registry mapping
         iface_name = iface_target or _load_interface_actions().get(action_type)
+        
+        # If interface not found, try to refresh the interface actions cache
+        if not iface_name and action_type.startswith("message_"):
+            global _INTERFACE_ACTIONS
+            _INTERFACE_ACTIONS = None  # Force refresh
+            iface_name = _load_interface_actions().get(action_type)
+
         try:
             from core.core_initializer import INTERFACE_REGISTRY
 
@@ -788,14 +811,21 @@ async def parse_action(action: dict, bot, message):
     # Use centralized action plugin system for all other action types
     action_plugins = _plugins_for(action_type)
     if action_plugins:
+        action_handled = False
         for plugin in action_plugins:
             try:
                 if hasattr(plugin, "execute_action"):
                     result = plugin.execute_action(action, {}, bot, message)
                     if inspect.iscoroutine(result):
                         await result
+                    action_handled = True
+                    log_debug(f"[action_parser] Action {action_type} handled by {plugin.__class__.__name__}")
+                    break  # Stop after first successful handler
                 elif hasattr(plugin, "handle_custom_action"):
                     await plugin.handle_custom_action(action_type, payload)
+                    action_handled = True
+                    log_debug(f"[action_parser] Action {action_type} handled by {plugin.__class__.__name__} (custom)")
+                    break  # Stop after first successful handler
                 else:
                     log_warning(
                         f"[action_parser] Plugin {plugin.__class__.__name__} lacks execute_action/handle_custom_action methods"
@@ -804,6 +834,11 @@ async def parse_action(action: dict, bot, message):
                 log_error(
                     f"[action_parser] Error delegating {action_type} to plugin {plugin.__class__.__name__}: {repr(e)}"
                 )
+        
+        if action_handled:
+            log_debug(f"[action_parser] Action {action_type} successfully handled")
+        else:
+            log_warning(f"[action_parser] No plugin successfully handled action {action_type}")
         return
 
     log_warning(
@@ -882,7 +917,7 @@ async def gather_static_injections(message=None, context_memory=None) -> dict:
                 if isinstance(result, dict):
                     injections.update(result)
             except Exception as e:
-                log_warning(
+                log_error(
                     f"[action_parser] Error gathering static injection from {plugin.__class__.__name__}: {e}"
                 )
     except Exception as e:

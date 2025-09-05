@@ -73,3 +73,6 @@ class GoogleCLIPlugin(AIPluginBase):
             text=response,
             interface='telegram' if getattr(bot.__class__, '__module__', '').startswith('telegram') else 'generic',
         )
+
+# Ensure the plugin loader can locate the plugin class
+PLUGIN_CLASS = GoogleCLIPlugin

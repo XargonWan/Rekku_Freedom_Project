@@ -907,7 +907,7 @@ def ensure_chatgpt_model(driver):
                 log_warning(f"[chatgpt_model] Failed to get model info after {max_retries} retries")
                 return False
         except Exception as e:
-            log_warning(f"[chatgpt_model] Error getting current model: {e}")
+            log_error(f"[chatgpt_model] Error getting current model: {e}")
             return False
 
         log_debug("[chatgpt_model] Opening dropdown")
@@ -1114,6 +1114,51 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 loop.create_task(self.start())
         except RuntimeError:
             pass
+
+    async def handle_incoming_message(self, bot, message, prompt):
+        """Handle incoming messages by queuing them for processing."""
+        try:
+            # Queue the message for processing
+            await self._queue.put((bot, message, prompt))
+            log_debug(f"[selenium] Message queued for processing: chat_id={message.chat_id}")
+            
+            # Ensure worker is running
+            if not self.is_worker_running():
+                await self.start()
+                
+        except Exception as e:
+            log_error(f"[selenium] Failed to queue message: {repr(e)}", e)
+            # Send error message if queuing fails
+            await self._send_error_message(bot, message, error_text=f"Failed to queue message: {e}")
+
+    async def _worker_loop(self):
+        """Process messages from the queue sequentially."""
+        log_debug("[selenium] Worker loop started")
+        try:
+            while True:
+                try:
+                    # Get message from queue
+                    bot, message, prompt = await self._queue.get()
+                    log_debug(f"[selenium] Processing message from queue: chat_id={message.chat_id}")
+                    
+                    # Process the message
+                    await self._process_message(bot, message, prompt)
+                    
+                    # Mark task as done
+                    self._queue.task_done()
+                    
+                except asyncio.CancelledError:
+                    log_debug("[selenium] Worker loop cancelled")
+                    break
+                except Exception as e:
+                    log_error(f"[selenium] Error in worker loop: {repr(e)}", e)
+                    # Continue processing other messages even if one fails
+                    continue
+                    
+        except Exception as e:
+            log_error(f"[selenium] Worker loop crashed: {repr(e)}", e)
+        finally:
+            log_debug("[selenium] Worker loop ended")
 
     def _apply_driver_timeouts(self) -> None:
         """Apply environment-based timeouts to the Selenium driver."""
@@ -1804,7 +1849,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 _notify_gui(f"\u274c Selenium error: {e}. Open UI")
                 return
 
-    @staticmethod
     async def clean_chat_link(chat_id: int, interface: str) -> str:
         """Remove the association between a chat and a ChatGPT conversation.
         If no link exists for the current chat, creates a new one."""

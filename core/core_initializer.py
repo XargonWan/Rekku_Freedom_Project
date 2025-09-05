@@ -56,6 +56,14 @@ class CoreInitializer:
             from core.plugin_instance import load_plugin
             await load_plugin(self.active_llm, notify_fn=notify_fn)
             
+            # Verify plugin was loaded successfully
+            from core.plugin_instance import plugin
+            if plugin is None:
+                log_error(f"[core_initializer] Plugin {self.active_llm} failed to load!")
+                self.startup_errors.append(f"Plugin {self.active_llm} failed to load")
+            else:
+                log_debug(f"[core_initializer] Plugin {self.active_llm} loaded successfully: {plugin.__class__.__name__}")
+            
             log_debug(f"[core_initializer] Active LLM engine loaded: {self.active_llm}")
         except Exception as e:
             log_error(f"[core_initializer] Failed to load active LLM: {repr(e)}")

@@ -266,7 +266,17 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
                 log_warning(f"[transport] action parser unavailable: {e}")
                 return await interface_send_func(*args, text=text, **kwargs)
 
-            context = {"interface": "telegram"}  # Add more context as needed
+            context = {
+                "interface": "telegram",
+                "original_chat_id": chat_id_value,
+                "original_message_thread_id": kwargs.get('message_thread_id'),
+                "original_text": text[:500] if text else "",  # Include preview of original text
+                "thread_defaults": {
+                    "telegram": None,  # None = main chat, specific ID = thread
+                    "discord": None,   # Discord uses channel IDs for threads
+                    "default": None
+                }
+            }  # Add more context as needed
 
             processed_actions = []
 
@@ -329,7 +339,18 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
 
     # Diagnostic: show bot and chat_id information and kwargs
     try:
-        log_debug(f"[telegram_transport] Called with bot={repr(bot)} (type={type(bot)}), chat_id={chat_id} (type={type(chat_id)}), kwargs={kwargs}")
+        # Hide sensitive token information in logs
+        bot_repr = str(bot)
+        if 'token=' in bot_repr:
+            # Extract token and show only last 4 characters
+            import re
+            token_match = re.search(r'token=([^]]+)', bot_repr)
+            if token_match:
+                token = token_match.group(1)
+                if len(token) > 4:
+                    masked_token = '*' * (len(token) - 4) + token[-4:]
+                    bot_repr = bot_repr.replace(token, masked_token)
+        log_debug(f"[telegram_transport] Called with bot={bot_repr} (type={type(bot)}), chat_id={chat_id} (type={type(chat_id)}), kwargs={kwargs}")
     except Exception:
         log_debug("[telegram_transport] Called with bot (repr failed), chat_id and kwargs logged separately")
         log_debug(f"[telegram_transport] chat_id={chat_id} (type={type(chat_id)}) kwargs_keys={list(kwargs.keys())}")
@@ -420,7 +441,17 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
                     await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
                 return
 
-            context = {"interface": "telegram"}
+            context = {
+                "interface": "telegram",
+                "original_chat_id": chat_id,
+                "original_message_thread_id": kwargs.get('message_thread_id'),
+                "original_text": text[:500] if text else "",
+                "thread_defaults": {
+                    "telegram": None,  # None = main chat, specific ID = thread
+                    "discord": None,   # Discord uses channel IDs for threads
+                    "default": None
+                }
+            }
             if 'event_id' in kwargs:
                 context['event_id'] = kwargs['event_id']
             

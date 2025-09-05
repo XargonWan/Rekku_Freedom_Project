@@ -10,6 +10,11 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.telegram_utils import safe_send
 import time
 
+# Global variable for throttling manual logs
+_last_manual_log_time = 0
+_manual_log_throttle_sec = 5
+_last_bot_none_manual_log_time = 0
+
 class ManualAIPlugin(AIPluginBase):
 
     def __init__(self, notify_fn=None):
@@ -32,11 +37,6 @@ class ManualAIPlugin(AIPluginBase):
             log_debug("[manual] No notification function provided, using fallback.")
             set_notifier(lambda chat_id, message: log_info(f"[NOTIFY fallback] {message}"))
 
-        # Throttle logs to reduce spam
-        self._last_manual_log_time = 0
-        self._manual_log_throttle_sec = 5
-        self._last_bot_none_manual_log_time = 0
-
     async def track_message(self, trainer_message_id, original_chat_id, original_message_id):
         """Persist the mapping for a forwarded message."""
         await message_map.add_mapping(trainer_message_id, original_chat_id, original_message_id)
@@ -56,9 +56,9 @@ class ManualAIPlugin(AIPluginBase):
 
         user_id = message.from_user.id
         text = message.text or ""
-        global _last_manual_log_time
+        global _last_manual_log_time, _manual_log_throttle_sec
         now = time.time()
-        if now - _last_manual_log_time >= self._manual_log_throttle_sec:
+        if now - _last_manual_log_time >= _manual_log_throttle_sec:
             log_debug(f"[manual] Message received in manual mode from chat_id={message.chat_id}")
             _last_manual_log_time = now
 
