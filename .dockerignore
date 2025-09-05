@@ -5,7 +5,7 @@ __pycache__/
 *.env
 .git
 logs/
-persona/
+persona*/
 .ICEauthority
 backups/
 tests/
