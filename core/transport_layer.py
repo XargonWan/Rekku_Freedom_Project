@@ -208,13 +208,13 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
         log_debug(f"[transport] Detected JSON data, parsing: {json_data}")
         try:
             log_debug(f"[flow] transport.detects_json -> will attempt run_actions")
-             # Handle new nested actions format
-             if isinstance(json_data, dict) and "actions" in json_data:
-                 actions = json_data["actions"]
-                 if not isinstance(actions, list):
-                     log_warning("[transport] actions field must be a list")
-                     return await interface_send_func(*args, text=text, **kwargs)
-             # Fallback to legacy array format
+            # Handle new nested actions format
+            if isinstance(json_data, dict) and "actions" in json_data:
+                actions = json_data["actions"]
+                if not isinstance(actions, list):
+                    log_warning("[transport] actions field must be a list")
+                    return await interface_send_func(*args, text=text, **kwargs)
+            # Fallback to legacy array format
             elif isinstance(json_data, list):
                 actions = json_data
             # Fallback to legacy single action format
