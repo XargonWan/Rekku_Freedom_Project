@@ -51,7 +51,6 @@ from core.chat_link_store import (
     ChatLinkStore,
     ChatLinkMultipleMatches,
 )
-from core.action_parser import ERROR_RETRY_POLICY
 from core.prompt_engine import build_full_json_instructions
 
 chat_link_store = ChatLinkStore()
@@ -1059,32 +1058,18 @@ class TelegramInterface:
         payload: dict,
         original_message: object | None = None,
     ) -> None:
+        """
+        🚨 EMERGENCY FIX: COMPLETELY DISABLED to prevent infinite loops.
+        
+        System errors from delivery issues (retry_exhausted, copy_check) 
+        cause infinite recursive loops. This method now ONLY logs.
+        """
         try:
-            full_json = build_full_json_instructions()
-            system_payload = {
-                "system_message": {
-                    "type": "error",
-                    "step": step,
-                    "message": details,
-                    "full_json_instructions": full_json,
-                    "error_retry_policy": ERROR_RETRY_POLICY,
-                }
-            }
-            payload_json = json.dumps(system_payload, ensure_ascii=False)
-            msg = SimpleNamespace()
-            if original_message and hasattr(original_message, "chat_id"):
-                msg.chat_id = original_message.chat_id
-                msg.message_thread_id = getattr(original_message, "message_thread_id", None)
-            else:
-                msg.chat_id = TELEGRAM_TRAINER_ID
-                msg.message_thread_id = None
-            msg.text = payload_json
-            from datetime import datetime
-            msg.date = datetime.utcnow()
-            msg.from_user = SimpleNamespace(id=TELEGRAM_TRAINER_ID)
-            llm = plugin_instance.get_plugin()
-            if llm and hasattr(llm, "handle_incoming_message"):
-                await llm.handle_incoming_message(self.bot, msg, payload_json)
+            log_error(f"[telegram_interface] System error BLOCKED - step: {step}, details: {details}, payload: {payload}")
+            # ❌ NO SENDING ANYTHING - causes loops!
+            # ❌ NO bot.send_message - causes loops!  
+            # ❌ NO system_message generation - causes loops!
+            return  # Exit immediately after logging
         except Exception as e:
             log_error(f"[telegram_interface] Failed to emit system error: {e}")
 
@@ -1094,59 +1079,17 @@ class TelegramInterface:
         payload: dict,
         original_message: object | None = None,
     ) -> None:
-        log_chat_id = await get_log_chat_id()
-        if not log_chat_id:
-            log_chat_id = TELEGRAM_TRAINER_ID
-        if sent_message is None:
-            await self._emit_system_error(
-                "retry_exhausted",
-                "sendMessage returned no message",
-                payload,
-                original_message,
-            )
-            return
-        if not log_chat_id:
-            return
-
-        retries = 3
-        base_delay = 2
-        for attempt in range(1, retries + 1):
-            try:
-                await self.bot.copy_message(
-                    chat_id=log_chat_id,
-                    from_chat_id=sent_message.chat_id,
-                    message_id=sent_message.message_id,
-                )
-                return
-            except RetryAfter as e:
-                wait_time = getattr(e, "retry_after", base_delay * attempt)
-            except TelegramError as e:
-                status = getattr(getattr(e, "response", None), "status_code", None)
-                if status in {429, 500, 502, 503} and attempt < retries:
-                    wait_time = base_delay * (2 ** (attempt - 1))
-                else:
-                    await self._emit_system_error(
-                        "copy_check",
-                        f"copyMessage failed: {e}",
-                        payload,
-                        original_message,
-                    )
-                    return
-            except Exception as e:
-                await self._emit_system_error(
-                    "copy_check",
-                    f"copyMessage exception: {e}",
-                    payload,
-                    original_message,
-                )
-                return
-            await asyncio.sleep(wait_time)
-        await self._emit_system_error(
-            "retry_exhausted",
-            "copyMessage failed after retries",
-            payload,
-            original_message,
-        )
+        """
+        🚨 EMERGENCY FIX: COMPLETELY DISABLED to prevent infinite loops.
+        
+        This method was causing infinite recursive loops through _emit_system_error.
+        The copy_message functionality is not critical for core operation.
+        """
+        # ❌ COMPLETELY DISABLED - was causing infinite loops
+        # ❌ NO copy_message attempts - causes loops  
+        # ❌ NO _emit_system_error calls - causes loops
+        # ❌ NO retry logic - causes loops
+        return  # Exit immediately without any operations
 
     async def send_message(self, payload: dict, original_message: object | None = None) -> None:
         """Send a message using the stored bot.

@@ -327,8 +327,8 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
         except Exception:
             pass
 
-    # Don't try to parse JSON from system/error messages
-    is_system_message = text.startswith(('[ERROR]', '[WARNING]', '[INFO]', '[DEBUG]'))
+    # Don't try to parse JSON from system/error messages or messages that shouldn't be corrected
+    is_system_message = text.startswith(('[ERROR]', '[WARNING]', '[INFO]', '[DEBUG]')) or "system_message" in text
 
     json_data = None
     if not is_system_message:
@@ -530,6 +530,11 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
     except Exception:
         pass
 
+    # Don't correct system messages or messages that clearly don't need correction
+    if text and ("system_message" in text or text.startswith(("[ERROR]", "[WARNING]", "[INFO]", "[DEBUG]"))):
+        log_debug("[corrector_middleware] Text appears to be system message; skipping correction to prevent loops")
+        return None
+
     last_error_hint = LAST_JSON_ERROR_INFO or "Invalid or missing JSON"
 
     for attempt in range(1, max_retries + 1):
@@ -700,19 +705,6 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
                 json_payload = extract_json_from_text(text)
             except Exception:
                 json_payload = None
-
-        # Immediately ignore explicit system messages of type 'error' to avoid loops
-        if isinstance(json_payload, dict) and 'system_message' in json_payload:
-            try:
-                sm = json_payload.get('system_message') or {}
-                sm_type = None
-                if isinstance(sm, dict):
-                    sm_type = sm.get('type')
-                if sm_type == 'error':
-                    log_debug('[llm_to_interface] Ignoring top-level system_message type=error (preventing loop)')
-                    return None
-            except Exception:
-                pass
 
         # Detect correction/system payloads (top-level "system_message")
         if isinstance(json_payload, dict) and 'system_message' in json_payload:

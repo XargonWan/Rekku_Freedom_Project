@@ -703,13 +703,18 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             )
 
     if collected_errors:
-        try:
-            from core.transport_layer import run_corrector_middleware
-            # Ask the centralized middleware/orchestrator to handle correction attempts
-            # We provide the original message context so middleware can mark expectations.
-            await run_corrector_middleware(original_message.original_text if hasattr(original_message, 'original_text') else getattr(original_message, 'text', ''), bot=bot, context=context, chat_id=getattr(original_message, 'chat_id', None))
-        except Exception as e:
-            log_warning(f"[action_parser] Failed to invoke corrector middleware: {e}")
+        # Only invoke corrector for errors that came from LLM messages
+        # System messages and interface messages should not trigger correction
+        if hasattr(original_message, 'from_llm') and original_message.from_llm:
+            try:
+                from core.transport_layer import run_corrector_middleware
+                # Ask the centralized middleware/orchestrator to handle correction attempts
+                # We provide the original message context so middleware can mark expectations.
+                await run_corrector_middleware(original_message.original_text if hasattr(original_message, 'original_text') else getattr(original_message, 'text', ''), bot=bot, context=context, chat_id=getattr(original_message, 'chat_id', None))
+            except Exception as e:
+                log_warning(f"[action_parser] Failed to invoke corrector middleware: {e}")
+        else:
+            log_debug("[action_parser] Errors found but message is not from LLM; skipping correction to prevent loops")
 
     return {
         "processed": processed_actions,
@@ -940,11 +945,6 @@ async def corrector_orchestrator(text: str, context: dict, bot, message, max_ret
         log_debug(f"[corrector_orchestrator] initial parse failed: {e}")
 
     if parsed is not None:
-        # If this is a system-generated message, ignore it completely (do not execute or forward)
-        if isinstance(parsed, dict) and "system_message" in parsed:
-            log_info("[corrector_orchestrator] Received top-level 'system_message' — ignoring to prevent handling system-generated payloads")
-            return False
-
         # Build actions list similar to transport layer
         if isinstance(parsed, dict) and "actions" in parsed:
             actions = parsed["actions"] if isinstance(parsed["actions"], list) else None
@@ -961,6 +961,7 @@ async def corrector_orchestrator(text: str, context: dict, bot, message, max_ret
 
         try:
             result = await run_actions(actions, context, bot, message)
+            log_info('[corrector_orchestrator] Actions executed successfully - interrupting correction loop')
             return True
         except Exception as e:
             log_warning(f"[corrector_orchestrator] Failed to run actions: {e}")
@@ -1013,11 +1014,6 @@ async def corrector_orchestrator(text: str, context: dict, bot, message, max_ret
             log_debug(f"[corrector_orchestrator] Parsing corrected failed: {e}")
 
         if parsed2 is not None:
-            # If the corrected response is a system-generated message, ignore it
-            if isinstance(parsed2, dict) and "system_message" in parsed2:
-                log_info("[corrector_orchestrator] Corrector returned a top-level 'system_message' — ignoring to prevent handling system-generated payloads")
-                return False
-
             # run actions
             if isinstance(parsed2, dict) and "actions" in parsed2:
                 actions = parsed2["actions"] if isinstance(parsed2["actions"], list) else None
@@ -1034,6 +1030,7 @@ async def corrector_orchestrator(text: str, context: dict, bot, message, max_ret
 
             try:
                 await run_actions(actions, context, bot, message)
+                log_info('[corrector_orchestrator] Corrected actions executed successfully - interrupting correction loop')
                 return True
             except Exception as e:
                 log_warning(f"[corrector_orchestrator] Failed to run actions after correction: {e}")

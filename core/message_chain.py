@@ -84,20 +84,15 @@ async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text:
             log_debug(f"[message_chain] extract_json failed: {e}")
 
         if parsed is not None:
-            # System messages are produced by the core/system and generally skipped
+            # System messages are produced by the core/system and should NEVER be processed
+            # This prevents loops caused by system messages being re-evaluated
             if isinstance(parsed, dict) and 'system_message' in parsed:
                 sm = parsed.get('system_message') or {}
                 sm_type = sm.get('type') if isinstance(sm, dict) else None
-                if sm_type not in ("event", "output"):
-                    log_info(
-                        f"[message_chain] Ignoring top-level system_message type={sm_type} (system-origin payload)"
-                    )
-                    return BLOCKED
-                # Allow event/output system messages to bubble up to the interface without correction
-                log_debug(
-                    f"[message_chain] Forwarding system_message type={sm_type} without correction"
+                log_info(
+                    f"[message_chain] Blocking system_message type={sm_type} (system-origin payload) - system messages must not enter the processing loop"
                 )
-                return FORWARD_AS_TEXT
+                return BLOCKED
 
             # Build actions list
             if isinstance(parsed, dict) and 'actions' in parsed:
@@ -116,10 +111,12 @@ async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text:
             # Execute actions via action_parser
             try:
                 await run_actions(actions, ctx, bot, message)
-                log_info('[message_chain] Actions executed')
+                log_info('[message_chain] Actions executed successfully - loop interrupted')
                 return ACTIONS_EXECUTED
             except Exception as e:
                 log_warning(f"[message_chain] Failed to run actions: {e}")
+                # If action execution fails, don't continue with correction loop
+                # This prevents cascading failures and loops
                 return BLOCKED
 
         # Not parsed. If not JSON-like, forward as plain text
@@ -128,9 +125,16 @@ async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text:
             return FORWARD_AS_TEXT
 
         # JSON-like but invalid -> attempt correction
+        # IMPORTANT: Only attempt correction for LLM messages that failed JSON parsing
+        # Non-LLM messages and messages that don't require correction should be forwarded as text
         if source != "llm" and not getattr(message, "from_llm", False):
-            log_debug("[message_chain] Non-LLM source; skipping correction")
+            log_debug("[message_chain] Non-LLM source; messages that don't require correction should not be corrected")
             return FORWARD_AS_TEXT
+
+        # Additional check: if this is already a system error message from corrector, don't re-correct
+        if "system_message" in (text or '') and "error" in (text or ''):
+            log_debug("[message_chain] Detected system error message from corrector; preventing re-correction loop")
+            return BLOCKED
 
         attempt += 1
         if attempt > max_retries:
