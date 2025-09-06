@@ -96,6 +96,11 @@ async def get_conn() -> aiomysql.Connection:
             autocommit=True,
         )
     except Exception as primary_exc:  # pragma: no cover - network errors
+        # Check if interpreter is shutting down
+        if "interpreter shutdown" in str(primary_exc):
+            log_debug("[db] Connection failed due to interpreter shutdown, skipping")
+            raise primary_exc
+        
         primary_cause = getattr(primary_exc, "__cause__", None)
         cause_msg = f" (cause: {primary_cause})" if primary_cause else ""
         log_warning(
@@ -112,6 +117,11 @@ async def get_conn() -> aiomysql.Connection:
                     autocommit=True,
                 )
             except Exception as fallback_exc:  # pragma: no cover - network errors
+                # Check if interpreter is shutting down
+                if "interpreter shutdown" in str(fallback_exc):
+                    log_debug("[db] Localhost connection failed due to interpreter shutdown, skipping")
+                    raise fallback_exc
+                
                 fallback_cause = getattr(fallback_exc, "__cause__", None)
                 fb_cause_msg = f" (cause: {fallback_cause})" if fallback_cause else ""
                 log_error(

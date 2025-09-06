@@ -84,9 +84,11 @@ class OpenAIPlugin(AIPluginBase):
 
         messages = []
 
+        # Include interface information in system message
+        interface = prompt.get("input", {}).get("interface", "unknown")
         messages.append({
             "role": "system",
-            "content": "You are a helpful, precise and concise assistant."
+            "content": f"The message comes from the {interface} interface."
         })
 
         for entry in prompt.get("context", []):
@@ -102,54 +104,16 @@ class OpenAIPlugin(AIPluginBase):
                 "content": f"[RELEVANT MEMORIES]\n{memory_text}"
             })
 
+        # Correct path to the message text
+        message_text = prompt.get("input", {}).get("payload", {}).get("text", "")
         messages.append({
             "role": "user",
-            "content": prompt["message"]["text"]
+            "content": message_text
         })
 
         log_debug(f"[openai] Invio a OpenAI con modello: {self._current_model}")
         response = openai.ChatCompletion.create(
             model=self._current_model,
-            messages=messages
-        )
-        return response.choices[0].message.content.strip()
-
-    async def generate_response(self, prompt):
-        openai.api_key = get_user_api_key()
-
-        # Adatta il prompt al formato richiesto dalle OpenAI API
-        messages = []
-
-        # Optionally add a system message
-        messages.append({
-            "role": "system",
-            "content": "You are a helpful, precise and concise assistant."
-        })
-
-        # Aggiungi i messaggi di contesto
-        for entry in prompt.get("context", []):
-            messages.append({
-                "role": "user",
-                "content": entry["text"]
-            })
-
-        # Aggiungi eventuali memorie (opzionale, come messaggi system/user)
-        if prompt.get("memories"):
-            memory_text = "\n".join(f"- {m}" for m in prompt["memories"])
-            messages.append({
-                "role": "system",
-                "content": f"[RELEVANT MEMORIES]\n{memory_text}"
-            })
-
-        # Aggiungi il messaggio corrente dell'utente
-        messages.append({
-            "role": "user",
-            "content": prompt["message"]["text"]
-        })
-
-        # Richiesta al modello
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
             messages=messages
         )
         return response.choices[0].message.content.strip()

@@ -71,6 +71,10 @@ context_memory = {}
 last_selected_chat = {}
 message_id = None
 
+# Throttling for bot None lookup warnings
+_last_bot_none_lookup_log_time = 0
+_bot_none_log_throttle_sec = 5
+
 from core.config import LLM_MODE
 
 async def ensure_plugin_loaded(update: Update):
@@ -868,11 +872,15 @@ class TelegramInterface:
             chat_name = None
             thread_name = None
             if b is None:
-                global _last_bot_none_lookup_log_time
-                now = time.time()
-                if now - _last_bot_none_lookup_log_time >= _bot_none_log_throttle_sec:
+                try:
+                    global _last_bot_none_lookup_log_time
+                    now = time.time()
+                    if now - _last_bot_none_lookup_log_time >= _bot_none_log_throttle_sec:
+                        log_warning("[telegram_interface] Bot is None, cannot lookup chat name")
+                        _last_bot_none_lookup_log_time = now
+                except NameError:
+                    # Variable not defined, log without throttling
                     log_warning("[telegram_interface] Bot is None, cannot lookup chat name")
-                    _last_bot_none_lookup_log_time = now
                 return {"chat_name": None, "message_thread_name": None}
             try:
                 chat = await b.getChat(chat_id)
@@ -881,10 +889,16 @@ class TelegramInterface:
                 log_warning(f"[telegram_interface] chat name lookup failed: {e}")
             if message_thread_id:
                 try:
-                    topic = await b.getForumTopic(chat_id, message_thread_id)
-                    thread_name = getattr(topic, "name", None) or getattr(topic, "title", None)
+                    # Check if getForumTopic method exists (available in newer versions of python-telegram-bot)
+                    if hasattr(b, 'getForumTopic'):
+                        topic = await b.getForumTopic(chat_id, message_thread_id)
+                        thread_name = getattr(topic, "name", None) or getattr(topic, "title", None)
+                    else:
+                        log_debug("[telegram_interface] getForumTopic method not available, skipping thread name lookup")
+                        thread_name = None
                 except Exception as e:  # pragma: no cover
                     log_warning(f"[telegram_interface] thread name lookup failed: {e}")
+                    thread_name = None
             return {"chat_name": chat_name, "message_thread_name": thread_name}
 
         ChatLinkStore.set_name_resolver("telegram", _resolver)
@@ -1149,6 +1163,9 @@ class TelegramInterface:
         ``message_thread_id`` is the correct Telegram parameter for replies in
         topics and replaces the legacy ``thread_id`` name.
         """
+        if self.bot is None:
+            log_warning("[telegram_interface] Bot not initialized, cannot send message")
+            return
 
         text = payload.get("text", "")
         target = payload.get("target")
@@ -1210,28 +1227,28 @@ class TelegramInterface:
             chat_id = row.get("chat_id", chat_id)
             message_thread_id = row.get("message_thread_id", message_thread_id)
 
-        try:
-            target_for_comparison = int(chat_id)
-        except (TypeError, ValueError):
-            log_warning(f"[telegram_interface] Invalid chat identifier: {chat_id}")
-            return
-
         log_debug(
             f"[telegram_interface] Resolved: chat_id={chat_id}, final_thread_id={message_thread_id}"
         )
 
+        # Ensure message_thread_id is a string if present
+        if message_thread_id is not None:
+            message_thread_id = str(message_thread_id)
+
+        # Ensure chat_id is a string
+        if chat_id is not None:
+            chat_id = str(chat_id)
+
         await chat_link_store.update_names_from_resolver(
             chat_id, message_thread_id, bot=self.bot
         )
-
-        chat_id_int = target_for_comparison
 
         reply_message_id = None
         if (
             original_message
             and hasattr(original_message, "chat_id")
             and hasattr(original_message, "message_id")
-            and chat_id_int == getattr(original_message, "chat_id")
+            and chat_id == getattr(original_message, "chat_id")
         ):
             reply_message_id = original_message.message_id
             log_debug(f"[telegram_interface] reply_to_message_id: {reply_message_id}")
@@ -1249,7 +1266,7 @@ class TelegramInterface:
         if (
             original_message
             and hasattr(original_message, "chat_id")
-            and chat_id_int != getattr(original_message, "chat_id")
+            and chat_id != getattr(original_message, "chat_id")
         ):
             fallback_chat_id = original_message.chat_id
             fallback_message_thread_id = getattr(original_message, "message_thread_id", None)
@@ -1258,7 +1275,7 @@ class TelegramInterface:
         elif (
             original_message
             and hasattr(original_message, "chat_id")
-            and chat_id_int == getattr(original_message, "chat_id")
+            and chat_id == getattr(original_message, "chat_id")
             and message_thread_id is None
         ):
             # Same chat but no thread specified - try to use original message's thread
@@ -1271,7 +1288,7 @@ class TelegramInterface:
         try:
             sent_message = await send_with_thread_fallback(
                 self.bot,
-                chat_id_int,
+                chat_id,
                 text,
                 parse_mode="Markdown",
                 message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
@@ -1283,7 +1300,7 @@ class TelegramInterface:
         except BadRequest as e:
             if "chat not found" in str(e).lower():
                 await corrector(
-                    [f"Chat {chat_id_int} not found"],
+                    [f"Chat {chat_id} not found"],
                     [payload],
                     self.bot,
                     original_message,
@@ -1366,15 +1383,17 @@ class TelegramInterface:
             chat_id = row.get("chat_id", chat_id)
             message_thread_id = row.get("message_thread_id", message_thread_id)
 
-        try:
-            target_for_comparison = int(chat_id)
-        except (TypeError, ValueError):
-            log_warning(f"[telegram_interface] Invalid chat identifier: {chat_id}")
-            return
-
         log_debug(
             f"[telegram_interface] Resolved: chat_id={chat_id}, final_thread_id={message_thread_id}"
         )
+
+        # Ensure message_thread_id is a string if present
+        if message_thread_id is not None:
+            message_thread_id = str(message_thread_id)
+
+        # Ensure chat_id is a string
+        if chat_id is not None:
+            chat_id = str(chat_id)
 
         await chat_link_store.update_names_from_resolver(
             chat_id, message_thread_id, bot=self.bot
@@ -1385,11 +1404,11 @@ class TelegramInterface:
             original_message
             and hasattr(original_message, "chat_id")
             and hasattr(original_message, "message_id")
-            and target_for_comparison == getattr(original_message, "chat_id")
+            and chat_id == getattr(original_message, "chat_id")
         ):
             reply_message_id = original_message.message_id
 
-        send_kwargs = {"chat_id": target_for_comparison}
+        send_kwargs = {"chat_id": chat_id}
         if message_thread_id is not None:
             send_kwargs["message_thread_id"] = message_thread_id
         if reply_message_id is not None:

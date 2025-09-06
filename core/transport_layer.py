@@ -21,6 +21,9 @@ except Exception as e:  # pragma: no cover - executed only when telegram missing
 # Store last JSON parsing error details for corrector hints
 LAST_JSON_ERROR_INFO: Optional[str] = None
 
+# Track chat_ids for which core initiated a system-message correction request
+_EXPECTING_SYSTEM_REPLY: set = set()
+
 
 
 def _format_json_error(text: str, err: json.JSONDecodeError) -> str:
@@ -36,139 +39,70 @@ def _format_json_error(text: str, err: json.JSONDecodeError) -> str:
     )
 
 
-def extract_json_from_text(text: str, processed_messages: set = None):
-    """
-    Extract JSON objects or arrays from text.
+def extract_json_from_text(text: str) -> dict | list | None:
+    """Extract JSON from text, handling various formats and edge cases."""
+    if not text or not text.strip():
+        return None
+
+    text = text.strip()
     
-    Args:
-        text: The text that may contain JSON
-        processed_messages: A set to track already processed messages
-        
-    Returns:
-        A Python dictionary, list, or None if no valid JSON is found. Any
-        non-JSON text before or after the first JSON block is ignored.
-    """
-    global LAST_JSON_ERROR_INFO
-    LAST_JSON_ERROR_INFO = None
-
-    try:
-        text = text.strip()
-
-        # Initialize processed_messages if not provided
-        if processed_messages is None:
-            processed_messages = set()
-
-        # Check if the message has already been processed
-        if text in processed_messages:
-            log_debug("[extract_json_from_text] Message already processed, skipping.")
-            return None
-
-        # Mark the message as processed
-        processed_messages.add(text)
-        
-        # Don't parse JSON from system/error messages or error reports
-        if text.startswith(('[ERROR]', '[WARNING]', '[INFO]', '[DEBUG]')):
-            log_debug("[extract_json_from_text] Skipping system message - not JSON")
-            return None
-            
-        # Don't parse JSON from error reports or correction requests
-        if any(
-            keyword in text
-            for keyword in [
-                '"error_report"',
-                '"correction_needed"',
-                '🚨 ACTION PARSING ERRORS DETECTED 🚨',
-                'Please fix these actions',
-                '"system_message"',
-            ]
-        ):
-            log_debug(
-                "[extract_json_from_text] Skipping error report/correction request - not actionable JSON"
-            )
-            return None
-        
-        # Handle common ChatGPT prefixes like "json\nCopy code\n{...}" or
-        # "json\nCopy\nEdit\n{...}" by removing the leading non-JSON lines.
-        if text.startswith("json\n"):
-            lines = text.split('\n')
-            # Drop the leading "json" line
-            lines = lines[1:]
-            # Skip optional helper lines such as "Copy", "Edit", or "Copy code"
-            while lines and lines[0].strip().lower() in ("copy", "edit", "copy code"):
-                lines = lines[1:]
-            text = '\n'.join(lines).strip()
-            log_debug("[extract_json_from_text] Removed ChatGPT prefix lines")
-
-        decoder = json.JSONDecoder()
-
-        # First, attempt to parse the entire text.  If extra characters follow
-        # a valid JSON block, simply warn and return the parsed object.
+    # Handle JSON wrapped in quotes (common LLM response format)
+    if (text.startswith("'") and text.endswith("'")) or (text.startswith('"') and text.endswith('"')):
+        # Remove the wrapping quotes
+        inner_text = text[1:-1]
+        # Try to parse the inner content
         try:
-            obj, end = decoder.raw_decode(text)
-            remainder = text[end:].strip()
-            if remainder:
-                log_warning("[extract_json_from_text] Extra content detected after JSON block")
-            return obj
+            return json.loads(inner_text)
         except json.JSONDecodeError:
-            pass
-        
-        # Scan greedily for JSON blocks starting from each '{'
-        start_indices = [i for i, char in enumerate(text) if char == '{']
-        if not start_indices:
-            log_debug("[extract_json_from_text] No starting braces found in text")
-            return None
-        for start in start_indices:
-            try:
-                obj, obj_end = decoder.raw_decode(text[start:])
-            except json.JSONDecodeError:
-                continue
-            obj_end += start
-            prefix = text[:start].strip()
-            suffix = text[obj_end:].strip()
-            if prefix or suffix:
-                log_warning("[extract_json_from_text] Extra content detected around JSON block")
-            return obj
-        
-        # Scan for JSON arrays starting from each '['
-        array_start_indices = [i for i, char in enumerate(text) if char == '[']
-        for start in array_start_indices:
-            try:
-                obj, obj_end = decoder.raw_decode(text[start:])
-            except json.JSONDecodeError:
-                continue
-            obj_end += start
-            prefix = text[:start].strip()
-            suffix = text[obj_end:].strip()
-            if prefix or suffix:
-                log_warning("[extract_json_from_text] Extra content detected around JSON block")
-            return obj
+            # If direct parsing fails, continue with normal extraction on inner text
+            text = inner_text
 
-        # Handle additional cases where JSON is embedded in text
-        if 'json' in text.lower():
-            start_index = text.lower().find('{')
-            if start_index != -1:
-                try:
-                    obj, obj_end = decoder.raw_decode(text[start_index:])
-                except json.JSONDecodeError:
-                    log_warning("[extract_json_from_text] Failed to parse embedded JSON")
-                else:
-                    obj_end += start_index
-                    prefix = text[:start_index].strip()
-                    suffix = text[obj_end:].strip()
-                    if prefix or suffix:
-                        log_warning("[extract_json_from_text] Extra content detected around JSON block")
-                    return obj
+    decoder = json.JSONDecoder()
 
-        # Log a warning if no JSON is found
-        log_debug("[extract_json_from_text] No valid JSON found in text")
-    except json.JSONDecodeError as e:
-        LAST_JSON_ERROR_INFO = _format_json_error(text, e)
-        log_warning(f"[extract_json_from_text] JSON decoding error: {LAST_JSON_ERROR_INFO}")
+    # First, attempt to parse the entire text.  If extra characters follow
+    # a valid JSON block, simply warn and return the parsed object.
+    try:
+        obj, end = decoder.raw_decode(text)
+        remainder = text[end:].strip()
+        if remainder:
+            log_warning("[extract_json_from_text] Extra content detected after JSON block")
+        return obj
+    except json.JSONDecodeError:
+        pass
+    
+    # Scan greedily for JSON blocks starting from each '{'
+    start_indices = [i for i, char in enumerate(text) if char == '{']
+    if not start_indices:
+        log_debug("[extract_json_from_text] No starting braces found in text")
         return None
-    except Exception as e:
-        LAST_JSON_ERROR_INFO = str(e)
-        log_warning(f"[extract_json_from_text] Unexpected error: {e}")
-        return None
+    for start in start_indices:
+        try:
+            obj, obj_end = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        obj_end += start
+        prefix = text[:start].strip()
+        suffix = text[obj_end:].strip()
+        if prefix or suffix:
+            log_warning("[extract_json_from_text] Extra content detected around JSON block")
+        return obj
+    
+    # Scan for JSON arrays starting from each '['
+    array_start_indices = [i for i, char in enumerate(text) if char == '[']
+    for start in array_start_indices:
+        try:
+            obj, obj_end = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        obj_end += start
+        prefix = text[:start].strip()
+        suffix = text[obj_end:].strip()
+        if prefix or suffix:
+            log_warning("[extract_json_from_text] Extra content detected around JSON block")
+        return obj
+    
+    log_debug("[extract_json_from_text] No valid JSON found in text")
+    return None
 
 
 
@@ -266,8 +200,16 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
                 log_warning(f"[transport] action parser unavailable: {e}")
                 return await interface_send_func(*args, text=text, **kwargs)
 
+            # Determine current interface from bot
+            current_interface = "telegram"  # default fallback
+            if hasattr(bot, 'get_interface_id'):
+                try:
+                    current_interface = bot.get_interface_id()
+                except Exception as e:
+                    log_debug(f"[transport] Could not get interface_id from bot: {e}")
+            
             context = {
-                "interface": "telegram",
+                "interface": current_interface,
                 "original_chat_id": chat_id_value,
                 "original_message_thread_id": kwargs.get('message_thread_id'),
                 "original_text": text[:500] if text else "",  # Include preview of original text
@@ -278,33 +220,41 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
                 }
             }  # Add more context as needed
 
-            processed_actions = []
-
-            # Remove duplicate actions
-            unique_actions = []
-            seen_actions = set()
+            # Filter actions to only include those for the current interface
+            current_interface_actions = []
+            cross_interface_actions = []
+            
             for action in actions:
-                action_id = str(action)
-                if action_id not in seen_actions:
-                    unique_actions.append(action)
-                    seen_actions.add(action_id)
-
-            # Process actions using centralized system
-            try:
-                result = await run_actions(unique_actions, context, bot, message)
-                if isinstance(result, dict):
-                    processed_actions.extend(result.get("processed", []))
+                action_type = action.get("type", "")
+                # Check if action belongs to current interface
+                if action_type.endswith(f"_{current_interface}"):
+                    current_interface_actions.append(action)
                 else:
-                    processed_actions = unique_actions
-            except Exception as e:
-                log_warning(f"[transport] Failed to process actions: {e}")
-            finally:
-                log_debug(f"[flow] transport.after_run_actions -> processed_count={len(processed_actions)}")
+                    cross_interface_actions.append(action)
+                    log_debug(f"[transport] Skipping cross-interface action {action_type} (current: {current_interface})")
+            
+            if cross_interface_actions:
+                log_info(f"[transport] Filtered {len(cross_interface_actions)} cross-interface actions, processing {len(current_interface_actions)} for {current_interface}")
+            
+            # Only process actions for current interface
+            if current_interface_actions:
+                try:
+                    result = await run_actions(current_interface_actions, context, bot, message)
+                    processed_actions = result.get("processed", []) if isinstance(result, dict) else current_interface_actions
+                except Exception as e:
+                    log_warning(f"[transport] Failed to process actions: {e}")
+                    processed_actions = []
+                finally:
+                    log_debug(f"[flow] transport.after_run_actions -> processed_count={len(processed_actions)}")
 
-            log_info(
-                f"[transport] Processed {len(processed_actions)} unique JSON actions via plugin system"
-            )
-            return
+                log_info(
+                    f"[transport] Processed {len(processed_actions)} unique JSON actions via plugin system"
+                )
+                return
+            else:
+                # No actions for current interface, send as plain text
+                log_debug(f"[transport] No actions for current interface {current_interface}, sending as plain text")
+                return await interface_send_func(*args, text=text, **kwargs)
 
         except Exception as e:
             log_warning(f"[transport] Failed to process JSON actions: {e}")
@@ -355,7 +305,11 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
         log_debug("[telegram_transport] Called with bot (repr failed), chat_id and kwargs logged separately")
         log_debug(f"[telegram_transport] chat_id={chat_id} (type={type(chat_id)}) kwargs_keys={list(kwargs.keys())}")
 
-    log_debug(f"[telegram_transport] Called with text: {text}")
+    # Log text content (truncated if very long)
+    if text and len(text) > 200:
+        log_debug(f"[telegram_transport] Called with text (truncated): {text[:200]}... ({len(text)} chars)")
+    else:
+        log_debug(f"[telegram_transport] Called with text: {text}")
 
     if 'reply_to_message_id' in kwargs and not kwargs['reply_to_message_id']:
         log_warning("[telegram_transport] reply_to_message_id not found. Sending without replying.")
@@ -385,10 +339,54 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
             # Check if text looks like it might contain JSON but failed to parse
             if ('{' in text and '}' in text) or ('[' in text and ']' in text):
                 log_debug(f"[telegram_transport] Text contains JSON-like content but failed to parse: {text[:200]}...")
-                # Try to extract and log the potential JSON part for debugging
-                if '{' in text:
-                    start_brace = text.find('{')
-                    log_debug(f"[telegram_transport] JSON-like content starting at position {start_brace}: {text[start_brace:start_brace+100]}...")
+                # Delegate correction and orchestration to the centralized parser orchestrator.
+                try:
+                    # Build a lightweight message/context for the orchestrator
+                    message = SimpleNamespace()
+                    message.chat_id = chat_id
+                    message.text = ""
+                    message.original_text = text
+                    message.message_thread_id = kwargs.get('message_thread_id')
+                    from datetime import datetime
+                    message.date = datetime.utcnow()
+
+                    # Determine current interface id from bot if possible
+                    try:
+                        current_interface = bot.get_interface_id() if hasattr(bot, 'get_interface_id') else 'telegram'
+                    except Exception:
+                        current_interface = 'telegram'
+
+                    corrector_context = {
+                        'interface': current_interface,
+                        'original_chat_id': chat_id,
+                        'original_message_thread_id': kwargs.get('message_thread_id'),
+                        'original_text': text[:500] if text else ''
+                    }
+
+                    # Call the parser orchestrator which will request corrections from the LLM
+                    # via the corrector middleware when needed. It returns:
+                    #   True  -> actions parsed & executed
+                    #   False -> blocked (exhausted or not allowed)
+                    #   None  -> not JSON-like (caller should forward as plain text)
+                    from core import action_parser
+                    orchestrator_result = await action_parser.corrector_orchestrator(text, corrector_context, bot, message)
+
+                    if orchestrator_result is True:
+                        # Orchestrator parsed and executed actions; nothing to send to chat
+                        log_debug("[telegram_transport] corrector_orchestrator executed actions; not forwarding text")
+                        return
+                    elif orchestrator_result is False:
+                        # Orchestrator decided to block the message (no valid correction)
+                        log_warning("[telegram_transport] corrector_orchestrator blocked message due to failed corrections")
+                        return None
+                    else:
+                        # Not JSON-like after orchestrator processing; continue to send as normal text
+                        log_debug("[telegram_transport] corrector_orchestrator returned None -> forwarding as normal text")
+
+                except Exception as e:
+                    log_debug(f"[telegram_transport] corrector_orchestrator failed or unavailable: {e}")
+                    # On orchestrator failure, block to avoid forwarding invalid JSON
+                    return None
             else:
                 log_debug("[telegram_transport] No JSON-like content detected, sending as normal text")
 
@@ -441,8 +439,16 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
                     await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
                 return
 
+            # Determine current interface from bot
+            current_interface = "telegram"  # default fallback
+            if hasattr(bot, 'get_interface_id'):
+                try:
+                    current_interface = bot.get_interface_id()
+                except Exception as e:
+                    log_debug(f"[transport] Could not get interface_id from bot: {e}")
+            
             context = {
-                "interface": "telegram",
+                "interface": current_interface,
                 "original_chat_id": chat_id,
                 "original_message_thread_id": kwargs.get('message_thread_id'),
                 "original_text": text[:500] if text else "",
@@ -485,8 +491,7 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
         raise
 
 
-# Guard to avoid recursive corrector invocation when plugins re-enter transport
-CORRECTOR_IN_PROGRESS: contextvars.ContextVar[bool] = contextvars.ContextVar('CORRECTOR_IN_PROGRESS', default=False)
+# Re-entry guard removed: rely solely on the corrector retry counter to avoid loops
 
 async def run_corrector_middleware(text: str, bot=None, context: dict = None, chat_id=None) -> str:
     """Attempt to obtain a corrected LLM output that contains valid JSON actions.
@@ -495,10 +500,10 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
     - If the text already contains valid JSON, return it immediately.
     - Otherwise, attempt up to CORRECTOR_RETRIES to ask the active LLM plugin to produce
       a corrected reply. If the plugin returns a reply that contains valid JSON, return it.
-    - If no correction succeeds, return the original text unchanged.
+    - If no correction succeeds, return None to indicate blocking.
 
     This function is intentionally best-effort and non-blocking for the system: if no
-    active LLM plugin is available it will log and return the original text.
+    active LLM plugin is available it will log and return None.
     """
     try:
         # Avoid circular imports at module import time
@@ -511,7 +516,7 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
             log_warning(f"[corrector_middleware] Import error: {e}")
         except Exception:
             pass
-        return text
+        return None
 
     max_retries = getattr(action_parser, 'CORRECTOR_RETRIES', 2)
 
@@ -542,10 +547,20 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
                 if llm_plugin is None:
                     llm_plugin = getattr(plugin_instance, 'plugin', None)
 
+            # Log plugin discovery
+            try:
+                if llm_plugin is None:
+                    log_debug(f"[corrector_middleware] attempt {attempt}: no active LLM plugin found")
+                else:
+                    log_debug(f"[corrector_middleware] attempt {attempt}: using LLM plugin {getattr(llm_plugin, '__class__', llm_plugin)}")
+            except Exception:
+                pass
+
             if not llm_plugin or not hasattr(llm_plugin, 'handle_incoming_message'):
                 log_warning(f"[corrector_middleware] No active LLM plugin available (attempt {attempt}/{max_retries})")
-                # no plugin available — stop trying
-                return text
+                # no plugin available — stop trying and indicate failure (do NOT send to interface)
+                log_debug("[corrector_middleware] No LLM available; blocking and returning None")
+                return None
 
             # Build a correction payload similar to action_parser.corrector
             full_json = ""
@@ -574,6 +589,15 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
             correction_message.chat = SimpleNamespace(id=correction_message.chat_id, type='private')
 
             log_debug(f"[corrector_middleware] Requesting correction from LLM (attempt {attempt}/{max_retries})")
+
+            # Mark that we are expecting a system reply for this chat_id so llm_to_interface can
+            # consume it without forwarding and avoid re-entry loops.
+            try:
+                if correction_message.chat_id is not None:
+                    _EXPECTING_SYSTEM_REPLY.add(str(correction_message.chat_id))
+            except Exception:
+                pass
+
             # Call plugin directly and await returned value when available
             try:
                 corrected = await llm_plugin.handle_incoming_message(bot, correction_message, correction_prompt)
@@ -581,16 +605,26 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
                 # Some plugins expect different signature; try fallback
                 corrected = await llm_plugin.handle_incoming_message(bot, correction_message, correction_prompt)
 
+            # Log corrected result type/length
+            try:
+                log_debug(f"[corrector_middleware] LLM returned type={type(corrected)} len={(len(corrected) if isinstance(corrected, str) else 'N/A')}")
+            except Exception:
+                pass
+
             if corrected and isinstance(corrected, str):
                 log_debug(f"[corrector_middleware] LLM returned text len={len(corrected)}")
-                # If corrected contains valid JSON, return it
+                # If corrected contains valid JSON, return it (do not echo to chat)
                 try:
                     if extract_json_from_text(corrected):
                         log_info("[corrector_middleware] Received corrected JSON from LLM")
                         return corrected
                 except Exception:
                     pass
-                # Not valid JSON yet — update text and retry
+
+                # Not valid JSON yet — DO NOT send LLM suggestion to chat (policy)
+                log_debug("[corrector_middleware] LLM suggestion is not valid JSON; will retry without echoing to interface")
+
+                # Update text with LLM reply and retry
                 text = corrected
 
             # small backoff between attempts
@@ -603,8 +637,15 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
                 pass
             await asyncio.sleep(1)
 
-    # Exhausted retries — return original/last seen text
-    return text
+    # Exhausted retries — do not send messages to interface here; simply indicate failure
+    log_warning(f"[corrector_middleware] Exhausted {max_retries} attempts without valid JSON; blocking message for chat_id={chat_id}")
+    # Cleanup expectation for this chat in case it wasn't consumed
+    try:
+        if chat_id is not None and str(chat_id) in _EXPECTING_SYSTEM_REPLY:
+            _EXPECTING_SYSTEM_REPLY.discard(str(chat_id))
+    except Exception:
+        pass
+    return None
 
 
 async def interface_to_llm(send_to_llm_func, *args, text: str = None, **kwargs):
@@ -637,10 +678,98 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
     except Exception:
         pass
 
+    # Mark this forwarding attempt explicitly as an LLM response so downstream
+    # components and the orchestrator can detect origin without changes to every
+    # LLM engine. Engines that already set this can override it.
+    try:
+        kwargs.setdefault('is_llm_response', True)
+    except Exception:
+        pass
+
     # Suppress empty/whitespace LLM replies early — centralize handling here
     if kwargs.get('is_llm_response', False) and (not text or not text.strip()):
         log_debug("[telegram_transport] Empty LLM response received; skipping corrector and not forwarding")
         return None
+
+    # If the LLM sent a JSON-like payload that looks like a correction/system message,
+    # handle it via the parser orchestrator to avoid echoing it back into the interfaces
+    try:
+        json_payload = None
+        if text and text.strip():
+            try:
+                json_payload = extract_json_from_text(text)
+            except Exception:
+                json_payload = None
+
+        # Immediately ignore explicit system messages of type 'error' to avoid loops
+        if isinstance(json_payload, dict) and 'system_message' in json_payload:
+            try:
+                sm = json_payload.get('system_message') or {}
+                sm_type = None
+                if isinstance(sm, dict):
+                    sm_type = sm.get('type')
+                if sm_type == 'error':
+                    log_debug('[llm_to_interface] Ignoring top-level system_message type=error (preventing loop)')
+                    return None
+            except Exception:
+                pass
+
+        # Detect correction/system payloads (top-level "system_message")
+        if isinstance(json_payload, dict) and 'system_message' in json_payload:
+            try:
+                # Determine bot instance from args if present
+                bot = args[0] if args and len(args) > 0 else None
+
+                # Attempt to determine chat_id from kwargs or positional args
+                chat_id = kwargs.get('chat_id')
+                if chat_id is None and len(args) > 1:
+                    maybe = args[1]
+                    if isinstance(maybe, (int, str)):
+                        chat_id = maybe
+
+                # Build lightweight message and context objects for orchestrator
+                from types import SimpleNamespace
+                from datetime import datetime
+
+                message = SimpleNamespace()
+                message.chat_id = chat_id
+                message.text = ""
+                message.original_text = text
+                message.message_thread_id = kwargs.get('message_thread_id')
+                # Mark this message as originating from the LLM so the orchestrator
+                # will process it. This complements the is_llm_response flag.
+                message.from_llm = True
+                message.date = datetime.utcnow()
+
+                current_interface = kwargs.get('interface') or (getattr(bot, 'get_interface_id', lambda: 'telegram')() if bot else 'unknown')
+                corrector_context = {
+                    'interface': current_interface,
+                    'original_chat_id': chat_id,
+                    'original_message_thread_id': kwargs.get('message_thread_id'),
+                    'original_text': text[:500] if text else ''
+                }
+
+                # Delegate to the parser orchestrator (will call corrector middleware as needed)
+                from core import action_parser
+                orchestrator_result = await action_parser.corrector_orchestrator(text, corrector_context, bot, message)
+
+                if orchestrator_result is True:
+                    log_debug('[llm_to_interface] corrector_orchestrator executed actions; not forwarding text')
+                    return None
+                elif orchestrator_result is False:
+                    log_warning('[llm_to_interface] corrector_orchestrator blocked message; not forwarding')
+                    return None
+                else:
+                    log_debug('[llm_to_interface] corrector_orchestrator returned None; forwarding as usual')
+
+            except Exception as e:
+                log_warning(f"[llm_to_interface] Orchestrator handling failed: {e}")
+                # On failure, avoid forwarding suspicious payload to interface
+                return None
+
+    except Exception:
+        # Defensive: any unexpected issue parsing LLM output should not crash forwarding
+        pass
 
     # Forward into the neutral universal send which will parse JSON/actions
     return await universal_send(interface_send_func, *args, text=text, **kwargs)

@@ -103,10 +103,12 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
     """Inject ``text`` into the ChatGPT prompt area via JavaScript."""
     clean_text = strip_non_bmp(text)
     log_debug(f"[DEBUG] Length before sending: {len(clean_text)}")
-    # Log the full text to aid debugging and ensure the JSON is not truncated
-    # in logs. This may produce very long lines but provides complete
-    # visibility into the prompt content.
-    log_debug(f"[DEBUG] Text to send: {clean_text}")
+    # Log a truncated version to avoid flooding logs with very long JSON
+    if len(clean_text) > 500:
+        truncated = clean_text[:500] + f"... ({len(clean_text)} chars total)"
+        log_debug(f"[DEBUG] Text to send (truncated): {truncated}")
+    else:
+        log_debug(f"[DEBUG] Text to send: {clean_text}")
 
     tag = (textarea.tag_name or "").lower()
     prop = "value" if tag in {"textarea", "input"} else "textContent"
@@ -1061,6 +1063,15 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             self._worker_task.cancel()
             log_debug("[selenium] Worker task cancelled")
         
+        # Clear the queue to prevent pending tasks
+        try:
+            while not self._queue.empty():
+                self._queue.get_nowait()
+                self._queue.task_done()
+            log_debug("[selenium] Queue cleared")
+        except Exception as e:
+            log_warning(f"[selenium] Failed to clear queue: {e}")
+        
         # Close the driver
         if self.driver:
             try:
@@ -1150,6 +1161,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 except asyncio.CancelledError:
                     log_debug("[selenium] Worker loop cancelled")
                     break
+                except RuntimeError as e:
+                    if "bound to a different event loop" in str(e):
+                        log_warning(f"[selenium] Event loop changed, stopping worker: {e}")
+                        break
+                    else:
+                        raise
                 except Exception as e:
                     log_error(f"[selenium] Error in worker loop: {repr(e)}", e)
                     # Continue processing other messages even if one fails
@@ -1927,5 +1944,5 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             else:
                 await interface_to_llm(bot.send_message, chat_id=chat_id, text=result)
 
-# Ensure the plugin loader can locate the plugin class
+
 PLUGIN_CLASS = SeleniumChatGPTPlugin

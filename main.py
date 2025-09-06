@@ -87,9 +87,22 @@ def signal_handler(signum, frame):
     # Stop the plugin if it has cleanup methods
     try:
         import core.plugin_instance as plugin_instance
-        if hasattr(plugin_instance, 'current_plugin') and plugin_instance.current_plugin:
-            if hasattr(plugin_instance.current_plugin, 'cleanup'):
-                plugin_instance.current_plugin.cleanup()
+        if hasattr(plugin_instance, 'plugin') and plugin_instance.plugin:
+            if hasattr(plugin_instance.plugin, 'stop'):
+                # Try async stop first
+                try:
+                    asyncio.run(plugin_instance.plugin.stop())
+                    log_debug("[main] Plugin async stop completed")
+                except RuntimeError as e:
+                    if "already running" in str(e):
+                        # Event loop already running, use sync cleanup
+                        if hasattr(plugin_instance.plugin, 'cleanup'):
+                            plugin_instance.plugin.cleanup()
+                            log_debug("[main] Plugin sync cleanup completed")
+                    else:
+                        raise
+            elif hasattr(plugin_instance.plugin, 'cleanup'):
+                plugin_instance.plugin.cleanup()
                 log_debug("[main] Plugin cleanup completed")
     except Exception as e:
         log_warning(f"[main] Plugin cleanup failed: {e}")

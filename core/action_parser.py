@@ -82,90 +82,84 @@ def _increment_retry(message):
 async def corrector(errors: list, failed_actions: list, bot, message):
     """Handle action parsing errors by requesting LLM to fix them."""
 
-    if not _should_retry(message, max_retries=CORRECTOR_RETRIES):
-        retry_key = _get_retry_key(message)
-        retry_count, _ = _retry_tracker.get(retry_key, (0, 0))
-        log_warning(
-            f"[corrector] Max retries ({retry_count}) reached for action correction. Giving up."
-        )
-        return
-
-    if not hasattr(message, "chat_id") or message.chat_id is None:
-        log_warning(
-            f"[corrector] Cannot request correction: invalid chat_id in message: {getattr(message, 'chat_id', 'None')}"
-        )
-        return
-
-    retry_count = _increment_retry(message)
-
-    # If the LLM provided no original reply, avoid requesting a correction loop.
+    # Prima validazione: se il messaggio originale è valido, procedi senza correzione
     original_reply = getattr(message, "original_text", getattr(message, "text", "")) or ""
-    if not original_reply.strip():
-        log_warning(f"[corrector] Aborting correction: original LLM reply empty for chat {getattr(message, 'chat_id', None)}")
-        # Try to notify the chat/trainer that no correction can be requested
-        try:
-            if hasattr(bot, "send_message"):
-                await bot.send_message(chat_id=message.chat_id, text="⚠️ Unable to request correction: original LLM reply was empty.")
-        except Exception as e:
-            log_debug(f"[corrector] Failed to notify about empty original reply: {e}")
-        return
+    if not errors and original_reply.strip():  # Nessun errore e testo presente
+        log_debug(f"[corrector] Messaggio valido, nessuna correzione necessaria per chat {getattr(message, 'chat_id', None)}")
+        return  # BREAK: procedi senza correzione
 
-    # If the original reply already contains a system_message, likely we're in a correction loop.
-    if '"system_message"' in original_reply:
-        log_warning(f"[corrector] Aborting correction: original reply already contains system_message for chat {getattr(message, 'chat_id', None)}")
-        try:
-            if hasattr(bot, "send_message"):
-                await bot.send_message(chat_id=message.chat_id, text="⚠️ Correction aborted: LLM returned a system error response repeatedly.")
-        except Exception as e:
-            log_debug(f"[corrector] Failed to notify about repeated system_message: {e}")
-        return
+    # Se non valido, loop del correttore
+    while True:
+        if not _should_retry(message, max_retries=CORRECTOR_RETRIES):
+            retry_key = _get_retry_key(message)
+            retry_count, _ = _retry_tracker.get(retry_key, (0, 0))
+            log_warning(f"[corrector] Max retries ({retry_count}) reached. BREAK.")
+            return
 
-    error_summary = "\n".join([f"- {err}" for err in errors[:5]])
+        if not hasattr(message, "chat_id") or message.chat_id is None:
+            log_warning(f"[corrector] Cannot request correction: invalid chat_id in message: {getattr(message, 'chat_id', 'None')}")
+            return
 
-    message_text = (
-        f"{error_summary}\n"
-        "Please repeat your previous message, not this very prompt, but your previous reply, corrected. "
-        "If that was a web search please use the content to reply with your own words."
-    )
-    full_json = build_full_json_instructions()
-    correction_payload = {
-        "system_message": {
-            "type": "error",
-            "message": message_text,
-            "your_reply": getattr(message, "original_text", getattr(message, "text", "")),
-            "full_json_instructions": full_json,
-            "error_retry_policy": ERROR_RETRY_POLICY,
+        retry_count = _increment_retry(message)
+
+        if not original_reply.strip():
+            log_warning(f"[corrector] Aborting correction: original LLM reply empty for chat {getattr(message, 'chat_id', None)}")
+            try:
+                if hasattr(bot, "send_message"):
+                    await bot.send_message(chat_id=message.chat_id, text="⚠️ Unable to request correction: original LLM reply was empty.")
+            except Exception as e:
+                log_debug(f"[corrector] Failed to notify about empty original reply: {e}")
+            return
+
+        error_summary = "\n".join([f"- {err}" for err in errors[:5]])
+
+        message_text = (
+            f"{error_summary}\n"
+            "Please repeat your previous message, not this very prompt, but your previous reply, corrected. "
+            "If that was a web search please use the content to reply with your own words."
+        )
+        full_json = build_full_json_instructions()
+        correction_payload = {
+            "system_message": {
+                "type": "error",
+                "message": message_text,
+                "your_reply": original_reply,
+                "full_json_instructions": full_json,
+                "error_retry_policy": ERROR_RETRY_POLICY,
+            }
         }
-    }
-    correction_prompt = json.dumps(correction_payload, ensure_ascii=False)
+        correction_prompt = json.dumps(correction_payload, ensure_ascii=False)
 
-    log_warning(f"[corrector] {error_summary}")
-    log_info(
-        f"[corrector] Requesting action correction from LLM (attempt {retry_count}/{CORRECTOR_RETRIES})"
-    )
+        log_warning(f"[corrector] {error_summary}")
+        log_info(f"[corrector] Requesting action correction from LLM (attempt {retry_count}/{CORRECTOR_RETRIES})")
 
-    try:
-        from core import plugin_instance
+        try:
+            from core import plugin_instance
 
-        correction_message = SimpleNamespace()
-        correction_message.chat_id = message.chat_id
-        correction_message.text = correction_prompt
-        correction_message.message_thread_id = getattr(message, "message_thread_id", None)
-        correction_message.date = getattr(message, "date", datetime.utcnow())
-        correction_message.from_user = getattr(message, "from_user", None)
-        
-        # Ensure from_user has an id attribute
-        if correction_message.from_user and not hasattr(correction_message.from_user, 'id'):
-            correction_message.from_user.id = getattr(message, "from_user", SimpleNamespace()).id if hasattr(getattr(message, "from_user", None), 'id') else None
+            correction_message = SimpleNamespace()
+            correction_message.chat_id = message.chat_id
+            correction_message.text = correction_prompt
+            correction_message.message_thread_id = getattr(message, "message_thread_id", None)
+            correction_message.date = getattr(message, "date", datetime.utcnow())
+            correction_message.from_user = getattr(message, "from_user", None)
+            
+            if correction_message.from_user and not hasattr(correction_message.from_user, 'id'):
+                correction_message.from_user.id = getattr(message, "from_user", SimpleNamespace()).id if hasattr(getattr(message, "from_user", None), 'id') else None
 
-        llm_plugin = getattr(plugin_instance, "plugin", None)
-        if llm_plugin and hasattr(llm_plugin, "handle_incoming_message"):
-            await llm_plugin.handle_incoming_message(bot, correction_message, correction_prompt)
-        else:
-            log_warning("[corrector] No LLM plugin available for action correction")
+            llm_plugin = getattr(plugin_instance, "plugin", None)
+            if llm_plugin and hasattr(llm_plugin, "_process_message"):
+                await llm_plugin._process_message(bot, correction_message, correction_prompt)
+            elif llm_plugin and hasattr(llm_plugin, "handle_incoming_message"):
+                await llm_plugin.handle_incoming_message(bot, correction_message, correction_prompt)
+            else:
+                log_warning("[corrector] No LLM plugin available for action correction")
 
-    except Exception as e:
-        log_error(f"[corrector] Failed to request action correction: {e}")
+        except Exception as e:
+            log_error(f"[corrector] Failed to request action correction: {e}")
+
+        # BREAK dopo tentativo
+        break
+
 
 # Cache for interface actions discovered via the interface registry
 _INTERFACE_ACTIONS: Dict[str, str] | None = None
@@ -959,4 +953,140 @@ __all__ = [
     "initialize_core",
     "get_action_plugin_instructions",
     "gather_static_injections",
+    "corrector_orchestrator",
 ]
+
+
+async def corrector_orchestrator(text: str, context: dict, bot, message, max_retries: int | None = None):
+    """Process model text: parse JSON actions or run the corrector loop.
+
+    Returns:
+        True  -> actions parsed and executed
+        False -> blocked (corrector exhausted or not allowed)
+        None  -> not JSON-like; caller may forward as plain text
+    """
+    # Only handle messages that explicitly originate from the LLM.
+    # Transport layer / llm engines must set `message.from_llm = True` when passing
+    # LLM outputs into this orchestrator. Any message without this flag is ignored
+    # here so system- or interface-originated payloads are not processed.
+    if message is not None and not getattr(message, "from_llm", False):
+        log_debug("[corrector_orchestrator] Ignoring message: not marked as LLM-origin (message.from_llm is False or missing)")
+        return None
+
+    # Determine max retries
+    if max_retries is None:
+        max_retries = CORRECTOR_RETRIES
+
+    # Quick parse attempt
+    parsed = None
+    try:
+        parsed = _extract_json_local(text)
+    except Exception as e:
+        log_debug(f"[corrector_orchestrator] initial parse failed: {e}")
+
+    if parsed is not None:
+        # If this is a system-generated message, ignore it completely (do not execute or forward)
+        if isinstance(parsed, dict) and "system_message" in parsed:
+            log_info("[corrector_orchestrator] Received top-level 'system_message' — ignoring to prevent handling system-generated payloads")
+            return False
+
+        # Build actions list similar to transport layer
+        if isinstance(parsed, dict) and "actions" in parsed:
+            actions = parsed["actions"] if isinstance(parsed["actions"], list) else None
+            if actions is None:
+                log_warning("[corrector_orchestrator] actions field must be a list")
+                return None
+        elif isinstance(parsed, list):
+            actions = parsed
+        elif isinstance(parsed, dict) and "type" in parsed:
+            actions = [parsed]
+        else:
+            log_warning(f"[corrector_orchestrator] Unrecognized JSON structure: {parsed}")
+            return None
+
+        try:
+            result = await run_actions(actions, context, bot, message)
+            return True
+        except Exception as e:
+            log_warning(f"[corrector_orchestrator] Failed to run actions: {e}")
+            return False
+
+    # Not parsed initially. If not JSON-like, indicate to caller to forward as plain text
+    if '{' not in (text or '') and '[' not in (text or ''):
+        return None
+
+    # JSON-like but not valid -> run corrector loop here
+    tried_texts = set()
+    attempt = 0
+    while attempt < max_retries:
+        # Check retry permission
+        if not _should_retry(message, max_retries=max_retries):
+            retry_key = _get_retry_key(message)
+            retry_count, _ = _retry_tracker.get(retry_key, (0, 0))
+            log_warning(f"[corrector_orchestrator] Max retries ({retry_count}) reached for {retry_key}; blocking")
+            return False
+
+        # increment retry counter
+        attempt_count = _increment_retry(message)
+        attempt += 1
+
+        # Call the corrector (transport-layer middleware)
+        try:
+            import core.transport_layer as transport
+            corrected = await transport.run_corrector_middleware(text, bot=bot, context=context, chat_id=getattr(message, 'chat_id', None))
+        except Exception as e:
+            log_warning(f"[corrector_orchestrator] Corrector invocation failed: {e}")
+            return False
+
+        if corrected is None:
+            log_debug(f"[corrector_orchestrator] Corrector returned None on attempt {attempt}")
+            # corrected failed; loop will check retry and possibly continue
+            text = text  # keep original or last value
+            continue
+
+        # If corrected same as previous tried value, avoid infinite loop
+        if corrected in tried_texts:
+            log_warning("[corrector_orchestrator] Corrector returned previously seen output; aborting to avoid loop")
+            return False
+        tried_texts.add(corrected)
+
+        # Try parsing corrected
+        try:
+            parsed2 = _extract_json_local(corrected)
+        except Exception as e:
+            parsed2 = None
+            log_debug(f"[corrector_orchestrator] Parsing corrected failed: {e}")
+
+        if parsed2 is not None:
+            # If the corrected response is a system-generated message, ignore it
+            if isinstance(parsed2, dict) and "system_message" in parsed2:
+                log_info("[corrector_orchestrator] Corrector returned a top-level 'system_message' — ignoring to prevent handling system-generated payloads")
+                return False
+
+            # run actions
+            if isinstance(parsed2, dict) and "actions" in parsed2:
+                actions = parsed2["actions"] if isinstance(parsed2["actions"], list) else None
+                if actions is None:
+                    log_warning("[corrector_orchestrator] corrected actions field must be a list")
+                    return False
+            elif isinstance(parsed2, list):
+                actions = parsed2
+            elif isinstance(parsed2, dict) and "type" in parsed2:
+                actions = [parsed2]
+            else:
+                log_warning(f"[corrector_orchestrator] Unrecognized corrected JSON structure: {parsed2}")
+                return False
+
+            try:
+                await run_actions(actions, context, bot, message)
+                return True
+            except Exception as e:
+                log_warning(f"[corrector_orchestrator] Failed to run actions after correction: {e}")
+                return False
+
+        # Not parsed; set text to corrected and retry
+        text = corrected
+
+    # Exhausted retries
+    log_warning(f"[corrector_orchestrator] Exhausted {max_retries} correction attempts; blocking message for chat {getattr(message, 'chat_id', None)}")
+    return False

@@ -156,9 +156,13 @@ def notify_trainer(message: str) -> None:
             try:
                 await iface.send_message({"text": message, "target": target})
             except Exception as e:  # pragma: no cover - best effort
-                log_warning(
-                    f"[notifier] Failed to notify via {interface_name}: {repr(e)}",
-                )
+                # Check if interpreter is shutting down
+                if "interpreter shutdown" in str(e) or "cannot schedule new futures" in str(e):
+                    log_debug(f"[notifier] Notification failed due to interpreter shutdown, skipping: {repr(e)}")
+                else:
+                    log_warning(
+                        f"[notifier] Failed to notify via {interface_name}: {repr(e)}",
+                    )
 
         for tgt in targets:
             try:
