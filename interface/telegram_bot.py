@@ -51,7 +51,6 @@ from core.chat_link_store import (
     ChatLinkStore,
     ChatLinkMultipleMatches,
 )
-from core.action_parser import corrector
 from core.action_parser import ERROR_RETRY_POLICY
 from core.prompt_engine import build_full_json_instructions
 
@@ -1205,24 +1204,62 @@ class TelegramInterface:
                     message_thread_name=thread_name,
                 )
             except ChatLinkMultipleMatches:
-                await corrector(
-                    [
-                        f"Multiple channels found with name {chat_name}, please repeat your previous message putting the chat_id instead of chat_name",
-                    ],
-                    [payload],
-                    self.bot,
-                    original_message,
-                )
+                # Use orchestrator instead of legacy corrector
+                try:
+                    from core import action_parser
+                    import json
+                    from types import SimpleNamespace
+                    from datetime import datetime
+                except Exception:
+                    action_parser = None
+                correction_payload = {
+                    "system_message": {
+                        "type": "error",
+                        "message": f"Multiple channels found with name {chat_name}, please repeat your previous message putting the chat_id instead of chat_name",
+                        "your_reply": payload,
+                    }
+                }
+                msg = SimpleNamespace()
+                msg.chat_id = None
+                msg.text = ""
+                msg.original_text = json.dumps(correction_payload, ensure_ascii=False)
+                msg.message_thread_id = None
+                msg.date = datetime.utcnow()
+                msg.from_llm = False
+                if action_parser is not None:
+                    try:
+                        await action_parser.corrector_orchestrator(text=msg.original_text, context={"interface": "telegram"}, bot=self.bot, message=msg)
+                    except Exception:
+                        pass
                 return
             if not row:
-                await corrector(
-                    [
-                        f"Channel or thread not found for name {chat_name or thread_name}",
-                    ],
-                    [payload],
-                    self.bot,
-                    original_message,
-                )
+                # Use orchestrator instead of legacy corrector for not-found
+                try:
+                    from core import action_parser
+                    import json
+                    from types import SimpleNamespace
+                    from datetime import datetime
+                except Exception:
+                    action_parser = None
+                correction_payload = {
+                    "system_message": {
+                        "type": "error",
+                        "message": f"Channel or thread not found for name {chat_name or thread_name}",
+                        "your_reply": payload,
+                    }
+                }
+                msg = SimpleNamespace()
+                msg.chat_id = None
+                msg.text = ""
+                msg.original_text = json.dumps(correction_payload, ensure_ascii=False)
+                msg.message_thread_id = None
+                msg.date = datetime.utcnow()
+                msg.from_llm = False
+                if action_parser is not None:
+                    try:
+                        await action_parser.corrector_orchestrator(text=msg.original_text, context={"interface": "telegram"}, bot=self.bot, message=msg)
+                    except Exception:
+                        pass
                 return
             chat_id = row.get("chat_id", chat_id)
             message_thread_id = row.get("message_thread_id", message_thread_id)
@@ -1299,167 +1336,62 @@ class TelegramInterface:
             )
         except BadRequest as e:
             if "chat not found" in str(e).lower():
-                await corrector(
-                    [f"Chat {chat_id} not found"],
-                    [payload],
-                    self.bot,
-                    original_message,
-                )
-            else:
-                await corrector([str(e)], [payload], self.bot, original_message)
-            return
-        except TelegramError as e:
-            await self._emit_system_error("send", f"{e}", payload, original_message)
-            return
-
-        await self._verify_delivery(sent_message, payload, original_message)
-
-    async def _convert_to_voice(self, path: str) -> str:
-        if path.endswith(".ogg"):
-            return path
-        ogg_path = path.rsplit(".", 1)[0] + ".ogg"
-        cmd = ["ffmpeg", "-y", "-i", path, "-c:a", "libopus", ogg_path]
-        try:
-            await asyncio.to_thread(subprocess.run, cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            return ogg_path
-        except Exception as e:
-            log_error(f"[telegram_interface] Audio conversion failed: {e}")
-            return path
-
-    async def send_audio(self, payload: dict, original_message: object | None = None) -> None:
-        audio = payload.get("audio")
-        target = payload.get("target")
-        chat_name = payload.get("chat_name")
-        message_thread_id = payload.get("message_thread_id")
-        thread_name = payload.get("message_thread_name")
-
-        if not audio or (target is None and chat_name is None):
-            log_warning("[telegram_interface] Missing audio or destination, aborting")
-            return
-
-        chat_id = None
-
-        if isinstance(target, dict):
-            chat_id = target.get("chat_id")
-            message_thread_id = target.get("message_thread_id", message_thread_id)
-            thread_name = target.get("message_thread_name", thread_name)
-        elif target is not None:
-            if isinstance(target, str) and not target.lstrip("-").isdigit():
-                chat_name = target
-            else:
+                # Use orchestrator instead of legacy corrector
                 try:
-                    chat_id = int(target)
+                    from core import action_parser
+                    import json
+                    from types import SimpleNamespace
+                    from datetime import datetime
                 except Exception:
-                    chat_name = target
-
-        if chat_id is None or (message_thread_id is None and thread_name is not None):
-            try:
-                row = await chat_link_store.resolve(
-                    chat_id=chat_id,
-                    message_thread_id=message_thread_id,
-                    chat_name=chat_name,
-                    message_thread_name=thread_name,
-                )
-            except ChatLinkMultipleMatches:
-                await corrector(
-                    [
-                        f"Multiple channels found with name {chat_name}, please repeat your previous message putting the chat_id instead of chat_name",
-                    ],
-                    [payload],
-                    self.bot,
-                    original_message,
-                )
+                    action_parser = None
+                correction_payload = {
+                    "system_message": {
+                        "type": "error",
+                        "message": f"Chat {chat_id} not found",
+                        "your_reply": payload,
+                    }
+                }
+                msg = SimpleNamespace()
+                msg.chat_id = chat_id
+                msg.text = ""
+                msg.original_text = json.dumps(correction_payload, ensure_ascii=False)
+                msg.message_thread_id = message_thread_id
+                msg.date = datetime.utcnow()
+                msg.from_llm = False
+                if action_parser is not None:
+                    try:
+                        await action_parser.corrector_orchestrator(text=msg.original_text, context={"interface": "telegram"}, bot=self.bot, message=msg)
+                    except Exception:
+                        pass
                 return
-            if not row:
-                await corrector(
-                    [
-                        f"Channel or thread not found for name {chat_name or thread_name}",
-                    ],
-                    [payload],
-                    self.bot,
-                    original_message,
-                )
-                return
-            chat_id = row.get("chat_id", chat_id)
-            message_thread_id = row.get("message_thread_id", message_thread_id)
-
-        log_debug(
-            f"[telegram_interface] Resolved: chat_id={chat_id}, final_thread_id={message_thread_id}"
-        )
-
-        # Ensure message_thread_id is a string if present
-        if message_thread_id is not None:
-            message_thread_id = str(message_thread_id)
-
-        # Ensure chat_id is a string
-        if chat_id is not None:
-            chat_id = str(chat_id)
-
-        await chat_link_store.update_names_from_resolver(
-            chat_id, message_thread_id, bot=self.bot
-        )
-
-        reply_message_id = None
-        if (
-            original_message
-            and hasattr(original_message, "chat_id")
-            and hasattr(original_message, "message_id")
-            and chat_id == getattr(original_message, "chat_id")
-        ):
-            reply_message_id = original_message.message_id
-
-        send_kwargs = {"chat_id": chat_id}
-        if message_thread_id is not None:
-            send_kwargs["message_thread_id"] = message_thread_id
-        if reply_message_id is not None:
-            send_kwargs["reply_to_message_id"] = reply_message_id
-
-        try:
-            converted = await self._convert_to_voice(audio)
-            with open(converted, "rb") as f:
-                await self.bot.send_voice(**send_kwargs, voice=f)
-            return
-        except Exception as e:
-            error_message = str(e)
-            if message_thread_id and "thread not found" in error_message.lower():
-                send_kwargs.pop("message_thread_id", None)
-                converted = await self._convert_to_voice(audio)
-                with open(converted, "rb") as f:
-                    await self.bot.send_voice(**send_kwargs, voice=f)
             else:
-                log_error(f"[telegram_interface] Failed to send voice: {e}")
-
-    async def execute_action(
-        self, action: dict, context: dict, bot: Any, original_message: object | None = None
-    ) -> None:
-        """Execute actions for this interface."""
-        self.bot = bot  # Set the bot instance
-        action_type = action.get("type")
-        if action_type == "message_telegram_bot":
-            payload = action.get("payload", {})
-            await self.send_message(payload, original_message)
-        elif action_type == "audio_telegram_bot":
-            payload = action.get("payload", {})
-            await self.send_audio(payload, original_message)
-
-    @staticmethod
-    def get_interface_instructions():
-        """Return specific instructions for Telegram interface."""
-        return (
-            "TELEGRAM INTERFACE INSTRUCTIONS:\n"
-            "- Use chat_id or chat_name for targets (chat_id can be negative for groups/channels).\n"
-            "- 🔴 THREAD HANDLING: For main chat replies, OMIT message_thread_id entirely\n"
-            "- For thread replies, include the specific message_thread_id from the original message\n"
-            "- Interface defaults: Telegram uses None for main chat, Discord uses channel ID for threads\n"
-            "- Include message_thread_id or message_thread_name when replying in topics; omit only for main chat messages.\n"
-            "- Keep messages under 4096 characters.\n"
-            "- Markdown is supported and preferred.\n"
-            "- Replying to a message in the same chat will automatically use that message as the reply target.\n"
-            "- To send to another chat, specify the other chat's identifier; these will not appear as replies.\n"
-            "- When a message originates on Telegram, reply using the message_telegram_bot action; do not switch interfaces unless explicitly asked.\n"
-            "- THREAD SAFETY: Always check if the incoming message has a message_thread_id and include it in your response payload.\n"
-        )
-
-# Register TelegramInterface for discovery by the core
-PLUGIN_CLASS = TelegramInterface
+                # Generic error -> request correction via orchestrator
+                try:
+                    from core import action_parser
+                    import json
+                    from types import SimpleNamespace
+                    from datetime import datetime
+                except Exception:
+                    action_parser = None
+                correction_payload = {
+                    "system_message": {
+                        "type": "error",
+                        "message": str(e),
+                        "your_reply": payload,
+                    }
+                }
+                msg = SimpleNamespace()
+                msg.chat_id = chat_id
+                msg.text = ""
+                msg.original_text = json.dumps(correction_payload, ensure_ascii=False)
+                msg.message_thread_id = message_thread_id
+                msg.date = datetime.utcnow()
+                msg.from_llm = False
+                if action_parser is not None:
+                    try:
+                        await action_parser.corrector_orchestrator(text=msg.original_text, context={"interface": "telegram"}, bot=self.bot, message=msg)
+                    except Exception:
+                        pass
+                return
+        await self._verify_delivery(sent_message, payload, original_message)
 

@@ -136,6 +136,33 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt, interf
         )
         log_debug("[plugin_instance] Handling pre-built event prompt")
     else:
+        # If this is a structured 'event' system prompt, enqueue it into the
+        # central message queue with high priority so it is processed ASAP.
+        try:
+            # Prefer explicit context dict (pre-built prompts)
+            maybe_ctx = context_memory_or_prompt if isinstance(context_memory_or_prompt, dict) else None
+            sys_type = None
+            if maybe_ctx and isinstance(maybe_ctx.get("system_message"), dict):
+                sys_type = maybe_ctx["system_message"].get("type")
+            # Also accept messages that carry a system-like from_user (id==0)
+            if sys_type == "event" or (hasattr(message, "from_user") and getattr(message.from_user, "id", None) == 0 and isinstance(context_memory_or_prompt, dict) and context_memory_or_prompt.get("system_message", {}).get("type") == "event"):
+                try:
+                    # Import lazily to avoid circular imports at module load
+                    from core import message_queue
+
+                    event_id = None
+                    if maybe_ctx:
+                        event_id = maybe_ctx.get("system_message", {}).get("event_id")
+                    await message_queue.enqueue_event(bot, context_memory_or_prompt, event_id=event_id)
+                    log_debug(f"[plugin_instance] Enqueued system event for processing: chat_id={getattr(message,'chat_id',None)} event_id={event_id}")
+                    return None
+                except Exception as e:
+                    log_warning(f"[plugin_instance] Failed to enqueue event prompt: {e}")
+                    # Fall through and let the plugin handle it directly
+                    pass
+        except Exception:
+            pass
+
         message_text = getattr(message, "text", "")
         log_debug(f"[plugin_instance] Received message: {message_text}")
         log_debug(f"[plugin_instance] Context memory: {context_memory_or_prompt}")

@@ -1162,8 +1162,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     log_debug("[selenium] Worker loop cancelled")
                     break
                 except RuntimeError as e:
-                    if "bound to a different event loop" in str(e):
-                        log_warning(f"[selenium] Event loop changed, stopping worker: {e}")
+                    # During shutdown the queue.get() or internal cancel may raise
+                    # RuntimeError('Event loop is closed') or similar. Treat these as
+                    # a signal to stop the worker loop instead of crashing.
+                    msg = str(e)
+                    if "bound to a different event loop" in msg or "Event loop is closed" in msg:
+                        log_warning(f"[selenium] Event loop problem, stopping worker: {e}")
                         break
                     else:
                         raise
@@ -1847,14 +1851,24 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 else:
                     # Non-Telegram interfaces expect a payload dict
                     if response_text and response_text.strip():
-                        payload = {"target": message.chat_id, "text": response_text}
-                        if message_thread_id is not None:
-                            payload["message_thread_id"] = message_thread_id
-                        # Forward via centralized llm_to_interface (do not pass retro flags)
-                        await llm_to_interface(bot.send_message, payload)
+                        # Forward model output through centralized llm_to_interface
+                        await llm_to_interface(
+                            bot.send_message,
+                            chat_id=message.chat_id,
+                            text=response_text,
+                            message_thread_id=message_thread_id,
+                            interface=interface_name,
+                        )
                     else:
                         log_warning(f"[selenium] Empty LLM response for non-telegram interface {interface_name}; sending error notification")
-                        await self._send_error_message(bot, message, error_text="No response from LLM")
+                        try:
+                            from core.transport_layer import interface_to_llm
+                        except Exception:
+                            interface_to_llm = None
+                        if interface_to_llm is None:
+                            await self._send_error_message(bot, message, error_text="No response from LLM")
+                        else:
+                            await interface_to_llm(self._send_error_message, bot, message, error_text="No response from LLM")
 
                 log_debug(
                     f"[selenium][STEP] response forwarded to {message.chat_id}"

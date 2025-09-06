@@ -772,4 +772,42 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
         pass
 
     # Forward into the neutral universal send which will parse JSON/actions
-    return await universal_send(interface_send_func, *args, text=text, **kwargs)
+    # Delegate to central message chain for unified handling of LLM-origin and interface-origin messages
+    try:
+        from core.message_chain import handle_incoming_message
+        # Determine source: if this path was called from llm_to_interface we set is_llm_response
+        source = 'llm' if kwargs.get('is_llm_response', False) else 'interface'
+        # Build a message object compatible with message_chain
+        from types import SimpleNamespace
+        from datetime import datetime
+        message = SimpleNamespace()
+        # Try to extract chat_id from kwargs/args
+        chat_id = kwargs.get('chat_id')
+        if chat_id is None and args:
+            maybe = args[1] if len(args) > 1 else None
+            chat_id = maybe if isinstance(maybe, (int, str)) else None
+        message.chat_id = chat_id
+        message.text = ""
+        message.original_text = text
+        message.message_thread_id = kwargs.get('message_thread_id')
+        message.date = datetime.utcnow()
+        # If this chat_id is marked as expecting a system/LLM reply from the
+        # corrector middleware, consume it here and do not re-enter the message
+        # chain. This avoids infinite correction/forwarding loops.
+        try:
+            if chat_id is not None and str(chat_id) in _EXPECTING_SYSTEM_REPLY:
+                _EXPECTING_SYSTEM_REPLY.discard(str(chat_id))
+                log_debug(f"[llm_to_interface] Consuming expected system reply for chat_id={chat_id}; not forwarding to message_chain")
+                return None
+        except Exception:
+            pass
+        # Pass through to message chain
+        result = await handle_incoming_message(bot=getattr(interface_send_func, '__self__', None) or None, message=message, text=text, source=source, context=kwargs.get('context', None), **kwargs)
+        if result == 'ACTIONS_EXECUTED' or result == 'BLOCKED':
+            # Orchestrator handled or blocked: nothing to forward
+            return None
+        # Else forward as usual
+        return await universal_send(interface_send_func, *args, text=text, **kwargs)
+    except Exception as e:
+        log_warning(f"[transport] message_chain delegation failed: {e}")
+        return await universal_send(interface_send_func, *args, text=text, **kwargs)

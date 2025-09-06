@@ -71,10 +71,18 @@ class OpenAIPlugin(AIPluginBase):
             notify_trainer(f"❌ OpenAI error:\n```\n{e}\n```")
 
             if bot and message:
-                await bot.send_message(
-                    chat_id=message.chat_id,
-                    text="⚠️ LLM response error."
-                )
+                try:
+                    from core.transport_layer import interface_to_llm
+                except Exception:
+                    interface_to_llm = None
+
+                if interface_to_llm is None:
+                    await bot.send_message(
+                        chat_id=message.chat_id,
+                        text="⚠️ LLM response error."
+                    )
+                else:
+                    await interface_to_llm(bot.send_message, chat_id=message.chat_id, text="⚠️ LLM response error.")
             return "⚠️ Error during response generation."
 
     async def generate_response(self, prompt):

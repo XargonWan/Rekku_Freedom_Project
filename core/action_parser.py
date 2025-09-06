@@ -79,86 +79,12 @@ def _increment_retry(message):
     return retry_count + 1
 
 
-async def corrector(errors: list, failed_actions: list, bot, message):
-    """Handle action parsing errors by requesting LLM to fix them."""
-
-    # Prima validazione: se il messaggio originale è valido, procedi senza correzione
-    original_reply = getattr(message, "original_text", getattr(message, "text", "")) or ""
-    if not errors and original_reply.strip():  # Nessun errore e testo presente
-        log_debug(f"[corrector] Messaggio valido, nessuna correzione necessaria per chat {getattr(message, 'chat_id', None)}")
-        return  # BREAK: procedi senza correzione
-
-    # Se non valido, loop del correttore
-    while True:
-        if not _should_retry(message, max_retries=CORRECTOR_RETRIES):
-            retry_key = _get_retry_key(message)
-            retry_count, _ = _retry_tracker.get(retry_key, (0, 0))
-            log_warning(f"[corrector] Max retries ({retry_count}) reached. BREAK.")
-            return
-
-        if not hasattr(message, "chat_id") or message.chat_id is None:
-            log_warning(f"[corrector] Cannot request correction: invalid chat_id in message: {getattr(message, 'chat_id', 'None')}")
-            return
-
-        retry_count = _increment_retry(message)
-
-        if not original_reply.strip():
-            log_warning(f"[corrector] Aborting correction: original LLM reply empty for chat {getattr(message, 'chat_id', None)}")
-            try:
-                if hasattr(bot, "send_message"):
-                    await bot.send_message(chat_id=message.chat_id, text="⚠️ Unable to request correction: original LLM reply was empty.")
-            except Exception as e:
-                log_debug(f"[corrector] Failed to notify about empty original reply: {e}")
-            return
-
-        error_summary = "\n".join([f"- {err}" for err in errors[:5]])
-
-        message_text = (
-            f"{error_summary}\n"
-            "Please repeat your previous message, not this very prompt, but your previous reply, corrected. "
-            "If that was a web search please use the content to reply with your own words."
-        )
-        full_json = build_full_json_instructions()
-        correction_payload = {
-            "system_message": {
-                "type": "error",
-                "message": message_text,
-                "your_reply": original_reply,
-                "full_json_instructions": full_json,
-                "error_retry_policy": ERROR_RETRY_POLICY,
-            }
-        }
-        correction_prompt = json.dumps(correction_payload, ensure_ascii=False)
-
-        log_warning(f"[corrector] {error_summary}")
-        log_info(f"[corrector] Requesting action correction from LLM (attempt {retry_count}/{CORRECTOR_RETRIES})")
-
-        try:
-            from core import plugin_instance
-
-            correction_message = SimpleNamespace()
-            correction_message.chat_id = message.chat_id
-            correction_message.text = correction_prompt
-            correction_message.message_thread_id = getattr(message, "message_thread_id", None)
-            correction_message.date = getattr(message, "date", datetime.utcnow())
-            correction_message.from_user = getattr(message, "from_user", None)
-            
-            if correction_message.from_user and not hasattr(correction_message.from_user, 'id'):
-                correction_message.from_user.id = getattr(message, "from_user", SimpleNamespace()).id if hasattr(getattr(message, "from_user", None), 'id') else None
-
-            llm_plugin = getattr(plugin_instance, "plugin", None)
-            if llm_plugin and hasattr(llm_plugin, "_process_message"):
-                await llm_plugin._process_message(bot, correction_message, correction_prompt)
-            elif llm_plugin and hasattr(llm_plugin, "handle_incoming_message"):
-                await llm_plugin.handle_incoming_message(bot, correction_message, correction_prompt)
-            else:
-                log_warning("[corrector] No LLM plugin available for action correction")
-
-        except Exception as e:
-            log_error(f"[corrector] Failed to request action correction: {e}")
-
-        # BREAK dopo tentativo
-        break
+# Legacy corrector removed
+# NOTE: The legacy `corrector(errors, failed_actions, bot, message)` implementation
+# has been intentionally removed to prevent accidental invocation. Use the centralized
+# `corrector_orchestrator` in this module (or `core.message_chain.handle_incoming_message`)
+# for correction/orchestration flows. If any callers still reference `corrector`,
+# update them to the new orchestrator or the message chain.
 
 
 # Cache for interface actions discovered via the interface registry
@@ -575,6 +501,29 @@ async def _handle_plugin_action(
             )
             continue
 
+        # If this plugin is an interface and exposes send_message, allow it to
+        # handle message_* actions (interfaces use send_message rather than
+        # execute_action). This ensures message actions are dispatched to
+        # interfaces like TelegramInterface.
+        if hasattr(plugin, "send_message") and action_type.startswith("message"):
+            try:
+                payload = action.get("payload", {})
+                log_info(
+                    f"[action_parser] ✉️ Dispatching message action to interface '{plugin_iface}' via send_message"
+                )
+                result = plugin.send_message(payload, original_message)
+                if inspect.iscoroutine(result):
+                    await result
+                log_info(
+                    f"[action_parser] ✅ Successfully executed message action via {plugin_iface}"
+                )
+                return None
+            except Exception as e:
+                log_error(
+                    f"[action_parser] ❌ Error executing {action_type} via interface {plugin_iface}: {repr(e)}"
+                )
+                continue
+
         if hasattr(plugin, "execute_action"):
             try:
                 payload = action.get("payload", {})
@@ -754,7 +703,13 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             )
 
     if collected_errors:
-        await corrector(collected_errors, actions, bot, original_message)
+        try:
+            from core.transport_layer import run_corrector_middleware
+            # Ask the centralized middleware/orchestrator to handle correction attempts
+            # We provide the original message context so middleware can mark expectations.
+            await run_corrector_middleware(original_message.original_text if hasattr(original_message, 'original_text') else getattr(original_message, 'text', ''), bot=bot, context=context, chat_id=getattr(original_message, 'chat_id', None))
+        except Exception as e:
+            log_warning(f"[action_parser] Failed to invoke corrector middleware: {e}")
 
     return {
         "processed": processed_actions,
