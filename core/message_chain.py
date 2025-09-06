@@ -72,7 +72,9 @@ async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text:
     max_retries = ctx.get('max_retries', CORRECTOR_RETRIES)
 
     while True:
-        log_debug(f"[message_chain] iteration attempt={attempt} source={source} chat={getattr(message,'chat_id',None)}")
+        log_debug(
+            f"[message_chain] iteration attempt={attempt} source={source} chat={getattr(message,'chat_id',None)}"
+        )
 
         # Quick JSON extraction
         parsed = None
@@ -82,10 +84,20 @@ async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text:
             log_debug(f"[message_chain] extract_json failed: {e}")
 
         if parsed is not None:
-            # System messages are produced by the core/system and must be ignored here
+            # System messages are produced by the core/system and generally skipped
             if isinstance(parsed, dict) and 'system_message' in parsed:
-                log_info('[message_chain] Ignoring top-level system_message (system-origin payload)')
-                return BLOCKED
+                sm = parsed.get('system_message') or {}
+                sm_type = sm.get('type') if isinstance(sm, dict) else None
+                if sm_type not in ("event", "output"):
+                    log_info(
+                        f"[message_chain] Ignoring top-level system_message type={sm_type} (system-origin payload)"
+                    )
+                    return BLOCKED
+                # Allow event/output system messages to bubble up to the interface without correction
+                log_debug(
+                    f"[message_chain] Forwarding system_message type={sm_type} without correction"
+                )
+                return FORWARD_AS_TEXT
 
             # Build actions list
             if isinstance(parsed, dict) and 'actions' in parsed:
@@ -116,6 +128,10 @@ async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text:
             return FORWARD_AS_TEXT
 
         # JSON-like but invalid -> attempt correction
+        if source != "llm" and not getattr(message, "from_llm", False):
+            log_debug("[message_chain] Non-LLM source; skipping correction")
+            return FORWARD_AS_TEXT
+
         attempt += 1
         if attempt > max_retries:
             log_warning(f"[message_chain] Exhausted {max_retries} correction attempts; blocking chat {getattr(message,'chat_id',None)}")
