@@ -4,6 +4,7 @@ import os
 import importlib
 import inspect
 import asyncio
+import threading
 from pathlib import Path
 from typing import Optional, Any
 from core.logging_utils import log_info, log_error, log_warning, log_debug
@@ -54,6 +55,14 @@ class CoreInitializer:
             # Import here to avoid circular imports
             from core.plugin_instance import load_plugin
             await load_plugin(self.active_llm, notify_fn=notify_fn)
+            
+            # Verify plugin was loaded successfully
+            from core.plugin_instance import plugin
+            if plugin is None:
+                log_error(f"[core_initializer] Plugin {self.active_llm} failed to load!")
+                self.startup_errors.append(f"Plugin {self.active_llm} failed to load")
+            else:
+                log_debug(f"[core_initializer] Plugin {self.active_llm} loaded successfully: {plugin.__class__.__name__}")
             
             log_debug(f"[core_initializer] Active LLM engine loaded: {self.active_llm}")
         except Exception as e:
@@ -198,14 +207,10 @@ class CoreInitializer:
 
             # After registering, rebuild actions to expose interface capabilities
             try:
-                loop = asyncio.get_running_loop()
-                if loop.is_running():
-                    loop.create_task(self._build_actions_block())
-                else:  # pragma: no cover - no running loop
-                    asyncio.run(self._build_actions_block())
+                _schedule_rebuild_actions(self)
             except Exception as e:  # pragma: no cover - defensive
                 log_error(
-                    f"[core_initializer] Error rebuilding actions for {interface_name}: {e}"
+                    f"[core_initializer] Error scheduling actions rebuild for {interface_name}: {e}"
                 )
 
             # Show updated status after interface registration
@@ -527,3 +532,15 @@ def register_interface(name: str, interface_obj: Any) -> None:
 
 # NOTE: core actions like chat_link are registered automatically when imported
 # by other modules that need them, avoiding circular import issues
+
+# Global variables for debounced rebuild
+_ACTION_REBUILD_DEBOUNCE_SEC = 0.8
+_action_rebuild_timer = None
+
+def _schedule_rebuild_actions(core_init_instance):
+    """Schedule a debounced rebuild of the actions block."""
+    global _action_rebuild_timer
+    if _action_rebuild_timer:
+        _action_rebuild_timer.cancel()
+    _action_rebuild_timer = threading.Timer(_ACTION_REBUILD_DEBOUNCE_SEC, lambda: asyncio.run(core_init_instance._build_actions_block()))
+    _action_rebuild_timer.start()

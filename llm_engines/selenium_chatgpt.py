@@ -34,6 +34,7 @@ from selenium.common.exceptions import (
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from urllib3.exceptions import ReadTimeoutError
+from core.transport_layer import llm_to_interface
 
 
 # Local functions and classes
@@ -102,10 +103,8 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
     """Inject ``text`` into the ChatGPT prompt area via JavaScript."""
     clean_text = strip_non_bmp(text)
     log_debug(f"[DEBUG] Length before sending: {len(clean_text)}")
-    # Log the full text to aid debugging and ensure the JSON is not truncated
-    # in logs. This may produce very long lines but provides complete
-    # visibility into the prompt content.
-    log_debug(f"[DEBUG] Text to send: {clean_text}")
+    # Log full text content for debugging
+    log_debug(f"[DEBUG] Text to send ({len(clean_text)} chars): {clean_text}")
 
     tag = (textarea.tag_name or "").lower()
     prop = "value" if tag in {"textarea", "input"} else "textContent"
@@ -906,7 +905,7 @@ def ensure_chatgpt_model(driver):
                 log_warning(f"[chatgpt_model] Failed to get model info after {max_retries} retries")
                 return False
         except Exception as e:
-            log_warning(f"[chatgpt_model] Error getting current model: {e}")
+            log_error(f"[chatgpt_model] Error getting current model: {e}")
             return False
 
         log_debug("[chatgpt_model] Opening dropdown")
@@ -1060,6 +1059,15 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             self._worker_task.cancel()
             log_debug("[selenium] Worker task cancelled")
         
+        # Clear the queue to prevent pending tasks
+        try:
+            while not self._queue.empty():
+                self._queue.get_nowait()
+                self._queue.task_done()
+            log_debug("[selenium] Queue cleared")
+        except Exception as e:
+            log_warning(f"[selenium] Failed to clear queue: {e}")
+        
         # Close the driver
         if self.driver:
             try:
@@ -1113,6 +1121,61 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 loop.create_task(self.start())
         except RuntimeError:
             pass
+
+    async def handle_incoming_message(self, bot, message, prompt):
+        """Handle incoming messages by queuing them for processing."""
+        try:
+            # Queue the message for processing
+            await self._queue.put((bot, message, prompt))
+            log_debug(f"[selenium] Message queued for processing: chat_id={message.chat_id}")
+            
+            # Ensure worker is running
+            if not self.is_worker_running():
+                await self.start()
+                
+        except Exception as e:
+            log_error(f"[selenium] Failed to queue message: {repr(e)}", e)
+            # Send error message if queuing fails
+            await self._send_error_message(bot, message, error_text=f"Failed to queue message: {e}")
+
+    async def _worker_loop(self):
+        """Process messages from the queue sequentially."""
+        log_debug("[selenium] Worker loop started")
+        try:
+            while True:
+                try:
+                    # Get message from queue
+                    bot, message, prompt = await self._queue.get()
+                    log_debug(f"[selenium] Processing message from queue: chat_id={message.chat_id}")
+                    
+                    # Process the message
+                    await self._process_message(bot, message, prompt)
+                    
+                    # Mark task as done
+                    self._queue.task_done()
+                    
+                except asyncio.CancelledError:
+                    log_debug("[selenium] Worker loop cancelled")
+                    break
+                except RuntimeError as e:
+                    # During shutdown the queue.get() or internal cancel may raise
+                    # RuntimeError('Event loop is closed') or similar. Treat these as
+                    # a signal to stop the worker loop instead of crashing.
+                    msg = str(e)
+                    if "bound to a different event loop" in msg or "Event loop is closed" in msg:
+                        log_warning(f"[selenium] Event loop problem, stopping worker: {e}")
+                        break
+                    else:
+                        raise
+                except Exception as e:
+                    log_error(f"[selenium] Error in worker loop: {repr(e)}", e)
+                    # Continue processing other messages even if one fails
+                    continue
+                    
+        except Exception as e:
+            log_error(f"[selenium] Worker loop crashed: {repr(e)}", e)
+        finally:
+            log_debug("[selenium] Worker loop ended")
 
     def _apply_driver_timeouts(self) -> None:
         """Apply environment-based timeouts to the Selenium driver."""
@@ -1559,12 +1622,58 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         if message_thread_id is not None:
             send_params["message_thread_id"] = message_thread_id
 
+        # Send system messages through the interface_to_llm entry so they follow
+        # the interface-origin path (no corrector middleware run).
+        try:
+            from core.transport_layer import interface_to_llm
+        except Exception:
+            interface_to_llm = None
+
         module_name = getattr(bot.__class__, "__module__", "")
-        if module_name.startswith("telegram"):
-            # Error messages originate from the system, not the LLM output
-            await safe_send(bot, is_llm_response=False, **send_params)
-        else:
-            await bot.send_message(**send_params)
+        log_debug(f"[selenium] _send_error_message: bot module={module_name}, bot class={bot.__class__.__name__}")
+        try:
+            if interface_to_llm is None:
+                # Fallback: call directly if transport wrapper unavailable
+                if module_name.startswith("telegram"):
+                    await safe_send(bot, **send_params)
+                elif "discord" in module_name.lower() or bot.__class__.__name__ == "Client":
+                    # For Discord, we need to find the interface instance
+                    # The bot here is actually the discord.Client, not the DiscordInterface
+                    # We need to use the transport layer instead
+                    from core.transport_layer import universal_send
+                    await universal_send(
+                        target=send_params["chat_id"],
+                        text=send_params["text"],
+                        interface="discord",
+                        reply_to_message_id=send_params.get("reply_to_message_id"),
+                        message_thread_id=send_params.get("message_thread_id")
+                    )
+                else:
+                    await bot.send_message(**send_params)
+            else:
+                if module_name.startswith("telegram"):
+                    # safe_send expects (bot, chat_id, text, ...)
+                    await interface_to_llm(safe_send, bot, send_params.get("chat_id"), text=send_params.get("text"), reply_to_message_id=send_params.get("reply_to_message_id"), message_thread_id=send_params.get("message_thread_id"))
+                elif "discord" in module_name.lower() or bot.__class__.__name__ == "Client":
+                    # For Discord, use universal_send through interface_to_llm (system message)
+                    from core.transport_layer import universal_send
+                    await interface_to_llm(
+                        universal_send,
+                        target=send_params["chat_id"],
+                        text=send_params["text"],
+                        interface="discord",
+                        reply_to_message_id=send_params.get("reply_to_message_id"),
+                        message_thread_id=send_params.get("message_thread_id")
+                    )
+                else:
+                    # Extract text parameter separately to avoid conflicts with interface_to_llm (system message)
+                    text_param = send_params.get("text")
+                    other_params = {k: v for k, v in send_params.items() if k != "text"}
+                    await interface_to_llm(bot.send_message, text=text_param, **other_params)
+        except Exception as e:
+            # Preserve previous logging behavior
+            log_warning(f"[selenium][STEP] error response forwarding failed: {e}")
+
         log_debug(
             f"[selenium][STEP] error response forwarded to {message.chat_id}"
         )
@@ -1747,33 +1856,54 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 # Detect interface type for dispatch
                 module_name = getattr(bot.__class__, "__module__", "")
                 if module_name.startswith("telegram"):
-                    # Only forward non-empty LLM responses to Telegram transport
+                    # Only forward non-empty LLM responses to Telegram transport (LLM -> interface)
                     if response_text and response_text.strip():
-                        await safe_send(
+                        await llm_to_interface(
+                            safe_send,
                             bot,
-                            chat_id=message.chat_id,
+                            message.chat_id,
                             text=response_text,
                             reply_to_message_id=getattr(message, "message_id", None),
                             message_thread_id=message_thread_id,
                             event_id=getattr(message, "event_id", None),
-                            # Indicate this text is the raw LLM response so transport can
-                            # run the corrector or JSON parsing logic.
-                            is_llm_response=True,
+                            interface='telegram',
                         )
                     else:
                         log_warning(f"[selenium] Empty LLM response for chat {message.chat_id}; sending error notification instead of forwarding")
-                        await self._send_error_message(bot, message, error_text="[31mNo response from LLM[0m")
+                        # Send error via interface_to_llm (system message)
+                        from core.transport_layer import interface_to_llm
+                        try:
+                            await interface_to_llm(safe_send, bot, message.chat_id, text="\x1b[31mNo response from LLM\x1b[0m", reply_to_message_id=getattr(message, "message_id", None), message_thread_id=message_thread_id)
+                        except Exception as e:
+                            log_warning(f"[selenium] Failed to send error notification: {e}")
+                            await self._send_error_message(bot, message, error_text="\x1b[31mNo response from LLM\x1b[0m")
                 else:
                     # Non-Telegram interfaces expect a payload dict
                     if response_text and response_text.strip():
-                        payload = {"target": message.chat_id, "text": response_text}
-                        if message_thread_id is not None:
-                            payload["message_thread_id"] = message_thread_id
-                        # Mark this forwarded text as an LLM response so transport can
-                        # distinguish it and avoid triggering correction loops.
-                        await bot.send_message(payload, is_llm_response=True)
+                        # Forward model output through centralized llm_to_interface (LLM -> interface)
+                        # For Discord, use universal_send
+                        if interface_name == "discord_bot" or "discord" in interface_name.lower():
+                            from core.transport_layer import universal_send
+                            await llm_to_interface(
+                                universal_send,
+                                target=message.chat_id,
+                                text=response_text,
+                                interface="discord",
+                                message_thread_id=message_thread_id,
+                            )
+                        else:
+                            # For other interfaces, use universal_send as fallback
+                            from core.transport_layer import universal_send
+                            await llm_to_interface(
+                                universal_send,
+                                target=message.chat_id,
+                                text=response_text,
+                                interface=interface_name,
+                                message_thread_id=message_thread_id,
+                            )
                     else:
                         log_warning(f"[selenium] Empty LLM response for non-telegram interface {interface_name}; sending error notification")
+                        # Send error via _send_error_message (which uses interface_to_llm for system messages)
                         await self._send_error_message(bot, message, error_text="No response from LLM")
 
                 log_debug(
@@ -1786,7 +1916,6 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 _notify_gui(f"\u274c Selenium error: {e}. Open UI")
                 return
 
-    @staticmethod
     async def clean_chat_link(chat_id: int, interface: str) -> str:
         """Remove the association between a chat and a ChatGPT conversation.
         If no link exists for the current chat, creates a new one."""
@@ -1820,7 +1949,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 f"⚠️ Do you really want to reset the link for this chat (ID: {chat_id})?\n"
                 "Reply with 'yes' to confirm or use /cancel to cancel."
             )
-            await bot.send_message(chat_id=chat_id, text=confirmation_message)
+            # Use interface_to_llm for system-originated confirmation
+            try:
+                from core.transport_layer import interface_to_llm
+            except Exception:
+                interface_to_llm = None
+
+            if interface_to_llm is None:
+                await bot.send_message(chat_id=chat_id, text=confirmation_message)
+            else:
+                await interface_to_llm(bot.send_message, chat_id=chat_id, text=confirmation_message)
 
             def check_response(response):
                 return response.chat_id == chat_id and response.text.lower() in ["yes", "/cancel"]
@@ -1829,94 +1967,32 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 response = await bot.wait_for("message", timeout=60, check=check_response)
                 if response.text.lower() == "yes":
                     result = await SeleniumChatGPTPlugin.clean_chat_link(chat_id, interface_name)
-                    await bot.send_message(chat_id=chat_id, text=result)
+                    # Send result via interface_to_llm
+                    if interface_to_llm is None:
+                        await bot.send_message(chat_id=chat_id, text=result)
+                    else:
+                        await interface_to_llm(bot.send_message, chat_id=chat_id, text=result)
                 else:
-                    await bot.send_message(chat_id=chat_id, text="❌ Operation canceled.")
+                    if interface_to_llm is None:
+                        await bot.send_message(chat_id=chat_id, text="❌ Operation canceled.")
+                    else:
+                        await interface_to_llm(bot.send_message, chat_id=chat_id, text="❌ Operation canceled.")
             except asyncio.TimeoutError:
-                await bot.send_message(chat_id=chat_id, text="⏳ Timeout. Operation canceled.")
+                if interface_to_llm is None:
+                    await bot.send_message(chat_id=chat_id, text="⏳ Timeout. Operation canceled.")
+                else:
+                    await interface_to_llm(bot.send_message, chat_id=chat_id, text="⏳ Timeout. Operation canceled.")
         else:
             result = await SeleniumChatGPTPlugin.clean_chat_link(chat_id, interface_name)
-            await bot.send_message(chat_id=chat_id, text=result)
+            try:
+                from core.transport_layer import interface_to_llm
+            except Exception:
+                interface_to_llm = None
 
-    async def handle_incoming_message(self, bot, message, prompt):
-        """Queue the message to be processed sequentially."""
-        user_id = message.from_user.id if message.from_user else "unknown"
-        text = message.text or ""
-        log_debug(
-            f"[selenium] [ENTRY] chat_id={message.chat_id} user_id={user_id} text={text!r}"
-        )
-        lock = SeleniumChatGPTPlugin.chat_locks.get(message.chat_id)
-        if lock and lock.locked():
-            log_debug(f"[selenium] Chat {message.chat_id} busy, waiting")
-        await self._queue.put((bot, message, prompt))
-        log_debug("[selenium] Message queued for processing")
-        if self._queue.qsize() > 10:
-            log_warning(
-                f"[selenium] Queue size high ({self._queue.qsize()}). Worker might be stalled"
-            )
+            if interface_to_llm is None:
+                await bot.send_message(chat_id=chat_id, text=result)
+            else:
+                await interface_to_llm(bot.send_message, chat_id=chat_id, text=result)
 
-    async def _worker_loop(self):
-        log_debug("[selenium] Worker loop started")
-        try:
-            while True:
-                bot, message, prompt = await self._queue.get()
-                while queue_paused:
-                    await asyncio.sleep(1)
-                log_debug(
-                    f"[selenium] [WORKER] Processing chat_id={message.chat_id} "
-                    f"message_id={getattr(message, 'message_id', 'unknown')}"
-                )
-                try:
-                    lock = SeleniumChatGPTPlugin.chat_locks[message.chat_id]  # [FIX]
-                    async with lock:
-                        log_debug(f"[selenium] Lock acquired for chat {message.chat_id}")
-                        await self._process_message(bot, message, prompt)
-                        log_debug(f"[selenium] Lock released for chat {message.chat_id}")
-                except Exception as e:
-                    log_error("[selenium] Worker error", e)
-                    _notify_gui(f"❌ Selenium error: {e}. Open UI")
-                finally:
-                    self._queue.task_done()
-                    log_debug("[selenium] [WORKER] Task completed")
-        except asyncio.CancelledError:  # [FIX]
-            log_warning("Worker was cancelled")
-            raise
-        finally:
-            log_info("Worker loop cleaned up")
- 
+
 PLUGIN_CLASS = SeleniumChatGPTPlugin
-
-def go_to_chat_by_path(driver, path: str) -> bool:
-    """Navigate to a specific chat using its path."""
-    try:
-        chat_url = f"https://chat.openai.com{path}"
-        driver.get(chat_url)
-        WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.ID, "prompt-textarea"))
-        )
-        log_debug(f"[selenium] Successfully navigated to chat path: {path}")
-        return True
-    except TimeoutException:
-        log_warning(f"[selenium] Timeout while navigating to chat path: {path}")
-        return False
-    except Exception as e:
-        log_error(f"[selenium] Error navigating to chat path: {repr(e)}")
-        return False
-
-def go_to_chat_by_path_with_retries(driver, path: str, retries: int = 3) -> bool:
-    """Navigate to a specific chat using its path with retries."""
-    for attempt in range(1, retries + 1):
-        try:
-            chat_url = f"https://chat.openai.com{path}"
-            driver.get(chat_url)
-            WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.ID, "prompt-textarea"))
-            )
-            log_debug(f"[selenium] Successfully navigated to chat path: {path} on attempt {attempt}")
-            return True
-        except TimeoutException:
-            log_warning(f"[selenium] Timeout while navigating to chat path: {path} on attempt {attempt}")
-        except Exception as e:
-            log_error(f"[selenium] Error navigating to chat path on attempt {attempt}: {repr(e)}")
-    log_warning(f"[selenium] Failed to navigate to chat path: {path} after {retries} attempts")
-    return False

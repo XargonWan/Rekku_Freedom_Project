@@ -5,6 +5,7 @@ import time
 import urllib.parse
 import urllib.request
 from typing import Optional
+import concurrent.futures
 
 from core.core_initializer import core_initializer, register_plugin
 from core.logging_utils import log_debug, log_info, log_warning, log_error
@@ -24,6 +25,9 @@ class WeatherPlugin:
             self.fetch_minutes = int(os.getenv("WEATHER_FETCH_TIME", "30"))
         except ValueError:
             self.fetch_minutes = 30
+        # Use a dedicated executor so we don't depend on the event loop's default executor
+        # which may be shut down during interpreter shutdown.
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
     # Plugin action registration
     def get_supported_action_types(self):
@@ -56,8 +60,20 @@ class WeatherPlugin:
         url = f"https://wttr.in/{encoded}?format=j1"
         log_info(f"[weather_plugin] Fetching weather for {location}")
         try:
-            response = await asyncio.to_thread(urllib.request.urlopen, url)
-            data_bytes = await asyncio.to_thread(response.read)
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # Event loop is closed; skip update
+                log_warning("[weather_plugin] Event loop closed; aborting weather update")
+                return
+
+            try:
+                response = await loop.run_in_executor(self._executor, urllib.request.urlopen, url)
+                data_bytes = await loop.run_in_executor(self._executor, response.read)
+            except RuntimeError as e:
+                # Executor or loop has been shutdown
+                log_warning(f"[weather_plugin] Could not schedule weather read: {e}")
+                return
             if not data_bytes:
                 raise ValueError("empty response")
             try:
@@ -114,6 +130,15 @@ class WeatherPlugin:
         if "sun" in desc or "clear" in desc:
             return "☀️"
         return "🌡️"
+
+    def shutdown(self):
+        """Shutdown the plugin's executor to avoid scheduling new futures after interpreter shutdown."""
+        try:
+            self._executor.shutdown(wait=False)
+            log_debug("[weather_plugin] Executor shutdown invoked")
+        except Exception:
+            # Best-effort cleanup
+            pass
 
 
 PLUGIN_CLASS = WeatherPlugin

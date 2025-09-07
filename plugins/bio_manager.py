@@ -15,6 +15,11 @@ from core.core_initializer import core_initializer, register_plugin
 JSON_LIST_FIELDS = {"known_as", "likes", "not_likes", "past_events", "feelings"}
 JSON_DICT_FIELDS = {"contacts", "social_accounts"}
 
+VALID_BIO_FIELDS = {
+    "known_as", "likes", "not_likes", "information", "past_events", 
+    "feelings", "contacts", "social_accounts", "privacy", "created_at", "last_accessed"
+}
+
 DEFAULTS = {
     "known_as": [],
     "likes": [],
@@ -155,7 +160,23 @@ def _load_json_field(value: str | None, key: str, default: Any) -> Any:
 
 def _save_json_field(user_id: str, key: str, value: Any) -> None:
     """Serialize and store a JSON field."""
-    _run(_execute(f"UPDATE bio SET {key}=%s WHERE id=%s", (json.dumps(value), user_id)))
+    if key not in VALID_BIO_FIELDS:
+        log_error(f"[bio_manager] Invalid field name: {key}")
+        return
+    
+    # Ensure value is not None and can be serialized
+    if value is None:
+        value = DEFAULTS.get(key, "")
+    
+    try:
+        json_value = json.dumps(value)
+    except (TypeError, ValueError) as e:
+        log_error(f"[bio_manager] Failed to serialize {key}: {e}")
+        return
+    
+    # Use parameterized query to prevent SQL injection
+    query = "UPDATE bio SET {}=%s WHERE id=%s".format(key)
+    _run(_execute(query, (json_value, user_id)))
 
 
 def _merge_nested_dicts(original: dict, updates: dict) -> dict:
@@ -176,15 +197,32 @@ def _merge_nested_dicts(original: dict, updates: dict) -> dict:
 
 
 def _update_json_field(user_id: str, key: str, update_fn: Callable[[Any], Any]) -> None:
+    if key not in VALID_BIO_FIELDS:
+        log_error(f"[bio_manager] Invalid field name: {key}")
+        return
+        
     _ensure_user_exists(user_id)
-    row = _run(_fetchone(f"SELECT {key} FROM bio WHERE id=%s", (user_id,)))
+    # Use parameterized query to prevent SQL injection
+    query = "SELECT {} FROM bio WHERE id=%s".format(key)
+    row = _run(_fetchone(query, (user_id,)))
     current = _load_json_field(row.get(key), key, DEFAULTS.get(key))
+    
     try:
         updated = update_fn(current)
+        # Ensure updated value is not None and can be serialized
+        if updated is None:
+            updated = DEFAULTS.get(key, "")
+        
+        try:
+            json_value = json.dumps(updated)
+        except (TypeError, ValueError) as e:
+            log_error(f"[bio_manager] Failed to serialize updated {key}: {e}")
+            return
+            
+        _save_json_field(user_id, key, updated)
     except Exception as e:  # pragma: no cover - logic error
         log_error(f"[bio_manager] Error updating {key}: {e}")
         return
-    _save_json_field(user_id, key, updated)
 
 
 def get_bio_light(user_id: str) -> dict:
@@ -233,21 +271,7 @@ def update_bio_fields(user_id: str, updates: dict) -> None:
 
     merged: dict[str, Any] = {}
 
-    valid_fields = {
-        "known_as",
-        "likes",
-        "not_likes",
-        "information",
-        "past_events",
-        "feelings",
-        "contacts",
-        "social_accounts",
-        "privacy",
-        "created_at",
-        "last_accessed",
-    }
-
-    for field in valid_fields:
+    for field in VALID_BIO_FIELDS:
         old_val = current.get(field)
         new_val = updates.get(field)
 
