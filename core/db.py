@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timezone, timedelta
 import calendar
 import asyncio
+import time
 
 from types import SimpleNamespace
 from typing import Any
@@ -69,11 +70,22 @@ def initialize_db_logging():
 _db_initialized = False
 _db_init_lock = asyncio.Lock()
 
+# Throttle DB 'Opening connection' debug logs to at most one per X seconds
+_DB_LOG_THROTTLE_SEC = 2
+_last_db_log_time = 0
+
 async def get_conn() -> aiomysql.Connection:
     """Return an async MariaDB connection using aiomysql."""
-    log_debug(
-        f"[db] Opening connection to {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    )
+    global _last_db_log_time
+    try:
+        now = time.time()
+        if now - _last_db_log_time > _DB_LOG_THROTTLE_SEC:
+            log_debug(
+                f"[db] Opening connection to {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+            )
+            _last_db_log_time = now
+    except Exception:
+        pass
     try:
         conn = await aiomysql.connect(
             host=DB_HOST,
@@ -84,6 +96,11 @@ async def get_conn() -> aiomysql.Connection:
             autocommit=True,
         )
     except Exception as primary_exc:  # pragma: no cover - network errors
+        # Check if interpreter is shutting down
+        if "interpreter shutdown" in str(primary_exc):
+            log_debug("[db] Connection failed due to interpreter shutdown, skipping")
+            raise primary_exc
+        
         primary_cause = getattr(primary_exc, "__cause__", None)
         cause_msg = f" (cause: {primary_cause})" if primary_cause else ""
         log_warning(
@@ -100,6 +117,11 @@ async def get_conn() -> aiomysql.Connection:
                     autocommit=True,
                 )
             except Exception as fallback_exc:  # pragma: no cover - network errors
+                # Check if interpreter is shutting down
+                if "interpreter shutdown" in str(fallback_exc):
+                    log_debug("[db] Localhost connection failed due to interpreter shutdown, skipping")
+                    raise fallback_exc
+                
                 fallback_cause = getattr(fallback_exc, "__cause__", None)
                 fb_cause_msg = f" (cause: {fallback_cause})" if fallback_cause else ""
                 log_error(

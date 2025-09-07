@@ -36,10 +36,22 @@ ERROR_RETRY_POLICY = {
 
 
 def _get_retry_key(message):
-    """Generate a unique key for tracking retries based on chat/thread."""
+    """Generate a unique key for tracking retries based on chat/thread.
+
+    Preserve chat_id and message_thread_id as strings (no numeric coercion),
+    since external interfaces may represent identifiers as strings. This
+    ensures consistent retry keys without changing original identifier types.
+    """
     chat_id = getattr(message, "chat_id", None)
     thread_id = getattr(message, "message_thread_id", None)
-    return f"{chat_id}_{thread_id}"
+
+    def _norm(value):
+        if value is None:
+            return "none"
+        # Keep original representation as string (don't coerce to int)
+        return str(value)
+
+    return f"{_norm(chat_id)}_{_norm(thread_id)}"
 
 
 def _should_retry(message, max_retries: int = CORRECTOR_RETRIES) -> bool:
@@ -67,67 +79,13 @@ def _increment_retry(message):
     return retry_count + 1
 
 
-async def corrector(errors: list, failed_actions: list, bot, message):
-    """Handle action parsing errors by requesting LLM to fix them."""
+# Legacy corrector removed
+# NOTE: The legacy `corrector(errors, failed_actions, bot, message)` implementation
+# has been intentionally removed to prevent accidental invocation. Use the centralized
+# `corrector_orchestrator` in this module (or `core.message_chain.handle_incoming_message`)
+# for correction/orchestration flows. If any callers still reference `corrector`,
+# update them to the new orchestrator or the message chain.
 
-    if not _should_retry(message, max_retries=CORRECTOR_RETRIES):
-        retry_key = _get_retry_key(message)
-        retry_count, _ = _retry_tracker.get(retry_key, (0, 0))
-        log_warning(
-            f"[corrector] Max retries ({retry_count}) reached for action correction. Giving up."
-        )
-        return
-
-    if not hasattr(message, "chat_id") or message.chat_id is None:
-        log_warning(
-            f"[corrector] Cannot request correction: invalid chat_id in message: {getattr(message, 'chat_id', 'None')}"
-        )
-        return
-
-    retry_count = _increment_retry(message)
-
-    error_summary = "\n".join([f"- {err}" for err in errors[:5]])
-
-    message_text = (
-        f"{error_summary}\n"
-        "Please repeat your previous message, not this very prompt, but your previous reply, corrected. "
-        "If that was a web search please use the content to reply with your own words."
-    )
-    full_json = build_full_json_instructions()
-    correction_payload = {
-        "system_message": {
-            "type": "error",
-            "message": message_text,
-            "your_reply": getattr(message, "original_text", getattr(message, "text", "")),
-            "full_json_instructions": full_json,
-            "error_retry_policy": ERROR_RETRY_POLICY,
-        }
-    }
-    correction_prompt = json.dumps(correction_payload, ensure_ascii=False)
-
-    log_warning(f"[corrector] {error_summary}")
-    log_info(
-        f"[corrector] Requesting action correction from LLM (attempt {retry_count}/{CORRECTOR_RETRIES})"
-    )
-
-    try:
-        from core import plugin_instance
-
-        correction_message = SimpleNamespace()
-        correction_message.chat_id = message.chat_id
-        correction_message.text = correction_prompt
-        correction_message.message_thread_id = getattr(message, "message_thread_id", None)
-        correction_message.date = getattr(message, "date", datetime.utcnow())
-        correction_message.from_user = getattr(message, "from_user", None)
-
-        llm_plugin = getattr(plugin_instance, "plugin", None)
-        if llm_plugin and hasattr(llm_plugin, "handle_incoming_message"):
-            await llm_plugin.handle_incoming_message(bot, correction_message, correction_prompt)
-        else:
-            log_warning("[corrector] No LLM plugin available for action correction")
-
-    except Exception as e:
-        log_error(f"[corrector] Failed to request action correction: {e}")
 
 # Cache for interface actions discovered via the interface registry
 _INTERFACE_ACTIONS: Dict[str, str] | None = None
@@ -377,6 +335,10 @@ def _plugins_for(action_type: str) -> List[Any]:
                     log_debug(
                         f"[action_parser] ✅ Plugin {plugin.__class__.__name__} supports {action_type} (via action_types)"
                     )
+                    # Optimization: Stop searching for message actions after first match
+                    if action_type.startswith("message_"):
+                        log_debug(f"[action_parser] ⚡ Optimization: Stopping search for message action {action_type} after first match")
+                        break
                     continue
 
             if hasattr(plugin, "get_supported_actions"):
@@ -389,11 +351,11 @@ def _plugins_for(action_type: str) -> List[Any]:
                     log_debug(
                         f"[action_parser] ✅ Plugin {plugin.__class__.__name__} supports {action_type} (via actions_dict)"
                     )
+                    # Optimization: Stop searching for message actions after first match
+                    if action_type.startswith("message_"):
+                        log_debug(f"[action_parser] ⚡ Optimization: Stopping search for message action {action_type} after first match")
+                        break
                     continue
-
-            log_debug(
-                f"[action_parser] ❌ Plugin {plugin.__class__.__name__} does not support {action_type}"
-            )
 
         except Exception as e:
             log_error(f"[action_parser] Error querying plugin {plugin}: {repr(e)}")
@@ -417,6 +379,10 @@ def _plugins_for(action_type: str) -> List[Any]:
                     log_debug(
                         f"[action_parser] ✅ Interface {name} supports {action_type} (via action_types)"
                     )
+                    # Optimization: Stop searching for message actions after first match
+                    if action_type.startswith("message_"):
+                        log_debug(f"[action_parser] ⚡ Optimization: Stopping search for message action {action_type} after first match")
+                        break
                     continue
 
             if hasattr(iface, "get_supported_actions"):
@@ -429,6 +395,10 @@ def _plugins_for(action_type: str) -> List[Any]:
                     log_debug(
                         f"[action_parser] ✅ Interface {name} supports {action_type} (via actions_dict)"
                     )
+                    # Optimization: Stop searching for message actions after first match
+                    if action_type.startswith("message_"):
+                        log_debug(f"[action_parser] ⚡ Optimization: Stopping search for message action {action_type} after first match")
+                        break
                     continue
 
             log_debug(
@@ -484,6 +454,13 @@ async def _handle_plugin_action(
 
         # Determine target interface from action or registry mapping
         iface_name = iface_target or _load_interface_actions().get(action_type)
+        
+        # If interface not found, try to refresh the interface actions cache
+        if not iface_name and action_type.startswith("message_"):
+            global _INTERFACE_ACTIONS
+            _INTERFACE_ACTIONS = None  # Force refresh
+            iface_name = _load_interface_actions().get(action_type)
+
         try:
             from core.core_initializer import INTERFACE_REGISTRY
 
@@ -523,6 +500,29 @@ async def _handle_plugin_action(
                 f"[action_parser] ⏭️ Skipping plugin {plugin_iface} (target: {iface_target})"
             )
             continue
+
+        # If this plugin is an interface and exposes send_message, allow it to
+        # handle message_* actions (interfaces use send_message rather than
+        # execute_action). This ensures message actions are dispatched to
+        # interfaces like TelegramInterface.
+        if hasattr(plugin, "send_message") and action_type.startswith("message"):
+            try:
+                payload = action.get("payload", {})
+                log_info(
+                    f"[action_parser] ✉️ Dispatching message action to interface '{plugin_iface}' via send_message"
+                )
+                result = plugin.send_message(payload, original_message)
+                if inspect.iscoroutine(result):
+                    await result
+                log_info(
+                    f"[action_parser] ✅ Successfully executed message action via {plugin_iface}"
+                )
+                return None
+            except Exception as e:
+                log_error(
+                    f"[action_parser] ❌ Error executing {action_type} via interface {plugin_iface}: {repr(e)}"
+                )
+                continue
 
         if hasattr(plugin, "execute_action"):
             try:
@@ -703,7 +703,18 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             )
 
     if collected_errors:
-        await corrector(collected_errors, actions, bot, original_message)
+        # Only invoke corrector for errors that came from LLM messages
+        # System messages and interface messages should not trigger correction
+        if hasattr(original_message, 'from_llm') and original_message.from_llm:
+            try:
+                from core.transport_layer import run_corrector_middleware
+                # Ask the centralized middleware/orchestrator to handle correction attempts
+                # We provide the original message context so middleware can mark expectations.
+                await run_corrector_middleware(original_message.original_text if hasattr(original_message, 'original_text') else getattr(original_message, 'text', ''), bot=bot, context=context, chat_id=getattr(original_message, 'chat_id', None))
+            except Exception as e:
+                log_warning(f"[action_parser] Failed to invoke corrector middleware: {e}")
+        else:
+            log_debug("[action_parser] Errors found but message is not from LLM; skipping correction to prevent loops")
 
     return {
         "processed": processed_actions,
@@ -754,14 +765,21 @@ async def parse_action(action: dict, bot, message):
     # Use centralized action plugin system for all other action types
     action_plugins = _plugins_for(action_type)
     if action_plugins:
+        action_handled = False
         for plugin in action_plugins:
             try:
                 if hasattr(plugin, "execute_action"):
                     result = plugin.execute_action(action, {}, bot, message)
                     if inspect.iscoroutine(result):
                         await result
+                    action_handled = True
+                    log_debug(f"[action_parser] Action {action_type} handled by {plugin.__class__.__name__}")
+                    break  # Stop after first successful handler
                 elif hasattr(plugin, "handle_custom_action"):
                     await plugin.handle_custom_action(action_type, payload)
+                    action_handled = True
+                    log_debug(f"[action_parser] Action {action_type} handled by {plugin.__class__.__name__} (custom)")
+                    break  # Stop after first successful handler
                 else:
                     log_warning(
                         f"[action_parser] Plugin {plugin.__class__.__name__} lacks execute_action/handle_custom_action methods"
@@ -770,6 +788,11 @@ async def parse_action(action: dict, bot, message):
                 log_error(
                     f"[action_parser] Error delegating {action_type} to plugin {plugin.__class__.__name__}: {repr(e)}"
                 )
+        
+        if action_handled:
+            log_debug(f"[action_parser] Action {action_type} successfully handled")
+        else:
+            log_warning(f"[action_parser] No plugin successfully handled action {action_type}")
         return
 
     log_warning(
@@ -841,14 +864,18 @@ async def gather_static_injections(message=None, context_memory=None) -> dict:
                 try:
                     result = plugin.get_static_injection(message, context_memory)
                 except TypeError:
-                    result = plugin.get_static_injection()
+                    try:
+                        result = plugin.get_static_injection()
+                    except Exception as inner_e:
+                        log_error(f"[action_parser] Error calling get_static_injection() on {plugin.__class__.__name__}: {inner_e}")
+                        continue
 
                 if inspect.iscoroutine(result):
                     result = await result
                 if isinstance(result, dict):
                     injections.update(result)
             except Exception as e:
-                log_warning(
+                log_error(
                     f"[action_parser] Error gathering static injection from {plugin.__class__.__name__}: {e}"
                 )
     except Exception as e:
@@ -890,4 +917,132 @@ __all__ = [
     "initialize_core",
     "get_action_plugin_instructions",
     "gather_static_injections",
+    "corrector_orchestrator",
 ]
+
+
+async def corrector_orchestrator(text: str, context: dict, bot, message, max_retries: int | None = None):
+    """Process model text: parse JSON actions or run the corrector loop.
+
+    Returns:
+        True  -> actions parsed and executed
+        False -> blocked (corrector exhausted or not allowed)
+        None  -> not JSON-like; caller may forward as plain text
+    """
+    # Only handle messages that explicitly originate from the LLM.
+    # Transport layer / llm engines must set `message.from_llm = True` when passing
+    # LLM outputs into this orchestrator. Any message without this flag is ignored
+    # here so system- or interface-originated payloads are not processed.
+    if message is not None and not getattr(message, "from_llm", False):
+        log_debug("[corrector_orchestrator] Ignoring message: not marked as LLM-origin (message.from_llm is False or missing)")
+        return None
+
+    # Determine max retries
+    if max_retries is None:
+        max_retries = CORRECTOR_RETRIES
+
+    # Quick parse attempt
+    parsed = None
+    try:
+        parsed = _extract_json_local(text)
+    except Exception as e:
+        log_debug(f"[corrector_orchestrator] initial parse failed: {e}")
+
+    if parsed is not None:
+        # Build actions list similar to transport layer
+        if isinstance(parsed, dict) and "actions" in parsed:
+            actions = parsed["actions"] if isinstance(parsed["actions"], list) else None
+            if actions is None:
+                log_warning("[corrector_orchestrator] actions field must be a list")
+                return None
+        elif isinstance(parsed, list):
+            actions = parsed
+        elif isinstance(parsed, dict) and "type" in parsed:
+            actions = [parsed]
+        else:
+            log_warning(f"[corrector_orchestrator] Unrecognized JSON structure: {parsed}")
+            return None
+
+        try:
+            result = await run_actions(actions, context, bot, message)
+            log_info('[corrector_orchestrator] Actions executed successfully - interrupting correction loop')
+            return True
+        except Exception as e:
+            log_warning(f"[corrector_orchestrator] Failed to run actions: {e}")
+            return False
+
+    # Not parsed initially. If not JSON-like, indicate to caller to forward as plain text
+    if '{' not in (text or '') and '[' not in (text or ''):
+        return None
+
+    # JSON-like but not valid -> run corrector loop here
+    tried_texts = set()
+    attempt = 0
+    while attempt < max_retries:
+        # Check retry permission
+        if not _should_retry(message, max_retries=max_retries):
+            retry_key = _get_retry_key(message)
+            retry_count, _ = _retry_tracker.get(retry_key, (0, 0))
+            log_warning(f"[corrector_orchestrator] Max retries ({retry_count}) reached for {retry_key}; blocking")
+            return False
+
+        # increment retry counter
+        attempt_count = _increment_retry(message)
+        attempt += 1
+
+        # Call the corrector (transport-layer middleware)
+        try:
+            import core.transport_layer as transport
+            corrected = await transport.run_corrector_middleware(text, bot=bot, context=context, chat_id=getattr(message, 'chat_id', None))
+        except Exception as e:
+            log_warning(f"[corrector_orchestrator] Corrector invocation failed: {e}")
+            return False
+
+        if corrected is None:
+            log_debug(f"[corrector_orchestrator] Corrector returned None on attempt {attempt}")
+            # corrected failed; loop will check retry and possibly continue
+            text = text  # keep original or last value
+            continue
+
+        # If corrected same as previous tried value, avoid infinite loop
+        if corrected in tried_texts:
+            log_warning("[corrector_orchestrator] Corrector returned previously seen output; aborting to avoid loop")
+            return False
+        tried_texts.add(corrected)
+
+        # Try parsing corrected
+        try:
+            parsed2 = _extract_json_local(corrected)
+        except Exception as e:
+            parsed2 = None
+            log_debug(f"[corrector_orchestrator] Parsing corrected failed: {e}")
+
+        if parsed2 is not None:
+            # run actions
+            if isinstance(parsed2, dict) and "actions" in parsed2:
+                actions = parsed2["actions"] if isinstance(parsed2["actions"], list) else None
+                if actions is None:
+                    log_warning("[corrector_orchestrator] corrected actions field must be a list")
+                    return False
+            elif isinstance(parsed2, list):
+                actions = parsed2
+            elif isinstance(parsed2, dict) and "type" in parsed2:
+                actions = [parsed2]
+            else:
+                log_warning(f"[corrector_orchestrator] Unrecognized corrected JSON structure: {parsed2}")
+                return False
+
+            try:
+                await run_actions(actions, context, bot, message)
+                log_info('[corrector_orchestrator] Corrected actions executed successfully - interrupting correction loop')
+                return True
+            except Exception as e:
+                log_warning(f"[corrector_orchestrator] Failed to run actions after correction: {e}")
+                return False
+
+        # Not parsed; set text to corrected and retry
+        text = corrected
+
+    # Exhausted retries
+    log_warning(f"[corrector_orchestrator] Exhausted {max_retries} correction attempts; blocking message for chat {getattr(message, 'chat_id', None)}")
+    return False

@@ -4,10 +4,11 @@ Chat Link Resolution
 Rekku maintains a central **ChatLinkStore** that records the relationship
 between chat identifiers and human‑readable names. Each entry stores:
 
+* ``interface`` – originating interface (e.g. ``telegram``, ``discord``)
 * ``chat_id`` – numeric identifier for the chat
 * ``message_thread_id`` – optional thread/topic id
-* ``chat_name`` – optional chat title
-* ``message_thread_name`` – optional thread/topic title
+* ``chat_name`` – optional parent chat title (Telegram chat, Discord server)
+* ``message_thread_name`` – optional thread or channel title
 
 Interfaces can resolve a link by supplying any combination of IDs or names.
 This allows actions to target a conversation using ``chat_id``/``message_thread_id``

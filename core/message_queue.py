@@ -38,7 +38,7 @@ async def _delayed_put(item: dict, delay: float) -> None:
     await _queue.put((priority, item))
 
 
-async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
+async def enqueue(bot, message, context_memory, priority: bool = False, interface_id: str = None) -> None:
     """Enqueue a message for serialized processing with rate limiting.
 
     Args:
@@ -46,6 +46,7 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
         message: The message to process
         context_memory: Message context
         priority: If True, message is added to front of queue (for events)
+        interface_id: The interface identifier (e.g., 'telegram_bot')
     """
     human_count = getattr(message, "human_count", None)
     if human_count is None and hasattr(message, "chat"):
@@ -105,7 +106,11 @@ async def enqueue(bot, message, context_memory, priority: bool = False) -> None:
     await recent_chats.track_chat(chat_id, meta)
 
     thread_id = getattr(message, "message_thread_id", None)
-    interface = bot.__class__.__name__ if bot else None
+    interface = interface_id if interface_id else (
+        bot.get_interface_id()
+        if bot and hasattr(bot, "get_interface_id")
+        else bot.__class__.__name__ if bot else None
+    )
 
     item = {
         "bot": bot,
@@ -251,16 +256,33 @@ async def _consumer_loop() -> None:
                     
                     # Deliver the structured event prompt using the standard pipeline
                     await plugin_instance.handle_incoming_message(
-                        final["bot"], mock_message, final["event_prompt"]
+                        final["bot"], mock_message, final["event_prompt"], final.get("interface")
                     )
                 else:
                     await plugin_instance.handle_incoming_message(
-                        final["bot"], final["message"], final["context"]
+                        final["bot"], final["message"], final["context"], final.get("interface")
                     )
             except Exception as e:  # pragma: no cover - plugin may misbehave
                 log_error(
                     f"[ERROR] Failed to process message from chat {final['chat_id']}: {e}\n{traceback.format_exc()}",
                 )
+                bot = final.get("bot")
+                chat_id = final.get("chat_id")
+                thread_id = final.get("thread_id")
+                try:
+                    if bot and chat_id:
+                        kwargs = {"chat_id": chat_id, "text": "😵‍💫"}
+                        if thread_id:
+                            kwargs["message_thread_id"] = thread_id
+                        reply_msg = final.get("message")
+                        reply_id = getattr(reply_msg, "message_id", None)
+                        if reply_id:
+                            kwargs["reply_to_message_id"] = reply_id
+                        await bot.send_message(**kwargs)
+                except Exception as send_err:  # pragma: no cover - best effort
+                    log_warning(
+                        f"[QUEUE] Failed to send fallback message: {send_err}"
+                    )
             finally:
                 for _ in batch:
                     _queue.task_done()

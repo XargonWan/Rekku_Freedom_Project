@@ -51,7 +51,9 @@ RUN ARCH="${TARGETARCH}" && \
     echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://deb.debian.org/debian bookworm main" > /etc/apt/sources.list.d/debian-chromium.list && \
     echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://security.debian.org/debian-security bookworm-security main" >> /etc/apt/sources.list.d/debian-chromium.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends chromium chromium-driver && \
+    CHROMIUM_VERSION=$(apt-cache policy chromium | awk '/Candidate:/ {print $2}') && \
+    apt-get install -y --no-install-recommends chromium=$CHROMIUM_VERSION chromium-driver=$CHROMIUM_VERSION && \
+    apt-mark hold chromium chromium-driver && \
     rm -f /etc/apt/sources.list.d/debian-chromium.list && \
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
     chromium --version
@@ -59,7 +61,7 @@ RUN ARCH="${TARGETARCH}" && \
 # Prepare chrome profile folder
 RUN mkdir -p '/config/.config/chromium-rfp' && \
     chown -R abc:abc /config && \
-    chmod -R 755 /config
+    chmod -R 775 /config
 
 # Install XFCE4 desktop environment
 RUN apt-get update && \
@@ -69,6 +71,10 @@ RUN apt-get update && \
       xfce4-terminal \
       thunar \
       mousepad \
+      ristretto \
+      adwaita-icon-theme \
+      # adw-gtk3 \ # cannot find package
+      util-linux \
       dbus-x11 \
       at-spi2-core \
       pulseaudio \
@@ -87,8 +93,8 @@ RUN python3 -m venv /app/venv && \
 
 # Copy essential scripts
 COPY automation_tools/cleanup_chrome.sh /usr/local/bin/cleanup_chrome.sh
-COPY automation_tools/container_rekku.sh /usr/local/bin/rekku.sh
-RUN chmod +x /usr/local/bin/cleanup_chrome.sh /usr/local/bin/rekku.sh
+COPY automation_tools/container_rekku.sh /app/rekku.sh
+RUN chmod +x /usr/local/bin/cleanup_chrome.sh /app/rekku.sh
 
 # Copy project code last to leverage layer caching
 COPY . /app
@@ -101,7 +107,7 @@ RUN echo "$GITVERSION_TAG" > /app/version.txt && \
     echo "Building with tag: $GITVERSION_TAG"
 
 # Create S6 service for Rekku
-COPY s6-services/rekku /etc/s6-overlay/s6-rc.d/rekku
+COPY webtop/s6-services/rekku /etc/s6-overlay/s6-rc.d/rekku
 RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
     mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
     echo rekku > /etc/s6-overlay/s6-rc.d/user/contents.d/rekku && \
@@ -111,7 +117,7 @@ RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
 RUN echo xfce4-session > /config/desktop-session
 
 # Copy S6 Rekku service
-COPY s6-services/rekku /etc/s6-overlay/s6-rc.d/rekku
+COPY webtop/s6-services/rekku /etc/s6-overlay/s6-rc.d/rekku
 RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
     echo 'longrun' > /etc/s6-overlay/s6-rc.d/rekku/type && \
     mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
@@ -119,12 +125,27 @@ RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
     chown -R abc:abc /etc/s6-overlay/s6-rc.d/rekku
 
 # Copy S6 Websockify service for Selkies
-COPY s6-services/websockify /etc/s6-overlay/s6-rc.d/websockify
+COPY webtop/s6-services/websockify /etc/s6-overlay/s6-rc.d/websockify
 RUN chmod +x /etc/s6-overlay/s6-rc.d/websockify/run && \
     echo 'longrun' > /etc/s6-overlay/s6-rc.d/websockify/type && \
     mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
     echo websockify > /etc/s6-overlay/s6-rc.d/user/contents.d/websockify && \
     chown -R abc:abc /etc/s6-overlay/s6-rc.d/websockify
+
+# Do Webtop cleanup and tweaks
+RUN mv \
+    /usr/bin/thunar \
+    /usr/bin/thunar-real && \
+  echo "**** cleanup ****" && \
+  rm -f \
+    /etc/xdg/autostart/xfce4-power-manager.desktop \
+    /etc/xdg/autostart/xscreensaver.desktop \
+    /usr/share/xfce4/panel/plugins/power-manager-plugin.desktop && \
+  rm -rf \
+    /tmp/*
+
+# Copy the root folder (used by original webtop, without chromium: https://github.com/linuxserver/docker-webtop/blob/master/Dockerfile)
+COPY webtop/root /
 
 # Set permissions for abc user
 # Note: abc user home is /config

@@ -30,9 +30,10 @@ class ChatLinkStore:
     automatically fetch chat/thread names from interfaces.
     """
 
-    _name_resolver: Optional[
-        Callable[[int | str, Optional[int | str], Any], Awaitable[Dict[str, Optional[str]]]]
-    ] = None
+    _name_resolvers: Dict[
+        str,
+        Callable[[int | str, Optional[int | str], Any], Awaitable[Dict[str, Optional[str]]]],
+    ] = {}
 
     def __init__(self) -> None:
         self._table_ensured = False
@@ -42,19 +43,22 @@ class ChatLinkStore:
     @classmethod
     def set_name_resolver(
         cls,
+        interface: str,
         resolver: Callable[[int | str, Optional[int | str], Any], Awaitable[Dict[str, Optional[str]]]],
     ) -> None:
-        """Register a callback used to resolve chat and thread names."""
+        """Register a callback used to resolve chat and thread names for an interface."""
 
-        cls._name_resolver = resolver
+        cls._name_resolvers[interface] = resolver
 
     @classmethod
     def _get_resolver(
-        cls,
+        cls, interface: Optional[str] = None
     ) -> Optional[
         Callable[[int | str, Optional[int | str], Any], Awaitable[Dict[str, Optional[str]]]]
     ]:
-        return cls._name_resolver
+        if interface is None:
+            interface = "telegram"
+        return cls._name_resolvers.get(interface)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -78,12 +82,13 @@ class ChatLinkStore:
             await cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chatgpt_links (
+                    interface VARCHAR(32) NOT NULL DEFAULT 'telegram',
                     chat_id TEXT NOT NULL,
                     message_thread_id TEXT,
                     link VARCHAR(2048),
                     chat_name TEXT,
                     message_thread_name TEXT,
-                    PRIMARY KEY (chat_id(255), message_thread_id(255))
+                    PRIMARY KEY (interface, chat_id(255), message_thread_id(255))
                 )
                 """
             )
@@ -100,6 +105,18 @@ class ChatLinkStore:
                 )
             except Exception as e:  # pragma: no cover
                 log_warning(f"[chatlink] message_thread_name column add failed: {e}")
+            try:
+                await cursor.execute(
+                    "ALTER TABLE chatgpt_links ADD COLUMN IF NOT EXISTS interface VARCHAR(32) NOT NULL DEFAULT 'telegram'"
+                )
+            except Exception as e:  # pragma: no cover
+                log_warning(f"[chatlink] interface column add failed: {e}")
+            try:
+                await cursor.execute(
+                    "ALTER TABLE chatgpt_links DROP PRIMARY KEY, ADD PRIMARY KEY (interface, chat_id(255), message_thread_id(255))"
+                )
+            except Exception as e:  # pragma: no cover
+                log_warning(f"[chatlink] primary key update failed: {e}")
             await conn.commit()
         conn.close()
         self._table_ensured = True
@@ -110,6 +127,7 @@ class ChatLinkStore:
         self,
         chat_id: int | str | None = None,
         message_thread_id: Optional[int | str] = None,
+        interface: str = "telegram",
         *,
         chat_name: Optional[str] = None,
         message_thread_name: Optional[str] = None,
@@ -124,35 +142,35 @@ class ChatLinkStore:
                     normalized = self._normalize_thread_id(message_thread_id)
                     chat_id_str = str(chat_id)
                     log_debug(
-                        f"[chatlink] Searching for link: chat_id={chat_id_str}, message_thread_id={normalized}"
+                        f"[chatlink] Searching for link: interface={interface}, chat_id={chat_id_str}, message_thread_id={normalized}"
                     )
                     await cursor.execute(
                         """
                         SELECT link FROM chatgpt_links
-                        WHERE chat_id = %s AND message_thread_id = %s
+                        WHERE interface = %s AND chat_id = %s AND message_thread_id = %s
                         """,
-                        (chat_id_str, normalized),
+                        (interface, chat_id_str, normalized),
                     )
                 elif chat_name is not None:
                     norm_name = self._normalize_name(message_thread_name)
                     log_debug(
-                        f"[chatlink] Searching for link: chat_name={chat_name}, message_thread_name={norm_name}"
+                        f"[chatlink] Searching for link: interface={interface}, chat_name={chat_name}, message_thread_name={norm_name}"
                     )
                     if norm_name is None:
                         await cursor.execute(
                             """
                             SELECT link FROM chatgpt_links
-                            WHERE chat_name = %s AND message_thread_name IS NULL
+                            WHERE interface = %s AND chat_name = %s AND message_thread_name IS NULL
                             """,
-                            (chat_name,),
+                            (interface, chat_name),
                         )
                     else:
                         await cursor.execute(
                             """
                             SELECT link FROM chatgpt_links
-                            WHERE chat_name = %s AND message_thread_name = %s
+                            WHERE interface = %s AND chat_name = %s AND message_thread_name = %s
                             """,
-                            (chat_name, norm_name),
+                            (interface, chat_name, norm_name),
                         )
                 else:
                     return None
@@ -168,6 +186,7 @@ class ChatLinkStore:
         chat_id: int | str,
         message_thread_id: Optional[int | str],
         link: str,
+        interface: str = "telegram",
         *,
         chat_name: Optional[str] = None,
         message_thread_name: Optional[str] = None,
@@ -184,14 +203,14 @@ class ChatLinkStore:
             await cursor.execute(
                 """
                 INSERT INTO chatgpt_links
-                    (chat_id, message_thread_id, link, chat_name, message_thread_name)
-                VALUES (%s, %s, %s, %s, %s)
+                    (interface, chat_id, message_thread_id, link, chat_name, message_thread_name)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     link=VALUES(link),
                     chat_name=VALUES(chat_name),
                     message_thread_name=VALUES(message_thread_name)
                 """,
-                (chat_id_str, normalized, link, name, thread_name),
+                (interface, chat_id_str, normalized, link, name, thread_name),
             )
             await conn.commit()
         conn.close()
@@ -200,9 +219,11 @@ class ChatLinkStore:
         )
 
         # Populate names automatically if resolver available
-        if (chat_name is None or message_thread_name is None) and self._get_resolver():
+        if (chat_name is None or message_thread_name is None) and self._get_resolver(interface):
             try:
-                await self.update_names_from_resolver(chat_id, message_thread_id)
+                await self.update_names_from_resolver(
+                    chat_id, message_thread_id, interface=interface
+                )
             except Exception as e:  # pragma: no cover - best effort
                 log_warning(f"[chatlink] name resolution failed: {e}")
 
@@ -210,6 +231,7 @@ class ChatLinkStore:
         self,
         chat_id: int | str | None = None,
         message_thread_id: Optional[int | str] = None,
+        interface: str = "telegram",
         *,
         chat_name: Optional[str] = None,
         message_thread_name: Optional[str] = None,
@@ -226,9 +248,9 @@ class ChatLinkStore:
                     result = await cursor.execute(
                         """
                         DELETE FROM chatgpt_links
-                        WHERE chat_id = %s AND message_thread_id = %s
+                        WHERE interface = %s AND chat_id = %s AND message_thread_id = %s
                         """,
-                        (chat_id_str, normalized),
+                        (interface, chat_id_str, normalized),
                     )
                 elif chat_name is not None:
                     norm_name = self._normalize_name(message_thread_name)
@@ -236,17 +258,17 @@ class ChatLinkStore:
                         result = await cursor.execute(
                             """
                             DELETE FROM chatgpt_links
-                            WHERE chat_name = %s AND message_thread_name IS NULL
+                            WHERE interface = %s AND chat_name = %s AND message_thread_name IS NULL
                             """,
-                            (chat_name,),
+                            (interface, chat_name),
                         )
                     else:
                         result = await cursor.execute(
                             """
                             DELETE FROM chatgpt_links
-                            WHERE chat_name = %s AND message_thread_name = %s
+                            WHERE interface = %s AND chat_name = %s AND message_thread_name = %s
                             """,
-                            (chat_name, norm_name),
+                            (interface, chat_name, norm_name),
                         )
                 else:
                     return False
@@ -259,6 +281,7 @@ class ChatLinkStore:
         self,
         chat_id: int | str,
         message_thread_id: Optional[int | str],
+        interface: str = "telegram",
         *,
         chat_name: Optional[str] = None,
         message_thread_name: Optional[str] = None,
@@ -278,8 +301,11 @@ class ChatLinkStore:
         if message_thread_name is not None:
             fields.append("message_thread_name = %s")
             params.append(self._normalize_name(message_thread_name))
-        params.extend([chat_id_str, normalized])
-        query = f"UPDATE chatgpt_links SET {', '.join(fields)} WHERE chat_id = %s AND message_thread_id = %s"
+        params.extend([interface, chat_id_str, normalized])
+        query = (
+            f"UPDATE chatgpt_links SET {', '.join(fields)} "
+            "WHERE interface = %s AND chat_id = %s AND message_thread_id = %s"
+        )
         conn = await get_conn()
         try:
             async with conn.cursor() as cursor:
@@ -293,11 +319,15 @@ class ChatLinkStore:
         self,
         chat_id: int | str,
         message_thread_id: Optional[int | str],
+        *,
+        interface: Optional[str] = None,
         bot: Any | None = None,
     ) -> bool:
         """Use the registered resolver to update chat/thread names."""
 
-        resolver = self._get_resolver()
+        if interface is None:
+            interface = "telegram"
+        resolver = self._get_resolver(interface)
         if not resolver:
             return False
         try:
@@ -313,6 +343,7 @@ class ChatLinkStore:
         return await self.update_names(
             chat_id,
             message_thread_id,
+            interface,
             chat_name=result.get("chat_name"),
             message_thread_name=result.get("message_thread_name"),
         )
@@ -324,6 +355,7 @@ class ChatLinkStore:
         message_thread_id: Optional[int | str] = None,
         chat_name: Optional[str] = None,
         message_thread_name: Optional[str] = None,
+        interface: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Resolve a chat link using any combination of identifiers."""
 
@@ -333,6 +365,9 @@ class ChatLinkStore:
             async with conn.cursor(aiomysql.DictCursor) as cursor:
                 clauses = []
                 params: list[Any] = []
+                if interface is not None:
+                    clauses.append("interface = %s")
+                    params.append(interface)
                 if chat_id is not None:
                     clauses.append("chat_id = %s")
                     params.append(str(chat_id))

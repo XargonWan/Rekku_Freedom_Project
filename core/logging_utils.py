@@ -40,7 +40,9 @@ def setup_logging() -> logging.Logger:
             "[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
             "%Y-%m-%d %H:%M:%S",
         )
-        fh = RotatingFileHandler(_LOG_FILE, maxBytes=1_000_000, backupCount=3)
+        fh = RotatingFileHandler(
+            _LOG_FILE, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+        )
         fh.setFormatter(formatter)
         ch = logging.StreamHandler(sys.stdout)
         ch.setFormatter(formatter)
@@ -57,8 +59,13 @@ def _notify_trainer(message: str) -> None:
         from core.notifier import notify_trainer
         notify_trainer(message)
     except Exception as e:  # pragma: no cover - notification best effort
-        logger = setup_logging()
-        logger.error("Failed to notify trainer: %s", e, stacklevel=2)
+        # Check if interpreter is shutting down
+        if "interpreter shutdown" in str(e) or "cannot schedule new futures" in str(e) or "can't create new thread" in str(e):
+            logger = setup_logging()
+            logger.debug("Failed to notify trainer due to interpreter shutdown: %s", e, stacklevel=2)
+        else:
+            logger = setup_logging()
+            logger.error("Failed to notify trainer: %s", e, stacklevel=2)
 
 
 def _log(level: str, message: str, exc: Optional[Exception] = None) -> None:

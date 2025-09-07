@@ -40,7 +40,7 @@ class ChatLinkActions:
             "update_chat_name": {
                 "description": "Aggiorna i nomi della chat e del thread usando i dati dell'interfaccia.",
                 "required_fields": ["chat_id"],
-                "optional_fields": ["message_thread_id"],
+                "optional_fields": ["message_thread_id", "interface"],
             }
         }
 
@@ -60,10 +60,12 @@ class ChatLinkActions:
         payload = action.get("payload", {})
         chat_id = payload.get("chat_id")
         message_thread_id = payload.get("message_thread_id")
+        interface = payload.get("interface", "telegram")
         try:
             updated = await self.store.update_names_from_resolver(
                 chat_id,
                 message_thread_id,
+                interface=interface,
                 bot=bot,
             )
             if updated:

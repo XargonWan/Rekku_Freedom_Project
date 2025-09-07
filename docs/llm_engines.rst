@@ -3,10 +3,18 @@ LLM Engines
 
 The Rekku Freedom Project can operate with multiple language model backends. Use the ``/llm`` command in chat to switch engines at runtime.
 
+Available Engines
+-----------------
+
+* ``manual`` – forward prompts to a human trainer (no configuration).
+* ``openai_chatgpt`` – access OpenAI's ChatGPT API.  Set ``OPENAI_API_KEY`` and optional ``CHATGPT_MODEL``.
+* ``google_cli`` – use Google's Gemini via the ``gemini`` command-line client.  Requires ``GEMINI_API_KEY`` and the ``gemini`` tool.
+* ``selenium_chatgpt`` – drive a browser session of ChatGPT.  Use ``CHROMIUM_HEADLESS`` and ``CHATGPT_MODEL``; ``WEBVIEW_HOST``/``WEBVIEW_PORT`` expose the desktop.
+
 Selenium ChatGPT
 ----------------
 
-The ``selenium_chatgpt`` plugin drives a real ChatGPT session using a browser. A manual login is required the first time.
+The ``selenium_chatgpt`` plugin drives a real ChatGPT session using a browser. A manual login is required the first time.  Set ``CHATGPT_MODEL`` to pick a model and ``CHROMIUM_HEADLESS=0`` (default) to view the browser. ``WEBVIEW_HOST`` and ``WEBVIEW_PORT`` determine the remote desktop address.
 
 Steps:
 
@@ -21,7 +29,13 @@ Manual
 
 The ``manual`` engine simply forwards prompts to a human trainer. It can be useful for debugging or during development.
 
-ChatGPT API
------------
+OpenAI ChatGPT
+--------------
 
-A simpler API-based engine is also provided but has not been fully tested. Contributions are welcome.
+The ``openai_chatgpt`` engine calls OpenAI's ChatGPT API using the ``openai`` Python package.
+Provide an API key via ``OPENAI_API_KEY`` and optionally set ``CHATGPT_MODEL``.
+
+Google CLI
+----------
+
+The ``google_cli`` engine sends prompts to the ``gemini`` command-line tool in order to use Google's Gemini models.  Set ``GEMINI_API_KEY`` and ensure ``gemini`` is installed.

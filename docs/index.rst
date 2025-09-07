@@ -20,6 +20,7 @@ getting started.
    installation
    usage
    quickstart
+   commands
    features
    architecture
    event_id_flow

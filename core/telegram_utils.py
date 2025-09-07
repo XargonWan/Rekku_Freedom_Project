@@ -9,6 +9,18 @@ from core.logging_utils import (
     log_error,
     setup_logging,
 )
+import traceback
+import time
+from telegram.error import RetryAfter, NetworkError
+
+# Track whether we've already warned about None bot to avoid log spam
+_BOT_NONE_WARNED = False
+_LAST_BOT_NONE_LOG_TIME = 0
+_BOT_NONE_LOG_THROTTLE_SEC = 5  # Log at most once every 5 seconds
+
+# Per-chat cooldowns to avoid retry storms when Telegram reports flood/network errors
+_CHAT_COOLDOWNS: dict = {}
+DEFAULT_COOLDOWN_SECONDS = 30
 
 # Maximum preview length for logging failed messages
 max_message_preview_len = 100
@@ -32,37 +44,109 @@ async def _send_with_retry(
     **kwargs,
 ):
     """Send a single message with retry support."""
+    global _BOT_NONE_WARNED
+    # Cooldown check: avoid sending repeatedly to a chat under cooldown
+    try:
+        cd_until = _CHAT_COOLDOWNS.get(chat_id)
+        if cd_until and time.time() < cd_until:
+            log_debug(f"[telegram_utils] Chat {chat_id} is in cooldown until {cd_until}; skipping send")
+            return None
+    except Exception:
+        pass
     if bot is None:
-        log_error("[telegram_utils] _send_with_retry called with None bot")
+        # Log a single diagnostic warning with stacktrace to find the caller, then suppress repeats
+        if not _BOT_NONE_WARNED:
+            log_warning("[telegram_utils] _send_with_retry called with None bot — capturing stack for diagnostics")
+            stack = ''.join(traceback.format_stack(limit=10))
+            log_debug(f"[telegram_utils] Caller stack (first occurrence) for _send_with_retry:\n{stack}")
+            _BOT_NONE_WARNED = True
+        else:
+            current_time = time.time()
+            if current_time - _LAST_BOT_NONE_LOG_TIME > _BOT_NONE_LOG_THROTTLE_SEC:
+                log_debug("[telegram_utils] _send_with_retry called with None bot (suppressed)")
+                _LAST_BOT_NONE_LOG_TIME = current_time
         return None
-    if chat_id is None or not isinstance(chat_id, int):
+    # Accept either int or str chat identifiers (some interfaces use alphanumeric ids)
+    if chat_id is None or not isinstance(chat_id, (int, str)):
         log_error("[telegram_utils] Cannot send message: chat_id is invalid")
         return None
-    
+
     # Filter kwargs to only include valid Telegram bot parameters
     # Remove custom parameters that are not supported by bot.send_message()
-    valid_kwargs = {k: v for k, v in kwargs.items() if k not in ['event_id']}
+    # Exclude internal transport-layer kwargs that Telegram's API does not accept
+    excluded = {'event_id', 'interface', 'is_llm_response', 'context', 'error_retry_policy'}
+    valid_kwargs = {k: v for k, v in kwargs.items() if k not in excluded}
+
+    # Diagnostic: log attempt and kwargs
+    log_debug(f"[telegram_utils] _send_with_retry prepare send: chat_id={chat_id} type={type(chat_id)} len_text={len(text) if text else 0} valid_kwargs={valid_kwargs}")
     
     last_error = None
     logger = setup_logging()
     for attempt in range(1, retries + 1):
         try:
-            return await bot.send_message(chat_id=chat_id, text=text, **valid_kwargs)
+            result = await bot.send_message(chat_id=chat_id, text=text, **valid_kwargs)
+            try:
+                log_debug(f"[telegram_utils] _send_with_retry success: chat_id={chat_id} result_message_id={getattr(result, 'message_id', None)}")
+            except Exception:
+                log_debug("[telegram_utils] _send_with_retry success (unable to repr result)")
+            return result
         except TimedOut as e:
             last_error = e
+            log_warning(f"[telegram_utils] TimedOut on attempt {attempt}/{retries} for chat_id={chat_id}: {e}")
             if attempt < retries:
-                print(f"[telegram retry] send_message timed out ({attempt}/{retries}), retrying...")
                 await asyncio.sleep(delay)
             else:
-                print(f"[telegram retry] send_message failed after {retries} retries: {e}")
-        except Exception:
-            raise
+                log_error(f"[telegram_utils] TimedOut persisted after {retries} retries for chat_id={chat_id}")
+        except Exception as e:
+            error_message = str(e)
+            # On network-like errors, set a cooldown for this chat to avoid tight retry loops
+            try:
+                if isinstance(e, RetryAfter):
+                    seconds = getattr(e, 'retry_after', None) or getattr(e, 'retry_after_seconds', None)
+                    if seconds is None:
+                        # Try to parse number from message as fallback
+                        import re
+                        m = re.search(r"Retry in (\d+) second", error_message)
+                        if m:
+                            seconds = int(m.group(1))
+                    cooldown = time.time() + (int(seconds) if seconds else DEFAULT_COOLDOWN_SECONDS)
+                    _CHAT_COOLDOWNS[chat_id] = cooldown
+                elif isinstance(e, NetworkError):
+                    _CHAT_COOLDOWNS[chat_id] = time.time() + DEFAULT_COOLDOWN_SECONDS
+            except Exception:
+                pass
+            log_warning(f"[telegram_utils] send_message exception on attempt {attempt}/{retries} for chat_id={chat_id}: {error_message}")
+            # Retry without parse_mode if Markdown/HTML entities are malformed
+            if "can't parse entities" in error_message.lower() and valid_kwargs.get("parse_mode"):
+                log_warning(
+                    f"[telegram_utils] Parse error with parse_mode={valid_kwargs['parse_mode']}; retrying without parse_mode"
+                )
+                valid_kwargs.pop("parse_mode", None)
+                try:
+                    result = await bot.send_message(chat_id=chat_id, text=text, **valid_kwargs)
+                    log_debug(f"[telegram_utils] _send_with_retry success after removing parse_mode for chat_id={chat_id}")
+                    return result
+                except Exception as e2:
+                    # If this retry fails due to network, apply cooldown
+                    try:
+                        if isinstance(e2, RetryAfter):
+                            seconds = getattr(e2, 'retry_after', None) or getattr(e2, 'retry_after_seconds', None)
+                            _CHAT_COOLDOWNS[chat_id] = time.time() + (int(seconds) if seconds else DEFAULT_COOLDOWN_SECONDS)
+                        elif isinstance(e2, NetworkError):
+                            _CHAT_COOLDOWNS[chat_id] = time.time() + DEFAULT_COOLDOWN_SECONDS
+                    except Exception:
+                        pass
+                    log_error(f"[telegram_utils] Retry after parse_mode removal failed: {e2}")
+                    raise e2
+            else:
+                # If it's a non-parse error and not recoverable, re-raise to be handled by caller
+                raise
     trainer_id = TELEGRAM_TRAINER_ID
     if trainer_id:
         try:
             await bot.send_message(
                 chat_id=trainer_id,
-                text=f"\u274c Telegram send_message failed after {retries} retries (TimedOut)"
+                text=f"\u274c Telegram send_message failed after {retries} retries"
             )
         except Exception:
             pass
@@ -77,15 +161,39 @@ async def _send_with_retry(
 
 
 async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retries: int = 3, delay: int = 2, **kwargs):
-    """Send ``text`` in chunks using the universal transport layer."""  # [FIX]
+    """Send ``text`` in chunks using the universal transport layer.
+
+    This wrapper forwards to the transport layer's Telegram sender which handles
+    JSON detection and chunking/retries. Any custom keyword arguments are
+    forwarded as-is.
+    """  # [FIX]
+    global _BOT_NONE_WARNED
     if bot is None:
-        log_error("[telegram_utils] safe_send called with None bot")
+        if not _BOT_NONE_WARNED:
+            log_warning("[telegram_utils] safe_send called with None bot — capturing stack for diagnostics")
+            stack = ''.join(traceback.format_stack(limit=10))
+            log_debug(f"[telegram_utils] Caller stack (first occurrence) for safe_send:\n{stack}")
+            _BOT_NONE_WARNED = True
+        else:
+            current_time = time.time()
+            if current_time - _LAST_BOT_NONE_LOG_TIME > _BOT_NONE_LOG_THROTTLE_SEC:
+                log_debug("[telegram_utils] safe_send called with None bot (suppressed)")
+                _LAST_BOT_NONE_LOG_TIME = current_time
         return None
-    if chat_id is None or not isinstance(chat_id, int):
+    # Accept either int or str chat identifiers (some interfaces use alphanumeric ids)
+    if chat_id is None or not isinstance(chat_id, (int, str)):
         log_error("[telegram_utils] Cannot send message: chat_id is invalid")
         return None
+
+    # Diagnostic: log safe_send entry and kwargs
+    log_debug(f"[telegram_utils] safe_send called: chat_id={chat_id} type={type(chat_id)} kwargs_keys={list(kwargs.keys())} chunk_size={chunk_size} retries={retries} delay={delay}")
+
     from core.transport_layer import telegram_safe_send
-    return await telegram_safe_send(bot, chat_id, text, chunk_size, retries, delay, **kwargs)
+    result = await telegram_safe_send(bot, chat_id, text, chunk_size, retries, delay, **kwargs)
+
+    # Diagnostic: log return value
+    log_debug(f"[telegram_utils] safe_send result for chat_id={chat_id}: {repr(result)}")
+    return result
 
 
 async def safe_edit(bot, chat_id: int, message_id: int, text: str, retries: int = 3, delay: int = 2, **kwargs):
@@ -98,6 +206,7 @@ async def safe_edit(bot, chat_id: int, message_id: int, text: str, retries: int 
     last_error = None
     for attempt in range(1, retries + 1):
         try:
+            log_debug(f"[telegram_utils] edit_message_text attempt {attempt}/{retries} chat_id={chat_id} message_id={message_id} kwargs={valid_kwargs}")
             return await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, **valid_kwargs)
         except TimedOut as e:
             last_error = e
@@ -121,6 +230,7 @@ async def safe_edit(bot, chat_id: int, message_id: int, text: str, retries: int 
         raise last_error
 
 
+
 async def send_with_thread_fallback(
     bot,
     chat_id: int | str,
@@ -132,7 +242,7 @@ async def send_with_thread_fallback(
     fallback_message_thread_id: int | None = None,
     fallback_reply_to_message_id: int | None = None,
     **kwargs,
-) -> None:
+) -> object | None:
     """Send a Telegram message with automatic thread fallback.
 
     ``message_thread_id`` is the correct Telegram Bot API parameter.  This
@@ -143,71 +253,92 @@ async def send_with_thread_fallback(
     sending to that chat using the accompanying fallback parameters.
     """
 
+    global _BOT_NONE_WARNED
     if bot is None:
-        log_error("[telegram_utils] send_with_thread_fallback called with None bot")
+        # Log a single warning to avoid flooding logs; subsequent calls are debug.
+        if not _BOT_NONE_WARNED:
+            log_warning("[telegram_utils] send_with_thread_fallback called with None bot — capturing stack for diagnostics")
+            stack = ''.join(traceback.format_stack(limit=10))
+            log_debug(f"[telegram_utils] Caller stack (first occurrence) for send_with_thread_fallback:\n{stack}")
+            _BOT_NONE_WARNED = True
+        else:
+            current_time = time.time()
+            if current_time - _LAST_BOT_NONE_LOG_TIME > _BOT_NONE_LOG_THROTTLE_SEC:
+                log_debug("[telegram_utils] send_with_thread_fallback called with None bot (suppressed)")
+                _LAST_BOT_NONE_LOG_TIME = current_time
         return
 
-    # Convert string chat_id to integer if needed
-    if isinstance(chat_id, str):
-        try:
-            chat_id = int(chat_id)
-        except ValueError:
-            log_error(f"[telegram_utils] Invalid chat_id format: {chat_id}")
-            return
+    # Respect per-chat cooldowns to avoid retry storms
+    try:
+        cd = _CHAT_COOLDOWNS.get(chat_id)
+        if cd and time.time() < cd:
+            log_debug(f"[telegram_utils] send_with_thread_fallback: chat {chat_id} in cooldown until {cd}; skipping")
+            return None
+    except Exception:
+        pass
 
-    send_kwargs = {"chat_id": chat_id, "text": text, **kwargs}
+    # Do not coerce/convert chat_id: allow string identifiers for non-Telegram
+    # interfaces (e.g., Revolt/Mastodon). Validation is handled downstream.
+    # chat_id remains as provided (int or str).
+
+    send_kwargs = {**kwargs}
     if message_thread_id is not None:
-        send_kwargs["message_thread_id"] = message_thread_id  # fixed: correct param is message_thread_id
+        send_kwargs["message_thread_id"] = message_thread_id
     if reply_to_message_id is not None:
         send_kwargs["reply_to_message_id"] = reply_to_message_id
 
+    from core.transport_layer import telegram_safe_send
+
     try:
-        await bot.send_message(**send_kwargs)
+        log_debug(f"[telegram_utils] send_with_thread_fallback calling telegram_safe_send chat_id={chat_id} send_kwargs={send_kwargs}")
+        message = await telegram_safe_send(
+            bot,
+            chat_id,
+            text,
+            **send_kwargs,
+        )
         log_info(
             f"[telegram_utils] Message sent to {chat_id}"
             f" (thread: {message_thread_id}, reply_message_id: {reply_to_message_id})"
         )
-        return
+        log_debug(f"[telegram_utils] telegram_safe_send returned: {repr(message)}")
+        return message
     except Exception as e:
+        # On network/flood errors, set a cooldown for this chat
+        try:
+            if isinstance(e, RetryAfter):
+                seconds = getattr(e, 'retry_after', None) or getattr(e, 'retry_after_seconds', None)
+                _CHAT_COOLDOWNS[chat_id] = time.time() + (int(seconds) if seconds else DEFAULT_COOLDOWN_SECONDS)
+            elif isinstance(e, NetworkError):
+                _CHAT_COOLDOWNS[chat_id] = time.time() + DEFAULT_COOLDOWN_SECONDS
+        except Exception:
+            pass
+        log_error(f"[telegram_utils] send_with_thread_fallback caught error: {repr(e)}")
         error_message = str(e)
-
-        # Retry without parse_mode if Markdown/HTML entities are malformed
-        if "can't parse entities" in error_message.lower() and send_kwargs.get("parse_mode"):
-            log_warning(
-                f"[telegram_utils] Parse error with parse_mode={send_kwargs['parse_mode']}; retrying without parse_mode"
+        if "chat not found" in error_message.lower():
+            log_error(
+                f"[telegram_utils] Failed to send to {chat_id} (thread {message_thread_id}): {repr(e)}"
             )
-            send_kwargs.pop("parse_mode", None)
-            try:
-                await bot.send_message(**send_kwargs)
-                log_info(
-                    f"[telegram_utils] Message sent to {chat_id} without parse_mode"
-                )
-                return
-            except Exception as e2:
-                error_message = str(e2)
+            raise
 
         if message_thread_id and "thread not found" in error_message.lower():
             log_warning(
                 f"[telegram_utils] Thread {message_thread_id} not found; retrying without thread"
             )
             send_kwargs.pop("message_thread_id", None)
-            try:
-                await bot.send_message(**send_kwargs)
-                log_info(
-                    f"[telegram_utils] Message sent to {chat_id} without thread"
-                )
-                return
-            except Exception as no_thread_error:
-                log_error(
-                    f"[telegram_utils] Fallback without thread failed: {no_thread_error}"
-                )
-        else:
-            log_error(
-                f"[telegram_utils] Failed to send to {chat_id} (thread {message_thread_id}): {repr(e)}"
+            message = await telegram_safe_send(bot, chat_id, text, **send_kwargs)
+            log_info(
+                f"[telegram_utils] Message sent to {chat_id} without thread"
             )
+            return message
+
+        log_error(
+            f"[telegram_utils] Failed to send to {chat_id} (thread {message_thread_id}): {repr(e)}"
+        )
+        raise
 
     if fallback_chat_id and fallback_chat_id != chat_id:
-        fallback_kwargs = {"chat_id": fallback_chat_id, "text": text, **kwargs}
+        fallback_kwargs = {**kwargs}
         if fallback_message_thread_id is not None:
             fallback_kwargs["message_thread_id"] = fallback_message_thread_id
         if fallback_reply_to_message_id is not None:
@@ -216,11 +347,13 @@ async def send_with_thread_fallback(
             f"[telegram_utils] Retrying in fallback chat {fallback_chat_id}"
         )
         try:
-            await bot.send_message(**fallback_kwargs)
+            message = await telegram_safe_send(bot, fallback_chat_id, text, **fallback_kwargs)
             log_info(
                 f"[telegram_utils] Message sent to fallback chat {fallback_chat_id}"
             )
+            return message
         except Exception as fallback_error:
             log_error(
                 f"[telegram_utils] Final fallback failed: {fallback_error}"
             )
+    return None
