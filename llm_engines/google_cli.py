@@ -6,6 +6,7 @@ from core.ai_plugin_base import AIPluginBase
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.notifier import set_notifier
 from core.config import GEMINI_API_KEY
+from core.transport_layer import llm_to_interface
 
 class GoogleCLIPlugin(AIPluginBase):
     """
@@ -53,9 +54,31 @@ class GoogleCLIPlugin(AIPluginBase):
         """
         Handles an incoming message using google-cli.
         """
-        query = prompt.get("query") or prompt.get("text") or ""
+        # Correct path to the message text
+        query = prompt.get("input", {}).get("payload", {}).get("text", "")
         if not query:
-            await bot.send_message(message.chat_id, "⚠️ No query provided.")
+            try:
+                from core.transport_layer import interface_to_llm
+            except Exception:
+                interface_to_llm = None
+            if interface_to_llm is None:
+                await bot.send_message(message.chat_id, "⚠️ No query provided.")
+            else:
+                await interface_to_llm(bot.send_message, chat_id=message.chat_id, text="⚠️ No query provided.")
             return
-        response = await self.generate_response([{"role": "user", "content": query}])
-        await bot.send_message(message.chat_id, response)
+        
+        # Include interface in the query for the LLM
+        interface = prompt.get("input", {}).get("interface", "unknown")
+        full_query = f"Message from {interface} interface: {query}"
+        
+        response = await self.generate_response([{"role": "user", "content": full_query}])
+        # Forward model output through the centralized LLM->interface path
+        await llm_to_interface(
+            bot.send_message,
+            chat_id=message.chat_id,
+            text=response,
+            interface='telegram' if getattr(bot.__class__, '__module__', '').startswith('telegram') else 'generic',
+        )
+
+# Ensure the plugin loader can locate the plugin class
+PLUGIN_CLASS = GoogleCLIPlugin

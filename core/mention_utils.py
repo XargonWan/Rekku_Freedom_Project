@@ -149,7 +149,9 @@ async def is_message_for_bot(
         # Check if replying to a message from the bot
         if message.reply_to_message and message.reply_to_message.from_user:
             replied_user = message.reply_to_message.from_user
-            log_debug(f"[mention] Checking reply to user ID: {replied_user.id}, username: {replied_user.username}")
+            log_debug(f"[mention] Checking reply to user ID: {replied_user.id}, username: {getattr(replied_user, 'username', None)}")
+            log_debug(f"[mention] Bot object type: {type(bot)}")
+            log_debug(f"[mention] Bot attributes: {[attr for attr in dir(bot) if not attr.startswith('_')]}")
             
             # Check by user ID (most reliable)
             try:
@@ -173,28 +175,36 @@ async def is_message_for_bot(
                     log_debug(f"[mention] Reply to bot message detected (by bot.id: {bot.id})")
                     return True, None
                     
-                # Alternative: check if bot object has a user attribute
+                # Alternative: check if bot object has a user attribute (Discord)
                 if hasattr(bot, 'user') and hasattr(bot.user, 'id') and replied_user.id == bot.user.id:
                     log_debug(f"[mention] Reply to bot message detected (by bot.user.id: {bot.user.id})")
                     return True, None
+
+                # Additional Discord check: client.user
+                if hasattr(bot, 'user') and bot.user:
+                    bot_user_id = getattr(bot.user, 'id', None)
+                    if bot_user_id and replied_user.id == bot_user_id:
+                        log_debug(f"[mention] Reply to Discord bot detected (client.user.id: {bot_user_id})")
+                        return True, None
                     
             except Exception as e:
                 log_debug(f"[mention] Exception in ID check: {e}")
             
             # Fallback: check by username
-            if replied_user.username and bot_username:
-                if replied_user.username.lower() == bot_username.lower():
-                    log_debug(f"[mention] Reply to bot message detected (by username: {replied_user.username})")
+            replied_username = getattr(replied_user, 'username', None)
+            if replied_username and bot_username:
+                if replied_username.lower() == bot_username.lower():
+                    log_debug(f"[mention] Reply to bot message detected (by username: {replied_username})")
                     return True, None
             
             # Additional fallback: check common bot usernames if we don't have bot_username
-            if replied_user.username and not bot_username:
+            if replied_username and not bot_username:
                 common_bot_names = ['rekku_freedom_project', 'rekku_the_bot', 'rekkubot']
-                if replied_user.username.lower() in common_bot_names:
-                    log_debug(f"[mention] Reply to bot message detected (by common name: {replied_user.username})")
+                if replied_username.lower() in common_bot_names:
+                    log_debug(f"[mention] Reply to bot message detected (by common name: {replied_username})")
                     return True, None
             
-            log_debug(f"[mention] Reply detected but not to bot (replied to: {replied_user.username or replied_user.id})")
+            log_debug(f"[mention] Reply detected but not to bot (replied to: {replied_username or replied_user.id}, bot_username: {bot_username})")
 
         # Check for role mentions (Discord-specific)
         if DISCORD_REACT_ROLES:

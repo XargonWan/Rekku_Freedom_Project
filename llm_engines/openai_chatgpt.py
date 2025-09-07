@@ -5,6 +5,7 @@ import json
 import openai  # Assicurati che sia installato
 from core.config import get_user_api_key
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.transport_layer import llm_to_interface
 
 class OpenAIPlugin(AIPluginBase):
 
@@ -55,10 +56,12 @@ class OpenAIPlugin(AIPluginBase):
 
             if bot and message:
                 log_debug(f"[openai] Invio risposta a chat_id={message.chat_id}")
-                await bot.send_message(
+                await llm_to_interface(
+                    bot.send_message,
                     chat_id=message.chat_id,
                     text=response,
-                    reply_to_message_id=message.message_id
+                    reply_to_message_id=getattr(message, 'message_id', None),
+                    interface='telegram' if getattr(bot.__class__, '__module__', '').startswith('telegram') else 'generic',
                 )
 
             return response
@@ -68,10 +71,18 @@ class OpenAIPlugin(AIPluginBase):
             notify_trainer(f"❌ OpenAI error:\n```\n{e}\n```")
 
             if bot and message:
-                await bot.send_message(
-                    chat_id=message.chat_id,
-                    text="⚠️ LLM response error."
-                )
+                try:
+                    from core.transport_layer import interface_to_llm
+                except Exception:
+                    interface_to_llm = None
+
+                if interface_to_llm is None:
+                    await bot.send_message(
+                        chat_id=message.chat_id,
+                        text="⚠️ LLM response error."
+                    )
+                else:
+                    await interface_to_llm(bot.send_message, chat_id=message.chat_id, text="⚠️ LLM response error.")
             return "⚠️ Error during response generation."
 
     async def generate_response(self, prompt):
@@ -81,9 +92,11 @@ class OpenAIPlugin(AIPluginBase):
 
         messages = []
 
+        # Include interface information in system message
+        interface = prompt.get("input", {}).get("interface", "unknown")
         messages.append({
             "role": "system",
-            "content": "You are a helpful, precise and concise assistant."
+            "content": f"The message comes from the {interface} interface."
         })
 
         for entry in prompt.get("context", []):
@@ -99,54 +112,16 @@ class OpenAIPlugin(AIPluginBase):
                 "content": f"[RELEVANT MEMORIES]\n{memory_text}"
             })
 
+        # Correct path to the message text
+        message_text = prompt.get("input", {}).get("payload", {}).get("text", "")
         messages.append({
             "role": "user",
-            "content": prompt["message"]["text"]
+            "content": message_text
         })
 
         log_debug(f"[openai] Invio a OpenAI con modello: {self._current_model}")
         response = openai.ChatCompletion.create(
             model=self._current_model,
-            messages=messages
-        )
-        return response.choices[0].message.content.strip()
-
-    async def generate_response(self, prompt):
-        openai.api_key = get_user_api_key()
-
-        # Adatta il prompt al formato richiesto dalle OpenAI API
-        messages = []
-
-        # Optionally add a system message
-        messages.append({
-            "role": "system",
-            "content": "You are a helpful, precise and concise assistant."
-        })
-
-        # Aggiungi i messaggi di contesto
-        for entry in prompt.get("context", []):
-            messages.append({
-                "role": "user",
-                "content": entry["text"]
-            })
-
-        # Aggiungi eventuali memorie (opzionale, come messaggi system/user)
-        if prompt.get("memories"):
-            memory_text = "\n".join(f"- {m}" for m in prompt["memories"])
-            messages.append({
-                "role": "system",
-                "content": f"[RELEVANT MEMORIES]\n{memory_text}"
-            })
-
-        # Aggiungi il messaggio corrente dell'utente
-        messages.append({
-            "role": "user",
-            "content": prompt["message"]["text"]
-        })
-
-        # Richiesta al modello
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
             messages=messages
         )
         return response.choices[0].message.content.strip()
