@@ -4,7 +4,7 @@ import asyncio
 import time
 from typing import List, Tuple, Callable
 from core.logging_utils import log_debug, log_info, log_warning
-from core.config import get_log_chat_id_sync
+from core.config import get_log_chat_id_sync, get_log_chat_thread_id_sync
 from collections import deque
 
 _in_notify = False
@@ -154,7 +154,13 @@ def notify_trainer(message: str) -> None:
 
         async def send(target: int):
             try:
-                await iface.send_message({"text": message, "target": target})
+                # Get thread_id for log chat if it's a Telegram interface
+                message_data = {"text": message, "target": target}
+                if interface_name == "telegram_bot" and target == get_log_chat_id_sync():
+                    thread_id = get_log_chat_thread_id_sync()
+                    if thread_id:
+                        message_data["message_thread_id"] = thread_id
+                await iface.send_message(message_data)
             except Exception as e:  # pragma: no cover - best effort
                 # Check if interpreter is shutting down
                 if "interpreter shutdown" in str(e) or "cannot schedule new futures" in str(e):

@@ -864,7 +864,11 @@ async def gather_static_injections(message=None, context_memory=None) -> dict:
                 try:
                     result = plugin.get_static_injection(message, context_memory)
                 except TypeError:
-                    result = plugin.get_static_injection()
+                    try:
+                        result = plugin.get_static_injection()
+                    except Exception as inner_e:
+                        log_error(f"[action_parser] Error calling get_static_injection() on {plugin.__class__.__name__}: {inner_e}")
+                        continue
 
                 if inspect.iscoroutine(result):
                     result = await result

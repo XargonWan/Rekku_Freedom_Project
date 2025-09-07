@@ -41,8 +41,9 @@ from core.config import (
     set_active_llm,
     list_available_llms,
     get_log_chat_id,
-    set_log_chat_id,
+    set_log_chat_id_and_thread,
     get_log_chat_id_sync,
+    get_log_chat_thread_id_sync,
 )
 from core.config import BOT_TOKEN, BOT_USERNAME, TELEGRAM_TRAINER_ID
 from core.command_registry import execute_command
@@ -172,7 +173,7 @@ async def logchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     thread_id = update.effective_message.message_thread_id
     try:
-        await set_log_chat_id(chat_id)
+        await set_log_chat_id_and_thread(chat_id, thread_id)
         confirmation = f"This chat is now set as logchat [{chat_id}, {thread_id}]"
         await safe_send(context.bot, chat_id, confirmation, message_thread_id=thread_id)
     except Exception as e:

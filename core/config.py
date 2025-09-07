@@ -127,6 +127,7 @@ async def set_active_llm(name: str):
         conn.close()
 
 _log_chat_id: int | None = None  # cached Telegram log chat ID
+_log_chat_thread_id: int | None = None  # cached Telegram log chat thread ID
 
 async def get_log_chat_id() -> int | None:
     """Return the configured Telegram log chat ID, if any."""
@@ -175,6 +176,64 @@ async def set_log_chat_id(chat_id: int) -> None:
     finally:
         conn.close()
 
+async def get_log_chat_thread_id() -> int | None:
+    """Return the configured Telegram log chat thread ID, if any."""
+    global _log_chat_thread_id
+    if _log_chat_thread_id is None:
+        conn = await get_conn()
+        try:
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute(
+                    "SELECT value FROM settings WHERE `setting_key` = 'telegram_log_chat_thread'"
+                )
+                row = await cur.fetchone()
+                if row:
+                    try:
+                        _log_chat_thread_id = int(row["value"])
+                        log_debug(
+                            f"[config] 📥 Loaded telegram_log_chat_thread from DB: {_log_chat_thread_id}"
+                        )
+                    except (ValueError, TypeError):
+                        _log_chat_thread_id = None
+        except Exception as e:
+            log_error(f"[config] ❌ Error in get_log_chat_thread_id(): {repr(e)}")
+        finally:
+            conn.close()
+    return _log_chat_thread_id
+
+async def set_log_chat_id_and_thread(chat_id: int, thread_id: int | None = None) -> None:
+    """Persist and cache the Telegram log chat ID and thread ID."""
+    global _log_chat_id, _log_chat_thread_id
+    _log_chat_id = chat_id
+    _log_chat_thread_id = thread_id
+    from core.db import ensure_core_tables
+    await ensure_core_tables()
+    conn = await get_conn()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "REPLACE INTO settings (`setting_key`, `value`) VALUES (%s, %s)",
+                ("telegram_log_chat", str(chat_id)),
+            )
+            if thread_id is not None:
+                await cur.execute(
+                    "REPLACE INTO settings (`setting_key`, `value`) VALUES (%s, %s)",
+                    ("telegram_log_chat_thread", str(thread_id)),
+                )
+            else:
+                # Remove thread setting if None
+                await cur.execute(
+                    "DELETE FROM settings WHERE `setting_key` = 'telegram_log_chat_thread'"
+                )
+            await conn.commit()
+            log_debug(
+                f"[config] 💾 Saved telegram_log_chat in DB: {chat_id}, thread: {thread_id}"
+            )
+    except Exception as e:
+        log_error(f"[config] ❌ Error in set_log_chat_id_and_thread(): {repr(e)}")
+    finally:
+        conn.close()
+
 def get_log_chat_id_sync() -> int | None:
     """Synchronous helper to fetch cached log chat ID, loading from DB if needed."""
     global _log_chat_id
@@ -188,6 +247,19 @@ def get_log_chat_id_sync() -> int | None:
         # Cannot perform blocking DB fetch; return None until explicitly loaded
         return _log_chat_id
     return asyncio.run(get_log_chat_id())
+
+def get_log_chat_thread_id_sync() -> int | None:
+    """Synchronous helper to fetch cached log chat thread ID."""
+    global _log_chat_thread_id
+    if _log_chat_thread_id is not None:
+        return _log_chat_thread_id
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        return _log_chat_thread_id
+    return asyncio.run(get_log_chat_thread_id())
 
 def list_available_llms():
     engines_dir = os.path.join(os.path.dirname(__file__), "../llm_engines")

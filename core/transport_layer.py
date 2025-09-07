@@ -84,7 +84,8 @@ def extract_json_from_text(text: str) -> dict | list | None:
         prefix = text[:start].strip()
         suffix = text[obj_end:].strip()
         if prefix or suffix:
-            log_warning("[extract_json_from_text] Extra content detected around JSON block")
+            log_debug(f"[extract_json_from_text] Extra content detected around JSON object (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
+        # Return JSON even if there's extra content - actions can still be executed
         return obj
     
     # Scan for JSON arrays starting from each '['
@@ -98,7 +99,8 @@ def extract_json_from_text(text: str) -> dict | list | None:
         prefix = text[:start].strip()
         suffix = text[obj_end:].strip()
         if prefix or suffix:
-            log_warning("[extract_json_from_text] Extra content detected around JSON block")
+            log_debug(f"[extract_json_from_text] Extra content detected around JSON array (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
+        # Return JSON even if there's extra content - actions can still be executed
         return obj
     
     log_debug("[extract_json_from_text] No valid JSON found in text")
@@ -305,11 +307,9 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
         log_debug("[telegram_transport] Called with bot (repr failed), chat_id and kwargs logged separately")
         log_debug(f"[telegram_transport] chat_id={chat_id} (type={type(chat_id)}) kwargs_keys={list(kwargs.keys())}")
 
-    # Log text content (truncated if very long)
-    if text and len(text) > 200:
-        log_debug(f"[telegram_transport] Called with text (truncated): {text[:200]}... ({len(text)} chars)")
-    else:
-        log_debug(f"[telegram_transport] Called with text: {text}")
+    # Log full text content for debugging
+    if text:
+        log_debug(f"[telegram_transport] Called with text ({len(text)} chars): {text}")
 
     if 'reply_to_message_id' in kwargs and not kwargs['reply_to_message_id']:
         log_warning("[telegram_transport] reply_to_message_id not found. Sending without replying.")

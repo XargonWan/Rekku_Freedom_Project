@@ -103,12 +103,8 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
     """Inject ``text`` into the ChatGPT prompt area via JavaScript."""
     clean_text = strip_non_bmp(text)
     log_debug(f"[DEBUG] Length before sending: {len(clean_text)}")
-    # Log a truncated version to avoid flooding logs with very long JSON
-    if len(clean_text) > 500:
-        truncated = clean_text[:500] + f"... ({len(clean_text)} chars total)"
-        log_debug(f"[DEBUG] Text to send (truncated): {truncated}")
-    else:
-        log_debug(f"[DEBUG] Text to send: {clean_text}")
+    # Log full text content for debugging
+    log_debug(f"[DEBUG] Text to send ({len(clean_text)} chars): {clean_text}")
 
     tag = (textarea.tag_name or "").lower()
     prop = "value" if tag in {"textarea", "input"} else "textContent"
@@ -1634,19 +1630,46 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             interface_to_llm = None
 
         module_name = getattr(bot.__class__, "__module__", "")
+        log_debug(f"[selenium] _send_error_message: bot module={module_name}, bot class={bot.__class__.__name__}")
         try:
             if interface_to_llm is None:
                 # Fallback: call directly if transport wrapper unavailable
                 if module_name.startswith("telegram"):
                     await safe_send(bot, **send_params)
+                elif "discord" in module_name.lower() or bot.__class__.__name__ == "Client":
+                    # For Discord, we need to find the interface instance
+                    # The bot here is actually the discord.Client, not the DiscordInterface
+                    # We need to use the transport layer instead
+                    from core.transport_layer import universal_send
+                    await universal_send(
+                        target=send_params["chat_id"],
+                        text=send_params["text"],
+                        interface="discord",
+                        reply_to_message_id=send_params.get("reply_to_message_id"),
+                        message_thread_id=send_params.get("message_thread_id")
+                    )
                 else:
                     await bot.send_message(**send_params)
             else:
                 if module_name.startswith("telegram"):
                     # safe_send expects (bot, chat_id, text, ...)
                     await interface_to_llm(safe_send, bot, send_params.get("chat_id"), text=send_params.get("text"), reply_to_message_id=send_params.get("reply_to_message_id"), message_thread_id=send_params.get("message_thread_id"))
+                elif "discord" in module_name.lower() or bot.__class__.__name__ == "Client":
+                    # For Discord, use universal_send through interface_to_llm (system message)
+                    from core.transport_layer import universal_send
+                    await interface_to_llm(
+                        universal_send,
+                        target=send_params["chat_id"],
+                        text=send_params["text"],
+                        interface="discord",
+                        reply_to_message_id=send_params.get("reply_to_message_id"),
+                        message_thread_id=send_params.get("message_thread_id")
+                    )
                 else:
-                    await interface_to_llm(bot.send_message, **send_params)
+                    # Extract text parameter separately to avoid conflicts with interface_to_llm (system message)
+                    text_param = send_params.get("text")
+                    other_params = {k: v for k, v in send_params.items() if k != "text"}
+                    await interface_to_llm(bot.send_message, text=text_param, **other_params)
         except Exception as e:
             # Preserve previous logging behavior
             log_warning(f"[selenium][STEP] error response forwarding failed: {e}")
@@ -1833,7 +1856,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 # Detect interface type for dispatch
                 module_name = getattr(bot.__class__, "__module__", "")
                 if module_name.startswith("telegram"):
-                    # Only forward non-empty LLM responses to Telegram transport
+                    # Only forward non-empty LLM responses to Telegram transport (LLM -> interface)
                     if response_text and response_text.strip():
                         await llm_to_interface(
                             safe_send,
@@ -1847,28 +1870,41 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         )
                     else:
                         log_warning(f"[selenium] Empty LLM response for chat {message.chat_id}; sending error notification instead of forwarding")
-                        await self._send_error_message(bot, message, error_text="\x1b[31mNo response from LLM\x1b[0m")
+                        # Send error via interface_to_llm (system message)
+                        from core.transport_layer import interface_to_llm
+                        try:
+                            await interface_to_llm(safe_send, bot, message.chat_id, text="\x1b[31mNo response from LLM\x1b[0m", reply_to_message_id=getattr(message, "message_id", None), message_thread_id=message_thread_id)
+                        except Exception as e:
+                            log_warning(f"[selenium] Failed to send error notification: {e}")
+                            await self._send_error_message(bot, message, error_text="\x1b[31mNo response from LLM\x1b[0m")
                 else:
                     # Non-Telegram interfaces expect a payload dict
                     if response_text and response_text.strip():
-                        # Forward model output through centralized llm_to_interface
-                        await llm_to_interface(
-                            bot.send_message,
-                            chat_id=message.chat_id,
-                            text=response_text,
-                            message_thread_id=message_thread_id,
-                            interface=interface_name,
-                        )
+                        # Forward model output through centralized llm_to_interface (LLM -> interface)
+                        # For Discord, use universal_send
+                        if interface_name == "discord_bot" or "discord" in interface_name.lower():
+                            from core.transport_layer import universal_send
+                            await llm_to_interface(
+                                universal_send,
+                                target=message.chat_id,
+                                text=response_text,
+                                interface="discord",
+                                message_thread_id=message_thread_id,
+                            )
+                        else:
+                            # For other interfaces, use universal_send as fallback
+                            from core.transport_layer import universal_send
+                            await llm_to_interface(
+                                universal_send,
+                                target=message.chat_id,
+                                text=response_text,
+                                interface=interface_name,
+                                message_thread_id=message_thread_id,
+                            )
                     else:
                         log_warning(f"[selenium] Empty LLM response for non-telegram interface {interface_name}; sending error notification")
-                        try:
-                            from core.transport_layer import interface_to_llm
-                        except Exception:
-                            interface_to_llm = None
-                        if interface_to_llm is None:
-                            await self._send_error_message(bot, message, error_text="No response from LLM")
-                        else:
-                            await interface_to_llm(self._send_error_message, bot, message, error_text="No response from LLM")
+                        # Send error via _send_error_message (which uses interface_to_llm for system messages)
+                        await self._send_error_message(bot, message, error_text="No response from LLM")
 
                 log_debug(
                     f"[selenium][STEP] response forwarded to {message.chat_id}"
