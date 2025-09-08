@@ -1,5 +1,3 @@
-from telegram import Update
-from telegram.ext import ContextTypes
 from core.db import get_conn
 from core.db import ensure_core_tables
 import aiomysql
@@ -8,7 +6,10 @@ import re
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 import json
 from pathlib import Path
-from core.config import TELEGRAM_TRAINER_ID
+from core.interfaces_registry import get_interface_registry
+from core.abstract_context import AbstractContext
+from typing import Union, Optional, Callable
+
 MAX_ENTRIES = 100
 _metadata = {}
 chat_path_map = {}
@@ -33,19 +34,21 @@ if _CHAT_MAP_PATH.exists():
     except Exception as e:  # pragma: no cover - best effort
         log_warning(f"[recent_chats] Failed to load chat path map: {e}")
 
-async def track_chat(chat_id: int, metadata=None):
+async def track_chat(chat_id: Union[int, str], interface_name: str, metadata=None):
     await ensure_core_tables()
     now = time.time()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
+            # Convert chat_id to string to handle both int and str uniformly
+            chat_id_str = str(chat_id)
             await cur.execute(
                 """
                 INSERT INTO recent_chats (chat_id, last_active)
                 VALUES (%s, %s)
                 ON DUPLICATE KEY UPDATE last_active = VALUES(last_active)
                 """,
-                (chat_id, now),
+                (chat_id_str, now),
             )
             await conn.commit()
     finally:
@@ -53,12 +56,13 @@ async def track_chat(chat_id: int, metadata=None):
     if metadata:
         _metadata[chat_id] = metadata
 
-async def reset_chat(chat_id: int):
+async def reset_chat(chat_id: Union[int, str], interface_name: str):
     await ensure_core_tables()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
-            await cur.execute("DELETE FROM recent_chats WHERE chat_id = %s", (chat_id,))
+            chat_id_str = str(chat_id)
+            await cur.execute("DELETE FROM recent_chats WHERE chat_id = %s", (chat_id_str,))
             await conn.commit()
     finally:
         conn.close()
@@ -66,14 +70,14 @@ async def reset_chat(chat_id: int):
     if chat_path_map.pop(chat_id, None) is not None:
         _save_chat_paths()
 
-def set_chat_path(chat_id: int, chat_path: str) -> None:
+def set_chat_path(chat_id: Union[int, str], chat_path: str) -> None:
     chat_path_map[chat_id] = chat_path
     _save_chat_paths()
 
-def get_chat_path(chat_id: int) -> str | None:
+def get_chat_path(chat_id: Union[int, str]) -> str | None:
     return chat_path_map.get(chat_id)
 
-def clear_chat_path(chat_id: int) -> None:
+def clear_chat_path(chat_id: Union[int, str]) -> None:
     """Remove chat path mapping for the given chat_id."""
     if chat_id in chat_path_map:
         del chat_path_map[chat_id]
@@ -99,34 +103,33 @@ async def get_last_active_chats(n=10):
     finally:
         conn.close()
 
-def format_chat_entry(chat):
-    name = chat.title or chat.username or chat.first_name or str(chat.id)
+def format_chat_entry_generic(chat_id: Union[int, str], chat_name: Optional[str] = None):
+    """Generic format for chat entries."""
+    name = chat_name or str(chat_id)
     safe_name = escape_markdown(name)
+    return f"{safe_name} — `{chat_id}`"
 
-    if chat.username:
-        # Public: clickable link
-        link = f"https://t.me/{chat.username}"
-        return f"[{safe_name}]({link}) — `{chat.id}`"
-    else:
-        return f"{safe_name} — `{chat.id}`"
-
-async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != TELEGRAM_TRAINER_ID:
+async def last_chats_command(abstract_context: AbstractContext, reply_fn: Optional[Callable] = None, get_chat_info_fn: Optional[Callable] = None):
+    """Last chats command that works with any interface."""
+    if not abstract_context.is_trainer():
         return
 
-    bot = context.bot
     lines = ["\U0001f553 *Last active chats:*"]
 
     for chat_id in await get_last_active_chats():
-        try:
-            chat = await bot.get_chat(chat_id)
-            lines.append("- " + format_chat_entry(chat))
-        except Exception as e:
-            log_debug(f"Error retrieving chat {chat_id}: {e}")
-            lines.append(f"- `{chat_id}`")
+        chat_name = None
+        if get_chat_info_fn:
+            try:
+                chat_info = await get_chat_info_fn(chat_id)
+                chat_name = chat_info.get('name') if chat_info else None
+            except Exception as e:
+                log_debug(f"Error retrieving chat {chat_id}: {e}")
+        
+        lines.append("- " + format_chat_entry_generic(chat_id, chat_name))
 
-
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    response = "\n".join(lines)
+    if reply_fn:
+        await reply_fn(response)
 
 async def get_last_active_chats_verbose(n=10, bot=None):
     chat_ids = await get_last_active_chats(n)

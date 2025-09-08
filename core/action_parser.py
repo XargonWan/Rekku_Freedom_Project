@@ -282,13 +282,21 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
             if mode == "on":
                 errors.append(f"Action '{action_type}' is restricted")
             elif mode == "trainer_only":
-                user_id = getattr(getattr(original_message, "from_user", None), "id", None)
+                # Check if user is trainer using abstract context
                 try:
-                    from core.config import TELEGRAM_TRAINER_ID
-                except Exception:
-                    TELEGRAM_TRAINER_ID = None  # type: ignore
-                if user_id is not None and TELEGRAM_TRAINER_ID and user_id != TELEGRAM_TRAINER_ID:
-                    errors.append(f"Action '{action_type}' is restricted to trainer")
+                    from core.abstract_context import AbstractContext, AbstractUser
+                    interface_name = context.get("interface_name", "unknown")
+                    user_id = getattr(getattr(original_message, "from_user", None), "id", None)
+                    
+                    if user_id is not None:
+                        abstract_user = AbstractUser(id=user_id, interface_name=interface_name)
+                        abstract_context = AbstractContext(interface_name, user=abstract_user)
+                        
+                        if not abstract_context.is_trainer():
+                            errors.append(f"Action '{action_type}' is restricted to trainer")
+                except Exception as e:
+                    log_warning(f"Could not verify trainer status: {e}")
+                    errors.append(f"Action '{action_type}' requires trainer verification")
 
     return len(errors) == 0, errors
 
@@ -504,7 +512,7 @@ async def _handle_plugin_action(
         # If this plugin is an interface and exposes send_message, allow it to
         # handle message_* actions (interfaces use send_message rather than
         # execute_action). This ensures message actions are dispatched to
-        # interfaces like TelegramInterface.
+        # interfaces properly.
         if hasattr(plugin, "send_message") and action_type.startswith("message"):
             try:
                 payload = action.get("payload", {})
@@ -678,9 +686,10 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             )
 
     if action_outputs:
-        interface_name = context.get("interface", "telegram_bot")
-        if interface_name == "telegram":
-            interface_name = "telegram_bot"
+        interface_name = context.get("interface")
+        if not interface_name:
+            log_error("No interface specified in action_parser context")
+            return
 
         response_context = {
             "chat_id": getattr(original_message, "chat_id", None),

@@ -63,7 +63,7 @@ def _log(level: str, message: str, exc: Optional[Exception] = None) -> None:
     # Skip notification for interface errors and transport errors to avoid recursion
     if ("Failed to send message" in message or 
         "Unknown channel" in message or
-        "discord_interface" in message or
+        "interface" in message.lower() or
         "transport" in message):
         return
     

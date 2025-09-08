@@ -13,7 +13,7 @@ import aiomysql
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 """
 notify_trainer(chat_id: int, message: str) -> None
-Invia una notifica al trainer (Telegram) tramite la logica centralizzata in core/notifier.py.
+Send a notification to the trainer via the centralized logic in core/notifier.py.
 """
 
 # ✅ Load all environment variables from .env
@@ -61,25 +61,10 @@ NOTIFY_ERRORS_TO_INTERFACES = _parse_notify_interfaces(
     os.getenv("NOTIFY_ERRORS_TO_INTERFACES", "")
 )
 
-# Resolve the Telegram trainer ID from the new TRAINER_IDS first, then legacy sources
-TELEGRAM_TRAINER_ID = int(os.getenv("TELEGRAM_TRAINER_ID", "0") or 0)
-if TELEGRAM_TRAINER_ID == 0:
-    # Try new TRAINER_IDS first
-    TELEGRAM_TRAINER_ID = TRAINER_IDS.get("telegram_bot", 0)
-    # Fallback to legacy NOTIFY_ERRORS_TO_INTERFACES
-    if TELEGRAM_TRAINER_ID == 0:
-        TELEGRAM_TRAINER_ID = NOTIFY_ERRORS_TO_INTERFACES.get("telegram_bot", 0)
-    if not TELEGRAM_TRAINER_ID:
-        log_warning("[config] TELEGRAM_TRAINER_ID not configured; trainer-only commands will be rejected")
-else:
-    log_info(f"[config] TELEGRAM_TRAINER_ID loaded from environment: {TELEGRAM_TRAINER_ID}")
-
-
 def get_trainer_id(interface_name: str) -> int | None:
     """Return the trainer ID for the given interface.
 
-    Prefers the new TRAINER_IDS mapping, falls back to NOTIFY_ERRORS_TO_INTERFACES,
-    and finally to legacy environment variables (e.g. TELEGRAM_TRAINER_ID).
+    Prefers the new TRAINER_IDS mapping, falls back to NOTIFY_ERRORS_TO_INTERFACES.
     """
     # Try new TRAINER_IDS first
     trainer_id = TRAINER_IDS.get(interface_name)
@@ -89,19 +74,11 @@ def get_trainer_id(interface_name: str) -> int | None:
     trainer_id = NOTIFY_ERRORS_TO_INTERFACES.get(interface_name)
     if trainer_id:
         return trainer_id
-    # Final fallback for telegram_bot
-    if interface_name == "telegram_bot" and TELEGRAM_TRAINER_ID:
-        return TELEGRAM_TRAINER_ID
     return None
 
-BOT_TOKEN = os.getenv("BOTFATHER_TOKEN") or os.getenv("TELEGRAM_TOKEN")
-BOT_USERNAME = "rekku_freedom_project"
-DISCORD_REACT_ROLES = os.getenv("DISCORD_REACT_ROLES", "true").lower() in ("1", "true", "yes")
+# LLM Configuration
 LLM_MODE = os.getenv("LLM_MODE", "manual")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_API_KEY")
-
-if not BOT_TOKEN:
-    raise RuntimeError("❌ BOTFATHER_TOKEN missing. Set it in .env or as an environment variable.")
 
 # === Persistent LLM mode ===
 
@@ -201,7 +178,7 @@ async def get_log_chat_interface() -> str | None:
     return _log_chat_interface
 
 async def set_log_chat_id(chat_id: int) -> None:
-    """Persist and cache the Telegram log chat ID."""
+    """Persist and cache the log chat ID."""
     global _log_chat_id
     _log_chat_id = chat_id
     from core.db import ensure_core_tables
@@ -211,11 +188,11 @@ async def set_log_chat_id(chat_id: int) -> None:
         async with conn.cursor() as cur:
             await cur.execute(
                 "REPLACE INTO settings (`setting_key`, `value`) VALUES (%s, %s)",
-                ("telegram_log_chat", str(chat_id)),
+                ("log_chat", str(chat_id)),
             )
             await conn.commit()
             log_debug(
-                f"[config] 💾 Saved telegram_log_chat in DB: {chat_id}"
+                f"[config] 💾 Saved log_chat in DB: {chat_id}"
             )
     except Exception as e:
         log_error(f"[config] ❌ Error in set_log_chat_id(): {repr(e)}")
@@ -247,7 +224,7 @@ async def get_log_chat_thread_id() -> int | None:
             conn.close()
     return _log_chat_thread_id
 
-async def set_log_chat_id_and_thread(chat_id: int, thread_id: int | None = None, interface: str = "telegram_bot") -> None:
+async def set_log_chat_id_and_thread(chat_id: int, thread_id: int | None = None, interface: str = "webui") -> None:
     """Persist and cache the log chat ID, thread ID, and interface."""
     global _log_chat_id, _log_chat_thread_id, _log_chat_interface
     _log_chat_id = chat_id

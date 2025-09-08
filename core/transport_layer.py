@@ -9,14 +9,8 @@ from typing import Any, Dict, Optional
 from types import SimpleNamespace
 from core.logging_utils import log_debug, log_warning, log_error, log_info
 
-# ``core.telegram_utils`` depends on the optional ``telegram`` package.  Import it
-# lazily so that the transport layer can still be imported when that dependency is
-# missing.  When unavailable the Telegram-specific helpers become no-ops.
-try:  # pragma: no cover - import guard
-    from core.telegram_utils import _send_with_retry  # type: ignore
-except Exception as e:  # pragma: no cover - executed only when telegram missing
-    _send_with_retry = None  # type: ignore
-    log_warning(f"[transport] telegram utilities unavailable: {e}")
+# Interface-specific utilities are loaded dynamically by interfaces.
+# The transport layer provides generic messaging functionality only.
 
 # Store last JSON parsing error details for corrector hints
 LAST_JSON_ERROR_INFO: Optional[str] = None
@@ -203,7 +197,7 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
                 return await interface_send_func(*args, text=text, **kwargs)
 
             # Determine current interface from bot
-            current_interface = "telegram"  # default fallback
+            current_interface = "unknown"  # default fallback
             if hasattr(bot, 'get_interface_id'):
                 try:
                     current_interface = bot.get_interface_id()
@@ -216,8 +210,6 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
                 "original_message_thread_id": kwargs.get('message_thread_id'),
                 "original_text": text[:500] if text else "",  # Include preview of original text
                 "thread_defaults": {
-                    "telegram": None,  # None = main chat, specific ID = thread
-                    "discord": None,   # Discord uses channel IDs for threads
                     "default": None
                 }
             }  # Add more context as needed
@@ -269,226 +261,6 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
     # Send as normal text
     log_debug(f"[flow] transport.forward_plain -> calling interface_send_func for chat_id={kwargs.get('chat_id')}")
     return await interface_send_func(*args, text=text, **kwargs)
-
-
-async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retries: int = 3, delay: int = 2, **kwargs):
-    """Telegram-specific wrapper with chunking and retry support.
-    
-    This function is separate from universal_send because it provides:
-    1. Automatic chunking for long messages (4000 chars)
-    2. Built-in retry logic with delays
-    3. Telegram-specific error handling
-    4. Direct bot instance access
-
-    For other interfaces, use universal_send which is more generic.
-    """
-    if text is None:
-        text = ""
-
-    if _send_with_retry is None:  # pragma: no cover - executed when telegram missing
-        log_warning("[telegram_transport] telegram utilities unavailable; skipping send")
-        return None
-
-    # Diagnostic: show bot and chat_id information and kwargs
-    try:
-        # Hide sensitive token information in logs
-        bot_repr = str(bot)
-        if 'token=' in bot_repr:
-            # Extract token and show only last 4 characters
-            import re
-            token_match = re.search(r'token=([^]]+)', bot_repr)
-            if token_match:
-                token = token_match.group(1)
-                if len(token) > 4:
-                    masked_token = '*' * (len(token) - 4) + token[-4:]
-                    bot_repr = bot_repr.replace(token, masked_token)
-        log_debug(f"[telegram_transport] Called with bot={bot_repr} (type={type(bot)}), chat_id={chat_id} (type={type(chat_id)}), kwargs={kwargs}")
-    except Exception:
-        log_debug("[telegram_transport] Called with bot (repr failed), chat_id and kwargs logged separately")
-        log_debug(f"[telegram_transport] chat_id={chat_id} (type={type(chat_id)}) kwargs_keys={list(kwargs.keys())}")
-
-    # Log full text content for debugging
-    if text:
-        log_debug(f"[telegram_transport] Called with text ({len(text)} chars): {text}")
-
-    if 'reply_to_message_id' in kwargs and not kwargs['reply_to_message_id']:
-        log_warning("[telegram_transport] reply_to_message_id not found. Sending without replying.")
-        kwargs.pop('reply_to_message_id')
-
-    # Validate chat_id first
-    if chat_id is None or not isinstance(chat_id, (int, str)):
-        log_error(f"[telegram_transport] Invalid chat_id provided: {chat_id} (type={type(chat_id)})")
-        return None
-
-    # If chat_id is numeric string, coerce to int where possible
-    if isinstance(chat_id, str) and chat_id.strip().lstrip('-').isdigit():
-        try:
-            chat_id = int(chat_id)
-        except Exception:
-            pass
-
-    # Don't try to parse JSON from system/error messages or messages that shouldn't be corrected
-    is_system_message = text.startswith(('[ERROR]', '[WARNING]', '[INFO]', '[DEBUG]')) or "system_message" in text
-
-    json_data = None
-    if not is_system_message:
-        json_data = extract_json_from_text(text)
-        if json_data:
-            log_debug(f"[telegram_transport] JSON parsed successfully: {json_data}")
-        else:
-            # Check if text looks like it might contain JSON but failed to parse
-            if ('{' in text and '}' in text) or ('[' in text and ']' in text):
-                log_debug(f"[telegram_transport] Text contains JSON-like content but failed to parse: {text[:200]}...")
-                # Delegate correction and orchestration to the centralized parser orchestrator.
-                try:
-                    # Build a lightweight message/context for the orchestrator
-                    message = SimpleNamespace()
-                    message.chat_id = chat_id
-                    message.text = ""
-                    message.original_text = text
-                    message.message_thread_id = kwargs.get('message_thread_id')
-                    from datetime import datetime
-                    message.date = datetime.utcnow()
-
-                    # Determine current interface id from bot if possible
-                    try:
-                        current_interface = bot.get_interface_id() if hasattr(bot, 'get_interface_id') else 'telegram'
-                    except Exception:
-                        current_interface = 'telegram'
-
-                    corrector_context = {
-                        'interface': current_interface,
-                        'original_chat_id': chat_id,
-                        'original_message_thread_id': kwargs.get('message_thread_id'),
-                        'original_text': text[:500] if text else ''
-                    }
-
-                    # Call the parser orchestrator which will request corrections from the LLM
-                    # via the corrector middleware when needed. It returns:
-                    #   True  -> actions parsed & executed
-                    #   False -> blocked (exhausted or not allowed)
-                    #   None  -> not JSON-like (caller should forward as plain text)
-                    from core import action_parser
-                    orchestrator_result = await action_parser.corrector_orchestrator(text, corrector_context, bot, message)
-
-                    if orchestrator_result is True:
-                        # Orchestrator parsed and executed actions; nothing to send to chat
-                        log_debug("[telegram_transport] corrector_orchestrator executed actions; not forwarding text")
-                        return
-                    elif orchestrator_result is False:
-                        # Orchestrator decided to block the message (no valid correction)
-                        log_warning("[telegram_transport] corrector_orchestrator blocked message due to failed corrections")
-                        return None
-                    else:
-                        # Not JSON-like after orchestrator processing; continue to send as normal text
-                        log_debug("[telegram_transport] corrector_orchestrator returned None -> forwarding as normal text")
-
-                except Exception as e:
-                    log_debug(f"[telegram_transport] corrector_orchestrator failed or unavailable: {e}")
-                    # On orchestrator failure, block to avoid forwarding invalid JSON
-                    return None
-            else:
-                log_debug("[telegram_transport] No JSON-like content detected, sending as normal text")
-
-    if json_data:
-        log_debug(f"[telegram_transport] JSON parsed successfully: {json_data}")
-        try:
-            # Handle new nested actions format
-            if isinstance(json_data, dict) and "actions" in json_data:
-                actions = json_data["actions"]
-                if not isinstance(actions, list):
-                    log_warning("[telegram_transport] actions field must be a list")
-                    # Fall back to text sending
-                    for i in range(0, len(text), chunk_size):
-                        chunk = text[i : i + chunk_size]
-                        await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
-                    return
-            # Fallback to legacy array format
-            elif isinstance(json_data, list):
-                actions = json_data
-            # Fallback to legacy single action format
-            elif isinstance(json_data, dict) and "type" in json_data:
-                actions = [json_data]
-            else:
-                log_warning(f"[telegram_transport] Unrecognized JSON structure: {json_data}")
-                # Fall back to text sending
-                for i in range(0, len(text), chunk_size):
-                    chunk = text[i : i + chunk_size]
-                    await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
-                return
-            
-            # Create message context for actions
-            message = SimpleNamespace()
-            message.chat_id = chat_id
-            message.text = ""
-            message.original_text = text
-            message.message_thread_id = kwargs.get('message_thread_id')
-            if 'event_id' in kwargs:
-                message.event_id = kwargs['event_id']
-
-            # Use centralized action system for all action types.  Import
-            # ``run_actions`` lazily so the transport layer still works if the
-            # action parser (and its optional dependencies) is missing.
-            try:
-                from core.action_parser import run_actions  # type: ignore
-            except Exception as e:  # pragma: no cover - executed when action_parser missing
-                log_warning(f"[telegram_transport] action parser unavailable: {e}")
-                # Fall back to sending the original text
-                for i in range(0, len(text), chunk_size):
-                    chunk = text[i : i + chunk_size]
-                    await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
-                return
-
-            # Determine current interface from bot
-            current_interface = "telegram"  # default fallback
-            if hasattr(bot, 'get_interface_id'):
-                try:
-                    current_interface = bot.get_interface_id()
-                except Exception as e:
-                    log_debug(f"[transport] Could not get interface_id from bot: {e}")
-            
-            context = {
-                "interface": current_interface,
-                "original_chat_id": chat_id,
-                "original_message_thread_id": kwargs.get('message_thread_id'),
-                "original_text": text[:500] if text else "",
-                "thread_defaults": {
-                    "telegram": None,  # None = main chat, specific ID = thread
-                    "discord": None,   # Discord uses channel IDs for threads
-                    "default": None
-                }
-            }
-            if 'event_id' in kwargs:
-                context['event_id'] = kwargs['event_id']
-            
-            # Rimuovi azioni duplicate
-            unique_actions = []
-            seen_actions = set()
-            for action in actions:
-                action_id = str(action)  # Converti l'azione in stringa per un confronto semplice
-                if action_id not in seen_actions:
-                    unique_actions.append(action)
-                    seen_actions.add(action_id)
-
-            # Usa il sistema centralizzato per le azioni uniche
-            await run_actions(unique_actions, context, bot, message)
-            log_info(f"[telegram_transport] Processed {len(unique_actions)} unique JSON actions via plugin system")
-            return
-            
-        except Exception as e:
-            log_warning(f"[telegram_transport] Failed to process JSON actions: {e}")
-
-    # Send system messages or plain text with chunking
-    log_debug(f"[telegram_transport] Sending as normal text with chunking")
-    try:
-        for i in range(0, len(text), chunk_size):
-            chunk = text[i : i + chunk_size]
-            # Diagnostic: log each chunk send attempt
-            log_debug(f"[telegram_transport] Sending chunk {i//chunk_size + 1} (len={len(chunk)}) to chat_id={chat_id} kwargs={kwargs}")
-            await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
-    except Exception as e:
-        log_error(f"[telegram_transport] Failed to send text chunks: {repr(e)}")
-        raise
 
 
 # Re-entry guard removed: rely solely on the corrector retry counter to avoid loops
@@ -693,7 +465,7 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
 
     # Suppress empty/whitespace LLM replies early — centralize handling here
     if kwargs.get('is_llm_response', False) and (not text or not text.strip()):
-        log_debug("[telegram_transport] Empty LLM response received; skipping corrector and not forwarding")
+        log_debug("[transport] Empty LLM response received; skipping corrector and not forwarding")
         return None
 
     # If the LLM sent a JSON-like payload that looks like a correction/system message,
@@ -733,7 +505,7 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
                 message.from_llm = True
                 message.date = datetime.utcnow()
 
-                current_interface = kwargs.get('interface') or (getattr(bot, 'get_interface_id', lambda: 'telegram')() if bot else 'unknown')
+                current_interface = kwargs.get('interface') or (getattr(bot, 'get_interface_id', lambda: 'unknown')() if bot else 'unknown')
                 corrector_context = {
                     'interface': current_interface,
                     'original_chat_id': chat_id,

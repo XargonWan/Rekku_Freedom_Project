@@ -46,7 +46,6 @@ REKKU_ALIASES_LOWER = [alias.lower() for alias in REKKU_ALIASES]
 
 
 from core.logging_utils import log_debug
-from core.config import DISCORD_REACT_ROLES
 
 
 
@@ -76,8 +75,8 @@ async def is_message_for_bot(
     - Private messages (always considered directed to bot)
     
     Args:
-        message: Telegram message object
-        bot: Telegram bot instance
+        message: Message object from the interface
+        bot: Bot instance from the interface
         bot_username: Bot username (optional, will be detected if not provided)
         human_count: Number of human participants in the chat (excluding bots).
             If ``None``, interfaces are assumed unable to provide this information
@@ -175,16 +174,16 @@ async def is_message_for_bot(
                     log_debug(f"[mention] Reply to bot message detected (by bot.id: {bot.id})")
                     return True, None
                     
-                # Alternative: check if bot object has a user attribute (Discord)
+                # Alternative: check if bot object has a user attribute
                 if hasattr(bot, 'user') and hasattr(bot.user, 'id') and replied_user.id == bot.user.id:
                     log_debug(f"[mention] Reply to bot message detected (by bot.user.id: {bot.user.id})")
                     return True, None
 
-                # Additional Discord check: client.user
+                # Additional check: client.user
                 if hasattr(bot, 'user') and bot.user:
                     bot_user_id = getattr(bot.user, 'id', None)
                     if bot_user_id and replied_user.id == bot_user_id:
-                        log_debug(f"[mention] Reply to Discord bot detected (client.user.id: {bot_user_id})")
+                        log_debug(f"[mention] Reply to bot detected (client.user.id: {bot_user_id})")
                         return True, None
                     
             except Exception as e:
@@ -205,16 +204,6 @@ async def is_message_for_bot(
                     return True, None
             
             log_debug(f"[mention] Reply detected but not to bot (replied to: {replied_username or replied_user.id}, bot_username: {bot_username})")
-
-        # Check for role mentions (Discord-specific)
-        if DISCORD_REACT_ROLES:
-            mentioned_roles = getattr(message, "role_mentions", None)
-            bot_roles = getattr(message, "bot_roles", None)
-            if mentioned_roles and bot_roles:
-                for role_id in mentioned_roles:
-                    if role_id in bot_roles:
-                        log_debug(f"[mention] Bot role mentioned: {role_id}")
-                        return True, None
 
         # Check for Rekku aliases in text
         if is_rekku_mentioned(text):

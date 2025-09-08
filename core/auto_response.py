@@ -46,7 +46,11 @@ class AutoResponseSystem:
             # Build context for LLM
             chat_id = original_context.get('chat_id')
             message_id = original_context.get('message_id')
-            interface_name = original_context.get('interface_name', 'telegram_bot')
+            interface_name = original_context.get('interface_name')
+            
+            if not interface_name:
+                log_error("No interface_name specified in auto_response context")
+                return
             
             # Create a mock message object for the LLM request
             from types import SimpleNamespace

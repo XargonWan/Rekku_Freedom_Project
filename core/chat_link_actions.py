@@ -60,7 +60,12 @@ class ChatLinkActions:
         payload = action.get("payload", {})
         chat_id = payload.get("chat_id")
         message_thread_id = payload.get("message_thread_id")
-        interface = payload.get("interface", "telegram")
+        interface = payload.get("interface")
+        
+        if not interface:
+            log_error("No interface specified in chat_link_actions payload")
+            return {"error": "Interface required"}
+            
         try:
             updated = await self.store.update_names_from_resolver(
                 chat_id,

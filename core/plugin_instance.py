@@ -3,6 +3,7 @@
 from core.config import get_active_llm, set_active_llm
 from core.prompt_engine import load_identity_prompt
 from core.prompt_engine import build_json_prompt
+from core.llm_registry import get_llm_registry
 import asyncio
 from types import SimpleNamespace
 from datetime import datetime
@@ -10,7 +11,7 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.action_parser import parse_action
 from core.json_utils import dumps as json_dumps, sanitize_for_json
 
-# Plugin gestito centralmente in initialize_core_components
+# Plugin managed centrally in initialize_core_components
 plugin = None
 rekku_identity_prompt = None
 
@@ -21,7 +22,7 @@ async def load_plugin(name: str, notify_fn=None):
     if plugin is not None:
         current_plugin_name = plugin.__class__.__module__.split(".")[-1]
         if current_plugin_name != name:
-            log_debug(f"[plugin] 🔄 Cambio plugin da {current_plugin_name} a {name}")
+            log_debug(f"[plugin] 🔄 Changing plugin from {current_plugin_name} to {name}")
         else:
             # 🔁 Even if it's the same plugin, update notify_fn if provided
             if notify_fn and hasattr(plugin, "set_notify_fn"):
@@ -35,31 +36,10 @@ async def load_plugin(name: str, notify_fn=None):
             return
 
     try:
-        import importlib
-        module = importlib.import_module(f"llm_engines.{name}")
-        log_debug(f"[plugin] Module llm_engines.{name} imported successfully.")
-    except ModuleNotFoundError as e:
-        log_error(f"[plugin] ❌ Unable to import llm_engines.{name}: {e}", e)
-        raise ValueError(f"Invalid LLM plugin: {name}")
-
-    if not hasattr(module, "PLUGIN_CLASS"):
-        raise ValueError(f"Plugin `{name}` does not define `PLUGIN_CLASS`.")
-
-    plugin_class = getattr(module, "PLUGIN_CLASS")
-
-    if notify_fn:
-        log_debug("[plugin] notify_fn function passed to plugin.")
-    else:
-        log_debug("[plugin] ⚠️ No notify_fn function provided.")
-
-    try:
-        plugin_args = plugin_class.__init__.__code__.co_varnames
-        if "notify_fn" in plugin_args:
-            plugin_instance = plugin_class(notify_fn=notify_fn)
-        else:
-            plugin_instance = plugin_class()
+        registry = get_llm_registry()
+        plugin_instance = registry.load_engine(name, notify_fn)
     except Exception as e:
-        log_error(f"[plugin] ❌ Error during plugin initialization: {e}", e)
+        log_error(f"[plugin] ❌ Failed to load plugin {name}: {e}", e)
         raise
 
     plugin = plugin_instance

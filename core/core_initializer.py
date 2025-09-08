@@ -31,6 +31,9 @@ class CoreInitializer:
         self.interface_actions = {}
         self.actions_block = {"available_actions": {}}
 
+        # 0. Initialize registries
+        self._initialize_registries()
+
         # 1. Load LLM engine
         await self._load_llm_engine(notify_fn)
 
@@ -47,6 +50,32 @@ class CoreInitializer:
 
         return True
     
+    def _initialize_registries(self):
+        """Initialize the core registries."""
+        try:
+            # Initialize LLM registry
+            from core.llm_registry import register_default_engines
+            register_default_engines()
+            log_debug("[core_initializer] LLM registry initialized")
+            
+            # The interfaces registry is initialized by each interface when it starts
+            log_debug("[core_initializer] Registries initialized successfully")
+        except Exception as e:
+            log_error(f"[core_initializer] Failed to initialize registries: {e}", e)
+            self.startup_errors.append(f"Registry initialization failed: {e}")
+
+    def _configure_trainer_ids(self):
+        """Configure trainer IDs from environment configuration."""
+        from core.interfaces_registry import get_interface_registry
+        from core.config import TRAINER_IDS, get_trainer_id
+        
+        registry = get_interface_registry()
+        
+        # Set trainer IDs from configuration
+        for interface_name, trainer_id in TRAINER_IDS.items():
+            registry.set_trainer_id(interface_name, trainer_id)
+            log_debug(f"[core_initializer] Configured trainer ID {trainer_id} for {interface_name}")
+
     async def _load_llm_engine(self, notify_fn=None):
         """Load the active LLM engine."""
         try:
