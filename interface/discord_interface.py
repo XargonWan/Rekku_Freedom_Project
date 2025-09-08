@@ -37,10 +37,11 @@ class DiscordInterface:
 
             @self.client.event
             async def on_ready():
-                log_info("[discord_interface] Discord client ready")
+                log_info(f"[discord_interface] Discord client ready as {self.client.user}")
 
             @self.client.event
             async def on_message(message):
+                log_debug(f"[discord_interface] Raw message received: {message.content} from {message.author}")
                 await self._process_message(message)
 
             async def _resolver(guild_id, channel_id, bot_instance=None):
@@ -81,10 +82,15 @@ class DiscordInterface:
 
         # Launch Discord client so it can receive messages
         if self.client and self.bot_token:
-            try:  # pragma: no cover - if loop not running
-                asyncio.get_event_loop().create_task(self.client.start(self.bot_token))
-            except Exception as e:  # pragma: no cover - startup errors
-                log_error(f"[discord_interface] Failed to start Discord client: {e}")
+            asyncio.create_task(self._start_discord_client())
+
+    async def _start_discord_client(self):
+        """Start the Discord client with proper error handling."""
+        try:
+            log_info("[discord_interface] Starting Discord client...")
+            await self.client.start(self.bot_token)
+        except Exception as e:  # pragma: no cover - startup errors
+            log_error(f"[discord_interface] Failed to start Discord client: {e}")
 
     @staticmethod
     def get_interface_id() -> str:
