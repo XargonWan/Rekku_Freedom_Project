@@ -41,17 +41,34 @@ def _parse_notify_interfaces(value: str):
     return mapping
 
 
+def _parse_trainer_ids(raw_value: str) -> dict[str, int]:
+    """Parse TRAINER_IDS string into a mapping."""
+    mapping = {}
+    if not raw_value:
+        return mapping
+    for entry in raw_value.split(","):
+        if ":" in entry:
+            interface_name, trainer_id = entry.split(":", 1)
+            mapping[interface_name.strip()] = int(trainer_id.strip())
+    return mapping
+
+
+# Parse trainer IDs for all interfaces
+TRAINER_IDS = _parse_trainer_ids(os.getenv("TRAINER_IDS", ""))
+
+# Legacy support - keep NOTIFY_ERRORS_TO_INTERFACES for backward compatibility
 NOTIFY_ERRORS_TO_INTERFACES = _parse_notify_interfaces(
     os.getenv("NOTIFY_ERRORS_TO_INTERFACES", "")
 )
 
-# Resolve the Telegram trainer ID from the mapping if the legacy
-# environment variable is missing or set to 0. This keeps backward
-# compatibility while allowing NOTIFY_ERRORS_TO_INTERFACES to be the
-# single source of truth for trainer IDs.
+# Resolve the Telegram trainer ID from the new TRAINER_IDS first, then legacy sources
 TELEGRAM_TRAINER_ID = int(os.getenv("TELEGRAM_TRAINER_ID", "0") or 0)
 if TELEGRAM_TRAINER_ID == 0:
-    TELEGRAM_TRAINER_ID = NOTIFY_ERRORS_TO_INTERFACES.get("telegram_bot", 0)
+    # Try new TRAINER_IDS first
+    TELEGRAM_TRAINER_ID = TRAINER_IDS.get("telegram_bot", 0)
+    # Fallback to legacy NOTIFY_ERRORS_TO_INTERFACES
+    if TELEGRAM_TRAINER_ID == 0:
+        TELEGRAM_TRAINER_ID = NOTIFY_ERRORS_TO_INTERFACES.get("telegram_bot", 0)
     if not TELEGRAM_TRAINER_ID:
         log_warning("[config] TELEGRAM_TRAINER_ID not configured; trainer-only commands will be rejected")
 else:
@@ -61,13 +78,18 @@ else:
 def get_trainer_id(interface_name: str) -> int | None:
     """Return the trainer ID for the given interface.
 
-    Prefers the mapping provided by ``NOTIFY_ERRORS_TO_INTERFACES`` and
-    falls back to legacy environment variables (e.g. ``TELEGRAM_TRAINER_ID``)
-    when necessary.
+    Prefers the new TRAINER_IDS mapping, falls back to NOTIFY_ERRORS_TO_INTERFACES,
+    and finally to legacy environment variables (e.g. TELEGRAM_TRAINER_ID).
     """
+    # Try new TRAINER_IDS first
+    trainer_id = TRAINER_IDS.get(interface_name)
+    if trainer_id:
+        return trainer_id
+    # Fallback to legacy NOTIFY_ERRORS_TO_INTERFACES
     trainer_id = NOTIFY_ERRORS_TO_INTERFACES.get(interface_name)
     if trainer_id:
         return trainer_id
+    # Final fallback for telegram_bot
     if interface_name == "telegram_bot" and TELEGRAM_TRAINER_ID:
         return TELEGRAM_TRAINER_ID
     return None
@@ -126,25 +148,26 @@ async def set_active_llm(name: str):
     finally:
         conn.close()
 
-_log_chat_id: int | None = None  # cached Telegram log chat ID
-_log_chat_thread_id: int | None = None  # cached Telegram log chat thread ID
+_log_chat_id: int | None = None  # cached log chat ID
+_log_chat_thread_id: int | None = None  # cached log chat thread ID
+_log_chat_interface: str | None = None  # cached log chat interface
 
 async def get_log_chat_id() -> int | None:
-    """Return the configured Telegram log chat ID, if any."""
+    """Return the configured log chat ID, if any."""
     global _log_chat_id
     if _log_chat_id is None:
         conn = await get_conn()
         try:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(
-                    "SELECT value FROM settings WHERE `setting_key` = 'telegram_log_chat'"
+                    "SELECT value FROM settings WHERE `setting_key` = 'log_chat_id'"
                 )
                 row = await cur.fetchone()
                 if row:
                     try:
                         _log_chat_id = int(row["value"])
                         log_debug(
-                            f"[config] 📥 Loaded telegram_log_chat from DB: {_log_chat_id}"
+                            f"[config] 📥 Loaded log_chat_id from DB: {_log_chat_id}"
                         )
                     except (ValueError, TypeError):
                         _log_chat_id = None
@@ -153,6 +176,29 @@ async def get_log_chat_id() -> int | None:
         finally:
             conn.close()
     return _log_chat_id
+
+
+async def get_log_chat_interface() -> str | None:
+    """Return the configured log chat interface, if any."""
+    global _log_chat_interface
+    if _log_chat_interface is None:
+        conn = await get_conn()
+        try:
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute(
+                    "SELECT value FROM settings WHERE `setting_key` = 'log_chat_interface'"
+                )
+                row = await cur.fetchone()
+                if row:
+                    _log_chat_interface = row["value"]
+                    log_debug(
+                        f"[config] 📥 Loaded log_chat_interface from DB: {_log_chat_interface}"
+                    )
+        except Exception as e:
+            log_error(f"[config] ❌ Error in get_log_chat_interface(): {repr(e)}")
+        finally:
+            conn.close()
+    return _log_chat_interface
 
 async def set_log_chat_id(chat_id: int) -> None:
     """Persist and cache the Telegram log chat ID."""
@@ -177,21 +223,21 @@ async def set_log_chat_id(chat_id: int) -> None:
         conn.close()
 
 async def get_log_chat_thread_id() -> int | None:
-    """Return the configured Telegram log chat thread ID, if any."""
+    """Return the configured log chat thread ID, if any."""
     global _log_chat_thread_id
     if _log_chat_thread_id is None:
         conn = await get_conn()
         try:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(
-                    "SELECT value FROM settings WHERE `setting_key` = 'telegram_log_chat_thread'"
+                    "SELECT value FROM settings WHERE `setting_key` = 'log_chat_thread_id'"
                 )
                 row = await cur.fetchone()
                 if row:
                     try:
                         _log_chat_thread_id = int(row["value"])
                         log_debug(
-                            f"[config] 📥 Loaded telegram_log_chat_thread from DB: {_log_chat_thread_id}"
+                            f"[config] 📥 Loaded log_chat_thread_id from DB: {_log_chat_thread_id}"
                         )
                     except (ValueError, TypeError):
                         _log_chat_thread_id = None
@@ -201,11 +247,12 @@ async def get_log_chat_thread_id() -> int | None:
             conn.close()
     return _log_chat_thread_id
 
-async def set_log_chat_id_and_thread(chat_id: int, thread_id: int | None = None) -> None:
-    """Persist and cache the Telegram log chat ID and thread ID."""
-    global _log_chat_id, _log_chat_thread_id
+async def set_log_chat_id_and_thread(chat_id: int, thread_id: int | None = None, interface: str = "telegram_bot") -> None:
+    """Persist and cache the log chat ID, thread ID, and interface."""
+    global _log_chat_id, _log_chat_thread_id, _log_chat_interface
     _log_chat_id = chat_id
     _log_chat_thread_id = thread_id
+    _log_chat_interface = interface
     from core.db import ensure_core_tables
     await ensure_core_tables()
     conn = await get_conn()
@@ -213,21 +260,25 @@ async def set_log_chat_id_and_thread(chat_id: int, thread_id: int | None = None)
         async with conn.cursor() as cur:
             await cur.execute(
                 "REPLACE INTO settings (`setting_key`, `value`) VALUES (%s, %s)",
-                ("telegram_log_chat", str(chat_id)),
+                ("log_chat_id", str(chat_id)),
+            )
+            await cur.execute(
+                "REPLACE INTO settings (`setting_key`, `value`) VALUES (%s, %s)",
+                ("log_chat_interface", interface),
             )
             if thread_id is not None:
                 await cur.execute(
                     "REPLACE INTO settings (`setting_key`, `value`) VALUES (%s, %s)",
-                    ("telegram_log_chat_thread", str(thread_id)),
+                    ("log_chat_thread_id", str(thread_id)),
                 )
             else:
                 # Remove thread setting if None
                 await cur.execute(
-                    "DELETE FROM settings WHERE `setting_key` = 'telegram_log_chat_thread'"
+                    "DELETE FROM settings WHERE `setting_key` = 'log_chat_thread_id'"
                 )
             await conn.commit()
             log_debug(
-                f"[config] 💾 Saved telegram_log_chat in DB: {chat_id}, thread: {thread_id}"
+                f"[config] 💾 Saved log chat in DB: {chat_id}, thread: {thread_id}, interface: {interface}"
             )
     except Exception as e:
         log_error(f"[config] ❌ Error in set_log_chat_id_and_thread(): {repr(e)}")
@@ -247,6 +298,21 @@ def get_log_chat_id_sync() -> int | None:
         # Cannot perform blocking DB fetch; return None until explicitly loaded
         return _log_chat_id
     return asyncio.run(get_log_chat_id())
+
+
+def get_log_chat_interface_sync() -> str | None:
+    """Synchronous helper to fetch cached log chat interface."""
+    global _log_chat_interface
+    if _log_chat_interface is not None:
+        return _log_chat_interface
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        # Cannot perform blocking DB fetch; return None until explicitly loaded
+        return _log_chat_interface
+    return asyncio.run(get_log_chat_interface())
 
 def get_log_chat_thread_id_sync() -> int | None:
     """Synchronous helper to fetch cached log chat thread ID."""

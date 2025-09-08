@@ -53,29 +53,88 @@ def setup_logging() -> logging.Logger:
     return logger
 
 
-def _notify_trainer(message: str) -> None:
-    """Send a message to the trainer if possible."""
-    try:
-        from core.notifier import notify_trainer
-        notify_trainer(message)
-    except Exception as e:  # pragma: no cover - notification best effort
-        # Check if interpreter is shutting down
-        if "interpreter shutdown" in str(e) or "cannot schedule new futures" in str(e) or "can't create new thread" in str(e):
-            logger = setup_logging()
-            logger.debug("Failed to notify trainer due to interpreter shutdown: %s", e, stacklevel=2)
-        else:
-            logger = setup_logging()
-            logger.error("Failed to notify trainer: %s", e, stacklevel=2)
-
-
 def _log(level: str, message: str, exc: Optional[Exception] = None) -> None:
     logger = setup_logging()
     level = level.upper()
     if exc is not None:
         message = f"{message}\n{''.join(traceback.format_exception(exc))}".rstrip()
     logger.log(_LEVELS.get(level, logging.INFO), message, stacklevel=3)
-    if level == "ERROR":
-        _notify_trainer(f"[ERROR] {message}")
+    
+    # Skip notification for interface errors and transport errors to avoid recursion
+    if ("Failed to send message" in message or 
+        "Unknown channel" in message or
+        "discord_interface" in message or
+        "transport" in message):
+        return
+    
+    # Check if this level should trigger notifications
+    logchat_level = os.getenv("LOGGING_LOGCHAT_LEVEL", "ERROR").upper()
+    logchat_threshold = _LEVELS.get(logchat_level, logging.ERROR)
+    current_level = _LEVELS.get(level, logging.INFO)
+    
+    if current_level >= logchat_threshold:
+        try:
+            from core.config import get_log_chat_id_sync, get_log_chat_thread_id_sync, get_log_chat_interface_sync, get_trainer_id
+            from core.core_initializer import INTERFACE_REGISTRY
+            import asyncio
+            
+            notification_message = f"[{level}] {message}"
+            
+            # Try LogChat first - use the specific interface saved in DB
+            log_chat_id = get_log_chat_id_sync()
+            log_chat_interface = get_log_chat_interface_sync()
+            
+            if log_chat_id and log_chat_interface and log_chat_interface in INTERFACE_REGISTRY:
+                iface = INTERFACE_REGISTRY.get(log_chat_interface)
+                if iface and hasattr(iface, 'send_message'):
+                    async def send_to_logchat():
+                        try:
+                            message_data = {"text": notification_message, "target": log_chat_id}
+                            thread_id = get_log_chat_thread_id_sync()
+                            if thread_id:
+                                message_data["message_thread_id"] = thread_id
+                            await iface.send_message(message_data)
+                        except Exception:
+                            # Silent fallback to trainer for the same interface
+                            trainer_id = get_trainer_id(log_chat_interface)
+                            if trainer_id:
+                                trainer_data = {"text": notification_message, "target": trainer_id}
+                                await iface.send_message(trainer_data)
+
+                    try:
+                        loop = asyncio.get_running_loop()
+                        if loop and loop.is_running():
+                            loop.create_task(send_to_logchat())
+                        else:
+                            asyncio.run(send_to_logchat())
+                    except RuntimeError:
+                        asyncio.run(send_to_logchat())
+                    return
+            
+            # Fallback to trainer - use any available interface
+            for interface_name, iface in INTERFACE_REGISTRY.items():
+                trainer_id = get_trainer_id(interface_name)
+                if trainer_id and hasattr(iface, 'send_message'):
+                    async def send_to_trainer():
+                        try:
+                            trainer_data = {"text": notification_message, "target": trainer_id}
+                            await iface.send_message(trainer_data)
+                        except Exception:
+                            pass  # Silent failure
+
+                    try:
+                        loop = asyncio.get_running_loop()
+                        if loop and loop.is_running():
+                            loop.create_task(send_to_trainer())
+                        else:
+                            asyncio.run(send_to_trainer())
+                    except RuntimeError:
+                        asyncio.run(send_to_trainer())
+                    return
+                        
+        except Exception:
+            # Silent failure - no recursive logging
+            pass
 
 
 def log_debug(msg: str) -> None:
