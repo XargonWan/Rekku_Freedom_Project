@@ -116,16 +116,164 @@ def notify(chat_id: int, message: str):
         _in_notify = False
 
 
-def notify_trainer(message: str) -> None:
-    """Notify the trainer via selected interfaces."""
-    from core.config import NOTIFY_ERRORS_TO_INTERFACES
+def notifier(message: str) -> None:
+    """Simplified notification: LogChat if available, otherwise fallback to trainer."""
+    from core.config import get_log_chat_id_sync, get_log_chat_thread_id_sync, get_trainer_id
     from core.core_initializer import INTERFACE_REGISTRY
 
-    if not NOTIFY_ERRORS_TO_INTERFACES:
-        log_debug("[notifier] No interfaces configured for error notifications")
-        return
+    log_debug(f"[notifier] Sending: {message[:100]}...")
+    
+    # Try LogChat first
+    log_chat_id = get_log_chat_id_sync()
+    if log_chat_id and "telegram_bot" in INTERFACE_REGISTRY:
+        log_debug(f"[notifier] Using LogChat {log_chat_id}")
+        iface = INTERFACE_REGISTRY.get("telegram_bot")
+        if iface:
+            async def send_to_logchat():
+                try:
+                    message_data = {"text": message, "target": log_chat_id}
+                    thread_id = get_log_chat_thread_id_sync()
+                    if thread_id:
+                        message_data["message_thread_id"] = thread_id
+                        log_debug(f"[notifier] Sending to LogChat with thread_id={thread_id}")
+                    
+                    await iface.send_message(message_data)
+                    log_debug(f"[notifier] Message sent to LogChat successfully")
+                except Exception as e:
+                    log_warning(f"[notifier] Failed to send to LogChat: {repr(e)}")
+                    # Fallback to trainer
+                    _fallback_to_trainer(message)
 
-    for interface_name, trainer_id in NOTIFY_ERRORS_TO_INTERFACES.items():
+            try:
+                loop = asyncio.get_running_loop()
+                if loop and loop.is_running():
+                    loop.create_task(send_to_logchat())
+                else:
+                    asyncio.run(send_to_logchat())
+            except RuntimeError:
+                asyncio.run(send_to_logchat())
+            return
+    
+    # Fallback to trainer
+    log_debug(f"[notifier] LogChat not available, using trainer fallback")
+    _fallback_to_trainer(message)
+
+
+def notify_intelligent(message: str) -> None:
+    """Intelligent notification: LogChat if available, otherwise trainer via interfaces."""
+    from core.config import get_log_chat_id_sync, get_log_chat_thread_id_sync, get_trainer_id
+    from core.core_initializer import INTERFACE_REGISTRY
+
+    log_info(f"[notifier] notify_intelligent() called with message: {message[:100]}...")
+    
+    # Try LogChat first
+    log_chat_id = get_log_chat_id_sync()
+    if log_chat_id and "telegram_bot" in INTERFACE_REGISTRY:
+        log_info(f"[notifier] Using LogChat {log_chat_id}")
+        iface = INTERFACE_REGISTRY.get("telegram_bot")
+        if iface:
+            async def send_to_logchat():
+                try:
+                    message_data = {"text": message, "target": log_chat_id}
+                    thread_id = get_log_chat_thread_id_sync()
+                    if thread_id:
+                        message_data["message_thread_id"] = thread_id
+                        log_info(f"[notifier] Sending to LogChat with thread_id={thread_id}")
+                    else:
+                        log_info(f"[notifier] Sending to LogChat without thread_id")
+                    
+                    await iface.send_message(message_data)
+                    log_info(f"[notifier] Message sent to LogChat successfully")
+                except Exception as e:
+                    log_warning(f"[notifier] Failed to send to LogChat: {repr(e)}")
+                    # Fallback to trainer
+                    _fallback_to_trainer(message)
+
+            try:
+                loop = asyncio.get_running_loop()
+                if loop and loop.is_running():
+                    loop.create_task(send_to_logchat())
+                else:
+                    asyncio.run(send_to_logchat())
+            except RuntimeError:
+                asyncio.run(send_to_logchat())
+            return
+    
+    # Fallback to trainer
+    log_info(f"[notifier] LogChat not available, using trainer fallback")
+    _fallback_to_trainer(message)
+
+
+def _fallback_to_trainer(message: str) -> None:
+    """Fallback notification to trainer."""
+    from core.config import get_trainer_id
+    from core.core_initializer import INTERFACE_REGISTRY
+    
+    # Try all available interfaces with trainer IDs
+    for interface_name in ["telegram_bot", "discord_bot"]:
+        trainer_id = get_trainer_id(interface_name)
+        if trainer_id and interface_name in INTERFACE_REGISTRY:
+            log_info(f"[notifier] Fallback: sending to {interface_name} trainer {trainer_id}")
+            iface = INTERFACE_REGISTRY.get(interface_name)
+            if iface:
+                async def send_to_trainer():
+                    try:
+                        message_data = {"text": message, "target": trainer_id}
+                        await iface.send_message(message_data)
+                        log_info(f"[notifier] Message sent to {interface_name} trainer successfully")
+                    except Exception as e:
+                        log_warning(f"[notifier] Failed to send to {interface_name} trainer: {repr(e)}")
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    if loop and loop.is_running():
+                        loop.create_task(send_to_trainer())
+                    else:
+                        asyncio.run(send_to_trainer())
+                except RuntimeError:
+                    asyncio.run(send_to_trainer())
+                return
+    
+    # Final fallback to legacy notify function
+    from core.config import TELEGRAM_TRAINER_ID
+    if TELEGRAM_TRAINER_ID:
+        log_info(f"[notifier] Final fallback: using legacy notify() with {TELEGRAM_TRAINER_ID}")
+        notify(TELEGRAM_TRAINER_ID, message)
+    else:
+        log_warning(f"[notifier] No trainer available, message lost: {message[:50]}...")
+
+
+def notify_trainer(message: str) -> None:
+    """Notify the trainer via selected interfaces."""
+    from core.config import NOTIFY_ERRORS_TO_INTERFACES, TELEGRAM_TRAINER_ID
+    from core.core_initializer import INTERFACE_REGISTRY
+
+    log_info(f"[notifier] notify_trainer() called with message: {message[:100]}...")
+    log_info(f"[notifier] INTERFACE_REGISTRY keys: {list(INTERFACE_REGISTRY.keys())}")
+    log_info(f"[notifier] NOTIFY_ERRORS_TO_INTERFACES: {NOTIFY_ERRORS_TO_INTERFACES}")
+
+    # If NOTIFY_ERRORS_TO_INTERFACES is configured, use it
+    if NOTIFY_ERRORS_TO_INTERFACES:
+        interface_configs = NOTIFY_ERRORS_TO_INTERFACES.items()
+        log_info(f"[notifier] Using NOTIFY_ERRORS_TO_INTERFACES: {interface_configs}")
+    else:
+        # Fallback: If LogChat is configured, use it; otherwise use TELEGRAM_TRAINER_ID
+        log_chat_id = get_log_chat_id_sync()
+        log_info(f"[notifier] LogChat ID from DB: {log_chat_id}")
+        log_info(f"[notifier] telegram_bot in registry: {'telegram_bot' in INTERFACE_REGISTRY}")
+        log_info(f"[notifier] TELEGRAM_TRAINER_ID: {TELEGRAM_TRAINER_ID}")
+        
+        if log_chat_id and "telegram_bot" in INTERFACE_REGISTRY:
+            interface_configs = [("telegram_bot", log_chat_id)]
+            log_info(f"[notifier] Using LogChat config: {interface_configs}")
+        elif TELEGRAM_TRAINER_ID and "telegram_bot" in INTERFACE_REGISTRY:
+            interface_configs = [("telegram_bot", TELEGRAM_TRAINER_ID)]
+            log_info(f"[notifier] Using TRAINER_ID config: {interface_configs}")
+        else:
+            log_info("[notifier] No interfaces configured for error notifications and no fallback available")
+            return
+
+    for interface_name, trainer_id in interface_configs:
         iface = INTERFACE_REGISTRY.get(interface_name)
         if not iface:
             available = ", ".join(sorted(INTERFACE_REGISTRY)) or "none"
@@ -140,10 +288,9 @@ def notify_trainer(message: str) -> None:
 
         targets: list[int] = []
         if interface_name == "telegram_bot":
+            # Use the trainer_id that was determined in the interface_configs logic above
             targets.append(trainer_id)
-            log_chat_id = get_log_chat_id_sync()
-            if log_chat_id and log_chat_id not in targets:
-                targets.append(log_chat_id)
+            log_info(f"[notifier] Using target: {trainer_id} interface: {interface_name}")
         elif interface_name == "discord_bot":
             targets.append(trainer_id)
         else:
@@ -154,12 +301,20 @@ def notify_trainer(message: str) -> None:
 
         async def send(target: int):
             try:
-                # Get thread_id for log chat if it's a Telegram interface
+                # Build message data with thread_id for LogChat if applicable
                 message_data = {"text": message, "target": target}
-                if interface_name == "telegram_bot" and target == get_log_chat_id_sync():
+                log_chat_id = get_log_chat_id_sync()
+                if interface_name == "telegram_bot" and target == log_chat_id:
                     thread_id = get_log_chat_thread_id_sync()
                     if thread_id:
                         message_data["message_thread_id"] = thread_id
+                        log_info(f"[notifier] Sending to LogChat {target} with thread_id={thread_id}, message_data={message_data}")
+                    else:
+                        log_info(f"[notifier] Sending to LogChat {target} without thread_id (thread_id={thread_id})")
+                else:
+                    log_info(f"[notifier] Sending to trainer {target} (log_chat_id={log_chat_id})")
+                
+                log_info(f"[notifier] Final message_data: {message_data}")
                 await iface.send_message(message_data)
             except Exception as e:  # pragma: no cover - best effort
                 # Check if interpreter is shutting down

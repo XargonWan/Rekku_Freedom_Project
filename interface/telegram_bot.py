@@ -173,8 +173,8 @@ async def logchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     thread_id = update.effective_message.message_thread_id
     try:
-        await set_log_chat_id_and_thread(chat_id, thread_id)
-        confirmation = f"This chat is now set as logchat [{chat_id}, {thread_id}]"
+        await set_log_chat_id_and_thread(chat_id, thread_id, "telegram_bot")
+        confirmation = f"This chat is now set as logchat [{chat_id}, {thread_id}] on telegram_bot"
         await safe_send(context.bot, chat_id, confirmation, message_thread_id=thread_id)
     except Exception as e:
         log_error(f"[telegram_interface] Failed to set log chat: {e}")
