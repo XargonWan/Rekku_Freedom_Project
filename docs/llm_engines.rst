@@ -39,3 +39,30 @@ Google CLI
 ----------
 
 The ``google_cli`` engine sends prompts to the ``gemini`` command-line tool in order to use Google's Gemini models.  Set ``GEMINI_API_KEY`` and ensure ``gemini`` is installed.
+
+Developing LLM Engines
+----------------------
+
+Custom engines live in ``llm_engines/`` and subclass ``AIPluginBase``.  A
+minimal engine implements ``generate_response`` and exposes a module-level
+``PLUGIN_CLASS``:
+
+.. code-block:: python
+
+   from core.ai_plugin_base import AIPluginBase
+
+   class MyEngine(AIPluginBase):
+       async def generate_response(self, messages):
+           return "Hello from MyEngine"
+
+   PLUGIN_CLASS = MyEngine
+
+Useful hooks inherited from ``AIPluginBase``:
+
+* ``generate_response(messages)`` – **required**; return LLM output.
+* ``get_supported_models()`` – list available model IDs.
+* ``get_rate_limit()`` – tuple of rate limit settings.
+* ``get_supported_action_types()`` and ``handle_custom_action()`` – declare and
+  handle engine-specific actions.
+* ``get_supported_actions()`` and ``get_prompt_instructions()`` – supply schema
+  data or prompt hints for custom actions.

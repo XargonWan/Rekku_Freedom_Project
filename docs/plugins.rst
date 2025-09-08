@@ -48,8 +48,8 @@ scheduler checks for due events and sends them back to Rekku when the time comes
 
 All Python modules under ``plugins/``, ``llm_engines/`` and ``interface/`` are
 imported recursively on startup. Plugin files no longer need a special naming
-scheme. Each plugin registers itself using ``register_plugin`` and notifies the
-core initializer with ``core_initializer.register_plugin``.
+scheme. Each plugin registers itself using ``register_plugin``, which also
+notifies the core initializer and exposes its actions.
 
 Reddit Interface
 ----------------
@@ -86,12 +86,11 @@ registry the plugin must expose a ``PLUGIN_CLASS`` variable and implement
 .. code-block:: python
 
    from core.ai_plugin_base import AIPluginBase
-   from core.core_initializer import core_initializer, register_plugin
+   from core.core_initializer import register_plugin
 
    class MyActionPlugin(AIPluginBase):
        def __init__(self):
            register_plugin("myplugin", self)
-           core_initializer.register_plugin("myplugin")
 
        def get_supported_actions(self):
            return {
@@ -141,45 +140,22 @@ The following diagram and steps illustrate how plugins interact with the system:
 5. The action parser dynamically locates the appropriate plugin for the requested action.
 6. The plugin executes its logic to handle the action.
 
-LLM Engine
+Plugin API
 ~~~~~~~~~~
 
-LLM engines live in ``llm_engines/`` and also subclass ``AIPluginBase``.  They
-must implement ``generate_response`` to call the external model and return text
-or JSON actions.  After placing the module, select it at runtime using the
-``/llm`` command.
+Plugins can inherit from ``PluginBase`` or ``AIPluginBase`` depending on whether
+they need access to the language model.  The following hooks are available to
+all plugins:
 
-Interface
-~~~~~~~~~
+* ``start()`` – optional startup logic.
+* ``stop()`` – optional teardown logic.
+* ``get_metadata()`` – return name/description/version details.
+* ``get_supported_actions()`` – **required**; declare action schemas.
+* ``get_prompt_instructions(action)`` – optional prompt snippets for the LLM.
+* ``handle_incoming_message(bot, message, prompt)`` – perform work for an
+  action.
+* ``get_supported_action_types()`` and ``handle_custom_action()`` – define and
+  process plugin-specific action types.
 
-Interfaces provide ingress/egress channels for messages and can also expose
-their own actions.  A minimal interface defines action schemas, calls
-``register_interface`` to make itself discoverable and then notifies the core
-initializer that it is active.
-
-.. code-block:: python
-
-   from core.core_initializer import core_initializer, register_interface
-
-   class MyInterface:
-       @staticmethod
-       def get_interface_id():
-           return "myiface"
-
-       @staticmethod
-       def get_supported_actions():
-         return {
-             "message_myiface": {
-                 "required_fields": ["text"],
-                 "optional_fields": [],
-                 "description": "Send a message over MyInterface.",
-             }
-         }
-
-       async def start(self):
-           register_interface("myiface", self)
-           core_initializer.register_interface("myiface")
-
-Interfaces typically forward incoming messages to
-``plugin_instance.handle_incoming_message`` so that the active LLM engine can
-process them.
+Expose the plugin via a module-level ``PLUGIN_CLASS`` and call
+``register_plugin`` inside ``__init__`` to make it discoverable.

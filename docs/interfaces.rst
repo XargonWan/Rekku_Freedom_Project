@@ -51,12 +51,12 @@ Follow these steps to connect Rekku to Discord:
    snippets.
 
 4. **Register the interface**
-   When the interface starts, use ``register_interface`` to store the instance
-   and ``core_initializer.register_interface`` to mark it active.
+   When the interface starts, use ``register_interface`` to store the instance.
+   This automatically marks it active and exposes its actions.
 
 .. code-block:: python
 
-   from core.core_initializer import core_initializer, register_interface
+   from core.core_initializer import register_interface
 
    class MyInterface:
        @staticmethod
@@ -75,9 +75,23 @@ Follow these steps to connect Rekku to Discord:
 
        async def start(self):
            register_interface("myiface", self)
-           core_initializer.register_interface("myiface")
 
    INTERFACE_CLASS = MyInterface
 
 With these pieces in place the core initializer will automatically collect the
 interface's actions and make them available to the LLM.
+
+Interface API
+-------------
+
+Interfaces typically expose the following methods:
+
+* ``get_interface_id()`` – **required**; return a unique identifier.
+* ``get_supported_actions()`` – **required**; declare actions the interface can
+  perform.
+* ``get_prompt_instructions(action_type)`` – optional extra guidance for the
+  LLM.
+* ``start()`` / ``stop()`` – asynchronous setup and teardown logic where
+  ``register_interface`` is usually called.
+* Any action handlers declared in ``get_supported_actions`` are invoked when the
+  LLM requests them.
