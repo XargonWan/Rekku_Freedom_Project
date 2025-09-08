@@ -26,7 +26,7 @@ aiomysql_module.Connection = object
 aiomysql_module.Cursor = object
 sys.modules["aiomysql"] = aiomysql_module
 
-from core.telegram_utils import send_with_thread_fallback
+from interface.telegram_utils import send_with_thread_fallback
 
 
 def test_send_message_uses_markdown_parse_mode():

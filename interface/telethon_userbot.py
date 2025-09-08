@@ -13,12 +13,55 @@ import core.plugin_instance as plugin_instance
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.message_sender import detect_media_type, extract_response_target
 from core.config import set_active_llm, list_available_llms, get_active_llm
-from core.config import TELEGRAM_TRAINER_ID
+from telethon import TelegramClient, events, Button
+from telethon.tl.types import PeerUser, PeerChat, PeerChannel
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover - fallback if python-dotenv not installed
+    def load_dotenv(*args, **kwargs):
+        return False
+import os
+import re
+import asyncio
+from collections import deque
+import core.plugin_instance as plugin_instance
+from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.message_sender import detect_media_type, extract_response_target
+from core.config import set_active_llm, list_available_llms, get_active_llm
+from core.interfaces_registry import get_interface_registry
 from core import blocklist, response_proxy, say_proxy, recent_chats
 from core.context import context_command
 from core.auto_response import request_llm_delivery
 from core.core_initializer import register_interface, core_initializer
-import traceback
+
+# Load environment variables and get trainer ID
+load_dotenv()
+_interface_registry = get_interface_registry()
+
+# Read Telegram userbot configuration
+TELEGRAM_TRAINER_ID_STR = os.getenv('TRAINER_IDS', '').split(',') if os.getenv('TRAINER_IDS') else []
+TELEGRAM_TRAINER_ID = None
+
+# Extract trainer ID for telegram_bot from TRAINER_IDS
+for trainer_config in TELEGRAM_TRAINER_ID_STR:
+    if trainer_config.startswith('telegram_bot:'):
+        try:
+            TELEGRAM_TRAINER_ID = int(trainer_config.split(':')[1])
+            break
+        except (ValueError, IndexError):
+            log_warning(f"[telethon_userbot] Invalid trainer ID format in TRAINER_IDS: {trainer_config}")
+
+if not TELEGRAM_TRAINER_ID:
+    log_error("[telethon_userbot] TELEGRAM_TRAINER_ID not found in TRAINER_IDS environment variable")
+    raise ValueError("TELEGRAM_TRAINER_ID is required for Telethon userbot interface")
+
+def is_trainer(user_id: int) -> bool:
+    """Check if user is the trainer for this Telegram interface."""
+    return _interface_registry.is_trainer('telegram_userbot', user_id)
+
+def get_trainer_id() -> int:
+    """Get the trainer ID for this Telegram interface."""
+    return _interface_registry.get_trainer_id('telegram_userbot') or TELEGRAM_TRAINER_ID
 
 load_dotenv()
 
@@ -36,6 +79,13 @@ client = None
 if API_ID and API_HASH:
     client = TelegramClient(SESSION, int(API_ID), API_HASH)
     register_interface("telegram_userbot", client)
+    
+    # Register in the new registry system
+    if TELEGRAM_TRAINER_ID:
+        _interface_registry.register_interface('telegram_userbot', client)
+        _interface_registry.set_trainer_id('telegram_userbot', TELEGRAM_TRAINER_ID)
+        log_info(f"[telethon_userbot] Registered telegram_userbot interface with trainer ID {TELEGRAM_TRAINER_ID}")
+    
     log_info("[telethon_userbot] Registered TelethonUserbot")
 else:
     log_warning("[telethon_userbot] API_ID or API_HASH missing; userbot disabled")
@@ -79,7 +129,7 @@ def resolve_forwarded_target(message):
 
 @optional_on(events.NewMessage(pattern=r"\.block (\d+)"))
 async def block_user(event):
-    if event.sender_id != TELEGRAM_TRAINER_ID:
+    if not is_trainer(event.sender_id):
         return
     try:
         to_block = int(event.pattern_match.group(1))
@@ -90,7 +140,7 @@ async def block_user(event):
 
 @optional_on(events.NewMessage(pattern=r"\.block_list"))
 async def block_list(event):
-    if event.sender_id != TELEGRAM_TRAINER_ID:
+    if not is_trainer(event.sender_id):
         return
     blocked = blocklist.get_block_list()
     if not blocked:
@@ -100,7 +150,7 @@ async def block_list(event):
 
 @optional_on(events.NewMessage(pattern=r"\.unblock (\d+)"))
 async def unblock_user(event):
-    if event.sender_id != TELEGRAM_TRAINER_ID:
+    if not is_trainer(event.sender_id):
         return
     try:
         to_unblock = int(event.pattern_match.group(1))
@@ -111,7 +161,7 @@ async def unblock_user(event):
 
 @optional_on(events.NewMessage(pattern=r"\.last_chats"))
 async def last_chats_command(event):
-    if event.sender_id != TELEGRAM_TRAINER_ID:
+    if not is_trainer(event.sender_id):
         return
     entries = await recent_chats.get_last_active_chats_verbose(10, client)
     if not entries:
@@ -125,7 +175,7 @@ async def last_chats_command(event):
 
 @optional_on(events.NewMessage(pattern=r"\.help"))
 async def help_command(event):
-    if event.sender_id != TELEGRAM_TRAINER_ID:
+    if not is_trainer(event.sender_id):
         return
     from core.context import get_context_state
     context_status = "active ✅" if get_context_state() else "inactive ❌"
@@ -153,7 +203,7 @@ async def help_command(event):
 
 @optional_on(events.NewMessage(pattern=r"\.llm(?: (.+))?"))
 async def llm_command(event):
-    if event.sender_id != TELEGRAM_TRAINER_ID:
+    if not is_trainer(event.sender_id):
         return
     args = event.pattern_match.group(1)
     current = await get_active_llm()
@@ -180,7 +230,7 @@ async def llm_command(event):
 
 @optional_on(events.NewMessage(pattern=r"\.say(?: (\d+) (.+))?"))
 async def say_command(event):
-    if event.sender_id != TELEGRAM_TRAINER_ID:
+    if not is_trainer(event.sender_id):
         return
     args = event.pattern_match.groups()
     # Case 1: .say <chat_id> <message>
@@ -215,7 +265,7 @@ async def handle_message(event):
     user_id = message.sender_id
     text = message.message or ""
     # Interactive /say step
-    if user_id == TELEGRAM_TRAINER_ID and user_id in say_sessions:
+    if is_trainer(user_id) and user_id in say_sessions:
         stripped = text.strip()
         if stripped.isdigit():
             index = int(stripped) - 1
@@ -232,10 +282,10 @@ async def handle_message(event):
         await event.reply("❌ Invalid selection. Send a correct number.")
         return
     # Blocked user
-    if blocklist.is_blocked(user_id) and user_id != TELEGRAM_TRAINER_ID:
+    if blocklist.is_blocked(user_id) and not is_trainer(user_id):
         return
     # Trainer reply to forwarded message
-    if user_id == TELEGRAM_TRAINER_ID and message.is_reply:
+    if is_trainer(user_id) and message.is_reply:
         reply_msg_id = message.reply_to_msg_id
         original = plugin_instance.get_target(reply_msg_id)
         if original:

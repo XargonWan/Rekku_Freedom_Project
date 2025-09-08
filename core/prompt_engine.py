@@ -12,7 +12,7 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
 
     Parameters
     ----------
-    message : telegram.Message
+    message : AbstractMessage or compatible interface message
         Incoming message object from an interface.
     context_memory : dict[int, deque]
         Dictionary storing last messages per chat.

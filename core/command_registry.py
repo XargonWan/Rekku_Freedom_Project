@@ -67,7 +67,7 @@ async def help_command() -> str:
         "\n*📋 Misc*\n"
         "`/last_chats` – Last active chats\n"
         "`/purge_map [days]` – Purge old mappings\n"
-        "`/clean_chat_link <chat_id>` – Remove the link between a Telegram chat and ChatGPT.\n"
+        "`/clean_chat_link <chat_id>` – Remove the link between a chat and conversation.\n"
         "`/logchat` – Set the current chat as the log chat\n"
     )
     return help_text

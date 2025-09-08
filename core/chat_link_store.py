@@ -56,8 +56,9 @@ class ChatLinkStore:
     ) -> Optional[
         Callable[[int | str, Optional[int | str], Any], Awaitable[Dict[str, Optional[str]]]]
     ]:
+        # If not specified, raise error - no automatic fallback
         if interface is None:
-            interface = "telegram"
+            raise ValueError("Interface must be specified - no automatic fallback available")
         return cls._name_resolvers.get(interface)
 
     # ------------------------------------------------------------------
@@ -82,7 +83,7 @@ class ChatLinkStore:
             await cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chatgpt_links (
-                    interface VARCHAR(32) NOT NULL DEFAULT 'telegram',
+                    interface VARCHAR(32) NOT NULL,
                     chat_id TEXT NOT NULL,
                     message_thread_id TEXT,
                     link VARCHAR(2048),
@@ -107,7 +108,7 @@ class ChatLinkStore:
                 log_warning(f"[chatlink] message_thread_name column add failed: {e}")
             try:
                 await cursor.execute(
-                    "ALTER TABLE chatgpt_links ADD COLUMN IF NOT EXISTS interface VARCHAR(32) NOT NULL DEFAULT 'telegram'"
+                    "ALTER TABLE chatgpt_links ADD COLUMN IF NOT EXISTS interface VARCHAR(32) NOT NULL"
                 )
             except Exception as e:  # pragma: no cover
                 log_warning(f"[chatlink] interface column add failed: {e}")
@@ -127,12 +128,16 @@ class ChatLinkStore:
         self,
         chat_id: int | str | None = None,
         message_thread_id: Optional[int | str] = None,
-        interface: str = "telegram",
+        interface: Optional[str] = None,
         *,
         chat_name: Optional[str] = None,
         message_thread_name: Optional[str] = None,
     ) -> Optional[str]:
         """Return the ChatGPT link for the given identifiers."""
+
+        # Require interface to be specified
+        if interface is None:
+            raise ValueError("Interface must be specified")
 
         await self._ensure_table()
         conn = await get_conn()
@@ -186,12 +191,16 @@ class ChatLinkStore:
         chat_id: int | str,
         message_thread_id: Optional[int | str],
         link: str,
-        interface: str = "telegram",
+        interface: Optional[str] = None,
         *,
         chat_name: Optional[str] = None,
         message_thread_name: Optional[str] = None,
     ) -> None:
         """Persist a mapping between a chat (and optional thread) and a link."""
+
+        # Require interface to be specified
+        if interface is None:
+            raise ValueError("Interface must be specified")
 
         await self._ensure_table()
         normalized = self._normalize_thread_id(message_thread_id)
@@ -231,12 +240,16 @@ class ChatLinkStore:
         self,
         chat_id: int | str | None = None,
         message_thread_id: Optional[int | str] = None,
-        interface: str = "telegram",
+        interface: Optional[str] = None,
         *,
         chat_name: Optional[str] = None,
         message_thread_name: Optional[str] = None,
     ) -> bool:
         """Remove a mapping. Returns True if a row was deleted."""
+
+        # Require interface to be specified
+        if interface is None:
+            raise ValueError("Interface must be specified")
 
         await self._ensure_table()
         conn = await get_conn()
@@ -281,7 +294,7 @@ class ChatLinkStore:
         self,
         chat_id: int | str,
         message_thread_id: Optional[int | str],
-        interface: str = "telegram",
+        interface: Optional[str] = None,
         *,
         chat_name: Optional[str] = None,
         message_thread_name: Optional[str] = None,
@@ -290,6 +303,10 @@ class ChatLinkStore:
 
         if chat_name is None and message_thread_name is None:
             return False
+
+        # Require interface to be specified
+        if interface is None:
+            raise ValueError("Interface must be specified")
         await self._ensure_table()
         normalized = self._normalize_thread_id(message_thread_id)
         chat_id_str = str(chat_id)
@@ -326,7 +343,7 @@ class ChatLinkStore:
         """Use the registered resolver to update chat/thread names."""
 
         if interface is None:
-            interface = "telegram"
+            raise ValueError("Interface must be specified for name resolution")
         resolver = self._get_resolver(interface)
         if not resolver:
             return False

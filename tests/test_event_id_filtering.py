@@ -9,8 +9,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault('BOTFATHER_TOKEN', 'test')
 os.environ.setdefault('OPENAI_API_KEY', 'test')
 
-from core.telegram_utils import _send_with_retry, safe_edit
-from core.transport_layer import telegram_safe_send
+from interface.telegram_utils import _send_with_retry, safe_edit
+from interface.telegram_utils import telegram_safe_send
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,6 @@
 from typing import Optional
 import asyncio
 from telegram.error import TimedOut
-from core.config import TELEGRAM_TRAINER_ID
 from core.logging_utils import (
     log_debug,
     log_info,
@@ -188,7 +187,6 @@ async def safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retrie
     # Diagnostic: log safe_send entry and kwargs
     log_debug(f"[telegram_utils] safe_send called: chat_id={chat_id} type={type(chat_id)} kwargs_keys={list(kwargs.keys())} chunk_size={chunk_size} retries={retries} delay={delay}")
 
-    from core.transport_layer import telegram_safe_send
     result = await telegram_safe_send(bot, chat_id, text, chunk_size, retries, delay, **kwargs)
 
     # Diagnostic: log return value
@@ -287,8 +285,6 @@ async def send_with_thread_fallback(
     if reply_to_message_id is not None:
         send_kwargs["reply_to_message_id"] = reply_to_message_id
 
-    from core.transport_layer import telegram_safe_send
-
     try:
         log_debug(f"[telegram_utils] send_with_thread_fallback calling telegram_safe_send chat_id={chat_id} send_kwargs={send_kwargs}")
         message = await telegram_safe_send(
@@ -357,3 +353,184 @@ async def send_with_thread_fallback(
                 f"[telegram_utils] Final fallback failed: {fallback_error}"
             )
     return None
+
+
+async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 4000, retries: int = 3, delay: int = 2, **kwargs):
+    """Telegram-specific wrapper with chunking and retry support.
+    
+    This function provides:
+    1. Automatic chunking for long messages (4000 chars)
+    2. Built-in retry logic with delays
+    3. Telegram-specific error handling
+    4. Direct bot instance access
+    """
+    if text is None:
+        text = ""
+
+    # Import json utilities
+    try:
+        from core.json_utils import extract_json_from_text
+    except ImportError:
+        def extract_json_from_text(text):
+            return None
+
+    # Log call information
+    try:
+        # Hide sensitive token information in logs
+        bot_repr = str(bot)
+        if 'token=' in bot_repr:
+            # Extract token and show only last 4 characters
+            import re
+            token_match = re.search(r'token=([^]]+)', bot_repr)
+            if token_match:
+                token = token_match.group(1)
+                if len(token) > 4:
+                    masked_token = '*' * (len(token) - 4) + token[-4:]
+                    bot_repr = bot_repr.replace(token, masked_token)
+        log_debug(f"[telegram_safe_send] Called with bot={bot_repr}, chat_id={chat_id}, kwargs={kwargs}")
+    except Exception:
+        log_debug(f"[telegram_safe_send] Called with chat_id={chat_id}, kwargs_keys={list(kwargs.keys())}")
+
+    # Log text content for debugging
+    if text:
+        log_debug(f"[telegram_safe_send] Text ({len(text)} chars): {text}")
+
+    if 'reply_to_message_id' in kwargs and not kwargs['reply_to_message_id']:
+        log_warning("[telegram_safe_send] reply_to_message_id not found. Sending without replying.")
+        kwargs.pop('reply_to_message_id')
+
+    # Validate chat_id
+    if chat_id is None or not isinstance(chat_id, (int, str)):
+        log_error(f"[telegram_safe_send] Invalid chat_id provided: {chat_id}")
+        return None
+
+    # Convert string chat_id to int if possible
+    if isinstance(chat_id, str) and chat_id.strip().lstrip('-').isdigit():
+        try:
+            chat_id = int(chat_id)
+        except Exception:
+            pass
+
+    # Don't try to parse JSON from system/error messages
+    is_system_message = text.startswith(('[ERROR]', '[WARNING]', '[INFO]', '[DEBUG]')) or "system_message" in text
+
+    json_data = None
+    if not is_system_message:
+        json_data = extract_json_from_text(text)
+        if json_data:
+            log_debug(f"[telegram_safe_send] JSON parsed successfully: {json_data}")
+        elif ('{' in text and '}' in text) or ('[' in text and ']' in text):
+            log_debug(f"[telegram_safe_send] Text contains JSON-like content but failed to parse: {text[:200]}...")
+            # Try to process with action parser if available
+            try:
+                from types import SimpleNamespace
+                from datetime import datetime
+                
+                message = SimpleNamespace()
+                message.chat_id = chat_id
+                message.text = ""
+                message.original_text = text
+                message.message_thread_id = kwargs.get('message_thread_id')
+                message.date = datetime.utcnow()
+
+                current_interface = 'telegram'
+                corrector_context = {
+                    'interface': current_interface,
+                    'original_chat_id': chat_id,
+                    'original_message_thread_id': kwargs.get('message_thread_id'),
+                    'original_text': text[:500] if text else ''
+                }
+
+                from core import action_parser
+                orchestrator_result = await action_parser.corrector_orchestrator(text, corrector_context, bot, message)
+
+                if orchestrator_result is True:
+                    log_debug("[telegram_safe_send] corrector_orchestrator executed actions; not forwarding text")
+                    return
+                elif orchestrator_result is False:
+                    log_warning("[telegram_safe_send] corrector_orchestrator blocked message")
+                    return None
+                else:
+                    log_debug("[telegram_safe_send] corrector_orchestrator returned None -> forwarding as normal text")
+
+            except Exception as e:
+                log_debug(f"[telegram_safe_send] corrector_orchestrator failed: {e}")
+                return None
+        else:
+            log_debug("[telegram_safe_send] No JSON-like content detected, sending as normal text")
+
+    if json_data:
+        try:
+            from types import SimpleNamespace
+            
+            # Handle different JSON formats
+            if isinstance(json_data, dict) and "actions" in json_data:
+                actions = json_data["actions"]
+                if not isinstance(actions, list):
+                    log_warning("[telegram_safe_send] actions field must be a list")
+                    actions = []
+            elif isinstance(json_data, list):
+                actions = json_data
+            elif isinstance(json_data, dict) and "type" in json_data:
+                actions = [json_data]
+            else:
+                log_warning(f"[telegram_safe_send] Unrecognized JSON structure: {json_data}")
+                actions = []
+            
+            if actions:
+                # Create message context for actions
+                message = SimpleNamespace()
+                message.chat_id = chat_id
+                message.text = ""
+                message.original_text = text
+                message.message_thread_id = kwargs.get('message_thread_id')
+                if 'event_id' in kwargs:
+                    message.event_id = kwargs['event_id']
+
+                # Use action parser if available
+                try:
+                    from core.action_parser import run_actions
+                    
+                    context = {
+                        "interface": "telegram",
+                        "original_chat_id": chat_id,
+                        "original_message_thread_id": kwargs.get('message_thread_id'),
+                        "original_text": text[:500] if text else "",
+                        "thread_defaults": {
+                            "telegram": None,
+                            "discord": None,
+                            "default": None
+                        }
+                    }
+                    if 'event_id' in kwargs:
+                        context['event_id'] = kwargs['event_id']
+                    
+                    # Remove duplicate actions
+                    unique_actions = []
+                    seen_actions = set()
+                    for action in actions:
+                        action_id = str(action)
+                        if action_id not in seen_actions:
+                            unique_actions.append(action)
+                            seen_actions.add(action_id)
+
+                    await run_actions(unique_actions, context, bot, message)
+                    log_info(f"[telegram_safe_send] Processed {len(unique_actions)} unique JSON actions")
+                    return
+                    
+                except Exception as e:
+                    log_warning(f"[telegram_safe_send] Failed to process JSON actions: {e}")
+
+        except Exception as e:
+            log_warning(f"[telegram_safe_send] Failed to process JSON actions: {e}")
+
+    # Send as normal text with chunking
+    log_debug(f"[telegram_safe_send] Sending as normal text with chunking")
+    try:
+        for i in range(0, len(text), chunk_size):
+            chunk = text[i : i + chunk_size]
+            log_debug(f"[telegram_safe_send] Sending chunk {i//chunk_size + 1} (len={len(chunk)}) to chat_id={chat_id}")
+            await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
+    except Exception as e:
+        log_error(f"[telegram_safe_send] Failed to send text chunks: {repr(e)}")
+        raise

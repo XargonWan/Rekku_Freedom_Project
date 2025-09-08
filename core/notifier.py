@@ -75,7 +75,7 @@ CHUNK_SIZE = 4000
 
 
 def notify(chat_id: int, message: str):
-    """Send ``message`` to ``chat_id`` in chunks to avoid Telegram limits.
+    """Send ``message`` to ``chat_id`` in chunks to avoid interface limits.
 
     Rate-limits and deduplicates messages across calls.
     """
@@ -125,9 +125,10 @@ def notifier(message: str) -> None:
     
     # Try LogChat first
     log_chat_id = get_log_chat_id_sync()
-    if log_chat_id and "telegram_bot" in INTERFACE_REGISTRY:
-        log_debug(f"[notifier] Using LogChat {log_chat_id}")
-        iface = INTERFACE_REGISTRY.get("telegram_bot")
+    log_chat_interface = get_log_chat_interface_sync()
+    if log_chat_id and log_chat_interface and log_chat_interface in INTERFACE_REGISTRY:
+        log_debug(f"[notifier] Using LogChat {log_chat_id} via {log_chat_interface}")
+        iface = INTERFACE_REGISTRY.get(log_chat_interface)
         if iface:
             async def send_to_logchat():
                 try:
@@ -168,9 +169,10 @@ def notify_intelligent(message: str) -> None:
     
     # Try LogChat first
     log_chat_id = get_log_chat_id_sync()
-    if log_chat_id and "telegram_bot" in INTERFACE_REGISTRY:
-        log_info(f"[notifier] Using LogChat {log_chat_id}")
-        iface = INTERFACE_REGISTRY.get("telegram_bot")
+    log_chat_interface = get_log_chat_interface_sync()
+    if log_chat_id and log_chat_interface and log_chat_interface in INTERFACE_REGISTRY:
+        log_info(f"[notifier] Using LogChat {log_chat_id} via {log_chat_interface}")
+        iface = INTERFACE_REGISTRY.get(log_chat_interface)
         if iface:
             async def send_to_logchat():
                 try:
@@ -208,9 +210,11 @@ def _fallback_to_trainer(message: str) -> None:
     """Fallback notification to trainer."""
     from core.config import get_trainer_id
     from core.core_initializer import INTERFACE_REGISTRY
+    from core.interfaces_registry import get_interface_registry
     
     # Try all available interfaces with trainer IDs
-    for interface_name in ["telegram_bot", "discord_bot"]:
+    registry = get_interface_registry()
+    for interface_name in registry.get_interface_names():
         trainer_id = get_trainer_id(interface_name)
         if trainer_id and interface_name in INTERFACE_REGISTRY:
             log_info(f"[notifier] Fallback: sending to {interface_name} trainer {trainer_id}")
@@ -234,18 +238,13 @@ def _fallback_to_trainer(message: str) -> None:
                     asyncio.run(send_to_trainer())
                 return
     
-    # Final fallback to legacy notify function
-    from core.config import TELEGRAM_TRAINER_ID
-    if TELEGRAM_TRAINER_ID:
-        log_info(f"[notifier] Final fallback: using legacy notify() with {TELEGRAM_TRAINER_ID}")
-        notify(TELEGRAM_TRAINER_ID, message)
-    else:
-        log_warning(f"[notifier] No trainer available, message lost: {message[:50]}...")
+    # No fallback available
+    log_warning(f"[notifier] No trainer available, message lost: {message[:50]}...")
 
 
 def notify_trainer(message: str) -> None:
     """Notify the trainer via selected interfaces."""
-    from core.config import NOTIFY_ERRORS_TO_INTERFACES, TELEGRAM_TRAINER_ID
+    from core.config import NOTIFY_ERRORS_TO_INTERFACES, get_log_chat_id_sync, get_log_chat_interface_sync
     from core.core_initializer import INTERFACE_REGISTRY
 
     log_info(f"[notifier] notify_trainer() called with message: {message[:100]}...")
@@ -257,18 +256,15 @@ def notify_trainer(message: str) -> None:
         interface_configs = NOTIFY_ERRORS_TO_INTERFACES.items()
         log_info(f"[notifier] Using NOTIFY_ERRORS_TO_INTERFACES: {interface_configs}")
     else:
-        # Fallback: If LogChat is configured, use it; otherwise use TELEGRAM_TRAINER_ID
+        # Fallback: If LogChat is configured, use it
         log_chat_id = get_log_chat_id_sync()
+        log_chat_interface = get_log_chat_interface_sync()
         log_info(f"[notifier] LogChat ID from DB: {log_chat_id}")
-        log_info(f"[notifier] telegram_bot in registry: {'telegram_bot' in INTERFACE_REGISTRY}")
-        log_info(f"[notifier] TELEGRAM_TRAINER_ID: {TELEGRAM_TRAINER_ID}")
+        log_info(f"[notifier] LogChat interface: {log_chat_interface}")
         
-        if log_chat_id and "telegram_bot" in INTERFACE_REGISTRY:
-            interface_configs = [("telegram_bot", log_chat_id)]
+        if log_chat_id and log_chat_interface and log_chat_interface in INTERFACE_REGISTRY:
+            interface_configs = [(log_chat_interface, log_chat_id)]
             log_info(f"[notifier] Using LogChat config: {interface_configs}")
-        elif TELEGRAM_TRAINER_ID and "telegram_bot" in INTERFACE_REGISTRY:
-            interface_configs = [("telegram_bot", TELEGRAM_TRAINER_ID)]
-            log_info(f"[notifier] Using TRAINER_ID config: {interface_configs}")
         else:
             log_info("[notifier] No interfaces configured for error notifications and no fallback available")
             return
@@ -287,14 +283,9 @@ def notify_trainer(message: str) -> None:
             continue
 
         targets: list[int] = []
-        if interface_name == "telegram_bot":
-            # Use the trainer_id that was determined in the interface_configs logic above
-            targets.append(trainer_id)
-            log_info(f"[notifier] Using target: {trainer_id} interface: {interface_name}")
-        elif interface_name == "discord_bot":
-            targets.append(trainer_id)
-        else:
-            targets.append(trainer_id)
+        # Use the trainer_id that was determined in the interface_configs logic above
+        targets.append(trainer_id)
+        log_info(f"[notifier] Using target: {trainer_id} interface: {interface_name}")
 
         if not targets:
             continue
@@ -304,7 +295,7 @@ def notify_trainer(message: str) -> None:
                 # Build message data with thread_id for LogChat if applicable
                 message_data = {"text": message, "target": target}
                 log_chat_id = get_log_chat_id_sync()
-                if interface_name == "telegram_bot" and target == log_chat_id:
+                if target == log_chat_id:
                     thread_id = get_log_chat_thread_id_sync()
                     if thread_id:
                         message_data["message_thread_id"] = thread_id

@@ -5,10 +5,10 @@ from datetime import datetime
 import traceback
 from types import SimpleNamespace
 
-from core.config import TELEGRAM_TRAINER_ID
 from core import plugin_instance, rate_limit, recent_chats
 from core.logging_utils import log_debug, log_error, log_warning, log_info
 from core.mention_utils import is_message_for_bot
+from core.interfaces_registry import get_interface_registry
 
 # Use a priority queue so events can be processed before regular messages
 HIGH_PRIORITY = 0
@@ -46,7 +46,7 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
         message: The message to process
         context_memory: Message context
         priority: If True, message is added to front of queue (for events)
-        interface_id: The interface identifier (e.g., 'telegram_bot')
+        interface_id: The interface identifier (e.g., 'webui', 'interface_name')
     """
     human_count = getattr(message, "human_count", None)
     if human_count is None and hasattr(message, "chat"):
@@ -83,10 +83,14 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
     chat_id = message.chat_id
     llm_name = plugin.__class__.__module__.split(".")[-1]
 
+    # Check if user is trainer for this interface
+    registry = get_interface_registry()
+    is_trainer = registry.is_trainer(interface_id, user_id) if interface_id else False
+
     if (
-        user_id != TELEGRAM_TRAINER_ID
+        not is_trainer
         and not rate_limit.is_allowed(
-            llm_name, user_id, max_messages, window_seconds, trainer_fraction, consume=False
+            llm_name, user_id, interface_id or "unknown", max_messages, window_seconds, trainer_fraction, consume=False
         )
     ):
         delay = 300
@@ -232,10 +236,15 @@ async def _consumer_loop() -> None:
             )
             llm_name = plugin.__class__.__module__.split(".")[-1]
 
+            # Check if user is trainer for this interface
+            registry = get_interface_registry()
+            interface_id = getattr(user_msg, 'interface_id', 'unknown')
+            is_trainer = registry.is_trainer(interface_id, user_id)
+
             if (
-                user_id != TELEGRAM_TRAINER_ID
+                not is_trainer
                 and not rate_limit.is_allowed(
-                    llm_name, user_id, max_messages, window_seconds, trainer_fraction, consume=True
+                    llm_name, user_id, interface_id, max_messages, window_seconds, trainer_fraction, consume=True
                 )
             ):
                 delay = 300

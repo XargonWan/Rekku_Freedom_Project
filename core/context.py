@@ -1,9 +1,8 @@
-from telegram import Update
-from telegram.ext import ContextTypes
-from core.config import TELEGRAM_TRAINER_ID
 import json
 import os
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.abstract_context import AbstractContext
+from typing import Optional, Callable
 
 CONFIG_PATH = "config/rekku_config.json"
 
@@ -26,8 +25,9 @@ def set_context_state(state: bool):
     config["context_mode"] = state
     save_config(config)
 
-async def context_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != TELEGRAM_TRAINER_ID:
+async def context_command(abstract_context: AbstractContext, reply_fn: Optional[Callable] = None):
+    """Context command that works with any interface."""
+    if not abstract_context.is_trainer():
         return
 
     current = get_context_state()
@@ -35,7 +35,10 @@ async def context_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_context_state(new_state)
 
     state_str = "enabled" if new_state else "disabled"
-    await update.message.reply_text(f"🧠 Context mode {state_str}.")
+    response_message = f"🧠 Context mode {state_str}."
+    
+    if reply_fn:
+        await reply_fn(response_message)
 
     log_debug(f"Context mode {state_str}.")
 
