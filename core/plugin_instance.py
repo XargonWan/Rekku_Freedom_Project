@@ -10,6 +10,9 @@ from datetime import datetime
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.action_parser import parse_action
 from core.json_utils import dumps as json_dumps, sanitize_for_json
+from core.image_processor import get_image_processor, process_image_message
+from core.abstract_context import AbstractContext, AbstractUser, AbstractMessage
+from core.mention_utils import is_message_for_bot
 
 # Plugin managed centrally in initialize_core_components
 plugin = None
@@ -153,6 +156,49 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt, interf
         log_debug(
             f"[plugin] Incoming for {plugin.__class__.__name__}: chat_id={message.chat_id}, user_id={user_id}, text={message_text!r} via {interface_name}"
         )
+        
+        # Check for images in the message
+        image_data, has_image_trigger = await _extract_image_data_from_message(message, interface_name)
+        
+        if image_data:
+            log_info(f"[plugin_instance] Message contains image: {image_data['type']} from user {user_id}")
+            
+            # Create abstract context for image processing
+            abstract_user = AbstractUser(id=user_id, interface_name=interface_name)
+            abstract_message = AbstractMessage(
+                id=getattr(message, 'message_id', None),
+                text=getattr(message, 'text', '') or getattr(message, 'caption', ''),
+                chat_id=getattr(message, 'chat_id', None),
+                interface_name=interface_name
+            )
+            abstract_context = AbstractContext(
+                interface_name=interface_name,
+                user=abstract_user,
+                message=abstract_message
+            )
+            
+            # Check if message has text trigger (mentions, keywords, etc.)
+            text_has_trigger = False
+            if message_text:
+                directed, reason = await is_message_for_bot(message, bot, human_count=None)
+                text_has_trigger = directed
+            
+            # Combine image trigger with text trigger
+            combined_trigger = has_image_trigger or text_has_trigger
+            
+            # Process the image
+            processed_data = await process_image_message(
+                image_data, 
+                abstract_context, 
+                has_trigger=combined_trigger,
+                forward_to_llm=True
+            )
+            
+            if processed_data:
+                log_info(f"[plugin_instance] Image processed and forwarded to LLM for user {user_id}")
+            else:
+                log_debug(f"[plugin_instance] Image not processed (access denied or error) for user {user_id}")
+        
         if isinstance(context_memory_or_prompt, str):
             try:
                 import json
@@ -252,4 +298,61 @@ def load_generic_plugin(name: str, notify_fn=None):
                 log_debug("[plugin] Plugin avviato.")
         except Exception as e:
             log_error(f"[plugin] ❌ Errore durante l'avvio del plugin: {e}", e)
+
+async def _extract_image_data_from_message(message, interface_name: str):
+    """Extract image data from a message if it contains images."""
+    if not message:
+        return None, None
+    
+    image_data = None
+    has_trigger = False
+    
+    # Check for Telegram-style messages
+    if hasattr(message, 'photo') and message.photo:
+        # Get the highest resolution photo
+        photo = message.photo[-1]  # Last element is highest resolution
+        image_data = {
+            "type": "photo",
+            "file_id": photo.file_id,
+            "file_unique_id": photo.file_unique_id,
+            "width": photo.width,
+            "height": photo.height,
+            "file_size": getattr(photo, 'file_size', 0),
+            "caption": getattr(message, 'caption', ''),
+            "mime_type": "image/jpeg"  # Telegram photos are typically JPEG
+        }
+        has_trigger = True  # Photos are always considered as having trigger for now
+        
+    elif hasattr(message, 'document') and message.document:
+        # Check if document is an image
+        mime_type = getattr(message.document, 'mime_type', '')
+        if mime_type and mime_type.startswith('image/'):
+            image_data = {
+                "type": "document",
+                "file_id": message.document.file_id,
+                "file_unique_id": message.document.file_unique_id,
+                "file_name": getattr(message.document, 'file_name', ''),
+                "mime_type": mime_type,
+                "file_size": getattr(message.document, 'file_size', 0),
+                "caption": getattr(message, 'caption', '')
+            }
+            has_trigger = True  # Documents with images are considered as having trigger
+    
+    # Check for other interfaces (Discord, etc.)
+    elif hasattr(message, 'attachments'):
+        # Discord-style attachments
+        for attachment in message.attachments:
+            if hasattr(attachment, 'content_type') and attachment.content_type and attachment.content_type.startswith('image/'):
+                image_data = {
+                    "type": "attachment",
+                    "url": attachment.url,
+                    "filename": attachment.filename,
+                    "content_type": attachment.content_type,
+                    "size": getattr(attachment, 'size', 0),
+                    "caption": getattr(message, 'content', '')
+                }
+                has_trigger = True
+                break
+    
+    return image_data, has_trigger
 

@@ -324,6 +324,7 @@ class DiscordInterface:
                 role_mentions=role_mentions_ids or None,
                 bot_roles=bot_role_ids or None,
                 reply_to_message=reply_to,
+                attachments=getattr(message, 'attachments', [])  # Add attachments for image processing
             )
 
             try:

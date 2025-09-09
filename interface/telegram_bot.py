@@ -387,9 +387,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     username = user.full_name
     usertag = f"@{user.username}" if user.username else "(no tag)"
-    text = message.text or ""
+    text = message.text or message.caption or ""
     
-    log_info(f"[telegram_bot] Processing message from {username} ({user_id}): {text}")
+    # Log with proper content type
+    content_description = ""
+    if message.photo:
+        content_description = f" [photo with caption: '{text}']"
+    elif message.document:
+        content_description = f" [document: {message.document.file_name or 'unknown'} with caption: '{text}']"
+    elif text:
+        content_description = f": {text}"
+    
+    log_info(f"[telegram_bot] Processing message from {username} ({user_id}){content_description}")
 
     # Track context
     if message.chat_id not in context_memory:
@@ -832,8 +841,11 @@ async def start_bot():
 
         app.add_handler(CommandHandler("say", say_command))
         app.add_handler(CommandHandler("cancel", cancel_response))
-        log_info("[telegram_bot] Adding MessageHandler for general messages...")
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        log_info("[telegram_bot] Adding MessageHandler for general messages (text and images)...")
+        app.add_handler(MessageHandler(
+            (filters.TEXT & ~filters.COMMAND) | filters.PHOTO | filters.Document.ALL, 
+            handle_message
+        ))
         log_info("[telegram_bot] Adding MessageHandler for get_trainer_id() say steps...")
 
         app.add_handler(MessageHandler(
