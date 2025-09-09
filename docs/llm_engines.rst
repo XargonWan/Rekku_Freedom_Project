@@ -39,3 +39,38 @@ Google CLI
 ----------
 
 The ``google_cli`` engine sends prompts to the ``gemini`` command-line tool in order to use Google's Gemini models.  Set ``GEMINI_API_KEY`` and ensure ``gemini`` is installed.
+
+Developing Engines
+------------------
+
+Create a new module under ``llm_engines/`` and expose a ``PLUGIN_CLASS`` pointing
+to a subclass of ``AIPluginBase``.  The class is responsible for turning a prompt
+into a response and optionally dispatching it back to the interface.
+
+.. code-block:: python
+
+   from core.ai_plugin_base import AIPluginBase
+   from core.transport_layer import llm_to_interface
+
+   class MyEngine(AIPluginBase):
+       async def handle_incoming_message(self, bot, message, prompt):
+           reply = await self.generate_response(prompt)
+           await llm_to_interface(bot.send_message, chat_id=message.chat_id, text=reply)
+           return reply
+
+       async def generate_response(self, prompt):
+           ...  # call external model and return text
+
+   PLUGIN_CLASS = MyEngine
+
+Register the engine with the LLM registry so it can be selected at runtime:
+
+.. code-block:: python
+
+   from core.llm_registry import get_llm_registry
+   get_llm_registry().register_engine_module("my_engine", "llm_engines.my_engine")
+
+Once registered, switch to the new engine using ``/llm my_engine``.
+
+For a full example, review ``llm_engines/selenium_chatgpt.py`` which drives a
+browser-based ChatGPT session.

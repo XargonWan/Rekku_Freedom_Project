@@ -41,14 +41,20 @@ Follow these steps to connect Rekku to Discord:
    later cleanly removes the interface from Rekku.
 
 2. **Declare actions**
-   Implement ``get_supported_actions`` on the interface class.  The method should
-   return a mapping of action names to a schema describing the required and
-   optional fields.
+   Implement ``get_action_types`` and ``get_supported_actions`` on the
+   interface class. ``get_action_types`` returns a list of fully qualified
+   action names (e.g. ``message_discord``) while ``get_supported_actions``
+   provides a schema describing the required and optional fields.
 
-3. **Optional prompt instructions**
+   Interfaces may also expose ``get_supported_action_types`` to advertise
+   generic capabilities such as ``message``. This lets the action parser map
+   high-level types to a concrete interface implementation.
+
+3. **Prompt instructions and validation**
    If the LLM needs extra guidance for an action, implement
    ``get_prompt_instructions(action_type)`` and return a dictionary of prompt
-   snippets.
+   snippets.  ``validate_payload`` can be used to sanity-check payloads before
+   the action is executed.
 
 4. **Register the interface**
    When the interface starts, use ``register_interface`` to store the instance
@@ -64,14 +70,44 @@ Follow these steps to connect Rekku to Discord:
            return "myiface"
 
        @staticmethod
+       def get_supported_action_types():
+           return ["message"]
+
+       @staticmethod
+       def get_action_types():
+           return ["message_myiface"]
+
+       @staticmethod
        def get_supported_actions():
            return {
                "message_myiface": {
-                   "required_fields": ["text"],
-                   "optional_fields": [],
                    "description": "Send a message over MyInterface.",
+                   "required_fields": ["text", "target"],
+                   "optional_fields": [],
                }
            }
+
+       @staticmethod
+       def get_prompt_instructions(action_name):
+           if action_name == "message_myiface":
+               return {
+                   "description": "Send a message over MyInterface.",
+                   "payload": {
+                       "text": {"type": "string", "description": "Message text"},
+                       "target": {"type": "string", "description": "Destination"},
+                   },
+               }
+           return {}
+
+       @staticmethod
+       def validate_payload(action_type, payload):
+           errors = []
+           if action_type == "message_myiface":
+               if "text" not in payload:
+                   errors.append("payload.text is required")
+               if "target" not in payload:
+                   errors.append("payload.target is required")
+           return errors
 
        async def start(self):
            register_interface("myiface", self)
@@ -80,4 +116,6 @@ Follow these steps to connect Rekku to Discord:
    INTERFACE_CLASS = MyInterface
 
 With these pieces in place the core initializer will automatically collect the
-interface's actions and make them available to the LLM.
+interface's actions and make them available to the LLM.  For complete
+implementations, see ``interface/telegram_bot.py`` and
+``interface/discord_interface.py`` in the repository.

@@ -75,13 +75,12 @@ types located in ``core``.
 Action Plugin
 ~~~~~~~~~~~~~
 
-Action plugins process the actions returned by an LLM.  Create a new file under
-``plugins/`` and subclass ``PluginBase`` or ``AIPluginBase`` if the plugin needs
-to interact with language model prompts.  Each plugin is self-contained; removing
-the file removes the action from the system.  To participate in the action
-registry the plugin must expose a ``PLUGIN_CLASS`` variable and implement
-``get_supported_actions``.  Optional prompt guidance can be provided via
-``get_prompt_instructions``.
+Action plugins process the JSON actions returned by an LLM.  Create a new file
+under ``plugins/`` and subclass ``AIPluginBase`` if the plugin needs to interact
+with language model prompts.  Each plugin is self-contained; removing the file
+removes the action from the system.  To participate in the action registry the
+plugin must expose a ``PLUGIN_CLASS`` variable and implement the action
+introspection methods.
 
 .. code-block:: python
 
@@ -93,24 +92,44 @@ registry the plugin must expose a ``PLUGIN_CLASS`` variable and implement
            register_plugin("myplugin", self)
            core_initializer.register_plugin("myplugin")
 
+       def get_supported_action_types(self):
+           return ["my_action"]
+
        def get_supported_actions(self):
            return {
                "my_action": {
+                   "description": "Do something with 'value'",
                    "required_fields": ["value"],
                    "optional_fields": [],
-                   "description": "Do something with 'value'",
                }
            }
 
-       def get_prompt_instructions(self, action_type):
-           if action_type == "my_action":
-               return {"system": "Describe how to call my_action"}
+       def get_prompt_instructions(self, action_name):
+           if action_name == "my_action":
+               return {
+                   "description": "Send a value to MyActionPlugin.",
+                   "payload": {
+                       "value": {
+                           "type": "string",
+                           "description": "Value to echo",
+                       }
+                   },
+               }
            return {}
 
-       def handle_incoming_message(self, bot, message, prompt):
-           ...  # perform work
+       def validate_payload(self, action_type, payload):
+           errors = []
+           if action_type == "my_action" and "value" not in payload:
+               errors.append("payload.value is required")
+           return errors
+
+       async def handle_custom_action(self, action_type, payload):
+           if action_type == "my_action":
+               ...  # perform work
 
    PLUGIN_CLASS = MyActionPlugin
+
+See ``plugins/terminal.py`` for a real-world action plugin.
 
 Plugin Flow
 -----------
@@ -141,45 +160,5 @@ The following diagram and steps illustrate how plugins interact with the system:
 5. The action parser dynamically locates the appropriate plugin for the requested action.
 6. The plugin executes its logic to handle the action.
 
-LLM Engine
-~~~~~~~~~~
-
-LLM engines live in ``llm_engines/`` and also subclass ``AIPluginBase``.  They
-must implement ``generate_response`` to call the external model and return text
-or JSON actions.  After placing the module, select it at runtime using the
-``/llm`` command.
-
-Interface
-~~~~~~~~~
-
-Interfaces provide ingress/egress channels for messages and can also expose
-their own actions.  A minimal interface defines action schemas, calls
-``register_interface`` to make itself discoverable and then notifies the core
-initializer that it is active.
-
-.. code-block:: python
-
-   from core.core_initializer import core_initializer, register_interface
-
-   class MyInterface:
-       @staticmethod
-       def get_interface_id():
-           return "myiface"
-
-       @staticmethod
-       def get_supported_actions():
-         return {
-             "message_myiface": {
-                 "required_fields": ["text"],
-                 "optional_fields": [],
-                 "description": "Send a message over MyInterface.",
-             }
-         }
-
-       async def start(self):
-           register_interface("myiface", self)
-           core_initializer.register_interface("myiface")
-
-Interfaces typically forward incoming messages to
-``plugin_instance.handle_incoming_message`` so that the active LLM engine can
-process them.
+For guidance on building custom interfaces or language model engines, see
+``interfaces.rst`` and ``llm_engines.rst``.
