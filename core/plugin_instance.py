@@ -160,6 +160,7 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt, interf
         # Check for images in the message
         image_data, has_image_trigger = await _extract_image_data_from_message(message, interface_name)
         
+        processed_image_data = None
         if image_data:
             log_info(f"[plugin_instance] Message contains image: {image_data['type']} from user {user_id}")
             
@@ -186,16 +187,16 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt, interf
             # Combine image trigger with text trigger
             combined_trigger = has_image_trigger or text_has_trigger
             
-            # Process the image
-            processed_data = await process_image_message(
+            # Process the image (but don't auto-forward to LLM here)
+            processed_image_data = await process_image_message(
                 image_data, 
                 abstract_context, 
                 has_trigger=combined_trigger,
-                forward_to_llm=True
+                forward_to_llm=False  # We'll include it in the prompt instead
             )
             
-            if processed_data:
-                log_info(f"[plugin_instance] Image processed and forwarded to LLM for user {user_id}")
+            if processed_image_data:
+                log_info(f"[plugin_instance] Image processed successfully for user {user_id}")
             else:
                 log_debug(f"[plugin_instance] Image not processed (access denied or error) for user {user_id}")
         
@@ -206,9 +207,9 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt, interf
                 prompt = json.loads(context_memory_or_prompt)
             except Exception as e:
                 log_warning(f"[plugin_instance] Failed to parse direct prompt: {e}")
-                prompt = await build_json_prompt(message, {}, interface_name)
+                prompt = await build_json_prompt(message, {}, interface_name, image_data=processed_image_data)
         else:
-            prompt = await build_json_prompt(message, context_memory_or_prompt, interface_name)
+            prompt = await build_json_prompt(message, context_memory_or_prompt, interface_name, image_data=processed_image_data)
 
     prompt = sanitize_for_json(prompt)
     log_debug("🌐 JSON PROMPT built for the plugin:")

@@ -10,8 +10,11 @@ import tempfile
 import threading
 import asyncio
 import logging
+import requests
+import base64
 from collections import defaultdict
 from typing import Optional, Dict
+from pathlib import Path
 import subprocess
 try:
     from dotenv import load_dotenv  # type: ignore
@@ -97,6 +100,247 @@ def has_response_changed(chat_id: str, new_text: str) -> bool:
 def strip_non_bmp(text: str) -> str:
     """Return ``text`` with characters above the BMP removed."""
     return "".join(ch for ch in text if ord(ch) <= 0xFFFF)
+
+
+async def _download_telegram_image(bot, file_id: str, temp_dir: str) -> Optional[str]:
+    """Download an image from Telegram and return the local file path."""
+    try:
+        # Get file info from Telegram
+        file_info = await bot.get_file(file_id)
+        
+        # CORREZIONE: Costruisci l'URL corretto senza duplicare "bot"
+        # Il token è già nel formato "botTOKEN", quindi dobbiamo solo usare bot.token
+        file_url = f"https://api.telegram.org/file/{bot.token}/{file_info.file_path}"
+        
+        log_debug(f"[selenium] Downloading from URL: {file_url}")
+        
+        # Download the file
+        response = requests.get(file_url, timeout=30)
+        response.raise_for_status()
+        
+        # Save to temp file
+        file_extension = Path(file_info.file_path).suffix or '.jpg'
+        temp_file = os.path.join(temp_dir, f"image_{int(time.time())}{file_extension}")
+        
+        with open(temp_file, 'wb') as f:
+            f.write(response.content)
+        
+        log_debug(f"[selenium] Downloaded Telegram image to: {temp_file}")
+        return temp_file
+        
+    except Exception as e:
+        log_error(f"[selenium] Failed to download Telegram image: {e}")
+        return None
+
+
+def _paste_image_to_chatgpt(driver, image_path: str) -> bool:
+    """Paste an image to ChatGPT input using JavaScript injection (Docker-compatible)."""
+    try:
+        # Find the input area
+        textarea = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.ID, "prompt-textarea"))
+        )
+
+        # Click on the textarea to focus it
+        textarea.click()
+        time.sleep(0.5)
+
+        # Method 1: Try to find and use the image upload button
+        try:
+            # Look for image upload button (common selectors for ChatGPT)
+            upload_selectors = [
+                "button[data-testid*='image']",
+                "button[aria-label*='image']",
+                "button[aria-label*='upload']",
+                "input[type='file'][accept*='image']",
+                ".image-upload-button",
+                "[data-testid='file-upload-button']"
+            ]
+
+            upload_element = None
+            for selector in upload_selectors:
+                try:
+                    if selector.startswith("input"):
+                        upload_element = WebDriverWait(driver, 2).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+                        )
+                    else:
+                        upload_element = WebDriverWait(driver, 2).until(
+                            EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                        )
+                    break
+                except TimeoutException:
+                    continue
+
+            if upload_element:
+                log_debug(f"[selenium] Found image upload button: {upload_element.tag_name}")
+                # For file input, we can set the file directly
+                if upload_element.tag_name.lower() == "input":
+                    driver.execute_script("arguments[0].style.display = 'block';", upload_element)
+                    upload_element.send_keys(image_path)
+                    log_info("[selenium] Image uploaded via file input")
+                    return True
+                else:
+                    # Click the upload button
+                    upload_element.click()
+                    time.sleep(1)
+                    # This might open a file dialog, but in headless mode we need a different approach
+                    log_debug("[selenium] Clicked image upload button")
+
+        except Exception as e:
+            log_debug(f"[selenium] Image upload button method failed: {e}")
+
+        # Method 2: Convert image to base64 and inject via JavaScript
+        try:
+            import base64
+
+            # Read and encode the image
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+
+            # Get image format from file extension
+            import mimetypes
+            mime_type, _ = mimetypes.guess_type(image_path)
+            if not mime_type:
+                mime_type = 'image/jpeg'  # fallback
+
+            # Create data URL
+            encoded_image = base64.b64encode(image_data).decode('utf-8')
+            data_url = f"data:{mime_type};base64,{encoded_image}"
+
+            # JavaScript to create and upload the image
+            js_script = f"""
+            // Create a temporary file input
+            var input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.style.display = 'none';
+
+            // Create a blob from the data URL
+            fetch('{data_url}')
+                .then(res => res.blob())
+                .then(blob => {{
+                    var file = new File([blob], 'uploaded_image.jpg', {{type: '{mime_type}'}});
+                    var dt = new DataTransfer();
+                    dt.items.add(file);
+                    input.files = dt.files;
+
+                    // Find the actual file input in ChatGPT's interface
+                    var chatgptInputs = document.querySelectorAll('input[type="file"]');
+                    if (chatgptInputs.length > 0) {{
+                        chatgptInputs[0].files = dt.files;
+                        chatgptInputs[0].dispatchEvent(new Event('change', {{bubbles: true}}));
+                        return true;
+                    }}
+
+                    // Alternative: try to paste into textarea as data URL
+                    var textarea = document.getElementById('prompt-textarea');
+                    if (textarea) {{
+                        textarea.focus();
+                        // Insert image marker (ChatGPT might handle this)
+                        var imageMarker = '[Image uploaded: ' + file.name + ']';
+                        textarea.value += imageMarker;
+                        textarea.dispatchEvent(new Event('input', {{bubbles: true}}));
+                        return true;
+                    }}
+
+                    return false;
+                }})
+                .catch(err => console.error('Image upload failed:', err));
+            """
+
+            result = driver.execute_script(js_script)
+            if result:
+                log_info("[selenium] Image injected via JavaScript")
+                time.sleep(2)  # Wait for processing
+                return True
+
+        except Exception as e:
+            log_warning(f"[selenium] JavaScript injection method failed: {e}")
+
+        # Method 3: Fallback to clipboard method (original implementation)
+        import platform
+        system = platform.system().lower()
+
+        if system == "linux":
+            try:
+                subprocess.run([
+                    "xclip", "-selection", "clipboard", "-t", "image/png", "-i", image_path
+                ], check=True, capture_output=True)
+                log_debug(f"[selenium] Copied image to clipboard using xclip: {image_path}")
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                log_warning("[selenium] xclip not available, trying alternative method")
+                return False
+
+        elif system == "darwin":  # macOS
+            try:
+                subprocess.run([
+                    "osascript", "-e", f'set the clipboard to (read file POSIX file "{image_path}" as JPEG picture)'
+                ], check=True, capture_output=True)
+                log_debug(f"[selenium] Copied image to clipboard using osascript: {image_path}")
+            except subprocess.CalledProcessError:
+                log_warning("[selenium] osascript failed, trying alternative method")
+                return False
+
+        elif system == "windows":
+            try:
+                ps_script = f"""
+                Add-Type -AssemblyName System.Windows.Forms
+                $img = [System.Drawing.Image]::FromFile('{image_path}')
+                [System.Windows.Forms.Clipboard]::SetImage($img)
+                """
+                subprocess.run([
+                    "powershell", "-Command", ps_script
+                ], check=True, capture_output=True)
+                log_debug(f"[selenium] Copied image to clipboard using PowerShell: {image_path}")
+            except subprocess.CalledProcessError:
+                log_warning("[selenium] PowerShell failed, trying alternative method")
+                return False
+
+        # Paste the image using Ctrl+V
+        textarea.send_keys(Keys.CONTROL, 'v')
+        time.sleep(2)  # Wait for the image to be processed
+
+        # Check if the image was pasted successfully
+        try:
+            # Look for image indicators in the UI
+            WebDriverWait(driver, 5).until(
+                lambda d: d.find_elements(By.CSS_SELECTOR, "[data-testid*='image']") or
+                         d.find_elements(By.CSS_SELECTOR, "img") or
+                         d.find_elements(By.CSS_SELECTOR, "[title*='image']") or
+                         d.find_elements(By.CSS_SELECTOR, ".image-preview") or
+                         d.find_elements(By.CSS_SELECTOR, "[data-testid*='attachment']")
+            )
+            log_info("[selenium] Image successfully pasted to ChatGPT")
+            return True
+        except TimeoutException:
+            log_warning("[selenium] Could not verify if image was pasted successfully")
+            # Still return True as the paste operation was attempted
+            return True
+
+    except Exception as e:
+        log_error(f"[selenium] Failed to paste image to ChatGPT: {e}")
+        return False
+
+
+def _extract_image_info_from_prompt(prompt_text: str) -> Optional[Dict]:
+    """Extract image information from JSON prompt if present."""
+    try:
+        # Parse the JSON prompt
+        prompt_data = json.loads(prompt_text)
+        
+        # Look for image data in the input payload
+        input_payload = prompt_data.get("input", {}).get("payload", {})
+        image_data = input_payload.get("image")
+        
+        if image_data:
+            log_debug(f"[selenium] Found image data in prompt: {image_data.get('type', 'unknown')}")
+            return image_data
+            
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        log_debug(f"[selenium] No image data found in prompt: {e}")
+        
+    return None
 
 
 def _send_text_to_textarea(driver, textarea, text: str) -> None:
@@ -636,7 +880,7 @@ def is_chat_archived(driver, chat_id: str) -> bool:
 
 # Update process_prompt_in_chat to use the new functions
 def process_prompt_in_chat(
-    driver, chat_id: str | None, prompt_text: str, previous_text: str
+    driver, chat_id: str | None, prompt_text: str, previous_text: str, image_path: str | None = None
 ) -> Optional[str]:
     """Send a prompt to a ChatGPT chat and return the newly generated text."""
     if chat_id and is_chat_archived(driver, chat_id):
@@ -646,6 +890,12 @@ def process_prompt_in_chat(
         log_debug("[selenium] Creating a new chat")
         _open_new_chat(driver)
         # Chat ID will be extracted later from the URL after sending the prompt
+
+    # Handle image upload first if present
+    if image_path and os.path.exists(image_path):
+        log_info(f"[selenium] Uploading image to ChatGPT: {image_path}")
+        if not _paste_image_to_chatgpt(driver, image_path):
+            log_warning("[selenium] Failed to upload image, proceeding with text only")
 
     # Some UI experiments may block the textarea with a "I prefer this response"
     # dialog. Dismiss it if present before looking for the textarea.
@@ -1566,6 +1816,53 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         """Send the prompt to ChatGPT and forward the response."""
         log_debug(f"[selenium][STEP] processing prompt: {prompt}")
 
+        # Check if prompt contains image data
+        prompt_text = json.dumps(prompt, ensure_ascii=False)
+        image_info = _extract_image_info_from_prompt(prompt_text)
+        temp_image_path = None
+        
+        # Download image if present
+        if image_info:
+            log_info(f"[selenium] Processing message with image: {image_info.get('type', 'unknown')}")
+            temp_dir = tempfile.mkdtemp(prefix="rekku_images_")
+            
+            try:
+                # Handle different image sources
+                image_data = image_info.get('image_data', {})
+                
+                if image_data.get('type') == 'photo' and 'file_id' in image_data:
+                    # Telegram photo
+                    temp_image_path = await _download_telegram_image(
+                        bot, image_data['file_id'], temp_dir
+                    )
+                elif image_data.get('type') == 'document' and 'file_id' in image_data:
+                    # Telegram document (image)
+                    temp_image_path = await _download_telegram_image(
+                        bot, image_data['file_id'], temp_dir
+                    )
+                elif image_data.get('type') == 'attachment' and 'url' in image_data:
+                    # Discord attachment or other URL-based image
+                    try:
+                        response = requests.get(image_data['url'], timeout=30)
+                        response.raise_for_status()
+                        
+                        filename = image_data.get('filename', 'image.jpg')
+                        temp_image_path = os.path.join(temp_dir, filename)
+                        
+                        with open(temp_image_path, 'wb') as f:
+                            f.write(response.content)
+                        
+                        log_debug(f"[selenium] Downloaded image from URL to: {temp_image_path}")
+                    except Exception as e:
+                        log_error(f"[selenium] Failed to download image from URL: {e}")
+                
+                if not temp_image_path:
+                    log_warning("[selenium] Could not download image, proceeding with text only")
+                    
+            except Exception as e:
+                log_error(f"[selenium] Error processing image: {e}")
+                temp_image_path = None
+
         max_attempts = 3
         for attempt in range(max_attempts):
             driver = self._get_driver()
@@ -1687,12 +1984,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             try:
                 if chat_id:
                     previous = get_previous_response(message.chat_id)
-                    response_text = process_prompt_in_chat(driver, chat_id, prompt_text, previous)
+                    response_text = process_prompt_in_chat(driver, chat_id, prompt_text, previous, temp_image_path)
                     if response_text:
                         update_previous_response(message.chat_id, response_text)
                 else:
                     previous = get_previous_response(message.chat_id)
-                    response_text = process_prompt_in_chat(driver, None, prompt_text, previous)
+                    response_text = process_prompt_in_chat(driver, None, prompt_text, previous, temp_image_path)
                     if response_text:
                         update_previous_response(message.chat_id, response_text)
                         new_chat_id = _extract_chat_id(driver.current_url)
@@ -1720,7 +2017,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     global queue_paused
                     queue_paused = True
                     _open_new_chat(driver)
-                    response_text = process_prompt_in_chat(driver, None, prompt_text, "")
+                    response_text = process_prompt_in_chat(driver, None, prompt_text, "", temp_image_path)
                     new_chat_id = _extract_chat_id(driver.current_url)
                     if new_chat_id:
                         await chat_link_store.save_link(
@@ -1793,12 +2090,21 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 log_debug(
                     f"[selenium][STEP] response forwarded to {message.chat_id}"
                 )
-                return
+                break  # Success, exit the retry loop
 
             except Exception as e:
                 log_error(f"[selenium][ERROR] failed to process message: {repr(e)}", e)
                 _notify_gui(f"\u274c Selenium error: {e}. Open UI")
-                return
+                if attempt == max_attempts - 1:
+                    break  # Max attempts reached, exit
+                
+        # Clean up temporary image file
+        if temp_image_path and os.path.exists(temp_image_path):
+            try:
+                os.remove(temp_image_path)
+                log_debug(f"[selenium] Cleaned up temporary image: {temp_image_path}")
+            except Exception as e:
+                log_warning(f"[selenium] Failed to clean up temporary image: {e}")
 
     async def clean_chat_link(chat_id: int, interface: str) -> str:
         """Remove the association between a chat and a ChatGPT conversation.

@@ -7,7 +7,7 @@ from core.json_utils import dumps as json_dumps
 import aiomysql
 
 
-async def build_json_prompt(message, context_memory, interface_name: str | None = None) -> dict:
+async def build_json_prompt(message, context_memory, interface_name: str | None = None, image_data: dict | None = None) -> dict:
     """Build the JSON prompt expected by plugins.
 
     Parameters
@@ -18,6 +18,8 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
         Dictionary storing last messages per chat.
     interface_name : str | None
         Identifier of the interface that delivered the message.
+    image_data : dict | None
+        Processed image data from image_processor, if present.
     """
 
     chat_id = getattr(message, "chat_id", None)
@@ -65,6 +67,11 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
         "privacy": "default",
         "scope": "local",
     }
+
+    # Add image data if present
+    if image_data:
+        input_payload["image"] = image_data
+        log_debug(f"[json_prompt] Including image data in prompt: {image_data.get('type', 'unknown')}")
 
     reply = getattr(message, "reply_to_message", None)
     if reply:
