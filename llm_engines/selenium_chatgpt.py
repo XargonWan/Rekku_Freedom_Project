@@ -326,8 +326,16 @@ def _paste_image_to_chatgpt(driver, image_path: str) -> bool:
 def _extract_image_info_from_prompt(prompt_text: str) -> Optional[Dict]:
     """Extract image information from JSON prompt if present."""
     try:
-        # Parse the JSON prompt
-        prompt_data = json.loads(prompt_text)
+        # Handle both string and dict inputs
+        if isinstance(prompt_text, str):
+            # Parse the JSON prompt
+            prompt_data = json.loads(prompt_text)
+        elif isinstance(prompt_text, dict):
+            # Already parsed
+            prompt_data = prompt_text
+        else:
+            log_debug(f"[selenium] Unexpected prompt type: {type(prompt_text)}")
+            return None
         
         # Look for image data in the input payload
         input_payload = prompt_data.get("input", {}).get("payload", {})
@@ -337,7 +345,7 @@ def _extract_image_info_from_prompt(prompt_text: str) -> Optional[Dict]:
             log_debug(f"[selenium] Found image data in prompt: {image_data.get('type', 'unknown')}")
             return image_data
             
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
+    except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as e:
         log_debug(f"[selenium] No image data found in prompt: {e}")
         
     return None
@@ -1817,8 +1825,15 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         log_debug(f"[selenium][STEP] processing prompt: {prompt}")
 
         # Check if prompt contains image data
-        prompt_text = json.dumps(prompt, ensure_ascii=False)
-        image_info = _extract_image_info_from_prompt(prompt_text)
+        # Handle both dict and string inputs
+        if isinstance(prompt, dict):
+            prompt_text = json.dumps(prompt, ensure_ascii=False)
+            image_info = _extract_image_info_from_prompt(prompt)
+        else:
+            # prompt is already a string
+            prompt_text = prompt
+            image_info = _extract_image_info_from_prompt(prompt_text)
+        
         temp_image_path = None
         
         # Download image if present

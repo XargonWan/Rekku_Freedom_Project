@@ -30,8 +30,8 @@ async def get_db():
             log_debug("[bio_manager] Connection closed")
 
 
-JSON_LIST_FIELDS = {"known_as", "likes", "not_likes", "past_events", "feelings"}
-JSON_DICT_FIELDS = {"contacts", "social_accounts"}
+JSON_LIST_FIELDS = {"known_as", "likes", "not_likes", "past_events", "feelings", "social_accounts"}
+JSON_DICT_FIELDS = {"contacts"}
 
 VALID_BIO_FIELDS = {
     "known_as", "likes", "not_likes", "information", "past_events", 
@@ -46,7 +46,7 @@ DEFAULTS = {
     "past_events": [],
     "feelings": [],
     "contacts": {},
-    "social_accounts": {},
+    "social_accounts": [],  # Changed from {} to []
     "privacy": "default",
     "created_at": "",
     "last_accessed": "",
@@ -314,17 +314,17 @@ def update_bio_fields(user_id: str, updates: dict) -> None:
             """,
             (
                 user_id,
-                json.dumps(merged.get("known_as", [])),
-                json.dumps(merged.get("likes", [])),
-                json.dumps(merged.get("not_likes", [])),
-                merged.get("information", ""),
-                json.dumps(merged.get("past_events", [])),
-                json.dumps(merged.get("feelings", [])),
-                json.dumps(merged.get("contacts", {})),
-                json.dumps(merged.get("social_accounts", {})),
-                merged.get("privacy", "default"),
-                merged.get("created_at", datetime.utcnow().isoformat()),
-                merged.get("last_accessed", datetime.utcnow().isoformat()),
+                json.dumps(merged.get("known_as") or []),
+                json.dumps(merged.get("likes") or []),
+                json.dumps(merged.get("not_likes") or []),
+                str(merged.get("information") or ""),
+                json.dumps(merged.get("past_events") or []),
+                json.dumps(merged.get("feelings") or []),
+                json.dumps(merged.get("contacts") or {}),
+                json.dumps(merged.get("social_accounts") or []),
+                json.dumps(merged.get("privacy") or {}),
+                str(merged.get("created_at") or datetime.utcnow().isoformat()),
+                str(merged.get("last_accessed") or datetime.utcnow().isoformat()),
             ),
         )
     )
@@ -421,6 +421,99 @@ class BioPlugin:
             },
         }
 
+    def get_prompt_instructions(self, action_name: str) -> dict:
+        """Provide detailed prompt instructions for LLM on how to use bio actions."""
+        if action_name == "bio_update":
+            return {
+                "description": "Update a user's bio with new information learned from conversation. Use this to store personality traits, preferences, life events, contacts, and feelings about the user.",
+                "when_to_use": "When you learn new information about a user through conversation - their likes/dislikes, personality, life events, social connections, or when their emotional state changes.",
+                "examples": [
+                    {
+                        "scenario": "User mentions they love pizza and hate pineapple on it",
+                        "payload": {
+                            "target": "user_123",
+                            "fields": {
+                                "likes": ["pizza"],
+                                "not_likes": ["pineapple on pizza"]
+                            }
+                        }
+                    },
+                    {
+                        "scenario": "User shares they got a promotion at work",
+                        "payload": {
+                            "target": "Jay",
+                            "fields": {
+                                "past_events": [{"date": "2025-09-10", "time": "14:30", "summary": "Got promoted at work"}],
+                                "feelings": [{"type": "excited", "intensity": 9}]
+                            }
+                        }
+                    },
+                    {
+                        "scenario": "User mentions their nickname and shares contact info",
+                        "payload": {
+                            "target": "user_456",
+                            "fields": {
+                                "known_as": ["Jay", "J"],
+                                "contacts": {"telegram": ["@jay_username"], "email": ["jay@example.com"]},
+                                "information": "Software developer who loves gaming"
+                            }
+                        }
+                    }
+                ],
+                "field_types": {
+                    "known_as": "List of nicknames and aliases",
+                    "likes": "List of things the user enjoys",
+                    "not_likes": "List of things the user dislikes",
+                    "information": "Short descriptive text about the user",
+                    "past_events": "List of significant life events with date/time/summary",
+                    "feelings": "Current emotional state towards the user with type and intensity (1-10)",
+                    "contacts": "Contact information organized by platform",
+                    "social_accounts": "Social media handles and usernames"
+                },
+                "notes": [
+                    "Target can be a user ID (numbers) or a name/nickname",
+                    "Information should be factual and based on what the user actually shared",
+                    "Update your feelings towards the users based on their actions, words and behavior",
+                    "Store contact info when users share social handles or contact details",
+                    "Record significant life events with proper timestamps"
+                ]
+            }
+        elif action_name == "bio_full_request":
+            return {
+                "description": "Request complete bio information for one or more users. Use this when you need detailed information about users for context or to answer questions about them.",
+                "when_to_use": "When you need to know more about users mentioned in conversation, or when asked directly about someone's preferences, history, or details.",
+                "examples": [
+                    {
+                        "scenario": "User asks 'What do you know about Jay?'",
+                        "payload": {
+                            "targets": ["Jay"]
+                        }
+                    },
+                    {
+                        "scenario": "Planning something and need to know user preferences",
+                        "payload": {
+                            "targets": ["user_123", "user_456"]
+                        }
+                    }
+                ],
+                "notes": [
+                    "Targets can be user IDs, names, or nicknames",
+                    "Use this to retrieve detailed bio information for context",
+                    "The response will contain complete user profiles including preferences, history, and contacts"
+                ]
+            }
+        elif action_name == "static_inject":
+            return {
+                "description": "Automatically injects basic bio information for conversation participants. This action runs automatically and provides context about who is participating in the current conversation.",
+                "when_to_use": "This action runs automatically - you don't need to call it explicitly. It provides background context about conversation participants.",
+                "notes": [
+                    "This action is automatic and provides lightweight user context",
+                    "Gives you basic info about participants: nicknames, short bio, current feelings",
+                    "Helps you understand who you're talking to and their general preferences"
+                ]
+            }
+        return {}
+
     def get_static_injection(self, message=None, context_memory=None) -> dict:
         """Gather participants and inject short bios and feelings."""
         if not message or context_memory is None:
@@ -495,6 +588,10 @@ class BioPlugin:
         payload = action.get("payload", {}) or {}
         if action_type == "bio_full_request":
             targets = payload.get("targets", [])
+            # Fallback per compatibilità con formato vecchio
+            if not targets:
+                targets = action.get("targets", [])
+                
             bios = []
             for t in targets:
                 uid = self._resolve_target(t)
@@ -512,6 +609,13 @@ class BioPlugin:
         elif action_type == "bio_update":
             target = payload.get("target")
             fields = payload.get("fields", {})
+            
+            # Fallback per compatibilità con formato vecchio
+            if not target:
+                target = action.get("target")
+            if not fields:
+                fields = action.get("fields", {})
+                
             uid = self._resolve_target(target)
             if uid and isinstance(fields, dict):
                 update_bio_fields(uid, fields)

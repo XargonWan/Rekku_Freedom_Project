@@ -268,14 +268,19 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
         )
 
     payload = action.get("payload")
-    if payload is None:
+    
+    # Some actions (like bio plugins) support both payload and direct field format
+    # for backward compatibility
+    actions_with_flexible_payload = ["bio_update", "bio_full_request"]
+    
+    if payload is None and action_type not in actions_with_flexible_payload:
         errors.append("Missing 'payload'")
-    elif not isinstance(payload, dict):
+    elif payload is not None and not isinstance(payload, dict):
         errors.append("'payload' must be a dict")
 
     # Dynamic validation - delegate to plugins or interfaces that support this action type
-    if isinstance(payload, dict) and action_type in supported_types:
-        _validate_payload(action_type, payload, errors)
+    if (isinstance(payload, dict) or action_type in actions_with_flexible_payload) and action_type in supported_types:
+        _validate_payload(action_type, payload or {}, errors)
 
         if _is_restricted_action(action_type):
             mode = os.getenv("RESTRICT_ACTIONS", "on").lower()
@@ -594,30 +599,110 @@ async def run_action(action: Any, context: Dict[str, Any], bot, original_message
     return result
 
 
+async def _request_selective_correction(failed_actions, successful_actions, bot, context, original_message):
+    """Request LLM to fix only the failed actions, while preserving successful ones."""
+    from core.transport_layer import run_corrector_middleware
+    
+    # Build clear correction prompt
+    successful_count = len(successful_actions)
+    failed_count = len(failed_actions)
+    
+    # Extract successful action types for context
+    successful_types = [action.get("type", "unknown") for action in successful_actions]
+    
+    # Build detailed error descriptions
+    error_details = []
+    for failed in failed_actions:
+        action = failed["action"]
+        errors = failed["errors"]
+        error_details.append({
+            "action_type": action.get("type", "unknown"),
+            "errors": errors,
+            "original_action": action
+        })
+    
+    # Create a specialized correction prompt that only asks for failed actions
+    correction_context = {
+        "previous_response_status": "partial_success",
+        "successful_actions": successful_count,
+        "successful_types": successful_types,
+        "failed_actions": failed_count,
+        "correction_needed": True,
+        "instruction": f"""
+Your previous response was partially successful:
+✅ {successful_count} actions executed successfully: {', '.join(successful_types) if successful_types else 'none'}
+❌ {failed_count} actions failed and need correction
+
+Please provide ONLY the corrected versions of the failed actions. Do not repeat the {successful_count} successful actions.
+
+Failed actions with errors:
+"""
+    }
+    
+    for i, detail in enumerate(error_details, 1):
+        correction_context["instruction"] += f"\n{i}. Action '{detail['action_type']}' failed:\n"
+        for error in detail['errors']:
+            correction_context["instruction"] += f"   - {error}\n"
+    
+    correction_context["instruction"] += f"""
+Respond with JSON containing only the corrected actions (not the successful ones):
+{{
+  "actions": [
+    // Only the fixed versions of failed actions here
+  ]
+}}
+
+IMPORTANT: Do not include the {successful_count} actions that were already executed successfully ({', '.join(successful_types) if successful_types else 'none'}).
+"""
+    
+    log_info(f"[action_parser] Requesting selective correction for {failed_count} failed actions (preserving {successful_count} successful ones)")
+    log_debug(f"[action_parser] Correction context: {correction_context}")
+    
+    try:
+        # Create a synthetic message with correction context
+        import types
+        correction_message = types.SimpleNamespace()
+        correction_message.chat_id = getattr(original_message, 'chat_id', None)
+        correction_message.from_llm = True
+        correction_message.original_text = correction_context["instruction"]
+        correction_message.text = correction_context["instruction"]
+        
+        # Use existing corrector middleware but with selective context
+        await run_corrector_middleware(
+            text=correction_context["instruction"],
+            bot=bot,
+            context={**context, "selective_correction": True, "correction_context": correction_context},
+            chat_id=getattr(original_message, 'chat_id', None)
+        )
+    except Exception as e:
+        log_error(f"[action_parser] Failed to request selective correction: {e}")
+
+
 async def run_actions(actions: Any, context: Dict[str, Any], bot, original_message):
     """Execute multiple actions in sequence.
 
     If ``actions`` is a single dict, it will be wrapped in a list.
-    Invalid actions are logged and errors collected for auto-correction.
+    Valid actions are executed, invalid actions are collected for selective correction.
     
     Returns:
-        dict: {"processed": [successful_actions], "errors": [error_messages]}
+        dict: {"processed": [successful_actions], "errors": [error_messages], "failed_actions": [failed_actions]}
     """
     if actions is None:
-        return {"processed": [], "errors": []}
+        return {"processed": [], "errors": [], "failed_actions": []}
 
     if isinstance(actions, dict):
         actions = [actions]
     elif not isinstance(actions, list):
         error_msg = "[action_parser] run_actions expects a list or dict"
         log_error(error_msg)
-        return {"processed": [], "errors": [error_msg]}
+        return {"processed": [], "errors": [error_msg], "failed_actions": []}
 
     log_debug(f"[action_parser] run_actions called with {len(actions)} actions")
     log_debug(f"[action_parser] Actions: {actions}")
 
     processed_actions = []
     collected_errors = []
+    failed_actions = []
     action_outputs: List[Dict[str, Any]] = []
     terminal_seen = False
 
@@ -638,6 +723,7 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
                 error_msg = f"Invalid action {idx}: {errors}"
                 log_warning(f"[action_parser] Skipping {error_msg}")
                 collected_errors.append(error_msg)
+                failed_actions.append({"index": idx, "action": action, "errors": errors})
                 continue
 
             log_debug(f"[action_parser] Running action {idx}: {action_type}")
@@ -646,6 +732,7 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             # Check if run_action returned error info
             if isinstance(result, dict) and "error" in result:
                 collected_errors.append(result["error"])
+                failed_actions.append({"index": idx, "action": action, "errors": [result["error"]]})
             else:
                 processed_actions.append(action)
 
@@ -663,6 +750,7 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             error_msg = f"Error executing action {idx}: {repr(e)}"
             log_error(f"[action_parser] {error_msg}")
             collected_errors.append(error_msg)
+            failed_actions.append({"index": idx, "action": action, "errors": [error_msg]})
 
     # After all actions processed, mark scheduled event as delivered if applicable
     event_id = context.get("event_id") or getattr(original_message, "event_id", None)
@@ -711,23 +799,26 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
                 f"[action_parser] Failed to request LLM delivery for action outputs: {e}"
             )
 
-    if collected_errors:
-        # Only invoke corrector for errors that came from LLM messages
-        # System messages and interface messages should not trigger correction
+    if collected_errors and failed_actions:
+        # New selective corrector: only ask LLM to fix failed actions, not successful ones
         if hasattr(original_message, 'from_llm') and original_message.from_llm:
             try:
-                from core.transport_layer import run_corrector_middleware
-                # Ask the centralized middleware/orchestrator to handle correction attempts
-                # We provide the original message context so middleware can mark expectations.
-                await run_corrector_middleware(original_message.original_text if hasattr(original_message, 'original_text') else getattr(original_message, 'text', ''), bot=bot, context=context, chat_id=getattr(original_message, 'chat_id', None))
+                await _request_selective_correction(
+                    failed_actions=failed_actions,
+                    successful_actions=processed_actions,
+                    bot=bot,
+                    context=context,
+                    original_message=original_message
+                )
             except Exception as e:
-                log_warning(f"[action_parser] Failed to invoke corrector middleware: {e}")
+                log_warning(f"[action_parser] Failed to invoke selective correction: {e}")
         else:
             log_debug("[action_parser] Errors found but message is not from LLM; skipping correction to prevent loops")
 
     return {
         "processed": processed_actions,
         "errors": collected_errors,
+        "failed_actions": failed_actions,
         "action_outputs": action_outputs,
     }
 
@@ -974,8 +1065,16 @@ async def corrector_orchestrator(text: str, context: dict, bot, message, max_ret
 
         try:
             result = await run_actions(actions, context, bot, message)
-            log_info('[corrector_orchestrator] Actions executed successfully - interrupting correction loop')
-            return True
+            # Check if any actions were processed successfully
+            if isinstance(result, dict) and result.get("processed"):
+                log_info('[corrector_orchestrator] Actions executed successfully - interrupting correction loop')
+                return True
+            elif isinstance(result, dict) and result.get("errors"):
+                log_warning(f'[corrector_orchestrator] Actions failed with errors: {result.get("errors")}')
+                return False
+            else:
+                log_info('[corrector_orchestrator] Actions executed successfully - interrupting correction loop')
+                return True
         except Exception as e:
             log_warning(f"[corrector_orchestrator] Failed to run actions: {e}")
             return False
@@ -1042,9 +1141,17 @@ async def corrector_orchestrator(text: str, context: dict, bot, message, max_ret
                 return False
 
             try:
-                await run_actions(actions, context, bot, message)
-                log_info('[corrector_orchestrator] Corrected actions executed successfully - interrupting correction loop')
-                return True
+                result = await run_actions(actions, context, bot, message)
+                # Check if any actions were processed successfully
+                if isinstance(result, dict) and result.get("processed"):
+                    log_info('[corrector_orchestrator] Corrected actions executed successfully - interrupting correction loop')
+                    return True
+                elif isinstance(result, dict) and result.get("errors"):
+                    log_warning(f'[corrector_orchestrator] Corrected actions failed with errors: {result.get("errors")}')
+                    return False
+                else:
+                    log_info('[corrector_orchestrator] Corrected actions executed successfully - interrupting correction loop')
+                    return True
             except Exception as e:
                 log_warning(f"[corrector_orchestrator] Failed to run actions after correction: {e}")
                 return False
