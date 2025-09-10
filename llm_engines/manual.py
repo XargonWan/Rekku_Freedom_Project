@@ -10,6 +10,38 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 from interface.telegram_utils import safe_send
 import time
 
+# Manual AI-specific configuration
+MANUAL_CONFIG = {
+    "max_prompt_chars": 8000,   # Manual input, keep it short
+    "max_response_chars": 2000,
+    "supports_images": False,
+    "supports_functions": False,
+    "model_name": "manual",
+    "default_model": "manual",
+    "log_throttle_sec": 5,
+    "rate_limit_delay": 1
+}
+
+def get_manual_config() -> dict:
+    """Get Manual AI-specific configuration."""
+    return MANUAL_CONFIG.copy()
+
+def get_max_prompt_chars() -> int:
+    """Get maximum prompt characters for Manual AI."""
+    return MANUAL_CONFIG["max_prompt_chars"]
+
+def get_max_response_chars() -> int:
+    """Get maximum response characters for Manual AI."""
+    return MANUAL_CONFIG["max_response_chars"]
+
+def supports_images() -> bool:
+    """Check if Manual AI supports images."""
+    return MANUAL_CONFIG["supports_images"]
+
+def supports_functions() -> bool:
+    """Check if Manual AI supports functions."""
+    return MANUAL_CONFIG["supports_functions"]
+
 # Global variable for throttling manual logs
 _last_manual_log_time = 0
 _manual_log_throttle_sec = 5

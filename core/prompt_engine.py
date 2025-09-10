@@ -51,6 +51,40 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
     except Exception as e:
         log_warning(f"[json_prompt] Failed to gather static injections: {e}")
 
+    # === 3b. AI Diary injection ===
+    try:
+        from plugins.ai_diary import get_recent_entries, format_diary_for_injection, is_plugin_enabled, get_max_diary_chars, should_include_diary
+        
+        if is_plugin_enabled():
+            # Get interface name
+            interface_name = interface_name or "manual"
+            
+            # Calculate current prompt length (approximate)
+            current_length = len(json_dumps(context_section)) + len(text)
+            
+            # Estimate max prompt chars based on interface
+            max_prompt_chars = {
+                "openai_chatgpt": 32000,
+                "selenium_chatgpt": 25000,
+                "google_cli": 20000,
+                "manual": 8000
+            }.get(interface_name, 8000)
+            
+            # Check if we should include diary
+            if should_include_diary(interface_name, current_length, max_prompt_chars):
+                max_chars = get_max_diary_chars(interface_name, current_length)
+                recent_entries = get_recent_entries(days=2, max_chars=max_chars)
+                
+                if recent_entries:
+                    diary_content = format_diary_for_injection(recent_entries)
+                    context_section["diary"] = diary_content
+                    log_debug(f"[json_prompt] Added diary content: {len(diary_content)} chars")
+        
+    except ImportError:
+        log_debug("[json_prompt] AI Diary plugin not available")
+    except Exception as e:
+        log_warning(f"[json_prompt] Failed to add diary content: {e}")
+
     # === 4. Input payload ===
     message_thread_id = getattr(message, "message_thread_id", None)
     input_payload = {

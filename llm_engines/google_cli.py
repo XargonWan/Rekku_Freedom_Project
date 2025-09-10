@@ -8,6 +8,39 @@ from core.notifier import set_notifier
 from core.config import GEMINI_API_KEY
 from core.transport_layer import llm_to_interface
 
+# Google CLI-specific configuration
+GOOGLE_CLI_CONFIG = {
+    "max_prompt_chars": 20000,  # Google Gemini limits
+    "max_response_chars": 3000,
+    "supports_images": True,
+    "supports_functions": True,
+    "model_name": "gemini-pro",
+    "default_model": "google-cli",
+    "timeout": 30,
+    "max_retries": 3,
+    "temperature": 0.7
+}
+
+def get_google_cli_config() -> dict:
+    """Get Google CLI-specific configuration."""
+    return GOOGLE_CLI_CONFIG.copy()
+
+def get_max_prompt_chars() -> int:
+    """Get maximum prompt characters for Google CLI."""
+    return GOOGLE_CLI_CONFIG["max_prompt_chars"]
+
+def get_max_response_chars() -> int:
+    """Get maximum response characters for Google CLI."""
+    return GOOGLE_CLI_CONFIG["max_response_chars"]
+
+def supports_images() -> bool:
+    """Check if Google CLI supports images."""
+    return GOOGLE_CLI_CONFIG["supports_images"]
+
+def supports_functions() -> bool:
+    """Check if Google CLI supports functions."""
+    return GOOGLE_CLI_CONFIG["supports_functions"]
+
 class GoogleCLIPlugin(AIPluginBase):
     """
     LLM plugin to use google-cli as backend.

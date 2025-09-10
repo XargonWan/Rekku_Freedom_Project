@@ -7,6 +7,39 @@ from core.config import get_user_api_key
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.transport_layer import llm_to_interface
 
+# OpenAI-specific configuration
+OPENAI_CONFIG = {
+    "max_prompt_chars": 32000,  # Conservative estimate for GPT-4
+    "max_response_chars": 4000,
+    "supports_images": True,
+    "supports_functions": True,
+    "model_name": "gpt-4o",
+    "default_model": "gpt-3.5-turbo",
+    "temperature": 0.7,
+    "max_tokens": 4000,
+    "api_timeout": 30
+}
+
+def get_openai_config() -> dict:
+    """Get OpenAI-specific configuration."""
+    return OPENAI_CONFIG.copy()
+
+def get_max_prompt_chars() -> int:
+    """Get maximum prompt characters for OpenAI."""
+    return OPENAI_CONFIG["max_prompt_chars"]
+
+def get_max_response_chars() -> int:
+    """Get maximum response characters for OpenAI."""
+    return OPENAI_CONFIG["max_response_chars"]
+
+def supports_images() -> bool:
+    """Check if OpenAI supports images."""
+    return OPENAI_CONFIG["supports_images"]
+
+def supports_functions() -> bool:
+    """Check if OpenAI supports functions."""
+    return OPENAI_CONFIG["supports_functions"]
+
 class OpenAIPlugin(AIPluginBase):
 
     def __init__(self, notify_fn=None):

@@ -66,6 +66,7 @@ async def help_command() -> str:
     help_text += (
         "\n*📋 Misc*\n"
         "`/last_chats` – Last active chats\n"
+        "`/diary [days]` – View Rekku's diary entries (default: 7 days)\n"
         "`/purge_map [days]` – Purge old mappings\n"
         "`/clean_chat_link <chat_id>` – Remove the link between a chat and conversation.\n"
         "`/logchat` – Set the current chat as the log chat\n"
@@ -73,5 +74,52 @@ async def help_command() -> str:
     return help_text
 
 
+async def diary_command(days: str = "7") -> str:
+    """Get diary entries for the specified number of days."""
+    try:
+        from plugins.ai_diary import get_recent_entries, format_diary_for_injection, is_plugin_enabled
+        
+        if not is_plugin_enabled():
+            return "📔 Diary plugin is currently disabled or unavailable."
+        
+        # Parse days argument
+        try:
+            num_days = int(days) if days else 7
+            if num_days <= 0:
+                num_days = 7
+        except ValueError:
+            num_days = 7
+        
+        # Get recent entries (no char limit for manual viewing)
+        entries = get_recent_entries(days=num_days, max_chars=None)
+        
+        if not entries:
+            return f"📔 No diary entries found in the last {num_days} days."
+        else:
+            response = f"📔 **Rekku's Diary - Last {num_days} days ({len(entries)} entries)**\n\n"
+            response += format_diary_for_injection(entries)
+            response += f"\n\n_Use `/diary <days>` to view a different time range._"
+            return response
+    
+    except ImportError:
+        return "📔 Diary plugin is not installed."
+    except Exception as e:
+        log_debug(f"[command_registry] Error in diary command: {e}")
+        return "❌ Error retrieving diary entries."
+
+
+def get_help_text() -> str:
+    """Get help text for use in generic commands."""
+    import asyncio
+    try:
+        # Run the async help command
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(help_command())
+    except Exception as e:
+        log_debug(f"[command_registry] Error getting help text: {e}")
+        return "Help text unavailable."
+
+
 # Register default commands
 register_command("help", help_command)
+register_command("diary", diary_command)

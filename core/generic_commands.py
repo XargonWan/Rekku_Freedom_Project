@@ -29,6 +29,50 @@ async def generic_help_command(abstract_context: AbstractContext, reply_fn: Opti
     if reply_fn:
         await reply_fn(help_text)
 
+async def generic_diary_command(abstract_context: AbstractContext, reply_fn: Optional[Callable] = None, args: str = ""):
+    """Generic diary command that shows recent AI diary entries."""
+    if not abstract_context.is_trainer():
+        return
+    
+    try:
+        from plugins.ai_diary import get_recent_entries, format_diary_for_injection, is_plugin_enabled
+        
+        if not is_plugin_enabled():
+            if reply_fn:
+                await reply_fn("📔 Diary plugin is currently disabled or unavailable.")
+            return
+        
+        # Parse arguments for days filter
+        days = 7  # default
+        if args.strip():
+            try:
+                days = int(args.strip())
+                if days <= 0:
+                    days = 7
+            except ValueError:
+                pass
+        
+        # Get recent entries (no char limit for manual viewing)
+        entries = get_recent_entries(days=days, max_chars=None)
+        
+        if not entries:
+            response = f"📔 No diary entries found in the last {days} days."
+        else:
+            response = f"📔 **Rekku's Diary - Last {days} days ({len(entries)} entries)**\n\n"
+            response += format_diary_for_injection(entries)
+            response += f"\n\n_Use `/diary <days>` to view a different time range._"
+        
+        if reply_fn:
+            await reply_fn(response)
+    
+    except ImportError:
+        if reply_fn:
+            await reply_fn("📔 Diary plugin is not installed.")
+    except Exception as e:
+        log_warning(f"[generic_commands] Error in diary command: {e}")
+        if reply_fn:
+            await reply_fn("❌ Error retrieving diary entries.")
+
 # Function to create interface-specific command wrappers
 def create_command_wrapper(interface_name: str, adapter_fn: Callable, original_params_fn: Callable):
     """Create a wrapper that converts interface-specific parameters to AbstractContext."""

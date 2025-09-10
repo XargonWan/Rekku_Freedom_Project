@@ -815,12 +815,119 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
         else:
             log_debug("[action_parser] Errors found but message is not from LLM; skipping correction to prevent loops")
 
+    # Create diary entry for this interaction
+    await _create_diary_entry_for_actions(processed_actions, context, original_message)
+
     return {
         "processed": processed_actions,
         "errors": collected_errors,
         "failed_actions": failed_actions,
         "action_outputs": action_outputs,
     }
+
+
+async def _create_diary_entry_for_actions(processed_actions, context, original_message):
+    """Create a diary entry summarizing the actions performed during this interaction."""
+    if not processed_actions:
+        return
+    
+    try:
+        from plugins.ai_diary import add_diary_entry_async, is_plugin_enabled
+        
+        # Extract relevant information
+        interface_name = context.get("interface", "unknown")
+        chat_id = getattr(original_message, "chat_id", None)
+        thread_id = getattr(original_message, "message_thread_id", None)
+        
+        # Summarize actions performed
+        action_types = [action.get("type", "unknown") for action in processed_actions]
+        action_counts = {}
+        for action_type in action_types:
+            action_counts[action_type] = action_counts.get(action_type, 0) + 1
+        
+        # Create content summary
+        if len(action_counts) == 1:
+            action_type = list(action_counts.keys())[0]
+            count = action_counts[action_type]
+            if count == 1:
+                content = f"Performed {action_type} action"
+            else:
+                content = f"Performed {count} {action_type} actions"
+        else:
+            action_summary = ", ".join([f"{count} {action_type}" for action_type, count in action_counts.items()])
+            content = f"Performed multiple actions: {action_summary}"
+        
+        # Extract people involved from actions
+        involved_people = set()
+        for action in processed_actions:
+            payload = action.get("payload", {})
+            
+            # Extract from bio_update actions
+            if action.get("type") == "bio_update":
+                target = payload.get("target")
+                if target and target.lower() != "rekku":
+                    involved_people.add(target)
+            
+            # Extract from message actions
+            elif action.get("type") in ["message_telegram_bot", "message_discord_bot", "message_webui", "message_x"]:
+                # These are outgoing messages, people are implied from context
+                pass
+            
+            # Extract from terminal actions (might mention people in commands)
+            elif action.get("type") == "terminal":
+                command = payload.get("command", "")
+                # Simple heuristic: extract words that start with @ (mentions)
+                import re
+                mentions = re.findall(r'@(\w+)', command)
+                involved_people.update(mentions)
+        
+        # Convert to list and filter out Rekku
+        involved_list = [person for person in involved_people if person.lower() not in ["rekku", "bot"]]
+        
+        # Generate tags based on action types
+        tags = []
+        if "message_telegram_bot" in action_types or "message_discord_bot" in action_types:
+            tags.append("communication")
+        if "bio_update" in action_types or "bio_full_request" in action_types:
+            tags.append("personal_info")
+        if "terminal" in action_types:
+            tags.append("system")
+        if "event" in action_types:
+            tags.append("scheduling")
+        if "speech_selenium_elevenlabs" in action_types or "audio_telegram_bot" in action_types:
+            tags.append("audio")
+        
+        # Add interface tag
+        if interface_name != "unknown":
+            tags.append(interface_name)
+        
+        # Simple emotion inference based on action types
+        emotions = []
+        if "bio_update" in action_types:
+            emotions.append({"type": "helpful", "intensity": 7})
+        if "message_" in str(action_types):
+            emotions.append({"type": "engaged", "intensity": 6})
+        if "terminal" in action_types:
+            emotions.append({"type": "focused", "intensity": 5})
+        
+        # Create diary entry
+        if is_plugin_enabled():
+            await add_diary_entry_async(
+                content=content,
+                tags=tags,
+                involved=involved_list,
+                emotions=emotions,
+                interface=interface_name,
+                chat_id=str(chat_id) if chat_id else None,
+                thread_id=str(thread_id) if thread_id else None
+            )
+        else:
+            log_debug("[action_parser] Diary plugin disabled, skipping diary entry")
+        
+        log_debug(f"[action_parser] Created diary entry: {content}")
+        
+    except Exception as e:
+        log_warning(f"[action_parser] Failed to create diary entry: {e}")
 
 
 async def parse_action(action: dict, bot, message):

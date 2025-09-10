@@ -46,6 +46,41 @@ from core.notifier import set_notifier
 import core.recent_chats as recent_chats
 from core.ai_plugin_base import AIPluginBase
 
+# Selenium ChatGPT-specific configuration
+SELENIUM_CONFIG = {
+    "max_prompt_chars": 25000,  # Browser-based, more conservative
+    "max_response_chars": 4000,
+    "supports_images": True,
+    "supports_functions": False,  # Browser-based doesn't support functions
+    "model_name": "gpt-4o",
+    "default_model": "gpt-4o",
+    "browser_timeout": 30,
+    "page_load_timeout": 60,
+    "element_wait_timeout": 10,
+    "retry_attempts": 3,
+    "retry_delay": 2
+}
+
+def get_selenium_config() -> dict:
+    """Get Selenium ChatGPT-specific configuration."""
+    return SELENIUM_CONFIG.copy()
+
+def get_max_prompt_chars() -> int:
+    """Get maximum prompt characters for Selenium ChatGPT."""
+    return SELENIUM_CONFIG["max_prompt_chars"]
+
+def get_max_response_chars() -> int:
+    """Get maximum response characters for Selenium ChatGPT."""
+    return SELENIUM_CONFIG["max_response_chars"]
+
+def supports_images() -> bool:
+    """Check if Selenium ChatGPT supports images."""
+    return SELENIUM_CONFIG["supports_images"]
+
+def supports_functions() -> bool:
+    """Check if Selenium ChatGPT supports functions."""
+    return SELENIUM_CONFIG["supports_functions"]
+
 # Load environment variables for root password and other settings
 load_dotenv()
 
