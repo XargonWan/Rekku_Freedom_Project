@@ -6,10 +6,28 @@ from typing import Any, Callable
 import asyncio
 import aiomysql
 import threading
+from contextlib import asynccontextmanager
 
 from core.db import get_conn
-from core.logging_utils import log_error, log_info
+from core.logging_utils import log_error, log_info, log_debug
 from core.core_initializer import core_initializer, register_plugin
+
+
+@asynccontextmanager
+async def get_db():
+    """Context manager for MariaDB database connections."""
+    conn = None
+    try:
+        conn = await get_conn()
+        log_debug("[bio_manager] Opened database connection")
+        yield conn
+    except Exception as e:
+        log_error(f"[bio_manager] Database error: {e}")
+        raise
+    finally:
+        if conn:
+            conn.close()
+            log_debug("[bio_manager] Connection closed")
 
 
 JSON_LIST_FIELDS = {"known_as", "likes", "not_likes", "past_events", "feelings"}
@@ -33,6 +51,30 @@ DEFAULTS = {
     "created_at": "",
     "last_accessed": "",
 }
+
+
+async def init_bio_table():
+    """Initialize the bio table if it doesn't exist."""
+    async with get_db() as conn:
+        cursor = await conn.cursor()
+        await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bio (
+                id VARCHAR(255) PRIMARY KEY,
+                known_as TEXT DEFAULT '[]',
+                likes TEXT DEFAULT '[]',
+                not_likes TEXT DEFAULT '[]',
+                information TEXT DEFAULT '',
+                past_events TEXT DEFAULT '[]',
+                feelings TEXT DEFAULT '[]',
+                contacts TEXT DEFAULT '{}',
+                social_accounts TEXT DEFAULT '[]',
+                privacy TEXT DEFAULT '{}',
+                created_at VARCHAR(50),
+                last_accessed VARCHAR(50)
+            )
+        ''')
+        await conn.commit()
+        log_info("[bio_manager] Bio table initialized")
 
 
 def _run(coro):
@@ -79,39 +121,7 @@ async def _fetchone(query: str, params: tuple = ()):
 
 def _ensure_table() -> None:
     """Create the bio table if it doesn't exist."""
-    _run(
-        _execute(
-            """
-            CREATE TABLE IF NOT EXISTS bio (
-                id VARCHAR(255) PRIMARY KEY,
-                known_as TEXT,
-                likes TEXT,
-                not_likes TEXT,
-                information TEXT,
-                past_events TEXT,
-                feelings TEXT,
-                contacts TEXT,
-                social_accounts TEXT,
-                privacy TEXT,
-                created_at TEXT,
-                last_accessed TEXT
-            )
-            """
-        )
-    )
-
-    async def ensure_column() -> None:
-        conn = await get_conn()
-        try:
-            async with conn.cursor() as cur:
-                await cur.execute("SHOW COLUMNS FROM bio LIKE 'social_accounts'")
-                exists = await cur.fetchone()
-                if not exists:
-                    await cur.execute("ALTER TABLE bio ADD COLUMN social_accounts TEXT")
-        finally:
-            conn.close()
-
-    _run(ensure_column())
+    _run(init_bio_table())
 
 
 def _ensure_user_exists(user_id: str) -> None:
