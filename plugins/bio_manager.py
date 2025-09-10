@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable
 import asyncio
 import aiomysql
@@ -9,7 +9,7 @@ import threading
 from contextlib import asynccontextmanager
 
 from core.db import get_conn
-from core.logging_utils import log_error, log_info, log_debug
+from core.logging_utils import log_error, log_info, log_debug, log_warning
 from core.core_initializer import core_initializer, register_plugin
 
 
@@ -70,7 +70,9 @@ async def init_bio_table():
                 social_accounts TEXT DEFAULT '[]',
                 privacy TEXT DEFAULT '{}',
                 created_at VARCHAR(50),
-                last_accessed VARCHAR(50)
+                last_accessed VARCHAR(50),
+                last_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                update_count INT DEFAULT 0
             )
         ''')
         await conn.commit()
@@ -136,8 +138,8 @@ def _ensure_user_exists(user_id: str) -> None:
                 INSERT INTO bio (
                     id, known_as, likes, not_likes, information,
                     past_events, feelings, contacts, social_accounts,
-                    privacy, created_at, last_accessed
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    privacy, created_at, last_accessed, last_update, update_count
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     user_id,
@@ -152,6 +154,8 @@ def _ensure_user_exists(user_id: str) -> None:
                     "default",
                     now,
                     now,
+                    now,  # last_update
+                    0,    # update_count
                 ),
             )
         )
@@ -267,7 +271,90 @@ def get_bio_full(user_id: str) -> dict:
     result["privacy"] = row.get("privacy") or "default"
     result["created_at"] = row.get("created_at") or ""
     result["last_accessed"] = row.get("last_accessed") or ""
+    result["last_update"] = row.get("last_update") or ""
+    result["update_count"] = row.get("update_count") or 0
     return result
+
+
+def _validate_bio_consistency(existing_bio: dict, updates: dict) -> tuple[bool, str]:
+    """Validate bio updates for consistency with existing data."""
+    # Check age consistency
+    if 'information' in updates:
+        new_info = updates['information'].lower()
+        existing_info = existing_bio.get('information', '').lower()
+        
+        # Check for contradictory age information
+        import re
+        age_pattern = r'(\d{1,3})\s*(?:anni?|years?|old)'
+        new_ages = re.findall(age_pattern, new_info)
+        existing_ages = re.findall(age_pattern, existing_info)
+        
+        if new_ages and existing_ages:
+            new_age = int(new_ages[0])
+            existing_age = int(existing_ages[0])
+            if abs(new_age - existing_age) > 10:  # Age difference too large
+                return False, f"Age inconsistency detected: {existing_age} vs {new_age}"
+    
+    # Check name consistency
+    if 'known_as' in updates and existing_bio.get('known_as'):
+        new_names = set(updates['known_as'])
+        existing_names = set(existing_bio['known_as'])
+        if new_names and existing_names and not new_names.intersection(existing_names):
+            return False, "Name inconsistency: no matching names with existing bio"
+    
+    # Check location consistency (if mentioned in information)
+    if 'information' in updates:
+        new_info = updates['information'].lower()
+        existing_info = existing_bio.get('information', '').lower()
+        
+        # Extract locations (simple heuristic)
+        locations = ['tokyo', 'japan', 'osaka', 'kyoto', 'kizugawa', 'italy', 'rome', 'milan']
+        new_locations = [loc for loc in locations if loc in new_info]
+        existing_locations = [loc for loc in locations if loc in existing_info]
+        
+        if new_locations and existing_locations:
+            if not set(new_locations).intersection(set(existing_locations)):
+                return False, f"Location inconsistency: {existing_locations} vs {new_locations}"
+    
+    return True, ""
+
+
+def _check_update_limits(user_id: str, updates: dict) -> tuple[bool, str]:
+    """Check update frequency and amplitude limits."""
+    try:
+        # Get current bio data including update tracking
+        current = get_bio_full(user_id)
+        last_update_str = current.get('last_update', '')
+        update_count = current.get('update_count', 0)
+        
+        # Parse last update time
+        if last_update_str:
+            try:
+                last_update = datetime.fromisoformat(last_update_str.replace('Z', '+00:00'))
+            except:
+                last_update = datetime.utcnow() - timedelta(hours=2)  # Default to 2 hours ago
+        else:
+            last_update = datetime.utcnow() - timedelta(hours=2)
+        
+        now = datetime.utcnow()
+        
+        # Frequency check: minimum 1 hour between updates
+        if (now - last_update) < timedelta(hours=1):
+            return False, "Updates too frequent. Please wait at least 1 hour between updates."
+        
+        # Amplitude check: maximum 3 fields per update
+        if len(updates) > 3:
+            return False, f"Too many fields updated at once ({len(updates)}). Maximum 3 fields per update."
+        
+        # Daily limit: maximum 5 updates per day
+        if update_count >= 5 and (now - last_update) < timedelta(days=1):
+            return False, "Daily update limit reached (5 updates per day)."
+        
+        return True, ""
+        
+    except Exception as e:
+        log_warning(f"[bio] Error checking update limits: {e}")
+        return True, ""  # Allow update on error to avoid blocking legitimate updates
 
 
 def update_bio_fields(user_id: str, updates: dict) -> None:
@@ -276,8 +363,20 @@ def update_bio_fields(user_id: str, updates: dict) -> None:
     if not updates:
         return
 
+    # Validate update limits
+    limits_ok, limit_msg = _check_update_limits(user_id, updates)
+    if not limits_ok:
+        log_warning(f"[bio] Update rejected for user {user_id}: {limit_msg}")
+        raise ValueError(f"Bio update rejected: {limit_msg}")
+
     _ensure_user_exists(user_id)
     current = get_bio_full(user_id)
+
+    # Validate consistency
+    consistency_ok, consistency_msg = _validate_bio_consistency(current, updates)
+    if not consistency_ok:
+        log_warning(f"[bio] Inconsistent update for user {user_id}: {consistency_msg}")
+        raise ValueError(f"Bio update rejected: {consistency_msg}")
 
     merged: dict[str, Any] = {}
 
@@ -303,14 +402,19 @@ def update_bio_fields(user_id: str, updates: dict) -> None:
         else:
             merged[field] = new_val
 
+    # Update tracking fields
+    now = datetime.utcnow().isoformat()
+    merged['last_update'] = now
+    merged['update_count'] = (current.get('update_count', 0) + 1) % 6  # Reset after 5 updates
+
     _run(
         _execute(
             """
             REPLACE INTO bio (
                 id, known_as, likes, not_likes, information,
                 past_events, feelings, contacts, social_accounts,
-                privacy, created_at, last_accessed
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                privacy, created_at, last_accessed, last_update, update_count
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 user_id,
@@ -325,6 +429,8 @@ def update_bio_fields(user_id: str, updates: dict) -> None:
                 json.dumps(merged.get("privacy") or {}),
                 str(merged.get("created_at") or datetime.utcnow().isoformat()),
                 str(merged.get("last_accessed") or datetime.utcnow().isoformat()),
+                merged.get("last_update"),
+                merged.get("update_count"),
             ),
         )
     )

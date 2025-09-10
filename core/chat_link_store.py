@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Optional, Dict, Any, Callable, Awaitable
 
 import aiomysql
+import json
 
 from core.logging_utils import log_debug, log_error, log_warning
 from core.db import get_conn
@@ -67,6 +68,16 @@ class ChatLinkStore:
         """Return ``message_thread_id`` as a non-null string."""
         return str(message_thread_id) if message_thread_id is not None else "0"
 
+    def _normalize_interface(self, interface: str) -> str:
+        """Normalize interface names to standard format."""
+        # Correct common interface name issues
+        corrections = {
+            'discord_bot': 'discord',
+            'telegram_bot': 'telegram',
+            # Add other corrections as needed
+        }
+        return corrections.get(interface, interface)
+
     def _normalize_name(self, value: Optional[str]) -> Optional[str]:
         """Return a cleaned name or ``None`` if not provided."""
         if value is None:
@@ -122,6 +133,174 @@ class ChatLinkStore:
         conn.close()
         self._table_ensured = True
 
+    async def _ensure_new_table(self) -> None:
+        """Create the new ``chatlink`` table with improved structure."""
+        if hasattr(self, '_new_table_ensured') and self._new_table_ensured:
+            return
+        conn = await get_conn()
+        async with conn.cursor() as cursor:
+            # Create new table with improved structure
+            await cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chatlink (
+                    int_id INT AUTO_INCREMENT PRIMARY KEY,
+                    interface VARCHAR(32) NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    thread_id JSON NOT NULL DEFAULT ('[]'),
+                    chatgpt_link VARCHAR(2048),
+                    last_contact TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    chat_name TEXT,
+                    message_thread_name TEXT,
+                    UNIQUE KEY unique_chat (interface, chat_id(255))
+                )
+                """
+            )
+            await conn.commit()
+        conn.close()
+        self._new_table_ensured = True
+
+    async def get_or_create_internal_id(
+        self,
+        chat_id: int | str,
+        message_thread_id: Optional[int | str],
+        interface: Optional[str] = None,
+        *,
+        chat_name: Optional[str] = None,
+        message_thread_name: Optional[str] = None,
+    ) -> int:
+        """Get or create an internal ID for a chat, managing thread_id as JSON array."""
+        if interface is None:
+            raise ValueError("Interface must be specified")
+
+        interface = self._normalize_interface(interface)
+        await self._ensure_new_table()
+
+        normalized_thread = self._normalize_thread_id(message_thread_id)
+        chat_id_str = str(chat_id)
+        name = self._normalize_name(chat_name)
+        thread_name = self._normalize_name(message_thread_name)
+
+        conn = await get_conn()
+        try:
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
+                # Try to find existing entry for this chat (ignoring specific thread)
+                await cursor.execute(
+                    """
+                    SELECT int_id, thread_id FROM chatlink
+                    WHERE interface = %s AND chat_id = %s
+                    """,
+                    (interface, chat_id_str),
+                )
+                row = await cursor.fetchone()
+                if row:
+                    # Entry exists, check if thread is already in the array
+                    existing_threads = json.loads(row['thread_id']) if row['thread_id'] else []
+                    if normalized_thread not in existing_threads:
+                        # Add new thread to the array
+                        existing_threads.append(normalized_thread)
+                        updated_threads = json.dumps(existing_threads)
+                        await cursor.execute(
+                            """
+                            UPDATE chatlink
+                            SET thread_id = %s, last_contact = CURRENT_TIMESTAMP
+                            WHERE int_id = %s
+                            """,
+                            (updated_threads, row['int_id']),
+                        )
+                        await conn.commit()
+                        log_debug(f"[chatlink] Added thread {normalized_thread} to existing chat {chat_id_str}")
+                    return row['int_id']
+
+                # Create new entry for this chat
+                thread_json = json.dumps([normalized_thread])
+                await cursor.execute(
+                    """
+                    INSERT INTO chatlink
+                        (interface, chat_id, thread_id, chat_name, message_thread_name)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (interface, chat_id_str, thread_json, name, thread_name),
+                )
+                await conn.commit()
+                new_id = cursor.lastrowid
+                log_debug(f"[chatlink] Created new chat entry {chat_id_str} with thread {normalized_thread}")
+                return new_id
+        finally:
+            conn.close()
+
+    async def update_chatgpt_link(
+        self,
+        internal_id: int,
+        chatgpt_link: str,
+    ) -> None:
+        """Update the ChatGPT link for an existing internal ID."""
+        await self._ensure_new_table()
+        conn = await get_conn()
+        try:
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    UPDATE chatlink
+                    SET chatgpt_link = %s, last_contact = CURRENT_TIMESTAMP
+                    WHERE int_id = %s
+                    """,
+                    (chatgpt_link, internal_id),
+                )
+                await conn.commit()
+        finally:
+            conn.close()
+        log_debug(f"[chatlink] Updated ChatGPT link for internal_id {internal_id} -> {chatgpt_link}")
+
+    async def update_thread_name(
+        self,
+        chat_id: int | str,
+        message_thread_id: Optional[int | str],
+        thread_name: str,
+        interface: Optional[str] = None,
+    ) -> bool:
+        """Update the name of a specific thread in the chat."""
+        if interface is None:
+            raise ValueError("Interface must be specified")
+
+        interface = self._normalize_interface(interface)
+        await self._ensure_new_table()
+
+        normalized_thread = self._normalize_thread_id(message_thread_id)
+        chat_id_str = str(chat_id)
+        normalized_name = self._normalize_name(thread_name)
+
+        conn = await get_conn()
+        try:
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
+                # Find the chat entry
+                await cursor.execute(
+                    """
+                    SELECT int_id, thread_id FROM chatlink
+                    WHERE interface = %s AND chat_id = %s
+                    """,
+                    (interface, chat_id_str),
+                )
+                row = await cursor.fetchone()
+                if row and row['thread_id']:
+                    existing_threads = json.loads(row['thread_id'])
+                    if normalized_thread in existing_threads:
+                        # For now, just update the general message_thread_name field
+                        # In future, could maintain a mapping of thread_id -> name
+                        await cursor.execute(
+                            """
+                            UPDATE chatlink
+                            SET message_thread_name = %s, last_contact = CURRENT_TIMESTAMP
+                            WHERE int_id = %s
+                            """,
+                            (normalized_name, row['int_id']),
+                        )
+                        await conn.commit()
+                        log_debug(f"[chatlink] Updated thread name for {chat_id_str}/{normalized_thread} -> {normalized_name}")
+                        return True
+        finally:
+            conn.close()
+        return False
+
     # ------------------------------------------------------------------
     # CRUD operations
     async def get_link(
@@ -138,6 +317,8 @@ class ChatLinkStore:
         # Require interface to be specified
         if interface is None:
             raise ValueError("Interface must be specified")
+
+        interface = self._normalize_interface(interface)
 
         await self._ensure_table()
         conn = await get_conn()
@@ -202,6 +383,8 @@ class ChatLinkStore:
         if interface is None:
             raise ValueError("Interface must be specified")
 
+        interface = self._normalize_interface(interface)
+
         await self._ensure_table()
         normalized = self._normalize_thread_id(message_thread_id)
         chat_id_str = str(chat_id)
@@ -250,6 +433,8 @@ class ChatLinkStore:
         # Require interface to be specified
         if interface is None:
             raise ValueError("Interface must be specified")
+
+        interface = self._normalize_interface(interface)
 
         await self._ensure_table()
         conn = await get_conn()
@@ -307,6 +492,7 @@ class ChatLinkStore:
         # Require interface to be specified
         if interface is None:
             raise ValueError("Interface must be specified")
+        interface = self._normalize_interface(interface)
         await self._ensure_table()
         normalized = self._normalize_thread_id(message_thread_id)
         chat_id_str = str(chat_id)
@@ -344,6 +530,7 @@ class ChatLinkStore:
 
         if interface is None:
             raise ValueError("Interface must be specified for name resolution")
+        interface = self._normalize_interface(interface)
         resolver = self._get_resolver(interface)
         if not resolver:
             return False
@@ -383,6 +570,7 @@ class ChatLinkStore:
                 clauses = []
                 params: list[Any] = []
                 if interface is not None:
+                    interface = self._normalize_interface(interface)
                     clauses.append("interface = %s")
                     params.append(interface)
                 if chat_id is not None:
