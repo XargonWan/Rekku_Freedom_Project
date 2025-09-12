@@ -451,13 +451,17 @@ def update_bio_fields(user_id: str, updates: dict) -> None:
             merged[field] = old_val
             continue
 
+        log_debug(f"[bio] Merging field '{field}': old={old_val}, new={new_val}")
+        
         if isinstance(old_val, list) and isinstance(new_val, list):
             unique = {json.dumps(x) for x in old_val + new_val}
             merged[field] = [json.loads(x) for x in unique]
+            log_debug(f"[bio] Merged list for '{field}': {merged[field]}")
         elif isinstance(old_val, dict) and isinstance(new_val, dict):
             merged[field] = _merge_nested_dicts(old_val, new_val)
         else:
             merged[field] = new_val
+            log_debug(f"[bio] Direct assignment for '{field}': {merged[field]}")
 
     # Update tracking fields
     now = datetime.utcnow().isoformat()
@@ -790,14 +794,19 @@ class BioPlugin:
                 if uid:
                     bios.append(get_bio_full(uid))
             if bios:
-                import asyncio
-
-                asyncio.create_task(
-                    bot.send_message(
-                        original_message.chat_id,
-                        json.dumps(bios, ensure_ascii=False),
-                    )
-                )
+                # Return the bios data instead of trying to send directly
+                return {
+                    "success": True,
+                    "action_type": "bio_full_request",
+                    "data": bios,
+                    "message": f"Retrieved {len(bios)} bio(s)"
+                }
+            else:
+                return {
+                    "success": False,
+                    "action_type": "bio_full_request", 
+                    "message": "No matching bios found"
+                }
         elif action_type == "bio_update":
             target = payload.get("target")
             fields = payload.get("fields", {})
@@ -810,7 +819,31 @@ class BioPlugin:
                 
             uid = self._resolve_target(target)
             if uid and isinstance(fields, dict):
-                update_bio_fields(uid, fields)
+                try:
+                    update_bio_fields(uid, fields)
+                    return {
+                        "success": True,
+                        "action_type": "bio_update",
+                        "message": f"Updated bio for user {target}",
+                        "updated_fields": list(fields.keys())
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "action_type": "bio_update",
+                        "message": f"Failed to update bio: {e}"
+                    }
+            else:
+                return {
+                    "success": False,
+                    "action_type": "bio_update",
+                    "message": f"Invalid target '{target}' or fields"
+                }
+        
+        return {
+            "success": False,
+            "message": f"Unsupported action type: {action_type}"
+        }
 
 
 PLUGIN_CLASS = BioPlugin
