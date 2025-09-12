@@ -297,6 +297,49 @@ class ChatLinkStore:
         finally:
             conn.close()
 
+    async def update_names_from_resolver(
+        self,
+        chat_id: int | str,
+        message_thread_id: Optional[int | str],
+        *,
+        interface: Optional[str] = None,
+        bot: Any = None,
+    ) -> bool:
+        """Use the registered resolver to update chat/thread names."""
+        if interface is None:
+            log_warning("[chatlink] Interface must be specified for name resolution")
+            return False
+            
+        resolver = self.get_name_resolver(interface)
+        if not resolver:
+            log_debug(f"[chatlink] No resolver registered for interface: {interface}")
+            return False
+            
+        try:
+            try:
+                result = await resolver(chat_id, message_thread_id, bot)
+            except TypeError:  # resolver might not accept bot parameter
+                result = await resolver(chat_id, message_thread_id)
+        except Exception as e:
+            log_warning(f"[chatlink] Resolver execution failed: {e}")
+            return False
+            
+        if not result:
+            log_debug("[chatlink] Resolver returned no result")
+            return False
+            
+        # Update names using the resolved values
+        affected_rows = await self.update_chat_names(
+            chat_id,
+            message_thread_id,
+            interface,
+            chat_name=result.get("chat_name"),
+            message_thread_name=result.get("message_thread_name"),
+        )
+        
+        log_debug(f"[chatlink] Updated {affected_rows} records with resolved names")
+        return affected_rows > 0
+
     async def list_all_links(self, interface: Optional[str] = None) -> List[Dict[str, Any]]:
         """List all stored chat links, optionally filtered by interface."""
         await self._ensure_table()

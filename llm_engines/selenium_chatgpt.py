@@ -1300,18 +1300,91 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     async def handle_incoming_message(self, bot, message, prompt):
         """Handle incoming messages by queuing them for processing."""
         try:
-            # Queue the message for processing
-            await self._queue.put((bot, message, prompt))
-            log_debug(f"[selenium] Message queued for processing: chat_id={message.chat_id}")
+            # Check if this is a correction request by examining the prompt structure
+            is_correction = (
+                isinstance(prompt, str) and 
+                ("correction" in prompt.lower() or "corrected" in prompt.lower() or 
+                 "failed actions" in prompt.lower() or "valid JSON" in prompt.lower())
+            ) or (
+                isinstance(prompt, dict) and 
+                prompt.get("system_message", {}).get("type") == "error"
+            )
             
-            # Ensure worker is running
-            if not self.is_worker_running():
-                await self.start()
+            if is_correction:
+                # For correction requests, process synchronously and return the response
+                log_debug(f"[selenium] Processing correction request synchronously: chat_id={message.chat_id}")
                 
+                # Initialize driver if needed
+                if not self.driver:
+                    self._init_driver()
+                
+                # Process the correction message directly
+                response_text = await self._process_correction_message(bot, message, prompt)
+                return response_text
+            else:
+                # For normal messages, use the queue system
+                await self._queue.put((bot, message, prompt))
+                log_debug(f"[selenium] Message queued for processing: chat_id={message.chat_id}")
+                
+                # Ensure worker is running
+                if not self.is_worker_running():
+                    await self.start()
+                    
         except Exception as e:
             log_error(f"[selenium] Failed to queue message: {repr(e)}", e)
             # Send error message if queuing fails
             await self._send_error_message(bot, message, error_text=f"Failed to queue message: {e}")
+            
+    async def _process_correction_message(self, bot, message, prompt):
+        """Process a correction message synchronously and return the response."""
+        try:
+            log_debug(f"[selenium] Processing correction prompt: {prompt}")
+            
+            # Handle both dict and string inputs
+            if isinstance(prompt, dict):
+                prompt_text = json.dumps(prompt, ensure_ascii=False)
+            else:
+                prompt_text = prompt
+            
+            # Disable driver initialization retries for correction processing
+            max_attempts = 1
+            response_text = None
+            
+            for attempt in range(max_attempts):
+                try:
+                    if not self.driver:
+                        self._init_driver()
+                    
+                    # Get chat ID for ChatGPT conversation
+                    chat_id = await chat_link_store.get_link(
+                        message.chat_id, 
+                        getattr(message, "message_thread_id", None),
+                        interface=self._get_interface_name(bot)
+                    )
+                    
+                    # Process the prompt in ChatGPT
+                    previous_text = get_previous_response(str(message.chat_id))
+                    response_text = process_prompt_in_chat(
+                        self.driver, chat_id, prompt_text, previous_text
+                    )
+                    
+                    if response_text:
+                        # Update response cache
+                        update_previous_response(str(message.chat_id), response_text)
+                        log_debug(f"[selenium] Correction response generated: {len(response_text)} chars")
+                        return response_text.strip()
+                    else:
+                        log_warning("[selenium] No response from ChatGPT for correction")
+                        return None
+                        
+                except Exception as e:
+                    log_error(f"[selenium] Error processing correction message: {e}")
+                    if attempt == max_attempts - 1:
+                        return None
+                        
+        except Exception as e:
+            log_error(f"[selenium] Failed to process correction message: {e}")
+            return None
 
     async def _worker_loop(self):
         """Process messages from the queue sequentially."""
