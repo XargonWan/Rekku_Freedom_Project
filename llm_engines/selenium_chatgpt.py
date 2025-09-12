@@ -85,7 +85,7 @@ def supports_functions() -> bool:
 load_dotenv()
 
 # ChatLinkStore: manages mapping between interface chats and ChatGPT conversations
-from core.chat_link_store import ChatLinkStore
+from plugins.chat_link import ChatLinkStore
 from interface.telegram_utils import safe_send
 
 # Fallback for notify_trainer when core.notifier module is unavailable
@@ -1149,9 +1149,11 @@ CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "GPT-4o")
 
 def select_chatgpt_model(driver):
     """Seleziona il modello di ChatGPT in base alla variabile di ambiente CHATGPT_MODEL."""
-    target_model = os.environ.get("CHATGPT_MODEL")
-    if not target_model:
-        raise RuntimeError("La variabile d'ambiente CHATGPT_MODEL non è definita")
+    # Usa la variabile già definita che ha il default
+    target_model = CHATGPT_MODEL
+    if not target_model or target_model.strip() == "":
+        log_info("[chatgpt_model] CHATGPT_MODEL not set, using default model")
+        return
 
     # 1. Clicca sul pulsante del selettore in alto
     selector = WebDriverWait(driver, 10).until(
@@ -1189,27 +1191,23 @@ def select_chatgpt_model(driver):
 
 def ensure_chatgpt_model(driver):
     """Ensure the desired ChatGPT model is active before sending a prompt."""
-    # Se CHATGPT_MODEL non è settata o è vuota, skippiamo la selezione
-    if not CHATGPT_MODEL or CHATGPT_MODEL.strip() == "":
-        log_info("[chatgpt_model] CHATGPT_MODEL not set, skipping model selection")
-        return True
-    
     try:
         log_info(f"[chatgpt_model] Ensuring model {CHATGPT_MODEL} is active")
         select_chatgpt_model(driver)
-        log_info(f"[chatgpt_model] Model {CHATGPT_MODEL} selected successfully")
+        log_info(f"[chatgpt_model] Model {CHATGPT_MODEL} configured successfully")
         return True
     except Exception as e:
-        log_error(f"[chatgpt_model] Error selecting model {CHATGPT_MODEL}: {e}")
+        log_warning(f"[chatgpt_model] Could not configure model {CHATGPT_MODEL}: {e}")
+        log_info("[chatgpt_model] Continuing with current/default model")
         try:
             screenshots_dir = os.path.join(_LOG_DIR, "screenshots")
             os.makedirs(screenshots_dir, exist_ok=True)
             screenshot_path = os.path.join(screenshots_dir, "model_switch_error.png")
             driver.save_screenshot(screenshot_path)
-            log_warning(f"[chatgpt_model] Saved screenshot {screenshot_path}")
+            log_info(f"[chatgpt_model] Saved screenshot {screenshot_path}")
         except Exception as ss:
             log_warning(f"[chatgpt_model] Screenshot failed: {ss}")
-        return False
+        return True  # Non bloccare l'esecuzione, continua con il modello corrente
 
 class SeleniumChatGPTPlugin(AIPluginBase):
     # [FIX] shared locks per chat
@@ -1962,7 +1960,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 if path and go_to_chat_by_path_with_retries(driver, path):
                     chat_id = _extract_chat_id(driver.current_url)
                     if chat_id:
-                        await chat_link_store.save_link(
+                        await chat_link_store.store_link(
                             message.chat_id,
                             message_thread_id,
                             chat_id,
@@ -2046,7 +2044,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         log_debug(f"[selenium][DEBUG] New chat created, extracted ID: {new_chat_id}")
                         log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
                         if new_chat_id:
-                            await chat_link_store.save_link(
+                            await chat_link_store.store_link(
                                 message.chat_id,
                                 message_thread_id,
                                 new_chat_id,
@@ -2070,7 +2068,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     response_text = process_prompt_in_chat(driver, None, prompt_text, "", temp_image_path)
                     new_chat_id = _extract_chat_id(driver.current_url)
                     if new_chat_id:
-                        await chat_link_store.save_link(
+                        await chat_link_store.store_link(
                             message.chat_id,
                             message_thread_id,
                             new_chat_id,
@@ -2165,7 +2163,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 return f"✅ Link for chat_id={chat_id} successfully removed."
             else:
                 new_chat_id = f"new_chat_{chat_id}"
-                await chat_link_store.save_link(
+                await chat_link_store.store_link(
                     chat_id, None, new_chat_id, interface=interface
                 )
                 log_debug(f"[clean_chat_link] No link found. Created new link: {new_chat_id}")

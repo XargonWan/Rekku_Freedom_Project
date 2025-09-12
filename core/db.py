@@ -147,46 +147,11 @@ async def test_connection() -> bool:
         return False
 
 async def init_db() -> None:
-    """Asynchronously initialize essential MariaDB tables."""
+    """Asynchronously initialize essential MariaDB tables (core only)."""
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
-            # memories table
-            await cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS memories (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    timestamp DATETIME NOT NULL,
-                    content TEXT NOT NULL,
-                    author VARCHAR(100),
-                    source VARCHAR(100),
-                    tags TEXT,
-                    scope VARCHAR(50),
-                    emotion VARCHAR(50),
-                    intensity INT,
-                    emotion_state VARCHAR(50)
-                )
-                """
-            )
-
-            # emotion_diary table
-            await cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS emotion_diary (
-                    id VARCHAR(100) PRIMARY KEY,
-                    source VARCHAR(100),
-                    event TEXT,
-                    emotion VARCHAR(50),
-                    intensity INT,
-                    state VARCHAR(50),
-                    trigger_condition TEXT,
-                    decision_logic TEXT,
-                    next_check DATETIME
-                )
-                """
-            )
-
-            # settings table for configuration values
+            # settings table for configuration values - core functionality
             await cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS settings (
@@ -194,19 +159,6 @@ async def init_db() -> None:
                     `value` TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-                )
-                """
-            )
-
-            # recent_chats table for tracking active chats
-            await cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS recent_chats (
-                    chat_id BIGINT PRIMARY KEY,
-                    last_active DOUBLE NOT NULL,
-                    metadata TEXT,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    INDEX idx_last_active (last_active)
                 )
                 """
             )

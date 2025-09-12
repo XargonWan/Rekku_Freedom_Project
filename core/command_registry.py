@@ -1,6 +1,7 @@
 """Backend registry for slash commands usable by any interface."""
 
 from typing import Awaitable, Callable, Dict, Any
+import inspect
 from core.logging_utils import log_debug
 import core.plugin_instance as plugin_instance
 from core.context import get_context_state
@@ -30,6 +31,57 @@ async def execute_command(name: str, *args: Any, **kwargs: Any) -> str:
     if not handler:
         raise ValueError(f"Unknown command: {name}")
     return await handler(*args, **kwargs)
+
+
+async def handle_command_message(command_text: str, user_id: int = None, interface_id: str = None, interface_context=None) -> str:
+    """
+    Generic command handler for all interfaces.
+    
+    Args:
+        command_text: The command text (e.g., "/help" or "help arg1 arg2")
+        user_id: User ID for permission checking (optional)
+        interface_id: Interface identifier for specific handling (optional)
+        interface_context: Interface-specific context (bot instance, update, etc.)
+    
+    Returns:
+        Response text to send back to user
+    """
+    from core.interfaces_registry import get_interface_registry
+    
+    # Parse command and arguments
+    parts = command_text.strip().split()
+    if not parts:
+        return "❌ Invalid command."
+    
+    command_name = parts[0]
+    if command_name.startswith('/'):
+        command_name = command_name[1:]  # Remove leading slash
+    
+    args = parts[1:] if len(parts) > 1 else []
+    
+    # Check if command exists
+    if command_name not in _commands:
+        return f"❌ Unknown command: `/{command_name}`. Use `/help` to see available commands."
+    
+    # Permission check - most commands require trainer privileges
+    interface_registry = get_interface_registry()
+    if user_id and interface_id:
+        if not interface_registry.is_trainer(interface_id, user_id):
+            return "❌ Access denied. This command requires trainer privileges."
+    
+    try:
+        # Pass interface context to commands that support it
+        handler = _commands[command_name]
+        import inspect
+        sig = inspect.signature(handler)
+        if 'interface_context' in sig.parameters:
+            result = await handler(*args, interface_context=interface_context)
+        else:
+            result = await handler(*args)
+        return result
+    except Exception as e:
+        log_debug(f"[command_registry] Error executing command {command_name}: {e}")
+        return f"❌ Error executing command: {e}"
 
 
 async def help_command() -> str:
@@ -123,3 +175,282 @@ def get_help_text() -> str:
 # Register default commands
 register_command("help", help_command)
 register_command("diary", diary_command)
+
+
+async def llm_command(*args) -> str:
+    """Handle LLM switching command."""
+    from core.config import get_active_llm, set_active_llm, list_available_llms
+    
+    current = await get_active_llm()
+    available = list_available_llms()
+
+    if not args:
+        msg = f"*Active LLM:* `{current}`\n\n*Available:*"
+        msg += "\n" + "\n".join(f"• `{name}`" for name in available)
+        msg += "\n\nTo change: `/llm <name>`"
+        return msg
+
+    choice = args[0]
+    if choice not in available:
+        return f"❌ LLM `{choice}` not found."
+
+    try:
+        await set_active_llm(choice)
+        
+        # Reload system with new LLM
+        from core.core_initializer import core_initializer
+        # Note: This should be handled by the interface that needs notification
+        await core_initializer.initialize_all()
+        
+        return f"✅ LLM mode dynamically updated to `{choice}`."
+    except Exception as e:
+        return f"❌ Error loading plugin: {e}"
+
+
+async def model_command(*args) -> str:
+    """Handle model switching command."""
+    import core.plugin_instance as plugin_instance
+    
+    try:
+        models = plugin_instance.get_supported_models()
+    except Exception:
+        return "⚠️ This plugin does not support model selection."
+
+    if not models:
+        return "⚠️ No models available for this plugin."
+
+    if not args:
+        current = plugin_instance.get_current_model() or models[0]
+        msg = f"*Available models:*\n" + "\n".join(f"• `{m}`" for m in models)
+        msg += f"\n\nActive model: `{current}`"
+        msg += "\n\nTo change: `/model <name>`"
+        return msg
+
+    choice = args[0]
+    if choice not in models:
+        return f"❌ Model `{choice}` not valid."
+
+    try:
+        plugin_instance.set_current_model(choice)
+        return f"✅ Model updated to `{choice}`."
+    except Exception as e:
+        return f"❌ Error changing model: {e}"
+
+
+async def last_chats_command(*args) -> str:
+    """Get last active chats."""
+    from core import recent_chats
+    # Note: This is interface-agnostic but needs context from interface
+    # The interface should handle the formatting
+    entries = await recent_chats.get_last_active_chats_verbose(10, None)
+    if not entries:
+        return "⚠️ No recent chat found."
+    
+    lines = [f"{name} — `{cid}`" for cid, name in entries]
+    return "🕔 Last active chats:\n" + "\n".join(lines)
+
+
+async def context_command(*args) -> str:
+    """Handle context enable/disable."""
+    from core.context import toggle_context_state, get_context_state
+    
+    if args and args[0].lower() in ['on', 'enable', 'true', '1']:
+        from core.context import enable_context
+        enable_context()
+        return "✅ Context mode enabled."
+    elif args and args[0].lower() in ['off', 'disable', 'false', '0']:
+        from core.context import disable_context
+        disable_context()
+        return "❌ Context mode disabled."
+    else:
+        # Toggle
+        toggle_context_state()
+        state = "enabled" if get_context_state() else "disabled"
+        return f"🔄 Context mode {state}."
+
+
+register_command("llm", llm_command)
+register_command("model", model_command)
+register_command("last_chats", last_chats_command)
+register_command("context", context_command)
+
+
+async def block_command(*args) -> str:
+    """Block a user by ID."""
+    if not args:
+        return "❌ Use: `/block <user_id>`"
+    
+    try:
+        from plugins.blocklist import block_user
+        user_id = int(args[0])
+        await block_user(user_id)
+        return f"🚫 User {user_id} blocked."
+    except (ValueError, IndexError):
+        return "❌ Use: `/block <user_id>`"
+    except Exception as e:
+        return f"❌ Error blocking user: {e}"
+
+
+async def unblock_command(*args) -> str:
+    """Unblock a user by ID."""
+    if not args:
+        return "❌ Use: `/unblock <user_id>`"
+    
+    try:
+        from plugins.blocklist import unblock_user
+        user_id = int(args[0])
+        await unblock_user(user_id)
+        return f"✅ User {user_id} unblocked."
+    except (ValueError, IndexError):
+        return "❌ Use: `/unblock <user_id>`"
+    except Exception as e:
+        return f"❌ Error unblocking user: {e}"
+
+
+async def block_list_command(*args) -> str:
+    """List all blocked users."""
+    try:
+        from plugins.blocklist import get_blocked_users
+        blocked = await get_blocked_users()
+        if not blocked:
+            return "✅ No users blocked."
+        else:
+            return "🚫 Blocked users:\n" + "\n".join(map(str, blocked))
+    except Exception as e:
+        return f"❌ Error getting blocked users: {e}"
+
+
+async def purge_map_command(*args) -> str:
+    """Purge old message mappings."""
+    try:
+        from plugins.message_map import cleanup_old_mappings
+        days = int(args[0]) if args else 7
+        deleted = await cleanup_old_mappings(days * 86400)
+        return f"🗑️ Removed {deleted} mappings older than {days} days."
+    except ValueError:
+        return "❌ Use: `/purge_map [days]`"
+    except Exception as e:
+        return f"❌ Error purging mappings: {e}"
+
+
+register_command("block", block_command)
+register_command("unblock", unblock_command)
+register_command("block_list", block_list_command)
+register_command("purge_map", purge_map_command)
+
+
+async def say_command(*args, interface_context=None) -> str:
+    """Send a message to a chat. Interface-agnostic implementation."""
+    if not interface_context:
+        return "💬 `/say` command usage:\n`/say <chat_id> <message>` - Send message directly to chat ID\n\nNote: Interactive features require interface context."
+    
+    # Get interface-specific objects
+    update = interface_context.get('update')
+    context = interface_context.get('context')
+    bot = interface_context.get('bot')
+    
+    if not all([update, context, bot]):
+        return "❌ Missing interface context for `/say` command"
+    
+    if len(args) >= 2:
+        # Direct send: /say <chat_id> <message>
+        try:
+            chat_id = int(args[0])
+            message_text = " ".join(args[1:])
+            
+            # Use the interface's safe_send function if available
+            try:
+                from interface.telegram_utils import safe_send
+                await safe_send(bot, chat_id=chat_id, text=message_text)
+                return "✅ Message sent."
+            except Exception as e:
+                return f"❌ Error sending message: {e}"
+                
+        except ValueError:
+            # Could be username format
+            if args[0].startswith('@'):
+                username = args[0]
+                message_text = " ".join(args[1:])
+                try:
+                    chat = await bot.get_chat(username)
+                    if chat.type == "private":
+                        from interface.telegram_utils import safe_send
+                        await safe_send(bot, chat_id=chat.id, text=message_text)
+                        return f"✅ Message sent to {username}."
+                    else:
+                        return f"❌ Cannot send to {username}. They must start the chat with the bot first."
+                except Exception as e:
+                    return f"❌ Cannot send to {username}: {e}"
+            else:
+                return "❌ Invalid chat ID format"
+    
+    # No arguments - show recent chats (simplified version)
+    return "💬 For interactive chat selection, use the interface-specific implementation.\nUse: `/say <chat_id> <message>` or `/say @username <message>`"
+
+
+async def logchat_command(*args, interface_context=None) -> str:
+    """Set current chat as log chat."""
+    if not interface_context:
+        return "❌ This command requires interface context"
+    
+    update = interface_context.get('update')
+    context = interface_context.get('context')
+    
+    if not all([update, context]):
+        return "❌ Missing interface context for `/logchat` command"
+    
+    try:
+        from core.config import set_log_chat_id_and_thread
+        
+        chat_id = update.effective_chat.id
+        thread_id = update.effective_message.message_thread_id
+        
+        await set_log_chat_id_and_thread(chat_id, thread_id, "telegram_bot")
+        return f"✅ This chat is now set as logchat [{chat_id}, {thread_id}] on telegram_bot"
+    except Exception as e:
+        return f"❌ Unable to set log chat: {e}"
+
+
+async def cancel_command(*args, interface_context=None) -> str:
+    """Cancel pending operations."""
+    if not interface_context:
+        return "❌ This command requires interface context"
+    
+    update = interface_context.get('update')
+    
+    if not update:
+        return "❌ Missing interface context for `/cancel` command"
+    
+    try:
+        from core import response_proxy, say_proxy
+        from core.interfaces_registry import get_interface_registry
+        
+        # Get user and trainer info
+        user_id = update.effective_user.id if update.effective_user else None
+        if not user_id:
+            return "❌ Cannot identify user"
+        
+        interface_registry = get_interface_registry()
+        trainer_id = interface_registry.get_trainer_id('telegram_bot')
+        
+        if user_id != trainer_id:
+            return "❌ Access denied. This command requires trainer privileges."
+        
+        # Check for pending operations
+        has_pending_response = response_proxy.has_pending(trainer_id)
+        has_pending_say = say_proxy.get_target(trainer_id) not in [None, "EXPIRED"]
+        
+        if has_pending_response or has_pending_say:
+            response_proxy.clear_target(trainer_id)
+            say_proxy.clear(trainer_id)
+            return "❌ Pending operations cancelled."
+        else:
+            return "⚠️ No active operation to cancel."
+            
+    except Exception as e:
+        return f"❌ Error cancelling operations: {e}"
+
+
+register_command("say", say_command)
+register_command("cancel", cancel_command)
+register_command("logchat", logchat_command)

@@ -9,6 +9,7 @@ from core import plugin_instance, rate_limit, recent_chats
 from core.logging_utils import log_debug, log_error, log_warning, log_info
 from core.mention_utils import is_message_for_bot
 from core.interfaces_registry import get_interface_registry
+from plugins.blocklist import is_user_blocked
 
 # Use a priority queue so events can be processed before regular messages
 HIGH_PRIORITY = 0
@@ -48,26 +49,51 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
         priority: If True, message is added to front of queue (for events)
         interface_id: The interface identifier (e.g., 'webui', 'interface_name')
     """
+    message_text = getattr(message, 'text', '')
+    user_id = getattr(message.from_user, 'id', 'unknown') if message.from_user else 'unknown'
+    chat_id = getattr(message, 'chat_id', 'unknown')
+    log_debug(f"[QUEUE] DEBUG: enqueue() called with interface_id='{interface_id}', message='{message_text}', user_id={user_id}, chat_id={chat_id}")
+    log_debug(f"[QUEUE] Processing message: '{message_text}' from user {user_id} in chat {chat_id}")
+    
+    # Check if message is directed to bot
+    log_debug(f"[QUEUE] DEBUG: Checking if message is for bot - calling is_message_for_bot")
+    
     human_count = getattr(message, "human_count", None)
     if human_count is None and hasattr(message, "chat"):
         human_count = getattr(message.chat, "human_count", None)
 
+    log_debug(f"[QUEUE] DEBUG: human_count={human_count}, message.chat.type={getattr(message.chat, 'type', 'unknown')}")
+    
     directed, reason = await is_message_for_bot(
         message, bot, human_count=human_count
     )
+    log_debug(f"[QUEUE] DEBUG: is_message_for_bot returned directed={directed}, reason='{reason}'")
+    
     if not directed:
+        log_debug(f"[QUEUE] DEBUG: Message not directed to bot - ignoring")
         if reason == "missing_human_count":
-            log_debug(
-                "[QUEUE] Message ignored: interface lacks participant count and no direct mention"
-            )
+            log_debug("[QUEUE] DEBUG: Reason: missing_human_count")
         elif reason == "multiple_humans":
-            log_debug(
-                "[QUEUE] Message ignored: multiple humans in chat and no direct mention"
-            )
+            log_debug("[QUEUE] DEBUG: Reason: multiple_humans")
         else:
-            log_debug(f"[QUEUE] Message ignored: {reason or 'not directed to bot'}")
+            log_debug(f"[QUEUE] DEBUG: Reason: {reason or 'not directed to bot'}")
         return
 
+    log_debug(f"[QUEUE] DEBUG: Message is directed to bot - continuing processing")
+    
+    # Check if user is blocked (but allow trainers)
+    user_id = message.from_user.id if message.from_user else 0
+    registry = get_interface_registry()
+    is_trainer = registry.is_trainer(interface_id, user_id) if interface_id else False
+    
+    log_debug(f"[QUEUE] DEBUG: Checking blocklist - user_id={user_id}, interface_id='{interface_id}', is_trainer={is_trainer}")
+    
+    if not is_trainer and await is_user_blocked(user_id):
+        log_debug(f"[QUEUE] DEBUG: User {user_id} is blocked - ignoring message")
+        return
+    
+    log_debug(f"[QUEUE] DEBUG: User {user_id} is not blocked or is trainer, continuing processing")
+    
     plugin = plugin_instance.get_plugin()
     if not plugin:
         log_error("[QUEUE] No active plugin")
@@ -79,13 +105,8 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
         log_error(f"[QUEUE] Error obtaining rate limit: {repr(e)}", e)
         max_messages, window_seconds, trainer_fraction = float("inf"), 1, 1.0
 
-    user_id = message.from_user.id if message.from_user else 0
     chat_id = message.chat_id
     llm_name = plugin.__class__.__module__.split(".")[-1]
-
-    # Check if user is trainer for this interface
-    registry = get_interface_registry()
-    is_trainer = registry.is_trainer(interface_id, user_id) if interface_id else False
 
     if (
         not is_trainer
@@ -93,7 +114,6 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
             llm_name, user_id, interface_id or "unknown", max_messages, window_seconds, trainer_fraction, consume=False
         )
     ):
-        delay = 300
         log_debug(f"[RATE LIMIT] Delaying user {user_id} by {delay} seconds (quota exceeded)")
         item = {
             "bot": bot,
@@ -105,6 +125,8 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
         }
         asyncio.create_task(_delayed_put(item, delay))
         return
+
+    log_debug(f"[QUEUE] Rate limit check passed - continuing to enqueue message")
 
     meta = message.chat.title or message.chat.username or message.chat.first_name
     await recent_chats.track_chat(chat_id, meta)
@@ -129,6 +151,8 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
 
     priority_val = HIGH_PRIORITY if priority else NORMAL_PRIORITY
     await _queue.put((priority_val, item))
+    log_debug(f"[QUEUE] Message successfully put in queue with priority {priority_val}")
+    
     if priority:
         log_debug(
             f"[QUEUE] High-priority message enqueued from {interface} chat {chat_id}"

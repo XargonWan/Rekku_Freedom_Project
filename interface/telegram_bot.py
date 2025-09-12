@@ -17,10 +17,13 @@ from telegram.ext import (
 )
 from dotenv import load_dotenv  # type: ignore
 from llm_engines.manual import ManualAIPlugin
-from core import blocklist
+from plugins.blocklist import block_user, unblock_user, get_blocked_users
+from plugins.message_map import init_message_map_table, cleanup_old_mappings
 from core import response_proxy
-from core import say_proxy, recent_chats, message_map, message_queue
+from core import say_proxy, message_queue
 from core.context import context_command
+from core import recent_chats  # For command functions only, not for tracking
+from core.mention_utils import is_message_for_bot
 from collections import deque
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
@@ -42,12 +45,9 @@ from core.config import (
     get_log_chat_id_sync,
     get_log_chat_thread_id_sync,
 )
-from core.command_registry import execute_command
+from core.command_registry import execute_command, handle_command_message
 
-from core.chat_link_store import (
-    ChatLinkStore,
-    ChatLinkMultipleMatches,
-)
+from plugins.chat_link import ChatLinkStore
 from core.prompt_engine import build_full_json_instructions
 
 chat_link_store = ChatLinkStore()
@@ -124,22 +124,31 @@ async def ensure_plugin_loaded(update: Update):
     Check that an LLM plugin has been loaded correctly.
     If absent, reply to the user with an error message and log the issue.
     """
+    log_debug(f"[telegram_bot] Checking if plugin is loaded: {plugin_instance.plugin is not None}")
     if plugin_instance.plugin is None:
+        log_warning("[telegram_bot] No plugin loaded, attempting to load...")
         try:
             current = await get_active_llm()
+            log_debug(f"[telegram_bot] Active LLM from config: {current}")
             if current:
+                log_debug(f"[telegram_bot] Loading plugin: {current}")
                 await plugin_instance.load_plugin(current, notify_fn=telegram_notify)
+                log_debug(f"[telegram_bot] Plugin loaded successfully: {plugin_instance.plugin is not None}")
         except Exception as e:  # pragma: no cover - runtime safeguard
             log_warning(f"[telegram_interface] Failed to autoload LLM: {e}")
         if plugin_instance.plugin is None:
+            log_warning("[telegram_bot] Plugin still None, trying manual fallback...")
             try:
                 await plugin_instance.load_plugin("manual", notify_fn=telegram_notify)
                 log_warning("[telegram_interface] Falling back to ManualAIPlugin")
-            except Exception:
+            except Exception as e:
+                log_error(f"[telegram_bot] Manual plugin fallback failed: {e}")
                 log_error("No LLM plugin loaded.")
                 from core.notifier import notify_trainer
                 notify_trainer("⚠️ No LLM plugin active. Use /llm to select one.")
                 return False
+    else:
+        log_debug(f"[telegram_bot] Plugin already loaded: {plugin_instance.plugin.__class__.__name__}")
     return True
 
 def resolve_forwarded_target(message):
@@ -166,7 +175,7 @@ async def block_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         to_block = int(context.args[0])
-        blocklist.block_user(to_block)
+        block_user(to_block)
         log_debug(f"User {to_block} blocked.")
         await update.message.reply_text(f"\U0001f6ab User {to_block} blocked.")
     except (IndexError, ValueError):
@@ -175,7 +184,7 @@ async def block_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def block_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_trainer(update.effective_user.id):
         return
-    blocked = blocklist.get_block_list()
+    blocked = get_blocked_users()
     log_debug("Blocked users list requested.")
     if not blocked:
         await update.message.reply_text("\u2705 No users blocked.")
@@ -187,7 +196,7 @@ async def unblock_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         to_unblock = int(context.args[0])
-        blocklist.unblock_user(to_unblock)
+        unblock_user(to_unblock)
         log_debug(f"User {to_unblock} unblocked.")
         await update.message.reply_text(f"\u2705 User {to_unblock} unblocked.")
     except (IndexError, ValueError):
@@ -197,13 +206,13 @@ async def purge_mappings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_trainer(update.effective_user.id):
         return
     # Ensure table exists even if manual plugin never loaded
-    await message_map.init_table()
+    await init_message_map_table()
     try:
         days = int(context.args[0]) if context.args else 7
     except ValueError:
         await update.message.reply_text("❌ Use: /purge_map [days]")
         return
-    deleted = await message_map.purge_old_entries(days * 86400)
+    deleted = await cleanup_old_mappings(days * 86400)
     await update.message.reply_text(
         f"\U0001f5d1 Removed {deleted} mappings older than {days} days."
     )
@@ -375,7 +384,10 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_info(f"[telegram_bot] Received message update: {update}")
 
-    if not await ensure_plugin_loaded(update):
+    plugin_loaded = await ensure_plugin_loaded(update)
+    log_debug(f"[telegram_bot] Plugin loaded check result: {plugin_loaded}")
+    if not plugin_loaded:
+        log_error("[telegram_bot] Plugin loading failed, aborting message processing")
         return
 
     message = update.message
@@ -401,6 +413,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_info(f"[telegram_bot] Processing message from {username} ({user_id}){content_description}")
 
     # Track context
+    log_debug(f"[telegram_bot] Tracking context for chat {message.chat_id}")
     if message.chat_id not in context_memory:
         context_memory[message.chat_id] = deque(maxlen=10)
     context_memory[message.chat_id].append({
@@ -411,24 +424,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "text": text,
         "timestamp": message.date.isoformat()
     })
-    chat_meta = message.chat.title or message.chat.username or message.chat.first_name
-    await recent_chats.track_chat(message.chat_id, chat_meta)
+    log_debug(f"[telegram_bot] Context added to memory")
     log_debug(f"context_memory[{message.chat_id}] = {list(context_memory[message.chat_id])}")
 
     # Interactive /say step
+    log_debug(f"Checking say_step conditions - chat_type: {message.chat.type}, user_id: {user_id}, trainer_id: {get_trainer_id()}, say_choices: {context.user_data.get('say_choices') is not None}")
     if message.chat.type == "private" and user_id == get_trainer_id() and context.user_data.get("say_choices"):
+        log_debug(f"Message intercepted by say_step handler")
         await handle_say_step(update, context)
         return
 
-    log_debug(f"Message from {user_id} ({message.chat.type}): {text}")
-
-    # Blocked user
-    if await blocklist.is_blocked(user_id) and user_id != get_trainer_id():
-        log_debug(f"User {user_id} is blocked. Ignoring message.")
+    log_debug(f"After say_step check - continuing to message processing")
+    log_debug(f"Checking if message is for bot - calling is_message_for_bot")
+    
+    # Check if message is directed to bot
+    human_count = getattr(message, "human_count", None)
+    if human_count is None and hasattr(message, "chat"):
+        human_count = getattr(message.chat, "human_count", None)
+    
+    log_debug(f"human_count={human_count}, message.chat.type={message.chat.type}")
+    
+    directed, reason = await is_message_for_bot(message, context.bot, human_count=human_count)
+    log_debug(f"is_message_for_bot returned directed={directed}, reason='{reason}'")
+    
+    if not directed:
+        log_debug(f"[telegram_bot] DEBUG: Message not directed to bot - ignoring")
+        if reason == "missing_human_count":
+            log_debug("[telegram_bot] DEBUG: Reason: missing_human_count")
+        elif reason == "multiple_humans":
+            log_debug("[telegram_bot] DEBUG: Reason: multiple_humans")
+        else:
+            log_debug(f"[telegram_bot] DEBUG: Reason: {reason or 'not directed to bot'}")
         return
+    
+    log_debug(f"[telegram_bot] DEBUG: Message is directed to bot - continuing processing")
+    log_debug(f"[telegram_bot] Message from {user_id} ({message.chat.type}): {text}")
 
     # trainer reply to forwarded message
-    if message.chat.type == "private" and user_id == get_trainer_id() and message.reply_to_message:
+    trainer_id = get_trainer_id()
+    log_debug(f"Checking trainer reply conditions - chat_type: {message.chat.type}, user_id: {user_id}, trainer_id: {trainer_id}, has_reply: {bool(message.reply_to_message)}")
+    if message.chat.type == "private" and user_id == trainer_id and message.reply_to_message:
+        log_debug(f"Processing trainer reply to forwarded message")
         reply_msg_id = message.reply_to_message.message_id
         log_debug(f"Reply to trainer_message_id={reply_msg_id}")
         original = plugin_instance.get_target(reply_msg_id)
@@ -445,13 +481,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log_warning("⚠️ No target found for reply. Ensure plugin mapping is correct.")
             await message.reply_text("⚠️ No message found to reply to.")
         return
+    else:
+        log_debug(f"Not a trainer reply - continuing to queue forwarding")
 
     # === Forward to centralized queue
+    log_debug(f"About to forward message to queue: '{text}' from user {user_id}")
+    log_debug(f"Checking message_queue module availability")
+    
     try:
+        log_debug(f"Calling message_queue.enqueue...")
+        log_debug(f"Parameters: bot={type(context.bot)}, message={type(message)}, context_memory={type(context_memory)}, interface_id='telegram_bot'")
+        
         await message_queue.enqueue(context.bot, message, context_memory, interface_id="telegram_bot")
+        
+        log_debug(f"Message successfully enqueued - processing should continue in queue")
+        
     except Exception as e:
         log_error(f"message_queue enqueue failed: {repr(e)}", e)
+        log_error(f"Exception type: {type(e)}", e)
         await message.reply_text("⚠️ Error processing message.")
+        
+
+async def handle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generic command handler that delegates to centralized command registry."""
+    if not update.message or not update.message.text:
+        return
+    
+    command_text = update.message.text
+    user_id = update.effective_user.id if update.effective_user else None
+    
+    # Create interface context for commands that need it
+    interface_context = {
+        'update': update,
+        'context': context,
+        'bot': context.bot
+    }
+    
+    try:
+        response = await handle_command_message(command_text, user_id, "telegram_bot", interface_context)
+        await update.message.reply_text(response, parse_mode="Markdown")
+    except Exception as e:
+        log_error(f"[telegram_bot] Error handling command: {e}")
+        await update.message.reply_text("❌ Error processing command.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_trainer(update.effective_user.id):
@@ -822,25 +893,8 @@ async def start_bot():
         log_info(f"[telegram_bot] BOTFATHER_TOKEN configured: {'Yes' if BOTFATHER_TOKEN else 'No'}")
 
         log_info("[telegram_bot] Adding command handlers...")
-        app.add_handler(CommandHandler("help", help_command))
-        app.add_handler(CommandHandler("block", block_user))
-        app.add_handler(CommandHandler("block_list", block_list))
-        app.add_handler(CommandHandler("unblock", unblock_user))
-        app.add_handler(CommandHandler("purge_map", purge_mappings))
-        app.add_handler(CommandHandler("logchat", logchat_command))
-        app.add_handler(CommandHandler("last_chats", last_chats_command))
-        app.add_handler(CommandHandler("manage_chat_id", manage_chat_id_command))
-        app.add_handler(CommandHandler("context", context_command))
-        app.add_handler(CommandHandler("llm", llm_command))
-
-        try:
-            if plugin_instance.get_supported_models():
-                app.add_handler(CommandHandler("model", model_command))
-        except Exception as e:
-            log_warning(f"Active plugin does not support models: {e}")
-
-        app.add_handler(CommandHandler("say", say_command))
-        app.add_handler(CommandHandler("cancel", cancel_response))
+        # Use generic command handler for all commands
+        app.add_handler(MessageHandler(filters.COMMAND, handle_command))
         log_info("[telegram_bot] Adding MessageHandler for general messages (text and images)...")
         app.add_handler(MessageHandler(
             (filters.TEXT & ~filters.COMMAND) | filters.PHOTO | filters.Document.ALL, 
@@ -895,10 +949,10 @@ async def start_bot():
         register_interface("telegram_bot", telegram_interface)
         log_debug("[telegram_bot] Interface instance registered")
 
-        # Rebuild action schemas and display updated startup summary
+        # Rebuild action schemas (summary will be shown later by main initialization)
         from core.core_initializer import core_initializer
         await core_initializer.refresh_actions_block()
-        core_initializer.display_startup_summary()
+        log_debug("[telegram_bot] Action schemas refreshed")
         
         await app.start()
         log_info("[telegram_bot] Telegram application started")

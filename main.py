@@ -4,7 +4,7 @@ import sys
 import subprocess
 import asyncio
 from core.db import init_db, test_connection, get_conn
-from core.blocklist import init_blocklist_table
+# from core.blocklist import init_blocklist_table  # Now handled by blocklist plugin
 from core.config import get_active_llm
 from core.logging_utils import (
     log_debug,
@@ -179,9 +179,10 @@ async def initialize_database():
         await init_db()
         log_info("[main] Database schema initialized")
         
-        log_info("[main] Initializing blocklist table...")
-        await init_blocklist_table()
-        log_info("[main] Blocklist table initialized")
+        # Blocklist table now handled by blocklist plugin
+        # log_info("[main] Initializing blocklist table...")
+        # await init_blocklist_table()
+        # log_info("[main] Blocklist table initialized")
         
         log_info("[main] Database initialization completed successfully!")
         return True
@@ -254,6 +255,10 @@ if __name__ == "__main__":
             import traceback
             traceback.print_exc()
             sys.exit(1)
+
+        # 🎯 Display startup summary before starting bot (after all interfaces are initialized)
+        log_info("[main] All components initialized, displaying startup summary...")
+        core_initializer.display_startup_summary()
 
         # ✅ Start the bot
         try:

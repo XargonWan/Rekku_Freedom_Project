@@ -37,7 +37,6 @@ class TerminalPlugin(AIPluginBase):
         self.process = None
         self.notify_fn = notify_fn
         register_plugin("terminal", self)
-        core_initializer.register_plugin("terminal")
         log_info("[terminal] TerminalPlugin registered successfully")
 
     async def _run_single_command(self, cmd: str) -> str:

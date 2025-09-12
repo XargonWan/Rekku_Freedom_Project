@@ -37,7 +37,6 @@ class SeleniumElevenLabsPlugin:
 
     def __init__(self) -> None:
         register_plugin("selenium_elevenlabs", self)
-        core_initializer.register_plugin("selenium_elevenlabs")
         log_info("[selenium_elevenlabs] Plugin initialized")
 
     # === Action metadata ===

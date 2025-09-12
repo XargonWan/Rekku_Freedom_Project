@@ -87,9 +87,11 @@ async def get_db():
 
 
 async def init_diary_table():
-    """Initialize the AI diary table if it doesn't exist."""
+    """Initialize all AI diary related tables if they don't exist."""
     async with get_db() as conn:
         cursor = await conn.cursor()
+        
+        # Main ai_diary table
         await cursor.execute('''
             CREATE TABLE IF NOT EXISTS ai_diary (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -98,17 +100,47 @@ async def init_diary_table():
                 tags TEXT DEFAULT '[]',
                 involved TEXT DEFAULT '[]',
                 emotions TEXT DEFAULT '[]',
-                interface VARCHAR(32),
-                chat_id TEXT,
-                thread_id TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                interface VARCHAR(50),
+                chat_id VARCHAR(255),
+                thread_id VARCHAR(255),
                 INDEX idx_timestamp (timestamp),
-                INDEX idx_interface_chat (interface, chat_id),
-                INDEX idx_created_at (created_at)
+                INDEX idx_interface_chat (interface, chat_id)
             )
         ''')
+        
+        # Legacy memories table (moved from core)
+        await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS memories (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                timestamp DATETIME NOT NULL,
+                content TEXT NOT NULL,
+                author VARCHAR(100),
+                source VARCHAR(100),
+                tags TEXT,
+                scope VARCHAR(50),
+                emotion VARCHAR(50),
+                intensity INT,
+                emotion_state VARCHAR(50)
+            )
+        ''')
+        
+        # Legacy emotion_diary table (moved from core)
+        await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS emotion_diary (
+                id VARCHAR(100) PRIMARY KEY,
+                source VARCHAR(100),
+                event TEXT,
+                emotion VARCHAR(50),
+                intensity INT,
+                state VARCHAR(50),
+                trigger_condition TEXT,
+                decision_logic TEXT,
+                next_check DATETIME
+            )
+        ''')
+        
         await conn.commit()
-        log_info("[ai_diary] AI Diary table initialized")
+        log_info("[ai_diary] AI diary tables initialized")
 
 
 def _run(coro):
@@ -562,9 +594,6 @@ class DiaryPlugin:
 
 # Initialize the plugin
 PLUGIN_CLASS = DiaryPlugin
-
-# Register plugin functions
-register_plugin("ai_diary")
 
 __all__ = [
     "add_diary_entry",

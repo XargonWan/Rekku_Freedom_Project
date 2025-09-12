@@ -9,6 +9,7 @@ import os
 import re
 import asyncio
 from collections import deque
+import time
 import core.plugin_instance as plugin_instance
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.message_sender import detect_media_type, extract_response_target
@@ -29,7 +30,10 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.message_sender import detect_media_type, extract_response_target
 from core.config import set_active_llm, list_available_llms, get_active_llm
 from core.interfaces_registry import get_interface_registry
-from core import blocklist, response_proxy, say_proxy, recent_chats
+# from core import blocklist, response_proxy, say_proxy, recent_chats  # Moved to plugins
+from plugins.blocklist import block_user, unblock_user, get_blocked_users
+from core import recent_chats  # For command functions only, not for tracking
+from core import response_proxy, say_proxy
 from core.context import context_command
 from core.auto_response import request_llm_delivery
 from core.core_initializer import register_interface, core_initializer
@@ -128,12 +132,12 @@ def resolve_forwarded_target(message):
     return None, None
 
 @optional_on(events.NewMessage(pattern=r"\.block (\d+)"))
-async def block_user(event):
+async def block_user_command(event):
     if not is_trainer(event.sender_id):
         return
     try:
         to_block = int(event.pattern_match.group(1))
-        blocklist.block_user(to_block)
+        await block_user(to_block, "Blocked via command")
         await event.reply(f"🚫 User {to_block} blocked.")
     except Exception:
         await event.reply("❌ Use: .block <user_id>")
@@ -142,7 +146,7 @@ async def block_user(event):
 async def block_list(event):
     if not is_trainer(event.sender_id):
         return
-    blocked = blocklist.get_block_list()
+    blocked = get_blocked_users()
     if not blocked:
         await event.reply("✅ No blocked users.")
     else:
@@ -281,9 +285,7 @@ async def handle_message(event):
                 return
         await event.reply("❌ Invalid selection. Send a correct number.")
         return
-    # Blocked user
-    if blocklist.is_blocked(user_id) and not is_trainer(user_id):
-        return
+    
     # Trainer reply to forwarded message
     if is_trainer(user_id) and message.is_reply:
         reply_msg_id = message.reply_to_msg_id

@@ -9,7 +9,6 @@ class TimePlugin:
 
     def __init__(self):
         register_plugin("time", self)
-        core_initializer.register_plugin("time")
 
     def get_supported_action_types(self):
         return ["static_inject"]

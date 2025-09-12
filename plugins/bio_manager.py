@@ -54,9 +54,11 @@ DEFAULTS = {
 
 
 async def init_bio_table():
-    """Initialize the bio table if it doesn't exist."""
+    """Initialize the bio table if it doesn't exist and ensure all required columns are present."""
     async with get_db() as conn:
         cursor = await conn.cursor()
+        
+        # Create base table
         await cursor.execute('''
             CREATE TABLE IF NOT EXISTS bio (
                 id VARCHAR(255) PRIMARY KEY,
@@ -68,15 +70,34 @@ async def init_bio_table():
                 feelings TEXT DEFAULT '[]',
                 contacts TEXT DEFAULT '{}',
                 social_accounts TEXT DEFAULT '[]',
-                privacy TEXT DEFAULT '{}',
+                privacy TEXT DEFAULT 'default',
                 created_at VARCHAR(50),
-                last_accessed VARCHAR(50),
-                last_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                update_count INT DEFAULT 0
+                last_accessed VARCHAR(50)
             )
         ''')
+        
+        # Check and add missing columns on-demand
+        await cursor.execute("SHOW COLUMNS FROM bio")
+        existing_columns = {row[0] for row in await cursor.fetchall()}
+        
+        # Add last_update column if missing
+        if 'last_update' not in existing_columns:
+            try:
+                await cursor.execute('ALTER TABLE bio ADD COLUMN last_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+                log_info("[bio_manager] Added last_update column to bio table")
+            except Exception as e:
+                log_warning(f"[bio_manager] Could not add last_update column: {e}")
+        
+        # Add update_count column if missing
+        if 'update_count' not in existing_columns:
+            try:
+                await cursor.execute('ALTER TABLE bio ADD COLUMN update_count INT DEFAULT 0')
+                log_info("[bio_manager] Added update_count column to bio table")
+            except Exception as e:
+                log_warning(f"[bio_manager] Could not add update_count column: {e}")
+        
         await conn.commit()
-        log_info("[bio_manager] Bio table initialized")
+        log_info("[bio_manager] Bio table initialized and updated")
 
 
 def _run(coro):
@@ -132,33 +153,69 @@ def _ensure_user_exists(user_id: str) -> None:
     row = _run(_fetchone("SELECT 1 FROM bio WHERE id=%s", (user_id,)))
     if not row:
         now = datetime.utcnow().isoformat()
-        _run(
-            _execute(
-                """
-                INSERT INTO bio (
-                    id, known_as, likes, not_likes, information,
-                    past_events, feelings, contacts, social_accounts,
-                    privacy, created_at, last_accessed, last_update, update_count
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    user_id,
-                    json.dumps([]),
-                    json.dumps([]),
-                    json.dumps([]),
-                    "",
-                    json.dumps([]),
-                    json.dumps([]),
-                    json.dumps({}),
-                    json.dumps({}),
-                    "default",
-                    now,
-                    now,
-                    now,  # last_update
-                    0,    # update_count
-                ),
+        
+        # Try with all columns first, fallback to basic columns if some are missing
+        try:
+            _run(
+                _execute(
+                    """
+                    INSERT INTO bio (
+                        id, known_as, likes, not_likes, information,
+                        past_events, feelings, contacts, social_accounts,
+                        privacy, created_at, last_accessed, last_update, update_count
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        user_id,
+                        json.dumps([]),
+                        json.dumps([]),
+                        json.dumps([]),
+                        "",
+                        json.dumps([]),
+                        json.dumps([]),
+                        json.dumps({}),
+                        json.dumps([]),  # social_accounts should be list
+                        "default",
+                        now,
+                        now,
+                        now,  # last_update
+                        0,    # update_count
+                    ),
+                )
             )
-        )
+        except Exception as e:
+            # Fallback to basic columns only
+            log_warning(f"[bio_manager] Full insert failed ({e}), trying basic columns")
+            try:
+                _run(
+                    _execute(
+                        """
+                        INSERT INTO bio (
+                            id, known_as, likes, not_likes, information,
+                            past_events, feelings, contacts, social_accounts,
+                            privacy, created_at, last_accessed
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            user_id,
+                            json.dumps([]),
+                            json.dumps([]),
+                            json.dumps([]),
+                            "",
+                            json.dumps([]),
+                            json.dumps([]),
+                            json.dumps({}),
+                            json.dumps([]),
+                            "default",
+                            now,
+                            now,
+                        ),
+                    )
+                )
+                log_info(f"[bio_manager] Created basic bio entry for {user_id}")
+            except Exception as e2:
+                log_error(f"[bio_manager] Failed to create bio entry for {user_id}: {e2}")
+                raise
 
 
 def _load_json_field(value: str | None, key: str, default: Any) -> Any:
@@ -407,33 +464,63 @@ def update_bio_fields(user_id: str, updates: dict) -> None:
     merged['last_update'] = now
     merged['update_count'] = (current.get('update_count', 0) + 1) % 6  # Reset after 5 updates
 
-    _run(
-        _execute(
-            """
-            REPLACE INTO bio (
-                id, known_as, likes, not_likes, information,
-                past_events, feelings, contacts, social_accounts,
-                privacy, created_at, last_accessed, last_update, update_count
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                user_id,
-                json.dumps(merged.get("known_as") or []),
-                json.dumps(merged.get("likes") or []),
-                json.dumps(merged.get("not_likes") or []),
-                str(merged.get("information") or ""),
-                json.dumps(merged.get("past_events") or []),
-                json.dumps(merged.get("feelings") or []),
-                json.dumps(merged.get("contacts") or {}),
-                json.dumps(merged.get("social_accounts") or []),
-                json.dumps(merged.get("privacy") or {}),
-                str(merged.get("created_at") or datetime.utcnow().isoformat()),
-                str(merged.get("last_accessed") or datetime.utcnow().isoformat()),
-                merged.get("last_update"),
-                merged.get("update_count"),
-            ),
+    # Try to update with all fields, fallback to basic fields if some columns are missing
+    try:
+        _run(
+            _execute(
+                """
+                REPLACE INTO bio (
+                    id, known_as, likes, not_likes, information,
+                    past_events, feelings, contacts, social_accounts,
+                    privacy, created_at, last_accessed, last_update, update_count
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    user_id,
+                    json.dumps(merged.get("known_as") or []),
+                    json.dumps(merged.get("likes") or []),
+                    json.dumps(merged.get("not_likes") or []),
+                    str(merged.get("information") or ""),
+                    json.dumps(merged.get("past_events") or []),
+                    json.dumps(merged.get("feelings") or []),
+                    json.dumps(merged.get("contacts") or {}),
+                    json.dumps(merged.get("social_accounts") or []),
+                    merged.get("privacy") or "default",
+                    str(merged.get("created_at") or datetime.utcnow().isoformat()),
+                    str(merged.get("last_accessed") or datetime.utcnow().isoformat()),
+                    merged.get("last_update"),
+                    merged.get("update_count"),
+                ),
+            )
         )
-    )
+    except Exception as e:
+        # Fallback to basic columns only
+        log_warning(f"[bio_manager] Full replace failed ({e}), trying basic columns")
+        _run(
+            _execute(
+                """
+                REPLACE INTO bio (
+                    id, known_as, likes, not_likes, information,
+                    past_events, feelings, contacts, social_accounts,
+                    privacy, created_at, last_accessed
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    user_id,
+                    json.dumps(merged.get("known_as") or []),
+                    json.dumps(merged.get("likes") or []),
+                    json.dumps(merged.get("not_likes") or []),
+                    str(merged.get("information") or ""),
+                    json.dumps(merged.get("past_events") or []),
+                    json.dumps(merged.get("feelings") or []),
+                    json.dumps(merged.get("contacts") or {}),
+                    json.dumps(merged.get("social_accounts") or []),
+                    merged.get("privacy") or "default",
+                    str(merged.get("created_at") or datetime.utcnow().isoformat()),
+                    str(merged.get("last_accessed") or datetime.utcnow().isoformat()),
+                ),
+            )
+        )
 
 
 def append_to_bio_list(user_id: str, field: str, value: Any) -> None:
@@ -502,7 +589,6 @@ class BioPlugin:
     def __init__(self):
         self._participants: list[dict[str, Any]] = []
         register_plugin("bio_manager", self)
-        core_initializer.register_plugin("bio_manager")
         log_info("[bio_manager] BioPlugin initialized and registered")
 
     def get_supported_action_types(self):

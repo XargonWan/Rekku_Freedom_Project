@@ -17,7 +17,6 @@ class WeatherPlugin:
 
     def __init__(self):
         register_plugin("weather", self)
-        core_initializer.register_plugin("weather")
         log_info("[weather_plugin] Registered WeatherPlugin")
         self._cached_weather: Optional[str] = None
         self._last_fetch: float = 0.0

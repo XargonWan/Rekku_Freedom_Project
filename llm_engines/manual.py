@@ -1,6 +1,7 @@
 # llm_engines/manual.py
 
-from core import say_proxy, message_map
+from plugins.message_map import MessageMapPlugin, init_message_map_table, store_message_mapping, get_original_message, cleanup_old_mappings
+from core import say_proxy
 import asyncio
 from core.config import get_trainer_id
 from core.ai_plugin_base import AIPluginBase
@@ -56,11 +57,11 @@ class ManualAIPlugin(AIPluginBase):
         try:
             loop = asyncio.get_running_loop()
             if loop and loop.is_running():
-                loop.create_task(message_map.init_table())
+                loop.create_task(init_message_map_table())
             else:
-                asyncio.run(message_map.init_table())
+                asyncio.run(init_message_map_table())
         except RuntimeError:
-            asyncio.run(message_map.init_table())
+            asyncio.run(init_message_map_table())
 
         if notify_fn:
             log_debug("[manual] Using custom notification function.")
@@ -71,13 +72,13 @@ class ManualAIPlugin(AIPluginBase):
 
     async def track_message(self, trainer_message_id, original_chat_id, original_message_id):
         """Persist the mapping for a forwarded message."""
-        await message_map.add_mapping(trainer_message_id, original_chat_id, original_message_id)
+        await store_message_mapping(trainer_message_id, original_chat_id, original_message_id)
 
     def get_target(self, trainer_message_id):
-        return message_map.get_mapping(trainer_message_id)
+        return get_original_message(trainer_message_id)
 
     def clear(self, trainer_message_id):
-        asyncio.create_task(message_map.delete_mapping(trainer_message_id))
+        asyncio.create_task(cleanup_old_mappings(trainer_message_id))
 
     def get_rate_limit(self):
         return (80, 10800, 0.5)

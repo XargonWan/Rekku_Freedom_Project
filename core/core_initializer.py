@@ -21,15 +21,18 @@ class CoreInitializer:
         self.startup_errors = []
         self.actions_block = {"available_actions": {}}
         self.interface_actions = {}
+        self._summary_displayed = False  # Flag to prevent duplicate summaries
     
     async def initialize_all(self, notify_fn=None):
         """Initialize all Rekku components in the correct order."""
         log_info("🚀 Initializing Rekku core components...")
 
-        # Reset state for fresh initialization
-        self.loaded_plugins = []
+        # Don't reset loaded_plugins as they may have been registered during import
+        # Only reset interface state for fresh initialization  
         self.interface_actions = {}
         self.actions_block = {"available_actions": {}}
+        
+        log_debug(f"[core_initializer] Starting with {len(self.loaded_plugins)} pre-registered plugins: {self.loaded_plugins}")
 
         # 0. Initialize registries
         self._initialize_registries()
@@ -37,7 +40,7 @@ class CoreInitializer:
         # 1. Load LLM engine
         await self._load_llm_engine(notify_fn)
 
-        # 2. Load generic plugins
+        # 2. Load generic plugins (this may load additional plugins)
         self._load_plugins()
         
         # 3. Load core actions (like chat_link) if not already loaded
@@ -47,6 +50,8 @@ class CoreInitializer:
 
         # 4. Auto-discover active interfaces
         self._discover_interfaces()
+        
+        # Note: Startup summary will be displayed by main.py after all interfaces are started
 
         return True
     
@@ -394,6 +399,12 @@ class CoreInitializer:
     
     def _display_startup_summary(self):
         """Display a comprehensive startup summary."""
+        # Prevent duplicate summaries
+        if self._summary_displayed:
+            log_debug("[core_initializer] Startup summary already displayed, skipping")
+            return
+        
+        self._summary_displayed = True
         log_info("=" * 60)
         log_info("🚀 Rekku startup summary")
         log_info("=" * 60)
@@ -443,11 +454,13 @@ class CoreInitializer:
 
     def register_plugin(self, plugin_name: str):
         """Record that a plugin has been loaded and started."""
+        log_debug(f"[core_initializer] Instance register_plugin called for: {plugin_name}")
         if plugin_name not in self.loaded_plugins:
             self.loaded_plugins.append(plugin_name)
             log_info(f"[core_initializer] ✅ Plugin loaded and started: {plugin_name}")
         else:
             log_info(f"[core_initializer] 🔄 Plugin {plugin_name} is already registered")
+        log_debug(f"[core_initializer] Current loaded_plugins: {self.loaded_plugins}")
 
     def register_action(self, action_type: str, handler: Any) -> None:
         """Expose explicit action registration through the core initializer."""
@@ -497,6 +510,8 @@ PLUGIN_REGISTRY: dict[str, Any] = {}
 
 def register_plugin(name: str, plugin_obj: Any) -> None:
     """Register a plugin instance and its actions."""
+    log_debug(f"[core_initializer] Global register_plugin called for: {name}")
+    
     # Avoid re-registering the same plugin by name
     existing = PLUGIN_REGISTRY.get(name)
     if existing is not None:
@@ -504,7 +519,7 @@ def register_plugin(name: str, plugin_obj: Any) -> None:
         return
 
     PLUGIN_REGISTRY[name] = plugin_obj
-    log_debug(f"[core_initializer] Registered plugin: {name}")
+    log_debug(f"[core_initializer] Registered plugin in PLUGIN_REGISTRY: {name}")
 
     # Automatically register supported actions
     if hasattr(plugin_obj, "get_supported_actions"):
@@ -519,6 +534,7 @@ def register_plugin(name: str, plugin_obj: Any) -> None:
             log_error(f"[core_initializer] Failed to register actions for plugin {name}: {e}")
 
     # Record plugin for startup summary
+    log_debug(f"[core_initializer] Calling core_initializer.register_plugin({name})")
     core_initializer.register_plugin(name)
 
     # Reset cached plugin list in action parser

@@ -17,7 +17,7 @@ from core.transport_layer import universal_send
 from core.core_initializer import register_interface
 from core.command_registry import execute_command
 from core import message_queue
-from core.chat_link_store import ChatLinkStore
+from plugins.chat_link import ChatLinkStore
 
 
 context_memory: dict[int, deque] = {}
