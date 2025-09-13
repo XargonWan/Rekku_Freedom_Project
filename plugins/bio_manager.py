@@ -403,9 +403,9 @@ def _check_update_limits(user_id: str, updates: dict) -> tuple[bool, str]:
         if len(updates) > 3:
             return False, f"Too many fields updated at once ({len(updates)}). Maximum 3 fields per update."
         
-        # Daily limit: maximum 5 updates per day
-        if update_count >= 5 and (now - last_update) < timedelta(days=1):
-            return False, "Daily update limit reached (5 updates per day)."
+        # Daily limit: maximum 50 updates per day
+        if update_count >= 50 and (now - last_update) < timedelta(days=1):
+            return False, "Daily update limit reached (50 updates per day)."
         
         return True, ""
         
@@ -500,6 +500,111 @@ def update_bio_fields(user_id: str, updates: dict) -> None:
     except Exception as e:
         # Fallback to basic columns only
         log_warning(f"[bio_manager] Full replace failed ({e}), trying basic columns")
+        _run(
+            _execute(
+                """
+                REPLACE INTO bio (
+                    id, known_as, likes, not_likes, information,
+                    past_events, feelings, contacts, social_accounts,
+                    privacy, created_at, last_accessed
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    user_id,
+                    json.dumps(merged.get("known_as") or []),
+                    json.dumps(merged.get("likes") or []),
+                    json.dumps(merged.get("not_likes") or []),
+                    str(merged.get("information") or ""),
+                    json.dumps(merged.get("past_events") or []),
+                    json.dumps(merged.get("feelings") or []),
+                    json.dumps(merged.get("contacts") or {}),
+                    json.dumps(merged.get("social_accounts") or []),
+                    merged.get("privacy") or "default",
+                    str(merged.get("created_at") or datetime.utcnow().isoformat()),
+                    str(merged.get("last_accessed") or datetime.utcnow().isoformat()),
+                ),
+            )
+        )
+
+
+def update_bio_fields_auto(user_id: str, updates: dict) -> None:
+    """Update bio fields automatically without checking update limits (for system operations like last_accessed)."""
+    if not updates:
+        return
+
+    _ensure_user_exists(user_id)
+    current = get_bio_full(user_id)
+
+    merged: dict[str, Any] = {}
+
+    for field in VALID_BIO_FIELDS:
+        old_val = current.get(field)
+        new_val = updates.get(field)
+
+        if isinstance(old_val, str) and field != "information":
+            try:
+                old_val = json.loads(old_val)
+            except Exception:
+                old_val = []
+
+        if new_val is None:
+            merged[field] = old_val
+        elif field in ["known_as", "likes", "not_likes", "past_events", "feelings"]:
+            # List fields: merge without duplicates
+            if not isinstance(old_val, list):
+                old_val = []
+            if not isinstance(new_val, list):
+                new_val = [new_val]
+            merged[field] = list(set(old_val + new_val))
+        elif field in ["contacts", "social_accounts"]:
+            # Dict fields: merge
+            if not isinstance(old_val, dict):
+                old_val = {}
+            if not isinstance(new_val, dict):
+                new_val = {}
+            merged[field] = {**old_val, **new_val}
+        else:
+            # Other fields: replace
+            merged[field] = new_val
+
+    # Preserve creation time and update metadata
+    merged["created_at"] = current.get("created_at", datetime.utcnow().isoformat())
+    merged["last_update"] = datetime.utcnow().isoformat()
+
+    # Don't increment update_count for automatic updates
+    merged["update_count"] = current.get("update_count", 0)
+
+    try:
+        _run(
+            _execute(
+                """
+                REPLACE INTO bio (
+                    id, known_as, likes, not_likes, information,
+                    past_events, feelings, contacts, social_accounts,
+                    privacy, created_at, last_accessed, last_update, update_count
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    user_id,
+                    json.dumps(merged.get("known_as") or []),
+                    json.dumps(merged.get("likes") or []),
+                    json.dumps(merged.get("not_likes") or []),
+                    str(merged.get("information") or ""),
+                    json.dumps(merged.get("past_events") or []),
+                    json.dumps(merged.get("feelings") or []),
+                    json.dumps(merged.get("contacts") or {}),
+                    json.dumps(merged.get("social_accounts") or []),
+                    merged.get("privacy") or "default",
+                    str(merged.get("created_at") or datetime.utcnow().isoformat()),
+                    str(merged.get("last_accessed") or datetime.utcnow().isoformat()),
+                    merged.get("last_update"),
+                    merged.get("update_count"),
+                ),
+            )
+        )
+    except Exception as e:
+        # Fallback to basic columns only
+        log_warning(f"[bio_manager] Auto update failed ({e}), trying basic columns")
         _run(
             _execute(
                 """
@@ -701,7 +806,7 @@ class BioPlugin:
         elif action_name == "static_inject":
             return {
                 "description": "Automatically injects basic bio information for conversation participants. This action runs automatically and provides context about who is participating in the current conversation.",
-                "when_to_use": "This action runs automatically - you don't need to call it explicitly. It provides background context about conversation participants.",
+                "when_to_use": "This action runs automaticamente - you don't need to call it explicitly. It provides background context about conversation participants.",
                 "notes": [
                     "This action is automatic and provides lightweight user context",
                     "Gives you basic info about participants: nicknames, short bio, current feelings",
@@ -761,7 +866,11 @@ class BioPlugin:
                 "feelings": bio.get("feelings", []),
             }
             data.append(entry)
-            update_bio_fields(p["id"], {"last_accessed": now})
+            try:
+                update_bio_fields_auto(p["id"], {"last_accessed": now})
+            except Exception as e:
+                log_warning(f"[bio_manager] Failed to update last_accessed for user {p['id']}: {e}")
+                # Continue without failing the entire injection
 
         return {"participants": data}
 
