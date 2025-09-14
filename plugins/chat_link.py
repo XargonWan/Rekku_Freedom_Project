@@ -200,7 +200,7 @@ class ChatLinkStore:
                 (interface, chat_id, message_thread_id, link, chat_name, message_thread_name)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                (interface, str(chat_id), str(message_thread_id) if message_thread_id else None, 
+                (interface, str(chat_id), str(message_thread_id) if message_thread_id is not None else '0', 
                  link, chat_name, message_thread_name)
             )
             await conn.commit()
@@ -223,7 +223,7 @@ class ChatLinkStore:
                     SELECT link FROM chatgpt_links
                     WHERE interface = %s AND chat_id = %s AND message_thread_id = %s
                     """,
-                    (interface, str(chat_id), str(message_thread_id) if message_thread_id else None)
+                    (interface, str(chat_id), str(message_thread_id) if message_thread_id is not None else '0')
                 )
                 row = await cursor.fetchone()
                 return row[0] if row else None
@@ -289,7 +289,7 @@ class ChatLinkStore:
                     WHERE interface = %s AND chat_id = %s AND message_thread_id = %s
                     """,
                     (chat_name, message_thread_name, interface, str(chat_id), 
-                     str(message_thread_id) if message_thread_id else None)
+                     str(message_thread_id) if message_thread_id is not None else '0')
                 )
                 affected_rows = cursor.rowcount
                 await conn.commit()
