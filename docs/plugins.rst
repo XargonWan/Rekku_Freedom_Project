@@ -19,6 +19,7 @@ Available Action Plugins
 ------------------------
 
 * ``bio_manager`` – manage persistent user biographies. Uses database settings ``DB_HOST``, ``DB_USER``, ``DB_PASS`` and ``DB_NAME``.
+* ``ai_diary`` – personal memory system for Rekku. Records conversations, thoughts, and emotions. See :doc:`ai_diary_personal_memory` for details.
 * ``event`` – schedule and deliver reminders. Requires ``DB_HOST``, ``DB_PORT``, ``DB_USER``, ``DB_PASS``, ``DB_NAME`` and optional ``CORRECTOR_RETRIES``.
 * ``message_plugin`` – send text across registered interfaces (no configuration).
 * ``reddit_plugin`` – submit posts and comments to Reddit. Requires ``REDDIT_CLIENT_ID``, ``REDDIT_CLIENT_SECRET``, ``REDDIT_USERNAME``, ``REDDIT_PASSWORD`` and ``REDDIT_USER_AGENT``.
@@ -45,6 +46,27 @@ scheduler checks for due events and sends them back to Rekku when the time comes
 
 .. note::
    Requires database credentials (``DB_HOST``, ``DB_PORT``, ``DB_USER``, ``DB_PASS``, ``DB_NAME``).
+
+AI Diary Personal Memory
+-------------------------
+
+The ``ai_diary`` plugin implements a personal memory system that allows Rekku to:
+
+* Record what he says to users in conversations
+* Store his personal thoughts about each interaction
+* Track emotions experienced during conversations
+* Build relationships and remember users over time
+
+This creates a more human-like memory system compared to traditional technical logging.
+The plugin automatically injects recent diary entries into prompts, giving Rekku
+context about past conversations.
+
+.. note::
+   For complete usage instructions and API reference, see :doc:`ai_diary_personal_memory`.
+
+The plugin requires database access and automatically creates the necessary tables
+on first run. In development, use ``recreate_diary_table.py`` to reset the table
+structure.
 
 All Python modules under ``plugins/``, ``llm_engines/`` and ``interface/`` are
 imported recursively on startup. Plugin files no longer need a special naming
