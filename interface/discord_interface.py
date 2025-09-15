@@ -29,6 +29,10 @@ class DiscordInterface:
 
     def __init__(self, bot_token: str):
         self.bot_token = bot_token
+        
+        # Register custom validation with the new validation system
+        self._register_custom_validation()
+        
         intents = None
         if discord is not None:  # pragma: no branch
             intents = discord.Intents.default()
@@ -364,6 +368,56 @@ class DiscordInterface:
             "- Supports 'ping' and predefined codewords like the Telegram bot.\n"
             "- When a message arrives from Discord, respond using the message_discord_bot action; do not use other interfaces unless explicitly requested."
         )
+
+    def _register_custom_validation(self):
+        """Register custom validation rules with the new validation system."""
+        try:
+            from core.validation_registry import ValidationRule, get_validation_registry
+            
+            def validate_discord_message(payload):
+                """Enhanced validation for Discord message actions."""
+                errors = []
+                
+                # Validate text content
+                text = payload.get("text")
+                if text:
+                    if len(text) > 2000:  # Discord message limit
+                        errors.append("Message text cannot exceed 2000 characters")
+                    if not text.strip():
+                        errors.append("Message text cannot be empty or only whitespace")
+                
+                # Validate target (channel_id)
+                target = payload.get("target")
+                if target is not None:
+                    if isinstance(target, str) and not target.isdigit():
+                        errors.append("Channel ID must be numeric")
+                    elif isinstance(target, int) and target <= 0:
+                        errors.append("Channel ID must be positive")
+                
+                # Validate reply_to_message_id
+                reply_to = payload.get("reply_to_message_id")
+                if reply_to is not None:
+                    if not isinstance(reply_to, int) or reply_to <= 0:
+                        errors.append("reply_to_message_id must be a positive integer")
+                
+                return errors
+            
+            # Create custom validation rule
+            rule = ValidationRule(
+                action_type="message_discord_bot",
+                required_fields=["text", "target"],
+                custom_validator=validate_discord_message,
+                component_name="discord_interface"
+            )
+            
+            # Register with validation registry
+            registry = get_validation_registry()
+            registry.register_component_rules("discord_interface", [rule])
+            
+            log_debug("[discord_interface] Registered custom validation rules with validation registry")
+            
+        except Exception as e:
+            log_warning(f"[discord_interface] Failed to register custom validation: {e}")
 
 # Expose class for dynamic loading
 INTERFACE_CLASS = DiscordInterface

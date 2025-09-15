@@ -35,6 +35,10 @@ class EventPlugin(AIPluginBase):
         self._pending_events: dict[str, dict] = {}  # message_id -> event_info
         log_info("[event_plugin] EventPlugin instance created")
         register_plugin("event", self)
+        
+        # Register custom validation with the new validation system
+        self._register_custom_validation()
+        
         log_info("[event_plugin] Registered EventPlugin")
 
     def set_bot(self, bot):
@@ -1094,6 +1098,66 @@ Weekly recurring reminder:
 
         return ScheduledEventBot(self)
 
+    def _register_custom_validation(self):
+        """Register custom validation rules with the new validation system."""
+        try:
+            from core.validation_registry import ValidationRule, get_validation_registry
+            
+            def validate_event_payload(payload):
+                """Enhanced validation for event actions."""
+                errors = []
+                
+                # Validate date format and logic
+                date_str = payload.get("date")
+                if date_str:
+                    try:
+                        from datetime import datetime
+                        event_date = datetime.strptime(date_str, "%Y-%m-%d")
+                        # Check if date is not in the past
+                        today = datetime.now().date()
+                        if event_date.date() < today:
+                            errors.append("Event date cannot be in the past")
+                    except Exception:
+                        errors.append("payload.date must be in format YYYY-MM-DD")
+                
+                # Validate time format if provided
+                time_str = payload.get("time")
+                if time_str:
+                    try:
+                        from datetime import datetime
+                        datetime.strptime(time_str, "%H:%M")
+                    except Exception:
+                        errors.append("payload.time must be in format HH:MM")
+                
+                # Validate repeat options
+                repeat = payload.get("repeat")
+                if repeat and repeat not in ["none", "daily", "weekly", "monthly", "always"]:
+                    errors.append("payload.repeat must be one of: none, daily, weekly, monthly, always")
+                
+                # Validate description length
+                description = payload.get("description", "")
+                if len(description) > 500:
+                    errors.append("Event description cannot exceed 500 characters")
+                
+                return errors
+            
+            # Create custom validation rule
+            rule = ValidationRule(
+                action_type="event",
+                required_fields=["date", "description"],
+                custom_validator=validate_event_payload,
+                component_name="event"
+            )
+            
+            # Register with validation registry
+            registry = get_validation_registry()
+            registry.register_component_rules("event", [rule])
+            
+            log_debug("[event_plugin] Registered custom validation rules with validation registry")
+            
+        except Exception as e:
+            log_warning(f"[event_plugin] Failed to register custom validation: {e}")
+    
 
 # Export the plugin class for the loader
 PLUGIN_CLASS = EventPlugin
