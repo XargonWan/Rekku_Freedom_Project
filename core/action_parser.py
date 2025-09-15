@@ -168,6 +168,14 @@ def get_supported_action_types() -> set[str]:
 
 
 def _validate_payload(action_type: str, payload: dict, errors: List[str]) -> None:
+    """Validate payload using centralized validation registry and legacy plugin/interface validation.
+    
+    This function implements the new Dynamic Component Validation System that removes 
+    hardcoded validation rules from the corrector. Components register their validation 
+    rules dynamically, and this function applies them automatically.
+    
+    See docs/validation_system.rst for complete documentation.
+    """
     """Validate payload using centralized validation registry and legacy plugin/interface validation."""
     
     # First, use the centralized validation registry (new system)

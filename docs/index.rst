@@ -28,6 +28,7 @@ getting started.
    chat_links
    llm_engines
    plugins
+   validation_system
    ai_diary_personal_memory
    interfaces
    contributing
