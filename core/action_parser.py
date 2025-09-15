@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Tuple, Optional
 
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.prompt_engine import build_full_json_instructions
+from core.validation_registry import get_validation_registry
 
 # Global dictionary to track retry attempts per chat/message thread for the corrector
 CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
@@ -131,9 +132,17 @@ def _load_interface_actions() -> Dict[str, str]:
 
 
 def get_supported_action_types() -> set[str]:
-    """Return all supported action types discovered from plugins and interfaces."""
+    """Return all supported action types discovered from plugins, interfaces, and validation registry."""
     supported_types: set[str] = set()
 
+    # Add action types from validation registry (new centralized system)
+    try:
+        validation_registry = get_validation_registry()
+        supported_types.update(validation_registry.get_supported_action_types())
+    except Exception as e:
+        log_warning(f"[action_parser] Error getting action types from validation registry: {e}")
+
+    # Legacy discovery from plugins
     try:
         for plugin in _load_action_plugins():
             if hasattr(plugin, "get_supported_action_types"):
@@ -149,6 +158,7 @@ def get_supported_action_types() -> set[str]:
     except Exception as e:
         log_warning(f"[action_parser] Error discovering action types: {e}")
 
+    # Legacy discovery from interfaces
     try:
         supported_types.update(_load_interface_actions().keys())
     except Exception as e:  # pragma: no cover - defensive
@@ -158,7 +168,19 @@ def get_supported_action_types() -> set[str]:
 
 
 def _validate_payload(action_type: str, payload: dict, errors: List[str]) -> None:
-    """Validate payload using plugins or interfaces that support the action type."""
+    """Validate payload using centralized validation registry and legacy plugin/interface validation."""
+    
+    # First, use the centralized validation registry (new system)
+    try:
+        validation_registry = get_validation_registry()
+        registry_errors = validation_registry.validate_action_payload(action_type, payload)
+        if registry_errors:
+            errors.extend(registry_errors)
+            log_debug(f"[action_parser] Validation registry added {len(registry_errors)} errors for {action_type}")
+    except Exception as e:
+        log_warning(f"[action_parser] Error using validation registry: {e}")
+    
+    # Legacy validation - keep for backward compatibility until all components migrate
     try:
         for plugin in _load_action_plugins():
             supports_action = False

@@ -43,6 +43,9 @@ class CoreInitializer:
         # 2. Load generic plugins (this may load additional plugins)
         self._load_plugins()
         
+        # 2.5. Auto-register validation rules from loaded components
+        self._register_component_validation_rules()
+        
         # 3. Load core actions (like chat_link) if not already loaded
         self._ensure_core_actions()
         
@@ -465,6 +468,16 @@ class CoreInitializer:
     def register_action(self, action_type: str, handler: Any) -> None:
         """Expose explicit action registration through the core initializer."""
         register_action(action_type, handler)
+
+    def _register_component_validation_rules(self):
+        """Register validation rules from loaded components."""
+        try:
+            from core.component_auto_registration import auto_register_all_components
+            auto_register_all_components()
+            log_debug("[core_initializer] Component validation rules registered")
+        except Exception as e:
+            log_error(f"[core_initializer] Failed to register component validation rules: {e}")
+            self.startup_errors.append(f"Component validation registration failed: {e}")
 
     def _ensure_core_actions(self):
         """Ensure core actions like chat_link are loaded exactly once."""
