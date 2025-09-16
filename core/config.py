@@ -335,18 +335,26 @@ def set_current_model(model: str):
     except Exception as e:
         log_error(f"Unable to save model: {repr(e)}")
 
-# Telegram Configuration
-def get_bot_username():
-    """Extract bot username from BOTFATHER_TOKEN automatically."""
-    botfather_token = os.getenv("BOTFATHER_TOKEN")
-    if botfather_token:
-        try:
-            # Extract username from token (format: 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11)
-            token_parts = botfather_token.split(':')
-            if len(token_parts) == 2:
-                return f"@{token_parts[0]}"
-        except Exception as e:
-            log_warning(f"[config] Could not extract username from BOTFATHER_TOKEN: {e}")
-    return "@7654676853"  # Fallback
+# Generic Bot Configuration
+def get_bot_identifier(interface_name: str = None):
+    """Extract bot identifier from environment variables based on interface."""
+    # Try common bot token environment variables
+    token_vars = ["BOTFATHER_TOKEN", "TELEGRAM_TOKEN", "DISCORD_BOT_TOKEN", "BOT_TOKEN"]
+    
+    for var in token_vars:
+        token = os.getenv(var)
+        if token:
+            try:
+                # Extract identifier from token (common format: 123456:ABC-DEF...)
+                if ':' in token:
+                    token_parts = token.split(':')
+                    if len(token_parts) == 2:
+                        return f"@{token_parts[0]}"
+                # For tokens without colon, use first part as identifier
+                return f"@{token[:10]}..."
+            except Exception as e:
+                log_warning(f"[config] Could not extract identifier from {var}: {e}")
+    
+    return "@bot"  # Generic fallback
 
-BOT_USERNAME = get_bot_username()
+BOT_USERNAME = get_bot_identifier()

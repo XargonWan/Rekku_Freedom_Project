@@ -943,9 +943,8 @@ def process_prompt_in_chat(
     # Some UI experiments may block the textarea with a "I prefer this response"
     # dialog. Dismiss it if present before looking for the textarea.
 
-    log_info(f"[chatgpt_model] Ensuring model {CHATGPT_MODEL} is active")
     if not ensure_chatgpt_model(driver):
-        log_warning(f"[chatgpt_model] Failed to ensure model {CHATGPT_MODEL}")
+        log_warning("[chatgpt_model] Failed to ensure model")
 
     try:
         prefer_btn = WebDriverWait(driver, 2).until(
@@ -1144,7 +1143,7 @@ def process_prompt_in_chat(
 
 
 # Funzione di selezione modello ChatGPT
-CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "GPT-4o")
+CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "")
 
 
 def select_chatgpt_model(driver):
@@ -1191,6 +1190,11 @@ def select_chatgpt_model(driver):
 
 def ensure_chatgpt_model(driver):
     """Ensure the desired ChatGPT model is active before sending a prompt."""
+    # Check if CHATGPT_MODEL is set and not empty
+    if not CHATGPT_MODEL or CHATGPT_MODEL.strip() == "" or CHATGPT_MODEL.upper() == "NONE":
+        log_info("[chatgpt_model] CHATGPT_MODEL not set or disabled, skipping model selection")
+        return True
+        
     try:
         log_info(f"[chatgpt_model] Ensuring model {CHATGPT_MODEL} is active")
         select_chatgpt_model(driver)

@@ -1,7 +1,7 @@
 # core/interface_adapters.py
 
 """
-Adapters to help existing interfaces migrate to the new abstract system.
+Generic adapters for interface abstraction without plugin-specific dependencies.
 """
 
 from typing import Dict, Any, Optional, Callable, Union
@@ -20,113 +20,48 @@ def register_interface_with_trainer(interface_name: str, interface_instance: Any
     else:
         log_debug(f"[interface_adapters] Registered {interface_name} without trainer ID")
 
-def create_telegram_adapter():
-    """Create an adapter for Telegram that converts to AbstractContext."""
-    def telegram_to_abstract(update, context_types) -> AbstractContext:
-        """Convert Telegram update/context to AbstractContext."""
-        from core.abstract_context import create_context_from_telegram
-        return create_context_from_telegram(update, context_types)
-    
-    return telegram_to_abstract
-
-def create_discord_adapter():
-    """Create an adapter for Discord that converts to AbstractContext."""
-    def discord_to_abstract(message) -> AbstractContext:
-        """Convert Discord message to AbstractContext."""
+def create_generic_adapter(interface_name: str):
+    """Create a generic adapter that can be customized by any interface plugin."""
+    def generic_to_abstract(data, converter_func: Callable = None) -> AbstractContext:
+        """Convert interface-specific data to AbstractContext using provided converter."""
+        if converter_func:
+            return converter_func(data, interface_name)
+        
+        # Fallback generic conversion if no specific converter provided
+        log_warning(f"[interface_adapters] No converter provided for {interface_name}, using fallback")
+        
+        # Try to extract basic info generically
+        user_id = getattr(data, 'user_id', None) or getattr(data, 'author_id', None) or 'unknown'
+        username = getattr(data, 'username', None) or getattr(data, 'author', {}).get('name', 'unknown')
+        message_id = getattr(data, 'id', None) or getattr(data, 'message_id', 'unknown')
+        text_content = getattr(data, 'text', None) or getattr(data, 'content', '') or str(data)
+        chat_id = getattr(data, 'chat_id', None) or getattr(data, 'channel_id', None) or 'unknown'
+        
         user = AbstractUser(
-            id=message.author.id,
-            username=message.author.name,
-            interface_name='discord'
+            id=user_id,
+            username=username,
+            interface_name=interface_name
         )
         
         abstract_message = AbstractMessage(
-            id=message.id,
-            text=message.content,
-            user=user,
-            chat_id=message.channel.id,
-            interface_name='discord',
-            raw_data={'discord_message': message}
-        )
-        
-        chat = AbstractChat(
-            id=message.channel.id,
-            name=getattr(message.channel, 'name', None),
-            type='guild' if hasattr(message, 'guild') and message.guild else 'dm',
-            interface_name='discord'
-        )
-        
-        return AbstractContext('discord', user, abstract_message, chat)
-    
-    return discord_to_abstract
-
-def create_reddit_adapter():
-    """Create an adapter for Reddit that converts to AbstractContext."""
-    def reddit_to_abstract(submission_or_comment) -> AbstractContext:
-        """Convert Reddit submission/comment to AbstractContext."""
-        # Handle both submissions and comments
-        if hasattr(submission_or_comment, 'submission'):
-            # This is a comment
-            item = submission_or_comment
-            chat_id = item.submission.id
-        else:
-            # This is a submission
-            item = submission_or_comment
-            chat_id = item.id
-        
-        user = AbstractUser(
-            id=item.author.id if item.author else 'deleted',
-            username=item.author.name if item.author else 'deleted',
-            interface_name='reddit'
-        )
-        
-        abstract_message = AbstractMessage(
-            id=item.id,
-            text=getattr(item, 'body', None) or getattr(item, 'title', ''),
+            id=message_id,
+            text=text_content,
             user=user,
             chat_id=chat_id,
-            interface_name='reddit',
-            raw_data={'reddit_item': item}
+            interface_name=interface_name,
+            raw_data={f'{interface_name}_data': data}
         )
         
         chat = AbstractChat(
             id=chat_id,
-            name=getattr(item, 'subreddit', {}).get('display_name', 'unknown'),
-            type='submission' if hasattr(item, 'title') else 'comment',
-            interface_name='reddit'
+            name=getattr(data, 'chat_name', None) or f'{interface_name}_chat',
+            type='generic',
+            interface_name=interface_name
         )
         
-        return AbstractContext('reddit', user, abstract_message, chat)
+        return AbstractContext(interface_name, user, abstract_message, chat)
     
-    return reddit_to_abstract
-
-def create_x_adapter():
-    """Create an adapter for X (Twitter) that converts to AbstractContext."""
-    def x_to_abstract(tweet_data) -> AbstractContext:
-        """Convert X/Twitter data to AbstractContext."""
-        user = AbstractUser(
-            id=tweet_data.get('author_id'),
-            username=tweet_data.get('username'),
-            interface_name='x'
-        )
-        
-        abstract_message = AbstractMessage(
-            id=tweet_data.get('id'),
-            text=tweet_data.get('text'),
-            user=user,
-            chat_id=tweet_data.get('conversation_id', tweet_data.get('id')),
-            interface_name='x',
-            raw_data={'x_tweet': tweet_data}
-        )
-        
-        chat = AbstractChat(
-            id=tweet_data.get('conversation_id', tweet_data.get('id')),
-            type='tweet',
-            interface_name='x'
-        )
-        
-        return AbstractContext('x', user, abstract_message, chat)
-    
-    return x_to_abstract
+    return generic_to_abstract
 
 def create_generic_reply_function(interface_name: str, send_function: Callable):
     """Create a generic reply function for any interface."""

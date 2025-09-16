@@ -33,71 +33,75 @@ def _format_json_error(text: str, err: json.JSONDecodeError) -> str:
     )
 
 
-def extract_json_from_text(text: str) -> dict | list | None:
-    """Extract JSON from text, handling various formats and edge cases."""
-    if not text or not text.strip():
+def extract_json_from_text(text: str) -> Optional[Dict]:
+    """Extract the first valid JSON object or array from text."""
+    if not text:
         return None
-
-    text = text.strip()
     
-    # Handle JSON wrapped in quotes (common LLM response format)
-    if (text.startswith("'") and text.endswith("'")) or (text.startswith('"') and text.endswith('"')):
-        # Remove the wrapping quotes
-        inner_text = text[1:-1]
-        # Try to parse the inner content
-        try:
-            return json.loads(inner_text)
-        except json.JSONDecodeError:
-            # If direct parsing fails, continue with normal extraction on inner text
-            text = inner_text
-
+    # Try to clean up common markdown/formatting issues
+    cleaned_text = text.strip()
+    
+    # Remove markdown code blocks if present
+    if cleaned_text.startswith('```json'):
+        cleaned_text = cleaned_text[7:]  # Remove ```json
+        if cleaned_text.endswith('```'):
+            cleaned_text = cleaned_text[:-3]  # Remove ```
+        cleaned_text = cleaned_text.strip()
+    elif cleaned_text.startswith('```'):
+        cleaned_text = cleaned_text[3:]  # Remove ```
+        if cleaned_text.endswith('```'):
+            cleaned_text = cleaned_text[:-3]  # Remove ```
+        cleaned_text = cleaned_text.strip()
+    
+    # Also try original text in case cleaning broke something
+    texts_to_try = [cleaned_text, text.strip()]
+    
     decoder = json.JSONDecoder()
-
-    # First, attempt to parse the entire text.  If extra characters follow
-    # a valid JSON block, simply warn and return the parsed object.
-    try:
-        obj, end = decoder.raw_decode(text)
-        remainder = text[end:].strip()
-        if remainder:
-            log_warning("[extract_json_from_text] Extra content detected after JSON block")
-        return obj
-    except json.JSONDecodeError:
-        pass
     
-    # Scan greedily for JSON blocks starting from each '{'
-    start_indices = [i for i, char in enumerate(text) if char == '{']
-    if not start_indices:
-        log_debug("[extract_json_from_text] No starting braces found in text")
-        return None
-    for start in start_indices:
-        try:
-            obj, obj_end = decoder.raw_decode(text[start:])
-        except json.JSONDecodeError:
+    for text_variant in texts_to_try:
+        log_debug(f"[extract_json_from_text] Trying text variant (length: {len(text_variant)})")
+        
+        # Scan for JSON objects starting from each '{'
+        object_start_indices = [i for i, char in enumerate(text_variant) if char == '{']
+        if not object_start_indices:
+            log_debug("[extract_json_from_text] No starting braces found in text variant")
             continue
-        obj_end += start
-        prefix = text[:start].strip()
-        suffix = text[obj_end:].strip()
-        if prefix or suffix:
-            log_debug(f"[extract_json_from_text] Extra content detected around JSON object (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
-        # Return JSON even if there's extra content - actions can still be executed
-        return obj
-    
-    # Scan for JSON arrays starting from each '['
-    array_start_indices = [i for i, char in enumerate(text) if char == '[']
-    for start in array_start_indices:
-        try:
-            obj, obj_end = decoder.raw_decode(text[start:])
-        except json.JSONDecodeError:
-            continue
-        obj_end += start
-        prefix = text[:start].strip()
-        suffix = text[obj_end:].strip()
-        if prefix or suffix:
-            log_debug(f"[extract_json_from_text] Extra content detected around JSON array (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
-        # Return JSON even if there's extra content - actions can still be executed
-        return obj
+            
+        for start in object_start_indices:
+            try:
+                obj, obj_end = decoder.raw_decode(text_variant[start:])
+                obj_end += start
+                prefix = text_variant[:start].strip()
+                suffix = text_variant[obj_end:].strip()
+                if prefix or suffix:
+                    log_debug(f"[extract_json_from_text] Extra content detected around JSON object (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
+                # Return JSON even if there's extra content - actions can still be executed
+                log_debug(f"[extract_json_from_text] Found valid JSON object: {type(obj)}")
+                return obj
+            except json.JSONDecodeError as e:
+                log_debug(f"[extract_json_from_text] JSON decode error at position {start}: {e}")
+                continue
+        
+        # Scan for JSON arrays starting from each '['
+        array_start_indices = [i for i, char in enumerate(text_variant) if char == '[']
+        for start in array_start_indices:
+            try:
+                obj, obj_end = decoder.raw_decode(text_variant[start:])
+                obj_end += start
+                prefix = text_variant[:start].strip()
+                suffix = text_variant[obj_end:].strip()
+                if prefix or suffix:
+                    log_debug(f"[extract_json_from_text] Extra content detected around JSON array (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
+                # Return JSON even if there's extra content - actions can still be executed
+                log_debug(f"[extract_json_from_text] Found valid JSON array: {type(obj)}")
+                return obj
+            except json.JSONDecodeError as e:
+                log_debug(f"[extract_json_from_text] JSON decode error at position {start}: {e}")
+                continue
     
     log_debug("[extract_json_from_text] No valid JSON found in text")
+    log_debug(f"[extract_json_from_text] Text content (first 500 chars): {text[:500]}")
+    log_debug(f"[extract_json_from_text] Text content (last 500 chars): {text[-500:]}")
     return None
 
 
@@ -294,6 +298,12 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
 
     # Extract message from context if available
     message = context.get('message') if context else None
+    
+    # Extract chat_id if not provided
+    if chat_id is None and message:
+        chat_id = getattr(message, 'chat_id', None)
+    if chat_id is None and context:
+        chat_id = context.get('chat_id')
 
     # If already valid JSON, nothing to do
     try:
@@ -351,12 +361,51 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
             except Exception:
                 full_json = {}
 
+            # Extract interface from context for dynamic example
+            current_interface = "unknown"
+            if context and 'interface' in context:
+                current_interface = context['interface']
+            elif bot and hasattr(bot, 'get_interface_id'):
+                try:
+                    current_interface = bot.get_interface_id()
+                except Exception:
+                    pass
+            
+            # Create dynamic example based on interface
+            example_action_type = f"message_{current_interface}" if current_interface != "unknown" else "message_interface"
+            example_target = str(chat_id) if chat_id else "EXAMPLE_CHAT_ID"
+            example_thread_id = None
+            if context and 'original_message_thread_id' in context:
+                example_thread_id = context['original_message_thread_id']
+            
+            example_payload = {
+                "text": "Your message content here",
+                "target": str(example_target)
+            }
+            if example_thread_id:
+                example_payload["message_thread_id"] = example_thread_id
+
             correction_payload = {
                 "system_message": {
                     "type": "error",
-                    "message": f"Please repeat your previous message, corrected so it returns valid JSON actions. Hint: {last_error_hint}",
+                    "message": f"CRITICAL ERROR: Your previous response was not valid JSON. You MUST respond with ONLY valid JSON. {last_error_hint}",
                     "your_reply": text,
                     "full_json_instructions": full_json,
+                    "required_format": {
+                        "actions": [
+                            {
+                                "type": example_action_type,
+                                "payload": example_payload
+                            }
+                        ]
+                    },
+                    "strict_requirements": [
+                        "MUST start with { and end with }",
+                        "MUST contain 'actions' array",
+                        "NO text outside JSON structure",
+                        "NO markdown formatting",
+                        "NO explanations outside JSON"
+                    ]
                 }
             }
             correction_prompt = json.dumps(correction_payload, ensure_ascii=False)
@@ -421,9 +470,18 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
 
     # Exhausted retries — send error message if possible
     log_warning(f"[corrector_middleware] Exhausted {max_retries} attempts without valid JSON; blocking message for chat_id={chat_id}")
-    if llm_plugin and hasattr(llm_plugin, '_send_error_message') and message:
+    if llm_plugin and hasattr(llm_plugin, '_send_error_message'):
         try:
-            await llm_plugin._send_error_message(bot, message)
+            # Create a dummy message if original is lost
+            if not message and chat_id:
+                from types import SimpleNamespace
+                message = SimpleNamespace()
+                message.chat_id = chat_id
+                message.message_id = None
+                message.message_thread_id = None
+            
+            if message:
+                await llm_plugin._send_error_message(bot, message)
         except Exception as e:
             log_warning(f"[corrector_middleware] Failed to send error message: {e}")
     # Cleanup expectation for this chat in case it wasn't consumed

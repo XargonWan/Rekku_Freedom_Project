@@ -66,6 +66,10 @@ async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text:
     # Default context
     ctx = context or {}
     ctx['message'] = message
+    
+    # Preserve chat_id in context to avoid losing it during correction
+    if hasattr(message, 'chat_id'):
+        ctx['chat_id'] = message.chat_id
 
     # Retry/tried set to avoid loops
     tried_texts = set()

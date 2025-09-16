@@ -8,6 +8,7 @@ and remembers his relationships with users in a personal way.
 
 from __future__ import annotations
 
+import os
 import json
 from datetime import datetime, timedelta
 from typing import Any, List, Dict, Optional
@@ -31,20 +32,49 @@ DIARY_CONFIG = {
         "google_cli": 1200,       # Google Gemini limits
         "manual": 800,            # Manual input, keep it short
         "telegram_bot": 1000,     # Telegram interface
+        "telegram_userbot": 1000, # Telegram userbot interface  
         "discord_bot": 1000,      # Discord interface
+        "discord": 1000,          # Discord interface alias
         "webui": 800,             # Web UI
         "x": 1000                 # X/Twitter interface
     },
     "default_max_chars": 800,     # Fallback for unknown interfaces
     "min_space_threshold": 0.7,   # Include diary if using less than 70% of space
     "max_entries_per_injection": 10,  # Maximum entries to include in prompt
-    "default_days": 2,            # Default days to look back for entries
+    "default_days": int(os.getenv("HISTORY_DAYS", "2")),  # Days to look back from env var
     "cleanup_days": 30            # Days to keep entries before cleanup
 }
 
 def get_diary_config(interface_name: str) -> dict:
     """Get diary configuration for a specific interface."""
     return DIARY_CONFIG
+
+def normalize_interface_name(interface: str) -> str:
+    """Normalize interface name for consistent diary entries."""
+    if not interface or interface.lower() == "unknown":
+        return "unknown"
+    
+    # Normalize telegram interfaces
+    if "telegram" in interface.lower() or "telethon" in interface.lower():
+        return "telegram"
+    
+    # Normalize discord interfaces  
+    if "discord" in interface.lower():
+        return "discord"
+        
+    # Other specific interfaces
+    interface_mapping = {
+        "webui": "webui",
+        "web": "webui", 
+        "x_interface": "x",
+        "twitter": "x",
+        "reddit_interface": "reddit",
+        "cli": "manual",
+        "manual": "manual"
+    }
+    
+    normalized = interface_mapping.get(interface.lower(), interface.lower())
+    return normalized
 
 def get_max_diary_chars(interface_name: str, current_prompt_length: int = 0) -> int:
     """Calculate how many characters can be allocated to diary injection."""
@@ -259,6 +289,9 @@ def add_diary_entry(
     involved_users = involved_users or []
     context_tags = context_tags or []
     
+    # Normalize interface name for consistency
+    interface = normalize_interface_name(interface)
+    
     # Validate emotions format
     for emotion in emotions:
         if not isinstance(emotion, dict) or 'type' not in emotion:
@@ -317,6 +350,9 @@ async def add_diary_entry_async(
     emotions = emotions or []
     involved_users = involved_users or []
     context_tags = context_tags or []
+    
+    # Normalize interface name for consistency
+    interface = normalize_interface_name(interface)
     
     # Validate emotions format
     for emotion in emotions:
@@ -381,39 +417,26 @@ def get_recent_entries(days: int = 2, max_chars: int = None) -> List[Dict[str, A
             entry['emotions'] = json.loads(entry.get('emotions', '[]'))
             entry['timestamp'] = entry['timestamp'].isoformat() if entry['timestamp'] else None
         
-        # If character limit specified, truncate entries
+        # If character limit specified, filter entries intelligently
         if max_chars:
             total_chars = 0
             filtered_entries = []
             
             for entry in entries:
-                entry_text = f"📅 {entry['timestamp']}\n"
-                entry_text += f"💬 I said: {entry['content']}\n"
+                # Calculate the formatted size of this entry as it would appear in prompt
+                entry_text = _format_single_entry_for_prompt(entry)
+                entry_size = len(entry_text)
                 
-                if entry.get('personal_thought'):
-                    entry_text += f"💭 My thought: {entry['personal_thought']}\n"
-                
-                if entry.get('interaction_summary'):
-                    entry_text += f"📝 What happened: {entry['interaction_summary']}\n"
-                
-                if entry['context_tags']:
-                    entry_text += f"🏷️ Topics: {', '.join(entry['context_tags'])}\n"
-                    
-                if entry['involved_users']:
-                    entry_text += f"👥 With: {', '.join(entry['involved_users'])}\n"
-                
-                if entry['emotions']:
-                    emotion_str = ", ".join([f"{e.get('type', 'unknown')}({e.get('intensity', 0)})" for e in entry['emotions']])
-                    entry_text += f"❤️ I felt: {emotion_str}\n"
-                
-                entry_text += "\n"
-                
-                if total_chars + len(entry_text) > max_chars:
+                # If adding this entry would exceed the limit, stop here
+                # Don't truncate individual entries, remove them entirely
+                if total_chars + entry_size > max_chars:
+                    log_debug(f"[ai_diary] Stopping at {len(filtered_entries)} entries due to char limit ({total_chars}/{max_chars})")
                     break
                 
                 filtered_entries.append(entry)
-                total_chars += len(entry_text)
+                total_chars += entry_size
             
+            log_debug(f"[ai_diary] Filtered diary: {len(filtered_entries)}/{len(entries)} entries, {total_chars} chars")
             return filtered_entries
         
         return entries
@@ -504,47 +527,9 @@ def format_diary_for_injection(entries: List[Dict[str, Any]]) -> str:
     formatted_lines.append("")
     
     for entry in entries:
-        timestamp = entry.get('timestamp', 'Unknown time')
-        if timestamp and len(timestamp) > 19:  # Truncate ISO timestamp
-            timestamp = timestamp[:19].replace('T', ' ')
-        
-        content = entry.get('content', '')
-        personal_thought = entry.get('personal_thought', '')
-        context_tags = entry.get('context_tags', [])
-        involved_users = entry.get('involved_users', [])
-        emotions = entry.get('emotions', [])
-        interaction_summary = entry.get('interaction_summary', '')
-        interface = entry.get('interface', '')
-        chat_id = entry.get('chat_id', '')
-        thread_id = entry.get('thread_id', '')
-        
-        formatted_lines.append(f"📅 {timestamp}")
-        
-        if interaction_summary:
-            formatted_lines.append(f"📝 What happened: {interaction_summary}")
-        
-        formatted_lines.append(f"💬 I said: {content}")
-        
-        if personal_thought:
-            formatted_lines.append(f"💭 My personal thought: {personal_thought}")
-        
-        if involved_users:
-            formatted_lines.append(f"👥 I was talking with: {', '.join(involved_users)}")
-        
-        if context_tags:
-            formatted_lines.append(f"🏷️ Topics discussed: {', '.join(context_tags)}")
-        
-        if emotions:
-            emotion_str = ", ".join([f"{e.get('type', 'unknown')} (intensity: {e.get('intensity', 0)})" for e in emotions])
-            formatted_lines.append(f"❤️ How I felt: {emotion_str}")
-        
-        if interface and chat_id:
-            context_str = f"{interface}/{chat_id}"
-            if thread_id:
-                context_str += f"/{thread_id}"
-            formatted_lines.append(f"📱 Platform: {context_str}")
-        
-        formatted_lines.append("")  # Empty line between entries
+        # Use the same formatting function as the character counting
+        entry_text = _format_single_entry_for_prompt(entry)
+        formatted_lines.append(entry_text)
     
     formatted_lines.append("=== End of My Diary ===")
     formatted_lines.append("(Use these memories to better understand my relationships and personality)")
@@ -607,12 +592,13 @@ def create_personal_diary_entry(
         thread_id: Thread identifier
     """
     
-    # Create a summary of what happened
-    if user_message and involved_users:
-        user_name = involved_users[0] if involved_users else "someone"
-        interaction_summary = f"I responded to {user_name}'s message about {', '.join(context_tags) if context_tags else 'general topics'}"
-    else:
-        interaction_summary = f"I sent a message in {interface or 'unknown platform'}"
+    # Normalize interface name
+    interface = normalize_interface_name(interface or "unknown")
+    
+    # Create a more specific summary of what happened
+    interaction_summary = _generate_interaction_summary(
+        rekku_response, user_message, involved_users, context_tags, interface
+    )
     
     # Generate personal thought based on context
     personal_thought = _generate_personal_thought(rekku_response, user_message, context_tags, involved_users)
@@ -634,6 +620,105 @@ def create_personal_diary_entry(
         thread_id=thread_id
     )
 
+
+def _generate_interaction_summary(
+    rekku_response: str,
+    user_message: str = None, 
+    involved_users: List[str] = None,
+    context_tags: List[str] = None,
+    interface: str = None
+) -> str:
+    """Generate a specific interaction summary based on context and content."""
+    
+    # Get user name if available
+    user_name = involved_users[0] if involved_users else "someone"
+    
+    # Extract key information from the conversation
+    summary_parts = []
+    
+    if user_message and involved_users:
+        # Analyze the conversation content for specific actions/topics
+        user_lower = user_message.lower()
+        response_lower = rekku_response.lower()
+        combined_text = f"{user_lower} {response_lower}"
+        
+        # Determine what type of interaction this was
+        if any(word in combined_text for word in ["bio", "update", "information", "personal data"]):
+            summary_parts.append(f"updated bio information for {user_name}")
+        elif any(word in combined_text for word in ["eat", "food", "sushi", "restaurant", "meal", "cooking"]):
+            # Extract food-related information
+            food_words = []
+            for word in ["sushi", "pizza", "pasta", "burger", "salad", "coffee", "tea"]:
+                if word in combined_text:
+                    food_words.append(word)
+            food_context = ", ".join(food_words) if food_words else "food"
+            summary_parts.append(f"talked with {user_name} about {food_context}")
+        elif any(word in combined_text for word in ["car", "auto", "vehicle", "driving", "motor"]):
+            summary_parts.append(f"discussed cars and vehicles with {user_name}")
+        elif any(word in combined_text for word in ["help", "problem", "issue", "solve", "fix"]):
+            summary_parts.append(f"helped {user_name} solve a problem")
+        elif any(word in combined_text for word in ["terminal", "command", "system", "tech"]):
+            summary_parts.append(f"provided technical assistance to {user_name}")
+        elif any(word in combined_text for word in ["event", "schedule", "reminder", "appointment"]):
+            summary_parts.append(f"scheduled something with {user_name}")
+        elif any(word in combined_text for word in ["emotion", "feel", "mood", "personal"]):
+            summary_parts.append(f"had a personal conversation with {user_name}")
+        else:
+            # Default based on context tags
+            if context_tags and len(context_tags) > 0:
+                # Filter out generic tags
+                specific_tags = [tag for tag in context_tags if tag not in ["communication", "interface", "help"]]
+                if specific_tags:
+                    summary_parts.append(f"discussed {', '.join(specific_tags[:2])} with {user_name}")
+                else:
+                    summary_parts.append(f"had a conversation with {user_name}")
+            else:
+                summary_parts.append(f"chatted with {user_name}")
+    else:
+        # No user message context, just sent a message
+        summary_parts.append(f"sent a message via {interface}")
+    
+    return " and ".join(summary_parts)
+
+def _format_single_entry_for_prompt(entry: dict) -> str:
+    """Format a single diary entry as it would appear in the prompt."""
+    lines = []
+    
+    timestamp = entry.get('timestamp', 'Unknown time')
+    if timestamp and len(timestamp) > 19:  # Truncate ISO timestamp
+        timestamp = timestamp[:19].replace('T', ' ')
+    
+    lines.append(f"📅 {timestamp}")
+    
+    if entry.get('interaction_summary'):
+        lines.append(f"📝 What happened: {entry['interaction_summary']}")
+    
+    lines.append(f"💬 I said: {entry['content']}")
+    
+    if entry.get('personal_thought'):
+        lines.append(f"💭 My personal thought: {entry['personal_thought']}")
+    
+    if entry.get('involved_users'):
+        lines.append(f"👥 I was talking with: {', '.join(entry['involved_users'])}")
+    
+    if entry.get('context_tags'):
+        lines.append(f"🏷️ Topics discussed: {', '.join(entry['context_tags'])}")
+    
+    if entry.get('emotions'):
+        emotion_str = ", ".join([f"{e.get('type', 'unknown')} (intensity: {e.get('intensity', 0)})" for e in entry['emotions']])
+        lines.append(f"❤️ How I felt: {emotion_str}")
+    
+    interface = entry.get('interface', '')
+    chat_id = entry.get('chat_id', '')
+    thread_id = entry.get('thread_id', '')
+    if interface and chat_id:
+        context_str = f"{interface}/{chat_id}"
+        if thread_id:
+            context_str += f"/{thread_id}"
+        lines.append(f"📱 Platform: {context_str}")
+    
+    lines.append("")  # Empty line between entries
+    return "\n".join(lines)
 
 def _generate_personal_thought(
     rekku_response: str, 

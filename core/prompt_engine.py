@@ -54,6 +54,7 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
     # === 3b. AI Diary injection ===
     try:
         from plugins.ai_diary import get_recent_entries, format_diary_for_injection, is_plugin_enabled, get_max_diary_chars, should_include_diary
+        import os
         
         if is_plugin_enabled():
             # Get interface name
@@ -73,12 +74,15 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
             # Check if we should include diary
             if should_include_diary(interface_name, current_length, max_prompt_chars):
                 max_chars = get_max_diary_chars(interface_name, current_length)
-                recent_entries = get_recent_entries(days=2, max_chars=max_chars)
+                
+                # Use HISTORY_DAYS environment variable, fallback to 2
+                history_days = int(os.getenv("HISTORY_DAYS", "2"))
+                recent_entries = get_recent_entries(days=history_days, max_chars=max_chars)
                 
                 if recent_entries:
                     diary_content = format_diary_for_injection(recent_entries)
                     context_section["diary"] = diary_content
-                    log_debug(f"[json_prompt] Added diary content: {len(diary_content)} chars")
+                    log_debug(f"[json_prompt] Added diary content: {len(diary_content)} chars from {len(recent_entries)} entries ({history_days} days)")
         
     except ImportError:
         log_debug("[json_prompt] AI Diary plugin not available")
@@ -264,10 +268,25 @@ All rules:
 - Use 'input.payload.source.chat_id' as message target when applicable
 - Include 'thread_id' if present in the context
 - Use 'reply_message_id' to reply to specific messages and maintain conversation context.
-- Always return syntactically valid JSON
-- Use the 'actions' array, even for single actions
+- You MUST ALWAYS return syntactically valid JSON
+- You MUST use the 'actions' array, even for single actions
+- DO NOT include any text outside the JSON structure
 
-The JSON is just a wrapper — speak naturally as you always do.
+CRITICAL: Your response MUST be valid JSON. Example format:
+{
+  "actions": [
+    {
+      "type": "action_name",
+      "payload": {
+        "text": "Your message here",
+        "target": "-1003098886330",
+        "message_thread_id": 2
+      }
+    }
+  ]
+}
+
+The JSON is just a wrapper — speak naturally in the "text" field as you always do.
 """
 
 

@@ -960,32 +960,7 @@ async def _create_diary_entry_for_actions(processed_actions, context, original_m
         rekku_response = " | ".join(rekku_response_parts)
         
         # Generate context tags based on action types and content
-        context_tags = []
-        if "message_telegram_bot" in action_types or "message_discord_bot" in action_types:
-            context_tags.append("communication")
-        if "bio_update" in action_types or "bio_full_request" in action_types:
-            context_tags.append("personal_info")
-        if "terminal" in action_types:
-            context_tags.append("system")
-        if "event" in action_types:
-            context_tags.append("scheduling")
-        if "speech_selenium_elevenlabs" in action_types or "audio_telegram_bot" in action_types:
-            context_tags.append("audio")
-        
-        # Add interface tag
-        if interface_name != "unknown":
-            context_tags.append(interface_name)
-        
-        # Analyze content for additional tags
-        content_lower = (rekku_response + " " + user_message).lower()
-        if any(word in content_lower for word in ["help", "assist", "support"]):
-            context_tags.append("help")
-        if any(word in content_lower for word in ["feel", "emotion", "personal", "think"]):
-            context_tags.append("personal")
-        if any(word in content_lower for word in ["learn", "understand", "know"]):
-            context_tags.append("learning")
-        if any(word in content_lower for word in ["problem", "issue", "fix", "solve"]):
-            context_tags.append("problem")
+        context_tags = _generate_context_tags(action_types, rekku_response, user_message, interface_name)
         
         # Use create_personal_diary_entry for automatic thought and emotion generation
         create_personal_diary_entry(
@@ -1004,6 +979,82 @@ async def _create_diary_entry_for_actions(processed_actions, context, original_m
         log_warning(f"[action_parser] Failed to create diary entry: {e}")
         import traceback
         log_debug(f"[action_parser] Diary error traceback: {traceback.format_exc()}")
+
+
+def _generate_context_tags(action_types: List[str], rekku_response: str, user_message: str, interface_name: str) -> List[str]:
+    """Generate specific context tags based on action types and conversation content."""
+    context_tags = []
+    
+    # Action-based tags (more specific than before)
+    if "bio_update" in action_types or "bio_full_request" in action_types:
+        context_tags.append("personal_info")
+    if "terminal" in action_types:
+        context_tags.append("technical")
+    if "event" in action_types:
+        context_tags.append("scheduling")
+    # Check for audio actions generically
+    audio_actions = [action for action in action_types if "audio" in action or "speech" in action]
+    if audio_actions:
+        context_tags.append("audio")
+    
+    # Content-based analysis for specific topics
+    combined_text = (rekku_response + " " + (user_message or "")).lower()
+    
+    # Food and dining
+    if any(word in combined_text for word in ["food", "eat", "cooking", "recipe", "restaurant", "meal"]):
+        context_tags.append("food")
+        # Specific food types
+        if any(word in combined_text for word in ["sushi", "japanese"]):
+            context_tags.append("sushi")
+        if any(word in combined_text for word in ["pizza", "italian"]):
+            context_tags.append("pizza") 
+        if any(word in combined_text for word in ["restaurant", "dining"]):
+            context_tags.append("restaurant")
+    
+    # Cars and vehicles
+    if any(word in combined_text for word in ["car", "auto", "vehicle", "driving", "motor", "bmw", "audi", "honda"]):
+        context_tags.append("cars")
+        if any(word in combined_text for word in ["color", "blue", "red", "black", "white"]):
+            context_tags.append("colors")
+    
+    # Technology and computers
+    if any(word in combined_text for word in ["computer", "software", "programming", "code", "tech"]):
+        context_tags.append("technology")
+    
+    # Entertainment
+    if any(word in combined_text for word in ["movie", "music", "game", "book", "entertainment"]):
+        context_tags.append("entertainment")
+    
+    # Location and travel
+    if any(word in combined_text for word in ["travel", "vacation", "city", "country", "location"]):
+        context_tags.append("travel")
+    
+    # Work and career
+    if any(word in combined_text for word in ["work", "job", "career", "office", "business"]):
+        context_tags.append("work")
+    
+    # Health and wellness
+    if any(word in combined_text for word in ["health", "exercise", "fitness", "medical"]):
+        context_tags.append("health")
+    
+    # Family and relationships
+    if any(word in combined_text for word in ["family", "friend", "relationship", "love", "marriage"]):
+        context_tags.append("relationships")
+    
+    # Only add help tag for explicit help requests
+    if any(word in combined_text for word in ["help me", "can you help", "need help", "assistance"]):
+        context_tags.append("help")
+    
+    # Only add learning tag for explicit learning conversations
+    if any(word in combined_text for word in ["learn", "teach", "explain", "understand", "study"]):
+        context_tags.append("learning")
+    
+    # Only add problem tag for explicit problem-solving
+    if any(word in combined_text for word in ["problem", "issue", "error", "fix", "solve", "bug"]):
+        context_tags.append("problem")
+    
+    # Remove duplicate tags and return
+    return list(set(context_tags))
 
 
 async def parse_action(action: dict, bot, message):

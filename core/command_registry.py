@@ -358,10 +358,21 @@ async def say_command(*args, interface_context=None) -> str:
             chat_id = int(args[0])
             message_text = " ".join(args[1:])
             
-            # Use the interface's safe_send function if available
+            # Use generic interface send function
             try:
-                from interface.telegram_utils import safe_send
-                await safe_send(bot, chat_id=chat_id, text=message_text)
+                # Get the current interface's send function dynamically
+                interface_name = getattr(context.get('bot'), 'get_interface_id', lambda: 'unknown')()
+                
+                if hasattr(context.get('bot'), 'send_message'):
+                    await context.get('bot').send_message(chat_id=chat_id, text=message_text)
+                else:
+                    # Fallback: try to find appropriate send function
+                    send_func = getattr(context.get('bot'), 'send', None) or getattr(context.get('bot'), 'send_text', None)
+                    if send_func:
+                        await send_func(chat_id, message_text)
+                    else:
+                        return f"❌ No send function available for interface {interface_name}"
+                
                 return "✅ Message sent."
             except Exception as e:
                 return f"❌ Error sending message: {e}"
@@ -374,8 +385,15 @@ async def say_command(*args, interface_context=None) -> str:
                 try:
                     chat = await bot.get_chat(username)
                     if chat.type == "private":
-                        from interface.telegram_utils import safe_send
-                        await safe_send(bot, chat_id=chat.id, text=message_text)
+                        # Use generic interface send function
+                        if hasattr(bot, 'send_message'):
+                            await bot.send_message(chat_id=chat.id, text=message_text)
+                        else:
+                            send_func = getattr(bot, 'send', None) or getattr(bot, 'send_text', None)
+                            if send_func:
+                                await send_func(chat.id, message_text)
+                            else:
+                                return f"❌ No send function available"
                         return f"✅ Message sent to {username}."
                     else:
                         return f"❌ Cannot send to {username}. They must start the chat with the bot first."
@@ -405,8 +423,11 @@ async def logchat_command(*args, interface_context=None) -> str:
         chat_id = update.effective_chat.id
         thread_id = update.effective_message.message_thread_id
         
-        await set_log_chat_id_and_thread(chat_id, thread_id, "telegram_bot")
-        return f"✅ This chat is now set as logchat [{chat_id}, {thread_id}] on telegram_bot"
+        # Get current interface dynamically
+        interface_name = getattr(context.get('bot'), 'get_interface_id', lambda: 'unknown')()
+        
+        await set_log_chat_id_and_thread(chat_id, thread_id, interface_name)
+        return f"✅ This chat is now set as logchat [{chat_id}, {thread_id}] on {interface_name}"
     except Exception as e:
         return f"❌ Unable to set log chat: {e}"
 
@@ -431,7 +452,9 @@ async def cancel_command(*args, interface_context=None) -> str:
             return "❌ Cannot identify user"
         
         interface_registry = get_interface_registry()
-        trainer_id = interface_registry.get_trainer_id('telegram_bot')
+        # Get current interface dynamically
+        interface_name = getattr(context.get('bot'), 'get_interface_id', lambda: 'unknown')()
+        trainer_id = interface_registry.get_trainer_id(interface_name)
         
         if user_id != trainer_id:
             return "❌ Access denied. This command requires trainer privileges."
