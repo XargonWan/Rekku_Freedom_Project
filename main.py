@@ -256,10 +256,6 @@ if __name__ == "__main__":
             traceback.print_exc()
             sys.exit(1)
 
-        # 🎯 Display startup summary before starting bot (after all interfaces are initialized)
-        log_info("[main] All components initialized, displaying startup summary...")
-        core_initializer.display_startup_summary()
-
         # ✅ Start the bot
         try:
             from interface.telegram_bot import start_bot
@@ -271,6 +267,10 @@ if __name__ == "__main__":
             import traceback
             traceback.print_exc()
             sys.exit(1)
+        
+        # 🎯 Display startup summary after all components are ready (this should be the last message)
+        log_info("[main] All components initialized, displaying startup summary...")
+        core_initializer.display_startup_summary()
 
     # Run the async application
     asyncio.run(start_application())

@@ -65,6 +65,7 @@ async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text:
 
     # Default context
     ctx = context or {}
+    ctx['message'] = message
 
     # Retry/tried set to avoid loops
     tried_texts = set()

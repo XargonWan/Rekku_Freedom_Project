@@ -1282,6 +1282,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     def is_worker_running(self) -> bool:
         return self._worker_task is not None and not self._worker_task.done()
 
+    def _get_interface_name(self, bot) -> str:
+        """Determine the interface name from the bot object."""
+        module_name = getattr(bot.__class__, "__module__", "")
+        if module_name.startswith("telegram"):
+            return "telegram"
+        elif hasattr(bot, "get_interface_id"):
+            return bot.get_interface_id()
+        else:
+            return "generic"
+
     def _handle_worker_done(self, fut: asyncio.Future):
         if fut.cancelled():
             log_warning("[selenium] Worker task cancelled")

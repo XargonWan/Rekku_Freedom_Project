@@ -292,6 +292,9 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
 
     max_retries = getattr(action_parser, 'CORRECTOR_RETRIES', 2)
 
+    # Extract message from context if available
+    message = context.get('message') if context else None
+
     # If already valid JSON, nothing to do
     try:
         if extract_json_from_text(text):
@@ -308,6 +311,8 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
         return None
 
     last_error_hint = LAST_JSON_ERROR_INFO or "Invalid or missing JSON"
+
+    llm_plugin = None  # Store the plugin for later use
 
     for attempt in range(1, max_retries + 1):
         try:
@@ -414,8 +419,13 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
                 pass
             await asyncio.sleep(1)
 
-    # Exhausted retries — do not send messages to interface here; simply indicate failure
+    # Exhausted retries — send error message if possible
     log_warning(f"[corrector_middleware] Exhausted {max_retries} attempts without valid JSON; blocking message for chat_id={chat_id}")
+    if llm_plugin and hasattr(llm_plugin, '_send_error_message') and message:
+        try:
+            await llm_plugin._send_error_message(bot, message)
+        except Exception as e:
+            log_warning(f"[corrector_middleware] Failed to send error message: {e}")
     # Cleanup expectation for this chat in case it wasn't consumed
     try:
         if chat_id is not None and str(chat_id) in _EXPECTING_SYSTEM_REPLY:

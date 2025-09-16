@@ -862,33 +862,40 @@ async def _create_diary_entry_for_actions(processed_actions, context, original_m
         return
     
     try:
-        from plugins.ai_diary import add_diary_entry_async, is_plugin_enabled
+        from plugins.ai_diary import create_personal_diary_entry, is_plugin_enabled
+        
+        if not is_plugin_enabled():
+            log_debug("[action_parser] Diary plugin disabled, skipping diary entry")
+            return
         
         # Extract relevant information
         interface_name = context.get("interface", "unknown")
         chat_id = getattr(original_message, "chat_id", None)
         thread_id = getattr(original_message, "message_thread_id", None)
         
-        # Summarize actions performed
-        action_types = [action.get("type", "unknown") for action in processed_actions]
-        action_counts = {}
-        for action_type in action_types:
-            action_counts[action_type] = action_counts.get(action_type, 0) + 1
+        # Get user message from context or original_message
+        user_message = ""
+        if hasattr(original_message, "text"):
+            user_message = original_message.text
+        elif isinstance(original_message, dict) and "text" in original_message:
+            user_message = original_message["text"]
+        elif context and "input" in context and "payload" in context["input"]:
+            payload = context["input"]["payload"]
+            if "text" in payload:
+                user_message = payload["text"]
         
-        # Create content summary
-        if len(action_counts) == 1:
-            action_type = list(action_counts.keys())[0]
-            count = action_counts[action_type]
-            if count == 1:
-                content = f"Performed {action_type} action"
-            else:
-                content = f"Performed {count} {action_type} actions"
-        else:
-            action_summary = ", ".join([f"{count} {action_type}" for action_type, count in action_counts.items()])
-            content = f"Performed multiple actions: {action_summary}"
-        
-        # Extract people involved from actions
+        # Extract people involved from context participants
         involved_people = set()
+        if context and "participants" in context:
+            for participant in context["participants"]:
+                if "usertag" in participant:
+                    # Remove @ from usertag
+                    username = participant["usertag"].lstrip('@')
+                    involved_people.add(username)
+                elif "id" in participant:
+                    involved_people.add(str(participant["id"]))
+        
+        # Also extract from actions
         for action in processed_actions:
             payload = action.get("payload", {})
             
@@ -897,11 +904,6 @@ async def _create_diary_entry_for_actions(processed_actions, context, original_m
                 target = payload.get("target")
                 if target and target.lower() != "rekku":
                     involved_people.add(target)
-            
-            # Extract from message actions
-            elif action.get("type") in ["message_telegram_bot", "message_discord_bot", "message_webui", "message_x"]:
-                # These are outgoing messages, people are implied from context
-                pass
             
             # Extract from terminal actions (might mention people in commands)
             elif action.get("type") == "terminal":
@@ -914,50 +916,94 @@ async def _create_diary_entry_for_actions(processed_actions, context, original_m
         # Convert to list and filter out Rekku
         involved_list = [person for person in involved_people if person.lower() not in ["rekku", "bot"]]
         
-        # Generate tags based on action types
-        tags = []
+        # Generate comprehensive response content from all actions
+        rekku_response_parts = []
+        action_types = [action.get("type", "unknown") for action in processed_actions]
+        
+        # Extract actual text from message actions
+        for action in processed_actions:
+            action_type = action.get("type", "")
+            payload = action.get("payload", {})
+            
+            if action_type.startswith("message_"):
+                text = payload.get("text", "")
+                if text:
+                    rekku_response_parts.append(text)
+            elif action_type == "terminal":
+                command = payload.get("command", "")
+                if command:
+                    rekku_response_parts.append(f"Executed command: {command}")
+            elif action_type == "bio_update":
+                target = payload.get("target", "someone")
+                rekku_response_parts.append(f"Updated bio information for {target}")
+            elif action_type == "event":
+                description = payload.get("description", "created an event")
+                rekku_response_parts.append(f"Scheduled event: {description}")
+        
+        # If no specific content found, create a summary
+        if not rekku_response_parts:
+            action_counts = {}
+            for action_type in action_types:
+                action_counts[action_type] = action_counts.get(action_type, 0) + 1
+            
+            if len(action_counts) == 1:
+                action_type = list(action_counts.keys())[0]
+                count = action_counts[action_type]
+                if count == 1:
+                    rekku_response_parts.append(f"Performed {action_type} action")
+                else:
+                    rekku_response_parts.append(f"Performed {count} {action_type} actions")
+            else:
+                action_summary = ", ".join([f"{count} {action_type}" for action_type, count in action_counts.items()])
+                rekku_response_parts.append(f"Performed multiple actions: {action_summary}")
+        
+        rekku_response = " | ".join(rekku_response_parts)
+        
+        # Generate context tags based on action types and content
+        context_tags = []
         if "message_telegram_bot" in action_types or "message_discord_bot" in action_types:
-            tags.append("communication")
+            context_tags.append("communication")
         if "bio_update" in action_types or "bio_full_request" in action_types:
-            tags.append("personal_info")
+            context_tags.append("personal_info")
         if "terminal" in action_types:
-            tags.append("system")
+            context_tags.append("system")
         if "event" in action_types:
-            tags.append("scheduling")
+            context_tags.append("scheduling")
         if "speech_selenium_elevenlabs" in action_types or "audio_telegram_bot" in action_types:
-            tags.append("audio")
+            context_tags.append("audio")
         
         # Add interface tag
         if interface_name != "unknown":
-            tags.append(interface_name)
+            context_tags.append(interface_name)
         
-        # Simple emotion inference based on action types
-        emotions = []
-        if "bio_update" in action_types:
-            emotions.append({"type": "helpful", "intensity": 7})
-        if "message_" in str(action_types):
-            emotions.append({"type": "engaged", "intensity": 6})
-        if "terminal" in action_types:
-            emotions.append({"type": "focused", "intensity": 5})
+        # Analyze content for additional tags
+        content_lower = (rekku_response + " " + user_message).lower()
+        if any(word in content_lower for word in ["help", "assist", "support"]):
+            context_tags.append("help")
+        if any(word in content_lower for word in ["feel", "emotion", "personal", "think"]):
+            context_tags.append("personal")
+        if any(word in content_lower for word in ["learn", "understand", "know"]):
+            context_tags.append("learning")
+        if any(word in content_lower for word in ["problem", "issue", "fix", "solve"]):
+            context_tags.append("problem")
         
-        # Create diary entry
-        if is_plugin_enabled():
-            await add_diary_entry_async(
-                content=content,
-                tags=tags,
-                involved=involved_list,
-                emotions=emotions,
-                interface=interface_name,
-                chat_id=str(chat_id) if chat_id else None,
-                thread_id=str(thread_id) if thread_id else None
-            )
-        else:
-            log_debug("[action_parser] Diary plugin disabled, skipping diary entry")
+        # Use create_personal_diary_entry for automatic thought and emotion generation
+        create_personal_diary_entry(
+            rekku_response=rekku_response,
+            user_message=user_message if user_message else None,
+            involved_users=involved_list,
+            context_tags=context_tags,
+            interface=interface_name,
+            chat_id=str(chat_id) if chat_id else None,
+            thread_id=str(thread_id) if thread_id else None
+        )
         
-        log_debug(f"[action_parser] Created diary entry: {content}")
+        log_debug(f"[action_parser] Created personal diary entry: {rekku_response[:100]}...")
         
     except Exception as e:
         log_warning(f"[action_parser] Failed to create diary entry: {e}")
+        import traceback
+        log_debug(f"[action_parser] Diary error traceback: {traceback.format_exc()}")
 
 
 async def parse_action(action: dict, bot, message):
@@ -1238,6 +1284,9 @@ async def corrector_orchestrator(text: str, context: dict, bot, message, max_ret
         # Call the corrector (transport-layer middleware)
         try:
             import core.transport_layer as transport
+            # Add message to context for error handling
+            context = dict(context) if context else {}
+            context['message'] = message
             corrected = await transport.run_corrector_middleware(text, bot=bot, context=context, chat_id=getattr(message, 'chat_id', None))
         except Exception as e:
             log_warning(f"[corrector_orchestrator] Corrector invocation failed: {e}")
