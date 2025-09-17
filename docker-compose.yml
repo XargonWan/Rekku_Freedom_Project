@@ -53,8 +53,6 @@ services:
     command: --bind-address=0.0.0.0
     volumes:
       - rfp_db_data:/var/lib/mysql
-    depends_on:
-      - rfp-db
     restart: unless-stopped
     networks:
       - rfp_network
