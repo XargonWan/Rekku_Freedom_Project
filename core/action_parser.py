@@ -992,9 +992,7 @@ def _generate_context_tags(action_types: List[str], rekku_response: str, user_me
         context_tags.append("technical")
     if "event" in action_types:
         context_tags.append("scheduling")
-    # Check for audio actions generically
-    audio_actions = [action for action in action_types if "audio" in action or "speech" in action]
-    if audio_actions:
+    if "speech_selenium_elevenlabs" in action_types or "audio_telegram_bot" in action_types:
         context_tags.append("audio")
     
     # Content-based analysis for specific topics

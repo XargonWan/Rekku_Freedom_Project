@@ -298,12 +298,6 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
 
     # Extract message from context if available
     message = context.get('message') if context else None
-    
-    # Extract chat_id if not provided
-    if chat_id is None and message:
-        chat_id = getattr(message, 'chat_id', None)
-    if chat_id is None and context:
-        chat_id = context.get('chat_id')
 
     # If already valid JSON, nothing to do
     try:
@@ -361,30 +355,6 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
             except Exception:
                 full_json = {}
 
-            # Extract interface from context for dynamic example
-            current_interface = "unknown"
-            if context and 'interface' in context:
-                current_interface = context['interface']
-            elif bot and hasattr(bot, 'get_interface_id'):
-                try:
-                    current_interface = bot.get_interface_id()
-                except Exception:
-                    pass
-            
-            # Create dynamic example based on interface
-            example_action_type = f"message_{current_interface}" if current_interface != "unknown" else "message_interface"
-            example_target = str(chat_id) if chat_id else "EXAMPLE_CHAT_ID"
-            example_thread_id = None
-            if context and 'original_message_thread_id' in context:
-                example_thread_id = context['original_message_thread_id']
-            
-            example_payload = {
-                "text": "Your message content here",
-                "target": str(example_target)
-            }
-            if example_thread_id:
-                example_payload["message_thread_id"] = example_thread_id
-
             correction_payload = {
                 "system_message": {
                     "type": "error",
@@ -394,8 +364,12 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
                     "required_format": {
                         "actions": [
                             {
-                                "type": example_action_type,
-                                "payload": example_payload
+                                "type": "message_telegram_bot",
+                                "payload": {
+                                    "text": "Your message content here",
+                                    "target": "-1003098886330",
+                                    "message_thread_id": 2
+                                }
                             }
                         ]
                     },
@@ -470,18 +444,9 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
 
     # Exhausted retries — send error message if possible
     log_warning(f"[corrector_middleware] Exhausted {max_retries} attempts without valid JSON; blocking message for chat_id={chat_id}")
-    if llm_plugin and hasattr(llm_plugin, '_send_error_message'):
+    if llm_plugin and hasattr(llm_plugin, '_send_error_message') and message:
         try:
-            # Create a dummy message if original is lost
-            if not message and chat_id:
-                from types import SimpleNamespace
-                message = SimpleNamespace()
-                message.chat_id = chat_id
-                message.message_id = None
-                message.message_thread_id = None
-            
-            if message:
-                await llm_plugin._send_error_message(bot, message)
+            await llm_plugin._send_error_message(bot, message)
         except Exception as e:
             log_warning(f"[corrector_middleware] Failed to send error message: {e}")
     # Cleanup expectation for this chat in case it wasn't consumed

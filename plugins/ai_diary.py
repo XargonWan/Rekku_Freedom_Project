@@ -20,29 +20,21 @@ from contextlib import asynccontextmanager
 from core.db import get_conn
 from core.logging_utils import log_error, log_info, log_debug, log_warning
 from core.core_initializer import register_plugin
+from core.config import get_active_llm
+from core.llm_registry import get_llm_registry
+from core.interfaces_registry import get_interface_registry
 
 # Global flag to track if the plugin is enabled
 PLUGIN_ENABLED = True
 
 # Diary-specific configuration
 DIARY_CONFIG = {
-    "max_diary_chars": {
-        "openai_chatgpt": 2000,    # Conservative allocation for GPT-4
-        "selenium_chatgpt": 1500,  # Browser-based, more conservative
-        "google_cli": 1200,       # Google Gemini limits
-        "manual": 800,            # Manual input, keep it short
-        "telegram_bot": 1000,     # Telegram interface
-        "telegram_userbot": 1000, # Telegram userbot interface  
-        "discord_bot": 1000,      # Discord interface
-        "discord": 1000,          # Discord interface alias
-        "webui": 800,             # Web UI
-        "x": 1000                 # X/Twitter interface
-    },
-    "default_max_chars": 800,     # Fallback for unknown interfaces
+    "diary_allocation_percentage": 0.15,  # Allocate 15% of available space to diary
     "min_space_threshold": 0.7,   # Include diary if using less than 70% of space
-    "max_entries_per_injection": 10,  # Maximum entries to include in prompt
+    "max_entries_per_injection": 20,  # More entries allowed
     "default_days": int(os.getenv("HISTORY_DAYS", "2")),  # Days to look back from env var
-    "cleanup_days": 30            # Days to keep entries before cleanup
+    "cleanup_days": 30,            # Days to keep entries before cleanup
+    "fallback_diary_chars": 3000   # Fallback if no limits can be determined
 }
 
 def get_diary_config(interface_name: str) -> dict:
@@ -77,19 +69,127 @@ def normalize_interface_name(interface: str) -> str:
     return normalized
 
 def get_max_diary_chars(interface_name: str, current_prompt_length: int = 0) -> int:
-    """Calculate how many characters can be allocated to diary injection."""
-    max_chars = DIARY_CONFIG["max_diary_chars"].get(interface_name, DIARY_CONFIG["default_max_chars"])
-    
-    # If we have current prompt length, be more conservative
-    if current_prompt_length > 0:
-        # Reserve some space and be conservative
-        available_estimate = max_chars * 0.8  # Use 80% of allocated space
-        return int(min(max_chars, available_estimate))
-    
-    return max_chars
+    """Calculate how many characters can be allocated to diary injection based on active LLM and interface limits."""
+    try:
+        # Get the active LLM engine and its PHYSICAL limits (invalicable)
+        active_llm = _run_sync(get_active_llm())
+        log_debug(f"[ai_diary] Active LLM: {active_llm}")
+        
+        registry = get_llm_registry()
+        engine = registry.get_engine(active_llm)
+        
+        # If engine is not loaded, load it
+        if not engine:
+            log_debug(f"[ai_diary] Loading LLM engine: {active_llm}")
+            engine = registry.load_engine(active_llm)
+        
+        # Get LLM physical limits (invalicable)
+        max_llm_prompt_chars = None
+        if engine and hasattr(engine, 'get_max_prompt_chars'):
+            max_llm_prompt_chars = engine.get_max_prompt_chars()
+            log_debug(f"[ai_diary] LLM {active_llm} physical limit: {max_llm_prompt_chars} chars")
+        
+        # Get interface limits (gestibili - può spezzare messaggi)
+        interface_limit = None
+        try:
+            # Prova prima con l'interface registry (se implementano get_max_prompt_chars)
+            interface_registry = get_interface_registry()
+            interface = interface_registry.get_interface(interface_name)
+            if interface and hasattr(interface, 'get_max_prompt_chars'):
+                interface_limit = interface.get_max_prompt_chars()
+                log_debug(f"[ai_diary] Interface {interface_name} limit: {interface_limit} chars")
+            # Se non trovato, prova con INTERFACE_REGISTRY dal core_initializer
+            elif not interface_limit:
+                from core.core_initializer import INTERFACE_REGISTRY
+                interface = INTERFACE_REGISTRY.get(interface_name)
+                if interface and hasattr(interface, 'get_max_prompt_chars'):
+                    interface_limit = interface.get_max_prompt_chars()
+                    log_debug(f"[ai_diary] Interface {interface_name} limit from INTERFACE_REGISTRY: {interface_limit} chars")
+            else:
+                log_debug(f"[ai_diary] Interface {interface_name} does not declare get_max_prompt_chars()")
+                    
+        except Exception as e:
+            log_debug(f"[ai_diary] Could not get interface limits: {e}")
+        
+        # Use the most restrictive limit (LLM limits are invalicable)
+        effective_limit = max_llm_prompt_chars
+        if interface_limit and (not effective_limit or interface_limit < effective_limit):
+            # Interface può spezzare, ma ancora preferiamo essere conservativi
+            effective_limit = interface_limit
+            log_debug(f"[ai_diary] Using interface limit as it's more restrictive")
+        
+        if effective_limit:
+            # Allocate a reasonable percentage for diary
+            diary_allocation = int(effective_limit * DIARY_CONFIG["diary_allocation_percentage"])
+            
+            # Be more conservative if we have current prompt length
+            if current_prompt_length > 0:
+                remaining_space = effective_limit - current_prompt_length
+                diary_allocation = min(diary_allocation, int(remaining_space * 0.8))
+            
+            log_debug(f"[ai_diary] Allocated diary space: {diary_allocation} chars (from {effective_limit} limit)")
+            return max(diary_allocation, 1000)  # Minimum 1000 chars
+            
+        else:
+            log_warning(f"[ai_diary] Could not get limits from LLM {active_llm} or interface {interface_name}, using fallback")
+            return DIARY_CONFIG["fallback_diary_chars"]
+            
+    except Exception as e:
+        log_error(f"[ai_diary] Error getting LLM/interface limits: {e}")
+        return DIARY_CONFIG["fallback_diary_chars"]
+
+
+def _run_sync(coro):
+    """Helper to run async functions in sync context."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # We're already in an async context, use threading
+            result = None
+            exception = None
+            
+            def run_in_thread():
+                nonlocal result, exception
+                try:
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    result = new_loop.run_until_complete(coro)
+                    new_loop.close()
+                except Exception as e:
+                    exception = e
+            
+            thread = threading.Thread(target=run_in_thread)
+            thread.start()
+            thread.join()
+            
+            if exception:
+                raise exception
+            return result
+        else:
+            return loop.run_until_complete(coro)
+    except RuntimeError:
+        # No event loop, create one
+        return asyncio.run(coro)
 
 def should_include_diary(interface_name: str, current_prompt_length: int = 0, max_prompt_chars: int = 0) -> bool:
     """Determine if diary should be included based on available space."""
+    # Try to get max_prompt_chars from active LLM if not provided
+    if max_prompt_chars <= 0:
+        try:
+            active_llm = _run_sync(get_active_llm())
+            registry = get_llm_registry()
+            engine = registry.get_engine(active_llm)
+            
+            if not engine:
+                engine = registry.load_engine(active_llm)
+            
+            if engine and hasattr(engine, 'get_max_prompt_chars'):
+                max_prompt_chars = engine.get_max_prompt_chars()
+                log_debug(f"[ai_diary] Got max_prompt_chars from LLM {active_llm}: {max_prompt_chars}")
+        except Exception as e:
+            log_debug(f"[ai_diary] Could not get LLM limits: {e}")
+            return True  # Conservative: include diary if we can't determine limits
+    
     if max_prompt_chars <= 0:
         # No prompt limit info, use conservative approach
         return True
@@ -97,7 +197,9 @@ def should_include_diary(interface_name: str, current_prompt_length: int = 0, ma
     usage_ratio = current_prompt_length / max_prompt_chars
     
     # Include diary if we're using less than threshold of available space
-    return usage_ratio < DIARY_CONFIG["min_space_threshold"]
+    should_include = usage_ratio < DIARY_CONFIG["min_space_threshold"]
+    log_debug(f"[ai_diary] Prompt usage: {current_prompt_length}/{max_prompt_chars} ({usage_ratio:.2%}), include_diary: {should_include}")
+    return should_include
 
 
 @asynccontextmanager
@@ -391,13 +493,20 @@ async def add_diary_entry_async(
 
 def get_recent_entries(days: int = 2, max_chars: int = None) -> List[Dict[str, Any]]:
     """Get diary entries from the last N days, optionally limited by character count. 
-    Returns empty list if plugin is disabled."""
+    Returns list of dict entries with all database columns, empty list if plugin is disabled.
+    Entries are ordered from most recent to oldest, and if max_chars is specified,
+    older entries are discarded first to stay within the character limit."""
     global PLUGIN_ENABLED
+    
+    log_debug(f"[ai_diary] get_recent_entries called with days={days}, max_chars={max_chars}, PLUGIN_ENABLED={PLUGIN_ENABLED}")
+    
     if not PLUGIN_ENABLED:
+        log_debug("[ai_diary] Plugin disabled, returning empty list")
         return []
         
     try:
         cutoff_date = datetime.now() - timedelta(days=days)
+        log_debug(f"[ai_diary] Looking for entries after {cutoff_date}")
         
         entries = _run(_fetchall(
             """
@@ -410,6 +519,8 @@ def get_recent_entries(days: int = 2, max_chars: int = None) -> List[Dict[str, A
             (cutoff_date,)
         ))
         
+        log_debug(f"[ai_diary] Raw query returned {len(entries)} entries")
+        
         # Convert JSON fields back to objects
         for entry in entries:
             entry['context_tags'] = json.loads(entry.get('context_tags', '[]'))
@@ -417,20 +528,27 @@ def get_recent_entries(days: int = 2, max_chars: int = None) -> List[Dict[str, A
             entry['emotions'] = json.loads(entry.get('emotions', '[]'))
             entry['timestamp'] = entry['timestamp'].isoformat() if entry['timestamp'] else None
         
+        log_debug(f"[ai_diary] After JSON parsing: {len(entries)} entries")
+        
         # If character limit specified, filter entries intelligently
         if max_chars:
             total_chars = 0
             filtered_entries = []
             
-            for entry in entries:
-                # Calculate the formatted size of this entry as it would appear in prompt
-                entry_text = _format_single_entry_for_prompt(entry)
-                entry_size = len(entry_text)
+            for i, entry in enumerate(entries):
+                # Calculate the size of this entry as JSON (since we're returning JSON now)
+                entry_json = json.dumps(entry, ensure_ascii=False)
+                entry_size = len(entry_json)
+                
+                # Log first few entries to debug size issues
+                if i < 3:
+                    log_debug(f"[ai_diary] Entry {i+1} size: {entry_size} chars, id: {entry.get('id')}")
                 
                 # If adding this entry would exceed the limit, stop here
                 # Don't truncate individual entries, remove them entirely
                 if total_chars + entry_size > max_chars:
                     log_debug(f"[ai_diary] Stopping at {len(filtered_entries)} entries due to char limit ({total_chars}/{max_chars})")
+                    log_debug(f"[ai_diary] Entry {i+1} would add {entry_size} chars, exceeding limit")
                     break
                 
                 filtered_entries.append(entry)
@@ -439,6 +557,7 @@ def get_recent_entries(days: int = 2, max_chars: int = None) -> List[Dict[str, A
             log_debug(f"[ai_diary] Filtered diary: {len(filtered_entries)}/{len(entries)} entries, {total_chars} chars")
             return filtered_entries
         
+        log_debug(f"[ai_diary] Returning all {len(entries)} entries (no char limit)")
         return entries
     
     except Exception as e:
@@ -593,7 +712,9 @@ def create_personal_diary_entry(
     """
     
     # Normalize interface name
+    log_debug(f"[create_personal_diary_entry] Original interface: '{interface}'")
     interface = normalize_interface_name(interface or "unknown")
+    log_debug(f"[create_personal_diary_entry] Normalized interface: '{interface}'")
     
     # Create a more specific summary of what happened
     interaction_summary = _generate_interaction_summary(
@@ -916,8 +1037,12 @@ class DiaryPlugin:
     def get_static_injection(self, message=None, context_memory=None) -> dict:
         """Get recent diary entries for static injection. Returns empty dict if plugin disabled."""
         global PLUGIN_ENABLED
+        
+        log_debug(f"[ai_diary] get_static_injection called, PLUGIN_ENABLED: {PLUGIN_ENABLED}")
+        
         if not PLUGIN_ENABLED:
-            return {"diary": ""}
+            log_debug("[ai_diary] Plugin is disabled, returning empty entries")
+            return {"latest_diary_entries": []}
             
         # Get interface name from message if available
         interface_name = "manual"  # Default fallback
@@ -925,6 +1050,8 @@ class DiaryPlugin:
             interface_name = message.interface
         elif message and isinstance(message, dict):
             interface_name = message.get('interface', 'manual')
+        
+        log_debug(f"[ai_diary] Interface name: {interface_name}")
         
         # Get current prompt length estimate (if available)
         current_prompt_length = 0
@@ -935,34 +1062,46 @@ class DiaryPlugin:
             # Estimate based on context memory size
             current_prompt_length = len(str(context_memory)) * 2  # Rough estimate
         
-        # Try to get max prompt chars from message or use defaults
-        if message and hasattr(message, 'max_prompt_chars'):
-            max_prompt_chars = message.max_prompt_chars
-        elif hasattr(message, 'interface'):
-            # Use conservative defaults based on interface
-            max_prompt_chars = {
-                "openai_chatgpt": 32000,
-                "selenium_chatgpt": 25000,
-                "google_cli": 20000,
-                "manual": 8000
-            }.get(interface_name, 8000)
+        # Get max prompt chars from active LLM
+        try:
+            active_llm = _run_sync(get_active_llm())
+            registry = get_llm_registry()
+            engine = registry.get_engine(active_llm)
+            
+            if not engine:
+                engine = registry.load_engine(active_llm)
+            
+            if engine and hasattr(engine, 'get_max_prompt_chars'):
+                max_prompt_chars = engine.get_max_prompt_chars()
+                log_debug(f"[ai_diary] Active LLM {active_llm} max_prompt_chars: {max_prompt_chars}")
+        except Exception as e:
+            log_debug(f"[ai_diary] Could not get active LLM limits: {e}")
+        
+        log_debug(f"[ai_diary] Prompt stats - current: {current_prompt_length}, max: {max_prompt_chars}")
         
         # Check if we should include diary based on available space
         should_include = should_include_diary(interface_name, current_prompt_length, max_prompt_chars)
         max_chars = get_max_diary_chars(interface_name, current_prompt_length)
         
+        log_debug(f"[ai_diary] Should include diary: {should_include}, max_chars: {max_chars}")
+        
         if not should_include:
-            return {"diary": ""}
+            log_debug("[ai_diary] Diary not included due to space constraints")
+            return {"latest_diary_entries": []}
         
         # Get recent entries with character limit
+        log_debug(f"[ai_diary] Getting recent entries for {DIARY_CONFIG['default_days']} days with max {max_chars} chars")
         recent_entries = get_recent_entries(days=DIARY_CONFIG["default_days"], max_chars=max_chars)
         
+        log_debug(f"[ai_diary] Retrieved {len(recent_entries)} diary entries")
+        
         if not recent_entries:
-            return {"diary": ""}
+            log_debug("[ai_diary] No recent entries found, returning empty")
+            return {"latest_diary_entries": []}
         
-        diary_text = format_diary_for_injection(recent_entries)
-        
-        return {"diary": diary_text}
+        # Return raw entries as JSON instead of formatted text
+        log_debug(f"[ai_diary] Returning {len(recent_entries)} diary entries for injection")
+        return {"latest_diary_entries": recent_entries}
 
 
 # Initialize the plugin

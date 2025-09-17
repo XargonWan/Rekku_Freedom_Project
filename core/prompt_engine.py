@@ -21,12 +21,15 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
     image_data : dict | None
         Processed image data from image_processor, if present.
     """
+    import os
 
     chat_id = getattr(message, "chat_id", None)
     text = getattr(message, "text", "") or ""
 
-    # === 1. Context messages ===
-    messages = list(context_memory.get(chat_id, []))[-10:]
+    # === 1. Context messages (chat_history) ===
+    # Use CHAT_HISTORY environment variable, default to 10
+    chat_history_limit = int(os.getenv("CHAT_HISTORY", "10"))
+    chat_history = list(context_memory.get(chat_id, []))[-chat_history_limit:]
 
     # === 2. Tags and memory lookup ===
     tags = extract_tags(text)
@@ -35,9 +38,9 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
     if expanded_tags:
         memories = await search_memories(tags=expanded_tags, limit=5)
 
-    # === 3. Context base ===
+    # === 3. Context base (chat_history has priority over diary) ===
     context_section = {
-        "messages": messages,
+        "chat_history": chat_history,
         "memories": memories,
     }
 
@@ -51,27 +54,38 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
     except Exception as e:
         log_warning(f"[json_prompt] Failed to gather static injections: {e}")
 
-    # === 3b. AI Diary injection ===
+    # === 3b. AI Diary injection (uses remaining space after chat_history) ===
     try:
         from plugins.ai_diary import get_recent_entries, format_diary_for_injection, is_plugin_enabled, get_max_diary_chars, should_include_diary
-        import os
         
         if is_plugin_enabled():
             # Get interface name
             interface_name = interface_name or "manual"
             
-            # Calculate current prompt length (approximate)
+            # Calculate current prompt length including chat_history (approximate)
+            # Chat history has priority, so diary gets what's left
             current_length = len(json_dumps(context_section)) + len(text)
             
-            # Estimate max prompt chars based on interface
-            max_prompt_chars = {
-                "openai_chatgpt": 32000,
-                "selenium_chatgpt": 25000,
-                "google_cli": 20000,
-                "manual": 8000
-            }.get(interface_name, 8000)
+            # Get max prompt chars from active LLM (no more hardcoded limits)
+            max_prompt_chars = 0
+            try:
+                from core.config import get_active_llm
+                from core.llm_registry import get_llm_registry
+                
+                active_llm = await get_active_llm()
+                registry = get_llm_registry()
+                engine = registry.get_engine(active_llm)
+                
+                if not engine:
+                    engine = registry.load_engine(active_llm)
+                
+                if engine and hasattr(engine, 'get_max_prompt_chars'):
+                    max_prompt_chars = engine.get_max_prompt_chars()
+                    log_debug(f"[json_prompt] LLM {active_llm} max prompt chars: {max_prompt_chars}")
+            except Exception as e:
+                log_debug(f"[json_prompt] Could not get LLM limits: {e}")
             
-            # Check if we should include diary
+            # Check if we should include diary (considering space already used by chat_history)
             if should_include_diary(interface_name, current_length, max_prompt_chars):
                 max_chars = get_max_diary_chars(interface_name, current_length)
                 
@@ -83,6 +97,10 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
                     diary_content = format_diary_for_injection(recent_entries)
                     context_section["diary"] = diary_content
                     log_debug(f"[json_prompt] Added diary content: {len(diary_content)} chars from {len(recent_entries)} entries ({history_days} days)")
+                else:
+                    log_debug(f"[json_prompt] No diary entries to include (space: {max_chars} chars)")
+            else:
+                log_debug(f"[json_prompt] Diary not included due to space constraints (current: {current_length}, max: {max_prompt_chars})")
         
     except ImportError:
         log_debug("[json_prompt] AI Diary plugin not available")
