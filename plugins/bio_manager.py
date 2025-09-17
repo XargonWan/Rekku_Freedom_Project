@@ -1053,3 +1053,7 @@ class BioPlugin:
             log_warning(f"[bio_manager] Error resolving user {user_identifier}: {e}")
             return None
 
+
+# Export plugin class for auto-loading
+PLUGIN_CLASS = BioPlugin
+

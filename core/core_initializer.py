@@ -331,7 +331,7 @@ class CoreInitializer:
             # Get and add instructions
             instr = instr_fn(action_type) if instr_fn else None
             if instr is None:
-                log_warning(f"Missing prompt instructions for {action_type}")
+                log_debug(f"Missing prompt instructions for {action_type}")
                 instr = {}
             if not isinstance(instr, dict):
                 log_warning(f"Prompt instructions for {action_type} must be a dict, got {type(instr)}")
@@ -557,6 +557,19 @@ def register_plugin(name: str, plugin_obj: Any) -> None:
         action_parser._ACTION_PLUGINS = None
     except Exception:
         pass
+
+    # Rebuild actions block to include new plugin's actions
+    try:
+        import asyncio
+        if asyncio.get_event_loop().is_running():
+            # If event loop is running, schedule the refresh
+            asyncio.create_task(core_initializer.refresh_actions_block())
+        else:
+            # If no event loop, run it synchronously
+            asyncio.run(core_initializer.refresh_actions_block())
+        log_debug(f"[core_initializer] Actions block refreshed after registering plugin {name}")
+    except Exception as e:
+        log_warning(f"[core_initializer] Failed to refresh actions block after plugin {name} registration: {e}")
 
 # Global registry for interface objects
 INTERFACE_REGISTRY: dict[str, Any] = {}
