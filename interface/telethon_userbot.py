@@ -46,9 +46,9 @@ _interface_registry = get_interface_registry()
 TELEGRAM_TRAINER_ID_STR = os.getenv('TRAINER_IDS', '').split(',') if os.getenv('TRAINER_IDS') else []
 TELEGRAM_TRAINER_ID = None
 
-# Extract trainer ID for telegram_bot from TRAINER_IDS
+# Extract trainer ID for telegram_userbot from TRAINER_IDS
 for trainer_config in TELEGRAM_TRAINER_ID_STR:
-    if trainer_config.startswith('telegram_bot:'):
+    if trainer_config.startswith('telegram_userbot:'):
         try:
             TELEGRAM_TRAINER_ID = int(trainer_config.split(':')[1])
             break
@@ -56,8 +56,8 @@ for trainer_config in TELEGRAM_TRAINER_ID_STR:
             log_warning(f"[telethon_userbot] Invalid trainer ID format in TRAINER_IDS: {trainer_config}")
 
 if not TELEGRAM_TRAINER_ID:
-    log_error("[telethon_userbot] TELEGRAM_TRAINER_ID not found in TRAINER_IDS environment variable")
-    raise ValueError("TELEGRAM_TRAINER_ID is required for Telethon userbot interface")
+    log_warning("[telethon_userbot] TELEGRAM_TRAINER_ID not found in TRAINER_IDS environment variable - Telethon userbot disabled")
+    TELEGRAM_TRAINER_ID = None
 
 def is_trainer(user_id: int) -> bool:
     """Check if user is the trainer for this Telegram interface."""
@@ -80,19 +80,20 @@ last_selected_chat = {}
 message_id = None
 
 client = None
-if API_ID and API_HASH:
+if API_ID and API_HASH and TELEGRAM_TRAINER_ID:
     client = TelegramClient(SESSION, int(API_ID), API_HASH)
     register_interface("telegram_userbot", client)
     
-    # Register in the new registry system
-    if TELEGRAM_TRAINER_ID:
-        _interface_registry.register_interface('telegram_userbot', client)
-        _interface_registry.set_trainer_id('telegram_userbot', TELEGRAM_TRAINER_ID)
-        log_info(f"[telethon_userbot] Registered telegram_userbot interface with trainer ID {TELEGRAM_TRAINER_ID}")
+    # Register in the new registry system (avoid duplicate registration)
+    _interface_registry.register_interface('telegram_userbot', client)
+    _interface_registry.set_trainer_id('telegram_userbot', TELEGRAM_TRAINER_ID)
+    log_info(f"[telethon_userbot] Registered telegram_userbot interface with trainer ID {TELEGRAM_TRAINER_ID}")
     
     log_info("[telethon_userbot] Registered TelethonUserbot")
-else:
+elif not API_ID or not API_HASH:
     log_warning("[telethon_userbot] API_ID or API_HASH missing; userbot disabled")
+else:
+    log_warning("[telethon_userbot] TELEGRAM_TRAINER_ID not configured; userbot disabled")
 
 def optional_on(*args, **kwargs):
     def decorator(func):

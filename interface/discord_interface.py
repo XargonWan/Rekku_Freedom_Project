@@ -30,6 +30,11 @@ class DiscordInterface:
     def __init__(self, bot_token: str):
         self.bot_token = bot_token
         
+        if not bot_token:
+            log_warning("[discord_interface] No bot token provided - Discord interface disabled")
+            self.client = None
+            return
+        
         # Register custom validation with the new validation system
         self._register_custom_validation()
         
@@ -425,5 +430,9 @@ INTERFACE_CLASS = DiscordInterface
 # Instantiate and register the interface at import time so the core
 # initializer can discover it during startup.
 _token = os.getenv("DISCORD_BOT_TOKEN", "")
-discord_interface = DiscordInterface(_token)
+if _token:
+    discord_interface = DiscordInterface(_token)
+else:
+    log_warning("[discord_interface] DISCORD_BOT_TOKEN not configured - Discord interface disabled")
+    discord_interface = None
 

@@ -502,10 +502,10 @@ def register_action(action_type: str, handler: Any) -> None:
     existing = ACTION_REGISTRY.get(action_type)
     if existing is not None:
         log_warning(
-            f"[core_initializer] Action '{action_type}' is already registered. Overwriting."
+            f"[core_initializer] Action '{action_type}' is already registered by {existing.__class__.__name__}. Overwriting with {handler.__class__.__name__}."
         )
     ACTION_REGISTRY[action_type] = handler
-    log_info(f"[core_initializer] Registered action: {action_type}")
+    log_debug(f"[core_initializer] Registered action: {action_type} -> {handler.__class__.__name__}")
 
     # Invalidate caches - but don't automatically rebuild to avoid loops
     try:
@@ -615,3 +615,4 @@ def _schedule_rebuild_actions(core_init_instance):
         _action_rebuild_timer.cancel()
     _action_rebuild_timer = threading.Timer(_ACTION_REBUILD_DEBOUNCE_SEC, lambda: asyncio.run(core_init_instance._build_actions_block()))
     _action_rebuild_timer.start()
+
