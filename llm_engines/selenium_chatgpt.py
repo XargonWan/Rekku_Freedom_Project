@@ -48,7 +48,7 @@ from core.ai_plugin_base import AIPluginBase
 
 # Selenium ChatGPT-specific configuration
 SELENIUM_CONFIG = {
-    "max_prompt_chars": 25000,  # Browser-based, more conservative
+    "max_prompt_chars": 500000,  # Selenium ChatGPT can handle very long prompts
     "max_response_chars": 4000,
     "supports_images": True,
     "supports_functions": False,  # Browser-based doesn't support functions
@@ -80,6 +80,17 @@ def supports_images() -> bool:
 def supports_functions() -> bool:
     """Check if Selenium ChatGPT supports functions."""
     return SELENIUM_CONFIG["supports_functions"]
+
+def get_interface_limits() -> dict:
+    """Get the limits and capabilities for Selenium ChatGPT interface."""
+    log_info(f"[selenium_chatgpt] Interface limits: max_prompt_chars={SELENIUM_CONFIG['max_prompt_chars']}, supports_images={SELENIUM_CONFIG['supports_images']}")
+    return {
+        "max_prompt_chars": SELENIUM_CONFIG["max_prompt_chars"],
+        "max_response_chars": SELENIUM_CONFIG["max_response_chars"],
+        "supports_images": SELENIUM_CONFIG["supports_images"],
+        "supports_functions": SELENIUM_CONFIG["supports_functions"],
+        "model_name": SELENIUM_CONFIG["model_name"]
+    }
 
 # Load environment variables for root password and other settings
 load_dotenv()

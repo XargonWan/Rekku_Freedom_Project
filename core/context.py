@@ -1,10 +1,14 @@
 import json
 import os
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+
 from core.abstract_context import AbstractContext
 from typing import Optional, Callable
 
 CONFIG_PATH = "config/rekku_config.json"
+
+# Injection priority for context information
+INJECTION_PRIORITY = 1  # Highest priority - context is essential
 
 def load_config() -> dict:
     if not os.path.exists(CONFIG_PATH):
@@ -41,4 +45,12 @@ async def context_command(abstract_context: AbstractContext, reply_fn: Optional[
         await reply_fn(response_message)
 
     log_debug(f"Context mode {state_str}.")
+
+def register_injection_priority():
+    """Register this component's injection priority."""
+    log_info(f"[context] Registered injection priority: {INJECTION_PRIORITY}")
+    return INJECTION_PRIORITY
+
+# Register priority when module is loaded
+register_injection_priority()
 

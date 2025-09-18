@@ -19,6 +19,18 @@ from contextlib import asynccontextmanager
 
 from core.db import get_conn
 from core.logging_utils import log_error, log_info, log_debug, log_warning
+
+# Injection priority for diary entries
+INJECTION_PRIORITY = 8  # Low priority - diary is sacrificial
+
+def register_injection_priority():
+    """Register this component's injection priority."""
+    log_info(f"[ai_diary] Registered injection priority: {INJECTION_PRIORITY}")
+    return INJECTION_PRIORITY
+
+# Register priority when module is loaded
+register_injection_priority()
+
 from core.core_initializer import register_plugin
 from core.config import get_active_llm
 from core.llm_registry import get_llm_registry
@@ -29,12 +41,16 @@ PLUGIN_ENABLED = True
 
 # Diary-specific configuration
 DIARY_CONFIG = {
-    "diary_allocation_percentage": 0.15,  # Allocate 15% of available space to diary
-    "min_space_threshold": 0.7,   # Include diary if using less than 70% of space
-    "max_entries_per_injection": 20,  # More entries allowed
-    "default_days": int(os.getenv("HISTORY_DAYS", "2")),  # Days to look back from env var
-    "cleanup_days": 30,            # Days to keep entries before cleanup
-    "fallback_diary_chars": 3000   # Fallback if no limits can be determined
+    'diary_injection_file': 'rekku_diary.json',
+    'diary_injection_enabled': True,
+    'diary_allocation_percentage': 30,  # Increased from 15% to utilize more available prompt space
+    'max_static_injection_chars': 60000,  # Increased to accommodate more entries
+    'fallback_diary_chars': 15000,  # Increased backup for unknown prompts
+    'diary_entry_structure': 'auto',  # auto-select based on available space
+    'diary_sort_order': 'descending',  # newest first
+    'diary_filter_strategy': 'most_recent',  # strategy for selecting entries when space is limited
+    'diary_tag_priority': ['important', 'daily', 'thoughts'],  # prioritize these tags
+    'enable_diary_char_logging': True  # Enhanced logging for debugging
 }
 
 def get_diary_config(interface_name: str) -> dict:
@@ -68,26 +84,41 @@ def normalize_interface_name(interface: str) -> str:
     normalized = interface_mapping.get(interface.lower(), interface.lower())
     return normalized
 
-def get_max_diary_chars(interface_name: str, current_prompt_length: int = 0) -> int:
-    """Calculate how many characters can be allocated to diary injection based on active LLM and interface limits."""
+def get_max_diary_chars(interface_name: str = None, current_prompt_length: int = 0) -> int:
+    """Calculate how many characters can be allocated to diary injection based on active LLM interface limits."""
     try:
-        # Get the active LLM engine and its PHYSICAL limits (invalicable)
-        active_llm = _run_sync(get_active_llm())
-        log_debug(f"[ai_diary] Active LLM: {active_llm}")
+        # Get limits directly from the active LLM engine
+        from core.config import get_active_llm
+        from core.llm_registry import get_llm_registry
+        
+        active_llm = get_active_llm()
+        if not active_llm:
+            log_warning("[ai_diary] No active LLM found, using fallback")
+            return 15000
         
         registry = get_llm_registry()
         engine = registry.get_engine(active_llm)
         
-        # If engine is not loaded, load it
         if not engine:
-            log_debug(f"[ai_diary] Loading LLM engine: {active_llm}")
             engine = registry.load_engine(active_llm)
         
-        # Get LLM physical limits (invalicable)
-        max_llm_prompt_chars = None
-        if engine and hasattr(engine, 'get_max_prompt_chars'):
-            max_llm_prompt_chars = engine.get_max_prompt_chars()
-            log_debug(f"[ai_diary] LLM {active_llm} physical limit: {max_llm_prompt_chars} chars")
+        max_prompt_chars = 15000  # Default fallback
+        if engine and hasattr(engine, 'get_interface_limits'):
+            limits = engine.get_interface_limits()
+            max_prompt_chars = limits.get("max_prompt_chars", 15000)
+        
+        # Use 30% of available prompt space for diary, with fallback
+        diary_limit = int(max_prompt_chars * 0.30)
+        
+        # Consider current prompt length
+        available_space = max_prompt_chars - current_prompt_length
+        diary_allocation = min(diary_limit, max(available_space * 0.5, 5000))  # At least 5k if space allows
+        
+        log_debug(f"[ai_diary] Diary allocation: {diary_allocation} chars (max: {max_prompt_chars}, used: {current_prompt_length})")
+        return max(diary_allocation, 5000)  # Minimum 5k chars
+    except Exception as e:
+        log_warning(f"[ai_diary] Error calculating diary limit: {e}")
+        return 15000  # Fallback
         
         # Get interface limits (gestibili - può spezzare messaggi)
         interface_limit = None

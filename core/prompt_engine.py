@@ -1,6 +1,7 @@
 # core/prompt_engine.py
 
 from core.rekku_tagging import extract_tags, expand_tags
+import aiomysql
 from core.db import get_conn
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.json_utils import dumps as json_dumps
@@ -65,25 +66,6 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
             # Calculate current prompt length including chat_history (approximate)
             # Chat history has priority, so diary gets what's left
             current_length = len(json_dumps(context_section)) + len(text)
-            
-            # Get max prompt chars from active LLM (no more hardcoded limits)
-            max_prompt_chars = 0
-            try:
-                from core.config import get_active_llm
-                from core.llm_registry import get_llm_registry
-                
-                active_llm = await get_active_llm()
-                registry = get_llm_registry()
-                engine = registry.get_engine(active_llm)
-                
-                if not engine:
-                    engine = registry.load_engine(active_llm)
-                
-                if engine and hasattr(engine, 'get_max_prompt_chars'):
-                    max_prompt_chars = engine.get_max_prompt_chars()
-                    log_debug(f"[json_prompt] LLM {active_llm} max prompt chars: {max_prompt_chars}")
-            except Exception as e:
-                log_debug(f"[json_prompt] Could not get LLM limits: {e}")
             
             # Check if we should include diary (considering space already used by chat_history)
             if should_include_diary(interface_name, current_length, max_prompt_chars):

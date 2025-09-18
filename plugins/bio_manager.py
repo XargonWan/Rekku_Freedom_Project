@@ -13,6 +13,18 @@ from core.logging_utils import log_error, log_info, log_debug, log_warning
 from core.core_initializer import core_initializer, register_plugin
 
 
+# Injection priority for participant bios
+INJECTION_PRIORITY = 5  # Medium priority - keep essential participant info
+
+def register_injection_priority():
+    """Register this component's injection priority."""
+    log_info(f"[bio_manager] Registered injection priority: {INJECTION_PRIORITY}")
+    return INJECTION_PRIORITY
+
+# Register priority when module is loaded
+register_injection_priority()
+
+
 @asynccontextmanager
 async def get_db():
     """Context manager for MariaDB database connections."""
