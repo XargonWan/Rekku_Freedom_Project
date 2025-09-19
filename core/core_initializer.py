@@ -341,13 +341,16 @@ class CoreInitializer:
             available_actions[action_type]["instructions"] = instr
 
         # --- Load action plugins from registry ---
+        log_debug(f"[core_initializer] Loading actions from {len(PLUGIN_REGISTRY)} plugins: {list(PLUGIN_REGISTRY.keys())}")
         for name, plugin in PLUGIN_REGISTRY.items():
             if not hasattr(plugin, "get_supported_actions"):
+                log_debug(f"[core_initializer] Plugin {name} does not have get_supported_actions method")
                 continue
             try:
                 supported = plugin.get_supported_actions()
                 if not isinstance(supported, dict):
                     raise ValueError(f"Plugin {name} must return dict from get_supported_actions")
+                log_debug(f"[core_initializer] Plugin {name} declares actions: {list(supported.keys())}")
                 for act, schema in supported.items():
                     _register(act, name, schema, getattr(plugin, "get_prompt_instructions", None))
             except Exception as e:
@@ -399,6 +402,7 @@ class CoreInitializer:
             "static_context": static_context,
         }
         log_debug(f"[core_initializer] Actions block built with {len(available_actions)} action types, static_context: {list(static_context.keys())}")
+        log_debug(f"[core_initializer] Available action types: {sorted(available_actions.keys())}")
     
     def _display_startup_summary(self):
         """Display a comprehensive startup summary."""

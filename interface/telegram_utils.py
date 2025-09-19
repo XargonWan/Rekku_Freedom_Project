@@ -140,8 +140,17 @@ async def _send_with_retry(
                     except Exception:
                         pass
                     log_error(f"[telegram_utils] Retry after parse_mode removal failed: {e2}")
-                    raise e2
+                    # Don't raise thread errors immediately - let send_with_thread_fallback handle them
+                    if "thread not found" not in str(e2).lower():
+                        raise e2
+                    else:
+                        log_debug(f"[telegram_utils] Thread error after parse_mode retry, letting caller handle: {e2}")
+                        raise e2
             else:
+                # If it's a thread error, let send_with_thread_fallback handle it
+                if "thread not found" in error_message.lower():
+                    log_debug(f"[telegram_utils] Thread error in _send_with_retry, letting caller handle: {e}")
+                    raise e
                 # If it's a non-parse error and not recoverable, re-raise to be handled by caller
                 raise
     trainer_id = TELEGRAM_TRAINER_ID
