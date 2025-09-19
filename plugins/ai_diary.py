@@ -46,6 +46,8 @@ DIARY_CONFIG = {
     'diary_allocation_percentage': 30,  # Increased from 15% to utilize more available prompt space
     'max_static_injection_chars': 60000,  # Increased to accommodate more entries
     'fallback_diary_chars': 15000,  # Increased backup for unknown prompts
+    'default_days': 7,  # Default number of days to look back for diary entries
+    'min_space_threshold': 0.75,  # Include diary only if we're using less than 75% of prompt space
     'diary_entry_structure': 'auto',  # auto-select based on available space
     'diary_sort_order': 'descending',  # newest first
     'diary_filter_strategy': 'most_recent',  # strategy for selecting entries when space is limited
@@ -90,10 +92,33 @@ def get_max_diary_chars(interface_name: str = None, current_prompt_length: int =
         # Get limits directly from the active LLM engine
         from core.config import get_active_llm
         from core.llm_registry import get_llm_registry
+        import asyncio
         
-        active_llm = get_active_llm()
-        if not active_llm:
-            log_warning("[ai_diary] No active LLM found, using fallback")
+        # Handle async get_active_llm call safely
+        active_llm = None
+        try:
+            # Try to get the event loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # We're in an async context, need to handle differently
+                log_debug("[ai_diary] Already in async context, using sync fallback for get_active_llm")
+                # Use a simple fallback since we can't await here
+                active_llm = "manual"  # Safe fallback
+            else:
+                active_llm = loop.run_until_complete(get_active_llm())
+        except RuntimeError:
+            # No event loop exists, create one
+            try:
+                active_llm = asyncio.run(get_active_llm())
+            except Exception as e:
+                log_debug(f"[ai_diary] Could not get active LLM: {e}")
+                active_llm = "manual"  # Safe fallback
+        except Exception as e:
+            log_debug(f"[ai_diary] Error in async handling: {e}")
+            active_llm = "manual"  # Safe fallback
+        
+        if not active_llm or active_llm == "manual":
+            log_debug("[ai_diary] Using manual fallback limits")
             return 15000
         
         registry = get_llm_registry()
@@ -119,59 +144,10 @@ def get_max_diary_chars(interface_name: str = None, current_prompt_length: int =
     except Exception as e:
         log_warning(f"[ai_diary] Error calculating diary limit: {e}")
         return 15000  # Fallback
-        
-        # Get interface limits (gestibili - può spezzare messaggi)
-        interface_limit = None
-        try:
-            # Prova prima con l'interface registry (se implementano get_max_prompt_chars)
-            interface_registry = get_interface_registry()
-            interface = interface_registry.get_interface(interface_name)
-            if interface and hasattr(interface, 'get_max_prompt_chars'):
-                interface_limit = interface.get_max_prompt_chars()
-                log_debug(f"[ai_diary] Interface {interface_name} limit: {interface_limit} chars")
-            # Se non trovato, prova con INTERFACE_REGISTRY dal core_initializer
-            elif not interface_limit:
-                from core.core_initializer import INTERFACE_REGISTRY
-                interface = INTERFACE_REGISTRY.get(interface_name)
-                if interface and hasattr(interface, 'get_max_prompt_chars'):
-                    interface_limit = interface.get_max_prompt_chars()
-                    log_debug(f"[ai_diary] Interface {interface_name} limit from INTERFACE_REGISTRY: {interface_limit} chars")
-            else:
-                log_debug(f"[ai_diary] Interface {interface_name} does not declare get_max_prompt_chars()")
-                    
-        except Exception as e:
-            log_debug(f"[ai_diary] Could not get interface limits: {e}")
-        
-        # Use the most restrictive limit (LLM limits are invalicable)
-        effective_limit = max_llm_prompt_chars
-        if interface_limit and (not effective_limit or interface_limit < effective_limit):
-            # Interface può spezzare, ma ancora preferiamo essere conservativi
-            effective_limit = interface_limit
-            log_debug(f"[ai_diary] Using interface limit as it's more restrictive")
-        
-        if effective_limit:
-            # Allocate a reasonable percentage for diary
-            diary_allocation = int(effective_limit * DIARY_CONFIG["diary_allocation_percentage"])
-            
-            # Be more conservative if we have current prompt length
-            if current_prompt_length > 0:
-                remaining_space = effective_limit - current_prompt_length
-                diary_allocation = min(diary_allocation, int(remaining_space * 0.8))
-            
-            log_debug(f"[ai_diary] Allocated diary space: {diary_allocation} chars (from {effective_limit} limit)")
-            return max(diary_allocation, 1000)  # Minimum 1000 chars
-            
-        else:
-            log_warning(f"[ai_diary] Could not get limits from LLM {active_llm} or interface {interface_name}, using fallback")
-            return DIARY_CONFIG["fallback_diary_chars"]
-            
-    except Exception as e:
-        log_error(f"[ai_diary] Error getting LLM/interface limits: {e}")
-        return DIARY_CONFIG["fallback_diary_chars"]
 
 
 def _run_sync(coro):
-    """Helper to run async functions in sync context."""
+    """Helper to run async functions in sync context with better error handling."""
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
@@ -184,23 +160,37 @@ def _run_sync(coro):
                 try:
                     new_loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(new_loop)
-                    result = new_loop.run_until_complete(coro)
-                    new_loop.close()
+                    try:
+                        result = new_loop.run_until_complete(coro)
+                    finally:
+                        new_loop.close()
                 except Exception as e:
                     exception = e
             
             thread = threading.Thread(target=run_in_thread)
             thread.start()
-            thread.join()
+            thread.join(timeout=5.0)  # Add timeout to prevent hanging
+            
+            if thread.is_alive():
+                log_warning("[ai_diary] Thread timeout in _run_sync")
+                return None
             
             if exception:
-                raise exception
+                log_debug(f"[ai_diary] Exception in _run_sync: {exception}")
+                return None
             return result
         else:
             return loop.run_until_complete(coro)
     except RuntimeError:
         # No event loop, create one
-        return asyncio.run(coro)
+        try:
+            return asyncio.run(coro)
+        except Exception as e:
+            log_debug(f"[ai_diary] Error in asyncio.run: {e}")
+            return None
+    except Exception as e:
+        log_debug(f"[ai_diary] Unexpected error in _run_sync: {e}")
+        return None
 
 def should_include_diary(interface_name: str, current_prompt_length: int = 0, max_prompt_chars: int = 0) -> bool:
     """Determine if diary should be included based on available space."""
@@ -262,7 +252,6 @@ async def init_diary_table():
                 content TEXT NOT NULL COMMENT 'What Rekku said/did in the interaction',
                 personal_thought TEXT COMMENT 'Rekku personal reflection about the interaction',
                 emotions TEXT DEFAULT '[]' COMMENT 'Rekku emotions about this interaction',
-                involved_users TEXT DEFAULT '[]' COMMENT 'Users involved in this interaction',
                 interaction_summary TEXT COMMENT 'Brief summary of what happened',
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 interface VARCHAR(50),
@@ -271,8 +260,7 @@ async def init_diary_table():
                 user_message TEXT COMMENT 'What the user said that triggered this response',
                 context_tags TEXT DEFAULT '[]' COMMENT 'Tags about the context/topic',
                 INDEX idx_timestamp (timestamp),
-                INDEX idx_interface_chat (interface, chat_id),
-                INDEX idx_involved_users (involved_users(255))
+                INDEX idx_interface_chat (interface, chat_id)
             )
         ''')
         
@@ -328,7 +316,6 @@ async def recreate_diary_table():
                 content TEXT NOT NULL COMMENT 'What Rekku said/did in the interaction',
                 personal_thought TEXT COMMENT 'Rekku personal reflection about the interaction',
                 emotions TEXT DEFAULT '[]' COMMENT 'Rekku emotions about this interaction',
-                involved_users TEXT DEFAULT '[]' COMMENT 'Users involved in this interaction',
                 interaction_summary TEXT COMMENT 'Brief summary of what happened',
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 interface VARCHAR(50),
@@ -337,8 +324,7 @@ async def recreate_diary_table():
                 user_message TEXT COMMENT 'What the user said that triggered this response',
                 context_tags TEXT DEFAULT '[]' COMMENT 'Tags about the context/topic',
                 INDEX idx_timestamp (timestamp),
-                INDEX idx_interface_chat (interface, chat_id),
-                INDEX idx_involved_users (involved_users(255))
+                INDEX idx_interface_chat (interface, chat_id)
             )
         ''')
         
@@ -389,10 +375,10 @@ def add_diary_entry(
     content: str,
     personal_thought: str = None,
     emotions: List[Dict[str, Any]] = None,
-    involved_users: List[str] = None,
     interaction_summary: str = None,
     user_message: str = None,
     context_tags: List[str] = None,
+    involved_users: List[str] = None,
     interface: str = None,
     chat_id: str = None,
     thread_id: str = None
@@ -403,10 +389,10 @@ def add_diary_entry(
         content: What Rekku said/did in the interaction
         personal_thought: Rekku's personal reflection about this interaction
         emotions: List of emotions Rekku felt during this interaction
-        involved_users: Users involved in this interaction
         interaction_summary: Brief summary of what happened
         user_message: What the user said that triggered this response
         context_tags: Tags about the context/topic (e.g., ['food', 'cars', 'personal'])
+        involved_users: List of user names involved in this interaction (from bio system)
         interface: Interface used (telegram_bot, discord, etc.)
         chat_id: Chat identifier
         thread_id: Thread identifier
@@ -419,8 +405,8 @@ def add_diary_entry(
         return
     
     emotions = emotions or []
-    involved_users = involved_users or []
     context_tags = context_tags or []
+    involved_users = involved_users or []
     
     # Normalize interface name for consistency
     interface = normalize_interface_name(interface)
@@ -434,18 +420,18 @@ def add_diary_entry(
     try:
         _run(_execute(
             """
-            INSERT INTO ai_diary (content, personal_thought, emotions, involved_users, 
-                                interaction_summary, user_message, context_tags, interface, chat_id, thread_id)
+            INSERT INTO ai_diary (content, personal_thought, emotions, 
+                                interaction_summary, user_message, context_tags, involved_users, interface, chat_id, thread_id)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 content,
                 personal_thought,
                 json.dumps(emotions),
-                json.dumps(involved_users),
                 interaction_summary,
                 user_message,
                 json.dumps(context_tags),
+                json.dumps(involved_users),
                 interface,
                 chat_id,
                 thread_id
@@ -464,10 +450,10 @@ async def add_diary_entry_async(
     content: str,
     personal_thought: str = None,
     emotions: List[Dict[str, Any]] = None,
-    involved_users: List[str] = None,
     interaction_summary: str = None,
     user_message: str = None,
     context_tags: List[str] = None,
+    involved_users: List[str] = None,
     interface: str = None,
     chat_id: str = None,
     thread_id: str = None
@@ -481,8 +467,8 @@ async def add_diary_entry_async(
         return
     
     emotions = emotions or []
-    involved_users = involved_users or []
     context_tags = context_tags or []
+    involved_users = involved_users or []
     
     # Normalize interface name for consistency
     interface = normalize_interface_name(interface)
@@ -496,18 +482,18 @@ async def add_diary_entry_async(
     try:
         await _execute(
             """
-            INSERT INTO ai_diary (content, personal_thought, emotions, involved_users, 
-                                interaction_summary, user_message, context_tags, interface, chat_id, thread_id)
+            INSERT INTO ai_diary (content, personal_thought, emotions, 
+                                interaction_summary, user_message, context_tags, involved_users, interface, chat_id, thread_id)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 content,
                 personal_thought,
                 json.dumps(emotions),
-                json.dumps(involved_users),
                 interaction_summary,
                 user_message,
                 json.dumps(context_tags),
+                json.dumps(involved_users),
                 interface,
                 chat_id,
                 thread_id
@@ -721,8 +707,8 @@ def cleanup_old_entries(days_to_keep: int = 30) -> int:
 def create_personal_diary_entry(
     rekku_response: str,
     user_message: str = None,
-    involved_users: List[str] = None,
     context_tags: List[str] = None,
+    involved_users: List[str] = None,
     interface: str = None,
     chat_id: str = None,
     thread_id: str = None
@@ -735,8 +721,8 @@ def create_personal_diary_entry(
     Args:
         rekku_response: What Rekku said to the user
         user_message: What the user said to trigger this response
-        involved_users: List of users involved (should include the user Rekku is talking to)
         context_tags: Tags about the topic (e.g., ['food', 'cars', 'personal', 'help'])
+        involved_users: List of user names involved in this interaction (from bio system)
         interface: Interface used
         chat_id: Chat identifier
         thread_id: Thread identifier
@@ -749,7 +735,7 @@ def create_personal_diary_entry(
     
     # Create a more specific summary of what happened
     interaction_summary = _generate_interaction_summary(
-        rekku_response, user_message, involved_users, context_tags, interface
+        rekku_response, user_message, context_tags, interface
     )
     
     # Generate personal thought based on context
@@ -763,10 +749,10 @@ def create_personal_diary_entry(
         content=rekku_response,
         personal_thought=personal_thought,
         emotions=emotions,
-        involved_users=involved_users,
         interaction_summary=interaction_summary,
         user_message=user_message,
         context_tags=context_tags,
+        involved_users=involved_users,
         interface=interface,
         chat_id=chat_id,
         thread_id=thread_id
@@ -776,61 +762,13 @@ def create_personal_diary_entry(
 def _generate_interaction_summary(
     rekku_response: str,
     user_message: str = None, 
-    involved_users: List[str] = None,
     context_tags: List[str] = None,
     interface: str = None
 ) -> str:
-    """Generate a specific interaction summary based on context and content."""
-    
-    # Get user name if available
-    user_name = involved_users[0] if involved_users else "someone"
-    
-    # Extract key information from the conversation
-    summary_parts = []
-    
-    if user_message and involved_users:
-        # Analyze the conversation content for specific actions/topics
-        user_lower = user_message.lower()
-        response_lower = rekku_response.lower()
-        combined_text = f"{user_lower} {response_lower}"
-        
-        # Determine what type of interaction this was
-        if any(word in combined_text for word in ["bio", "update", "information", "personal data"]):
-            summary_parts.append(f"updated bio information for {user_name}")
-        elif any(word in combined_text for word in ["eat", "food", "sushi", "restaurant", "meal", "cooking"]):
-            # Extract food-related information
-            food_words = []
-            for word in ["sushi", "pizza", "pasta", "burger", "salad", "coffee", "tea"]:
-                if word in combined_text:
-                    food_words.append(word)
-            food_context = ", ".join(food_words) if food_words else "food"
-            summary_parts.append(f"talked with {user_name} about {food_context}")
-        elif any(word in combined_text for word in ["car", "auto", "vehicle", "driving", "motor"]):
-            summary_parts.append(f"discussed cars and vehicles with {user_name}")
-        elif any(word in combined_text for word in ["help", "problem", "issue", "solve", "fix"]):
-            summary_parts.append(f"helped {user_name} solve a problem")
-        elif any(word in combined_text for word in ["terminal", "command", "system", "tech"]):
-            summary_parts.append(f"provided technical assistance to {user_name}")
-        elif any(word in combined_text for word in ["event", "schedule", "reminder", "appointment"]):
-            summary_parts.append(f"scheduled something with {user_name}")
-        elif any(word in combined_text for word in ["emotion", "feel", "mood", "personal"]):
-            summary_parts.append(f"had a personal conversation with {user_name}")
-        else:
-            # Default based on context tags
-            if context_tags and len(context_tags) > 0:
-                # Filter out generic tags
-                specific_tags = [tag for tag in context_tags if tag not in ["communication", "interface", "help"]]
-                if specific_tags:
-                    summary_parts.append(f"discussed {', '.join(specific_tags[:2])} with {user_name}")
-                else:
-                    summary_parts.append(f"had a conversation with {user_name}")
-            else:
-                summary_parts.append(f"chatted with {user_name}")
-    else:
-        # No user message context, just sent a message
-        summary_parts.append(f"sent a message via {interface}")
-    
-    return " and ".join(summary_parts)
+    """Generate interaction summary - should be handled by LLM, not code."""
+    # The LLM should generate the interaction summary itself
+    # This function returns None to indicate that the summary should be generated by the LLM
+    return None
 
 def _format_single_entry_for_prompt(entry: dict) -> str:
     """Format a single diary entry as it would appear in the prompt."""
@@ -1054,7 +992,7 @@ class DiaryPlugin:
         register_plugin("ai_diary", self)
 
     def get_supported_action_types(self):
-        return ["static_inject"]
+        return ["static_inject", "create_personal_diary_entry"]
 
     def get_supported_actions(self):
         return {
@@ -1062,6 +1000,42 @@ class DiaryPlugin:
                 "description": "Inject recent diary entries into the prompt context",
                 "required_fields": [],
                 "optional_fields": [],
+            },
+            "create_personal_diary_entry": {
+                "description": "Create a personal diary entry for Rekku's memory - REQUIRED in every response",
+                "required_fields": ["interaction_summary"],
+                "optional_fields": ["content", "personal_thought", "emotions", "context_tags", "involved_users"],
+                "instructions": {
+                    "description": "Create a diary entry recording what happened in this interaction. This action MUST be included in EVERY response.",
+                    "when_to_use": "Use this action in every single response to record the interaction in Rekku's personal memory",
+                    "examples": [
+                        {
+                            "scenario": "User asks about weather",
+                            "payload": {
+                                "interaction_summary": "User asked about weather conditions and I provided current forecast"
+                            }
+                        },
+                        {
+                            "scenario": "User has technical problem",
+                            "payload": {
+                                "interaction_summary": "User reported technical issues with their system and I provided troubleshooting steps"
+                            }
+                        },
+                        {
+                            "scenario": "Casual conversation",
+                            "payload": {
+                                "interaction_summary": "Had a friendly chat about user's interests and daily activities"
+                            }
+                        }
+                    ],
+                    "notes": [
+                        "interaction_summary is REQUIRED and must describe what happened in this conversation",
+                        "Be specific about what the user asked and what you provided",
+                        "Use clear, descriptive language that would help remember this interaction later",
+                        "Other fields are optional and will be generated automatically if not provided",
+                        "This action MUST be included in every response without exception"
+                    ]
+                }
             }
         }
 
@@ -1102,11 +1076,15 @@ class DiaryPlugin:
             if not engine:
                 engine = registry.load_engine(active_llm)
             
-            if engine and hasattr(engine, 'get_max_prompt_chars'):
-                max_prompt_chars = engine.get_max_prompt_chars()
+            if engine and hasattr(engine, 'get_interface_limits'):
+                limits = engine.get_interface_limits()
+                max_prompt_chars = limits.get("max_prompt_chars", 8000)
                 log_debug(f"[ai_diary] Active LLM {active_llm} max_prompt_chars: {max_prompt_chars}")
+            else:
+                max_prompt_chars = 8000
         except Exception as e:
             log_debug(f"[ai_diary] Could not get active LLM limits: {e}")
+            max_prompt_chars = 8000
         
         log_debug(f"[ai_diary] Prompt stats - current: {current_prompt_length}, max: {max_prompt_chars}")
         
@@ -1131,25 +1109,95 @@ class DiaryPlugin:
             return {"latest_diary_entries": []}
         
         # Return raw entries as JSON instead of formatted text
-        log_debug(f"[ai_diary] Returning {len(recent_entries)} diary entries for injection")
+        log_info(f"[ai_diary] Returning {len(recent_entries)} diary entries for injection")
+        
+        # Log first few entries for debugging
+        for i, entry in enumerate(recent_entries[:3]):
+            log_debug(f"[ai_diary] Entry {i+1}: content='{entry.get('content', '')[:50]}...', involved_users={entry.get('involved_users', [])}, interaction_summary='{entry.get('interaction_summary', '')}'")
+        
         return {"latest_diary_entries": recent_entries}
 
-
-# Initialize the plugin
-PLUGIN_CLASS = DiaryPlugin
-
-__all__ = [
-    "add_diary_entry",
-    "add_diary_entry_async",
-    "create_personal_diary_entry",
-    "get_recent_entries", 
-    "get_entries_by_tags",
-    "get_entries_with_person",
-    "format_diary_for_injection",
-    "cleanup_old_entries",
-    "recreate_diary_table",
-    "is_plugin_enabled",
-    "enable_plugin", 
-    "disable_plugin",
-    "DiaryPlugin"
-]
+    def execute_action(self, action: dict, context: dict, bot, original_message):
+        """Execute diary-related actions."""
+        action_type = action.get("type")
+        payload = action.get("payload", {})
+        
+        if action_type == "create_personal_diary_entry":
+            try:
+                # Extract information from context and payload
+                interface_name = context.get("interface", "unknown")
+                chat_id = getattr(original_message, "chat_id", None)
+                thread_id = getattr(original_message, "message_thread_id", None)
+                
+                # Get user message from context or original_message
+                user_message = ""
+                if hasattr(original_message, "text"):
+                    user_message = original_message.text
+                elif isinstance(original_message, dict) and "text" in original_message:
+                    user_message = original_message["text"]
+                elif context and "input" in context and "payload" in context["input"]:
+                    input_payload = context["input"]["payload"]
+                    if "text" in input_payload:
+                        user_message = input_payload["text"]
+                
+                # Extract involved users from context participants
+                involved_users = []
+                if context and "participants" in context:
+                    for participant in context["participants"]:
+                        if "usertag" in participant:
+                            # Remove @ from usertag
+                            username = participant["usertag"].lstrip('@')
+                            if username.lower() not in ["rekku", "bot"]:
+                                involved_users.append(username)
+                        # Also add nicknames if available
+                        if "nicknames" in participant and participant["nicknames"]:
+                            for nickname in participant["nicknames"]:
+                                if nickname and nickname.lower() not in ["rekku", "bot"]:
+                                    involved_users.append(nickname)
+                
+                # Remove duplicates while preserving order
+                involved_users = list(dict.fromkeys(involved_users))
+                
+                # Get parameters from payload (optional)
+                interaction_summary = payload.get("interaction_summary")
+                content = payload.get("content", "")
+                personal_thought = payload.get("personal_thought")
+                emotions = payload.get("emotions", [])
+                context_tags = payload.get("context_tags", [])
+                payload_involved_users = payload.get("involved_users", [])
+                
+                # Use payload involved_users if provided, otherwise use extracted ones
+                if payload_involved_users:
+                    involved_users = payload_involved_users
+                
+                # If no content provided, extract from recent actions in context
+                if not content:
+                    # This will be handled by the automatic diary creation in action_parser
+                    # Just log that we received the action
+                    log_debug(f"[ai_diary] Received create_personal_diary_entry action with summary: '{interaction_summary}'")
+                    return {"success": True, "message": "Diary entry will be created automatically"}
+                
+                # Create diary entry with provided information
+                add_diary_entry(
+                    content=content,
+                    personal_thought=personal_thought,
+                    emotions=emotions,
+                    interaction_summary=interaction_summary,
+                    user_message=user_message,
+                    context_tags=context_tags,
+                    involved_users=involved_users,
+                    interface=interface_name,
+                    chat_id=str(chat_id) if chat_id else None,
+                    thread_id=str(thread_id) if thread_id else None
+                )
+                
+                log_debug(f"[ai_diary] Created diary entry via action: '{interaction_summary}'")
+                return {"success": True, "message": f"Diary entry created: {interaction_summary}"}
+                
+            except Exception as e:
+                log_error(f"[ai_diary] Failed to execute create_personal_diary_entry action: {e}")
+                return {"success": False, "error": str(e)}
+        
+        else:
+            log_warning(f"[ai_diary] Unknown action type: {action_type}")
+            return {"success": False, "error": f"Unknown action type: {action_type}"}

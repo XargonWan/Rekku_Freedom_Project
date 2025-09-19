@@ -91,11 +91,15 @@ async def _send_with_retry(
             return result
         except TimedOut as e:
             last_error = e
+            base_delay = delay * (2 ** (attempt - 1))  # Exponential backoff
+            actual_delay = min(base_delay, 10.0)  # Cap at 10 seconds
+            
             log_warning(f"[telegram_utils] TimedOut on attempt {attempt}/{retries} for chat_id={chat_id}: {e}")
             if attempt < retries:
-                await asyncio.sleep(delay)
+                log_debug(f"[telegram_utils] Waiting {actual_delay:.1f}s before retry {attempt + 1}")
+                await asyncio.sleep(actual_delay)
             else:
-                log_error(f"[telegram_utils] TimedOut persisted after {retries} retries for chat_id={chat_id}")
+                log_error(f"[telegram_utils] TimedOut persisted after {retries} retries for chat_id={chat_id}, final delay was {actual_delay:.1f}s")
         except Exception as e:
             error_message = str(e)
             # On network-like errors, set a cooldown for this chat to avoid tight retry loops

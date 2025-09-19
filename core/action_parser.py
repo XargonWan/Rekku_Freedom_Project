@@ -884,7 +884,7 @@ async def _create_diary_entry_for_actions(processed_actions, context, original_m
             if "text" in payload:
                 user_message = payload["text"]
         
-        # Extract people involved from context participants
+        # Extract people involved from context participants for logging
         involved_people = set()
         if context and "participants" in context:
             for participant in context["participants"]:
@@ -892,28 +892,13 @@ async def _create_diary_entry_for_actions(processed_actions, context, original_m
                     # Remove @ from usertag
                     username = participant["usertag"].lstrip('@')
                     involved_people.add(username)
-                elif "id" in participant:
-                    involved_people.add(str(participant["id"]))
+                # Also add nicknames if available
+                if "nicknames" in participant and participant["nicknames"]:
+                    for nickname in participant["nicknames"]:
+                        if nickname and nickname.lower() not in ["rekku", "bot"]:
+                            involved_people.add(nickname)
         
-        # Also extract from actions
-        for action in processed_actions:
-            payload = action.get("payload", {})
-            
-            # Extract from bio_update actions
-            if action.get("type") == "bio_update":
-                target = payload.get("target")
-                if target and target.lower() != "rekku":
-                    involved_people.add(target)
-            
-            # Extract from terminal actions (might mention people in commands)
-            elif action.get("type") == "terminal":
-                command = payload.get("command", "")
-                # Simple heuristic: extract words that start with @ (mentions)
-                import re
-                mentions = re.findall(r'@(\w+)', command)
-                involved_people.update(mentions)
-        
-        # Convert to list and filter out Rekku
+        # Convert to list for logging purposes only (not passed to diary)
         involved_list = [person for person in involved_people if person.lower() not in ["rekku", "bot"]]
         
         # Generate comprehensive response content from all actions
@@ -966,8 +951,8 @@ async def _create_diary_entry_for_actions(processed_actions, context, original_m
         create_personal_diary_entry(
             rekku_response=rekku_response,
             user_message=user_message if user_message else None,
-            involved_users=involved_list,
             context_tags=context_tags,
+            involved_users=involved_list,
             interface=interface_name,
             chat_id=str(chat_id) if chat_id else None,
             thread_id=str(thread_id) if thread_id else None

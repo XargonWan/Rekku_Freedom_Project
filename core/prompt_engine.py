@@ -60,6 +60,34 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
         from plugins.ai_diary import get_recent_entries, format_diary_for_injection, is_plugin_enabled, get_max_diary_chars, should_include_diary
         
         if is_plugin_enabled():
+            # Get max prompt chars from active LLM first
+            max_prompt_chars = 8000  # Default fallback
+            try:
+                from core.config import get_active_llm
+                active_llm = await get_active_llm()
+                
+                # Get limits directly from the active LLM engine
+                try:
+                    from core.llm_registry import get_llm_registry
+                    registry = get_llm_registry()
+                    engine = registry.get_engine(active_llm)
+                    
+                    if not engine:
+                        engine = registry.load_engine(active_llm)
+                    
+                    if engine and hasattr(engine, 'get_interface_limits'):
+                        limits = engine.get_interface_limits()
+                        max_prompt_chars = limits.get("max_prompt_chars", 8000)
+                    else:
+                        max_prompt_chars = 8000  # Fallback
+                except Exception:
+                    max_prompt_chars = 8000  # Safe fallback
+                    
+                log_debug(f"[json_prompt] Active interface max prompt chars: {max_prompt_chars}")
+            except Exception as e:
+                log_debug(f"[json_prompt] Could not get interface limits: {e}")
+                max_prompt_chars = 8000  # Safe fallback
+            
             # Get interface name
             interface_name = interface_name or "manual"
             
@@ -272,15 +300,30 @@ All rules:
 - You MUST use the 'actions' array, even for single actions
 - DO NOT include any text outside the JSON structure
 
+IMPORTANT: When responding to a user, you MUST ALWAYS include a create_personal_diary_entry action to record this interaction in your personal memory. You MUST provide an interaction_summary field that describes what happened in this conversation.
+
+Examples of good interaction_summary values:
+- "User asked about weather conditions and I provided current forecast"
+- "Discussed coding problems with Python and provided debugging solutions"
+- "User shared personal updates about their day and I responded supportively"
+- "Helped troubleshoot technical issues with their computer setup"
+- "Had a casual conversation about food preferences and cooking"
+
 CRITICAL: Your response MUST be valid JSON. Example format:
 {
   "actions": [
     {
-      "type": "action_name",
+      "type": "message_telegram_bot",
       "payload": {
         "text": "Your message here",
         "target": "-1003098886330",
         "message_thread_id": 2
+      }
+    },
+    {
+      "type": "create_personal_diary_entry",
+      "payload": {
+        "interaction_summary": "User asked about weather and I provided current conditions"
       }
     }
   ]

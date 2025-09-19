@@ -28,9 +28,9 @@ class DiscordInterface:
     """Discord interface mirroring Telegram bot behaviour."""
 
     def __init__(self, bot_token: str):
-        self.bot_token = bot_token
+        self.bot_token = bot_token.strip() if bot_token else ""
         
-        if not bot_token:
+        if not self.bot_token:
             log_warning("[discord_interface] No bot token provided - Discord interface disabled")
             self.client = None
             return
@@ -95,11 +95,17 @@ class DiscordInterface:
 
     async def _start_discord_client(self):
         """Start the Discord client with proper error handling."""
+        if not self.bot_token or self.bot_token.strip() == "":
+            log_warning("[discord_interface] No valid Discord bot token provided - skipping Discord startup")
+            return
+            
         try:
             log_info("[discord_interface] Starting Discord client...")
             await self.client.start(self.bot_token)
         except Exception as e:  # pragma: no cover - startup errors
             log_error(f"[discord_interface] Failed to start Discord client: {e}")
+            if "Improper token" in str(e):
+                log_warning("[discord_interface] Invalid Discord token - Discord interface will remain disabled")
 
     @staticmethod
     def get_interface_id() -> str:
