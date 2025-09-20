@@ -174,7 +174,10 @@ class TerminalPlugin(AIPluginBase):
                 "description": (
                     "Execute commands in a terminal session (bash, python, etc.). "
                     "Optionally persistent. Escape special characters (quotes, newlines, backslashes) in "
-                    "the command so the JSON remains valid."
+                    "the command so the JSON remains valid. "
+                    "CRITICAL: When users ask for terminal commands or shell execution, you MUST use the 'terminal' action type. "
+                    "NEVER simulate or fake command output - always use real actions for real tasks. "
+                    "The system will execute the command and provide real output through a feedback loop."
                 ),
                 "payload": {
                     "command": "df -h",
@@ -187,7 +190,13 @@ class TerminalPlugin(AIPluginBase):
                         "command": "df -h",
                         "persistent_session": True
                     }
-                }
+                },
+                "enforcement_rules": [
+                    "NEVER generate fake terminal output like 'Output del comando...'",
+                    "ALWAYS use the terminal action for shell commands",
+                    "Let the system execute commands and provide real output",
+                    "Use persistent_session=true for interactive workflows"
+                ]
             }
         return {}
 

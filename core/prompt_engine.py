@@ -291,6 +291,7 @@ def load_json_instructions() -> str:
 - Check the available_actions section below for supported interfaces and their capabilities
 - Search memories when unsure about a detail
 - When responding, pay attention to 'input.interface' to know which interface the message came from and normally reply via that same interface unless explicitly instructed otherwise
+CRITICAL: never, ever lie! If something is not known, say "I don't know". Lying can lead to serious and dangerous consequences.
 
 All rules:
 - Use 'input.payload.source.chat_id' as message target when applicable
