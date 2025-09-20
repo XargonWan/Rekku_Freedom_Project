@@ -16,8 +16,50 @@ from core.logging_utils import log_debug, log_warning, log_error, log_info
 LAST_JSON_ERROR_INFO: Optional[str] = None
 
 # Track chat_ids for which core initiated a system-message correction request
-_EXPECTING_SYSTEM_REPLY: set = set()
+# Format: {chat_id: timestamp} to allow timeout cleanup
+_EXPECTING_SYSTEM_REPLY: dict = {}
 
+def _get_system_reply_timeout():
+    """Get the system reply timeout from config, default to 10 minutes."""
+    try:
+        import os
+        timeout = int(os.getenv('AWAIT_RESPONSE_TIMEOUT', '600'))
+        return timeout
+    except (ValueError, TypeError):
+        return 600  # 10 minutes default
+
+
+def _cleanup_expired_system_replies():
+    """Remove expired entries from _EXPECTING_SYSTEM_REPLY."""
+    import time
+    current_time = time.time()
+    timeout = _get_system_reply_timeout()
+    expired_keys = [
+        chat_id for chat_id, timestamp in _EXPECTING_SYSTEM_REPLY.items()
+        if current_time - timestamp > timeout
+    ]
+    for chat_id in expired_keys:
+        del _EXPECTING_SYSTEM_REPLY[chat_id]
+        log_debug(f"[transport] Removed expired system reply expectation for chat_id={chat_id} (timeout={timeout}s)")
+
+
+def _add_system_reply_expectation(chat_id: str):
+    """Add a system reply expectation with timestamp."""
+    import time
+    _cleanup_expired_system_replies()  # Clean up expired ones first
+    _EXPECTING_SYSTEM_REPLY[chat_id] = time.time()
+
+
+def _remove_system_reply_expectation(chat_id: str):
+    """Remove a system reply expectation."""
+    if chat_id in _EXPECTING_SYSTEM_REPLY:
+        del _EXPECTING_SYSTEM_REPLY[chat_id]
+
+
+def _is_expecting_system_reply(chat_id: str) -> bool:
+    """Check if we're expecting a system reply for the given chat_id."""
+    _cleanup_expired_system_replies()  # Clean up expired ones first
+    return chat_id in _EXPECTING_SYSTEM_REPLY
 
 
 def _format_json_error(text: str, err: json.JSONDecodeError) -> str:
@@ -399,7 +441,7 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
             # consume it without forwarding and avoid re-entry loops.
             try:
                 if correction_message.chat_id is not None:
-                    _EXPECTING_SYSTEM_REPLY.add(str(correction_message.chat_id))
+                    _add_system_reply_expectation(str(correction_message.chat_id))
             except Exception:
                 pass
 
@@ -451,8 +493,8 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
             log_warning(f"[corrector_middleware] Failed to send error message: {e}")
     # Cleanup expectation for this chat in case it wasn't consumed
     try:
-        if chat_id is not None and str(chat_id) in _EXPECTING_SYSTEM_REPLY:
-            _EXPECTING_SYSTEM_REPLY.discard(str(chat_id))
+        if chat_id is not None:
+            _remove_system_reply_expectation(str(chat_id))
     except Exception:
         pass
     return None
@@ -482,6 +524,21 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
     """
     if text is None:
         text = ""
+
+    # Extract chat_id for logging
+    chat_id = kwargs.get('chat_id')
+    if chat_id is None and args:
+        maybe = args[1] if len(args) > 1 else None
+        chat_id = maybe if isinstance(maybe, (int, str)) else None
+
+    try:
+        log_debug(f"[llm_to_interface] Delivering message to chat_id={chat_id}")
+        log_debug(f"[llm_to_interface] Message preview: {text[:100]}..." if len(str(text)) > 100 else f"[llm_to_interface] Message: {text}")
+    except Exception:
+        pass
+
+    # Clean up expired system reply expectations
+    _cleanup_expired_system_replies()
 
     try:
         log_debug(f"[chain] llm_to_interface called -> interface_send_func={interface_send_func}")
@@ -591,11 +648,28 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
         # If this chat_id is marked as expecting a system/LLM reply from the
         # corrector middleware, consume it here and do not re-enter the message
         # chain. This avoids infinite correction/forwarding loops.
+        # However, only consume if the message actually looks like a correction response.
         try:
-            if chat_id is not None and str(chat_id) in _EXPECTING_SYSTEM_REPLY:
-                _EXPECTING_SYSTEM_REPLY.discard(str(chat_id))
-                log_debug(f"[llm_to_interface] Consuming expected system reply for chat_id={chat_id}; not forwarding to message_chain")
-                return None
+            if chat_id is not None and _is_expecting_system_reply(str(chat_id)):
+                # Check if this is actually a correction response by looking for typical patterns
+                is_correction_response = (
+                    isinstance(text, str) and (
+                        "system_message" in text or
+                        text.strip().startswith('{"actions":') or
+                        "correction" in text.lower() or
+                        "corrected" in text.lower()
+                    )
+                )
+                
+                if is_correction_response:
+                    _remove_system_reply_expectation(str(chat_id))
+                    log_debug(f"[llm_to_interface] Consuming expected system reply for chat_id={chat_id}; not forwarding to message_chain")
+                    return None
+                else:
+                    # This doesn't look like a correction response, might be a normal message
+                    # Log a warning and let it through
+                    log_warning(f"[llm_to_interface] Expected system reply for chat_id={chat_id} but message doesn't look like correction. Allowing through.")
+                    _remove_system_reply_expectation(str(chat_id))  # Clear the expectation anyway
         except Exception:
             pass
         # Pass through to message chain
