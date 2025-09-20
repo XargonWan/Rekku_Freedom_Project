@@ -1201,3 +1201,6 @@ class DiaryPlugin:
         else:
             log_warning(f"[ai_diary] Unknown action type: {action_type}")
             return {"success": False, "error": f"Unknown action type: {action_type}"}
+
+# Instantiate the plugin to register it
+PLUGIN_CLASS = DiaryPlugin
