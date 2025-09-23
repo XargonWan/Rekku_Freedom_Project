@@ -319,22 +319,41 @@ def _update_json_field(user_id: str, key: str, update_fn: Callable[[Any], Any]) 
 
 def get_bio_light(user_id: str) -> dict:
     """Return a lightweight bio for the user."""
-    _ensure_table()
-    row = _run(
-        _fetchone(
-            "SELECT known_as, likes, not_likes, feelings, information FROM bio WHERE id=%s",
-            (user_id,),
+    try:
+        _ensure_table()
+        row = _run(
+            _fetchone(
+                "SELECT known_as, likes, not_likes, feelings, information FROM bio WHERE id=%s",
+                (user_id,),
+            )
         )
-    )
-    if not row:
+        if not row:
+            return {}
+        
+        result = {
+            "known_as": _load_json_field(row.get("known_as"), "known_as", DEFAULTS["known_as"]),
+            "likes": _load_json_field(row.get("likes"), "likes", DEFAULTS["likes"]),
+            "not_likes": _load_json_field(row.get("not_likes"), "not_likes", DEFAULTS["not_likes"]),
+            "feelings": _load_json_field(row.get("feelings"), "feelings", DEFAULTS["feelings"]),
+            "information": row.get("information") or "",
+        }
+        
+        # Ensure all expected fields exist and are of correct types
+        if not isinstance(result.get("known_as"), list):
+            result["known_as"] = DEFAULTS["known_as"]
+        if not isinstance(result.get("likes"), list):
+            result["likes"] = DEFAULTS["likes"]
+        if not isinstance(result.get("not_likes"), list):
+            result["not_likes"] = DEFAULTS["not_likes"]
+        if not isinstance(result.get("feelings"), list):
+            result["feelings"] = DEFAULTS["feelings"]
+        if not isinstance(result.get("information"), str):
+            result["information"] = ""
+            
+        return result
+    except Exception as e:
+        log_error(f"[bio_manager] Error in get_bio_light for user {user_id}: {e}")
         return {}
-    return {
-        "known_as": _load_json_field(row.get("known_as"), "known_as", DEFAULTS["known_as"]),
-        "likes": _load_json_field(row.get("likes"), "likes", DEFAULTS["likes"]),
-        "not_likes": _load_json_field(row.get("not_likes"), "not_likes", DEFAULTS["not_likes"]),
-        "feelings": _load_json_field(row.get("feelings"), "feelings", DEFAULTS["feelings"]),
-        "information": row.get("information") or "",
-    }
 
 
 def get_bio_full(user_id: str) -> dict:
@@ -878,6 +897,10 @@ class BioPlugin:
         now = datetime.utcnow().isoformat()
         for p in participants:
             bio = get_bio_light(p["id"])
+            # Ensure bio is always a dict to prevent 'str' object has no attribute 'get' error
+            if not isinstance(bio, dict):
+                log_warning(f"[bio_manager] get_bio_light returned non-dict for user {p['id']}: {type(bio)} - {bio}")
+                bio = {}
             short_info = bio.get("information", "")[:200]
             entry = {
                 "id": p["id"],
@@ -905,7 +928,8 @@ class BioPlugin:
             if target in {p.get("usertag"), p.get("username")}:
                 return p["id"]
             bio = get_bio_light(p["id"])
-            if target in bio.get("known_as", []):
+            # Ensure bio is a dict before calling .get()
+            if isinstance(bio, dict) and target in bio.get("known_as", []):
                 return p["id"]
         return None
 
