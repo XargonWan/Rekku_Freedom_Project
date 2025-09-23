@@ -519,7 +519,9 @@ async def handle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         response = await handle_command_message(command_text, user_id, "telegram_bot", interface_context)
-        await update.message.reply_text(response, parse_mode="Markdown")
+        # Only send response if it's not None (meaning command was recognized)
+        if response is not None:
+            await update.message.reply_text(response, parse_mode="Markdown")
     except Exception as e:
         log_error(f"[telegram_bot] Error handling command: {e}")
         await update.message.reply_text("❌ Error processing command.")

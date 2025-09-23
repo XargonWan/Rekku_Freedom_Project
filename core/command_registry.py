@@ -61,7 +61,8 @@ async def handle_command_message(command_text: str, user_id: int = None, interfa
     
     # Check if command exists
     if command_name not in _commands:
-        return f"❌ Unknown command: `/{command_name}`. Use `/help` to see available commands."
+        # Return None to indicate unknown command - interfaces should ignore this
+        return None
     
     # Permission check - most commands require trainer privileges
     interface_registry = get_interface_registry()
