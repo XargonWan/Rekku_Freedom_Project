@@ -53,4 +53,4 @@ persona*/
 docker-compose-*.yml
 backups/
 RFP_main
-TODO.md
+TODO*.md
