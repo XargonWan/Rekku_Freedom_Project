@@ -22,3 +22,22 @@ Build and start the services:
 
 A MariaDB instance is started automatically and a daily backup container
 writes dumps to ``./backups/``.
+
+Modular Architecture
+--------------------
+
+Rekku Freedom Project follows a modular architecture where components are automatically discovered and loaded:
+
+**Core System**
+    Handles message processing, action execution, and component orchestration.
+
+**Interfaces** (``interface/``)
+    Platform integrations (Telegram, Discord, Reddit, etc.) that handle communication.
+
+**Plugins** (``plugins/``)
+    Action providers that extend functionality (terminal, weather, AI diary, etc.).
+
+**LLM Engines** (``llm_engines/``)
+    AI backend implementations (OpenAI, Google Gemini, manual input, etc.).
+
+This design ensures that new features can be added by simply placing compatible modules in the appropriate directories without modifying the core codebase.
