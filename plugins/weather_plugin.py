@@ -9,7 +9,7 @@ import concurrent.futures
 
 from core.core_initializer import core_initializer, register_plugin
 from core.logging_utils import log_debug, log_info, log_warning, log_error
-from core.rekku_utils import get_local_location
+from core.time_zone_utils import get_local_location
 
 # Injection priority for weather information
 INJECTION_PRIORITY = 2  # High priority - weather is contextually important

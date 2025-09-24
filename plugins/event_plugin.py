@@ -291,7 +291,7 @@ class EventPlugin(AIPluginBase):
                 reminder_description,
                 created_by,
             )
-            from core.rekku_utils import parse_local_to_utc, format_dual_time
+            from core.time_zone_utils import parse_local_to_utc, format_dual_time
             try:
                 utc_dt = parse_local_to_utc(date_str, time_str or "00:00")
                 dual = format_dual_time(utc_dt)
@@ -471,7 +471,7 @@ class EventPlugin(AIPluginBase):
 
         # Extract event details
         event_id = event.get("id", "unknown")
-        from core.rekku_utils import format_dual_time
+        from core.time_zone_utils import format_dual_time
         date = event.get("date", "")
         time = event.get("time", "")
         description = event.get("description", "")
@@ -912,7 +912,7 @@ For recurring events, you can use:
         # Extract lateness info if available
         is_late = event_info.get("is_late", False) if event_info else False
         minutes_late = event_info.get("minutes_late", 0) if event_info else 0
-        from core.rekku_utils import format_dual_time
+        from core.time_zone_utils import format_dual_time
         scheduled_time = "unknown"
         if event_info:
             next_run_val = event_info.get("next_run")
