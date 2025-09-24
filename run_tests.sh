@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VENV_DIR=".venv"
+VENV_DIR="venv"
 if [ ! -d "$VENV_DIR" ]; then
     python3 -m venv "$VENV_DIR"
 fi
@@ -9,6 +9,9 @@ source "$VENV_DIR/bin/activate"
 
 # Install runtime and development dependencies
 pip install -r requirements.txt >/dev/null
+
+# Install test dependencies
+pip install pytest pytest-asyncio unittest-xml-reporting >/dev/null
 
 # Ensure a local log directory is used
 export LOG_DIR=${LOG_DIR:-./logs}
