@@ -98,6 +98,7 @@ load_dotenv()
 # ChatLinkStore: manages mapping between interface chats and ChatGPT conversations
 from plugins.chat_link import ChatLinkStore
 from interface.telegram_utils import safe_send
+from core.db import get_db_connection
 
 # Fallback for notify_trainer when core.notifier module is unavailable
 def notify_trainer(message: str) -> None:
@@ -119,8 +120,138 @@ MAX_WAIT_TIMEOUT_SECONDS = 5 * 60  # hard ceiling
 previous_responses: Dict[str, str] = {}
 response_cache_lock = threading.Lock()
 
+# Extended ChatLinkStore for ChatGPT-specific functionality
+class ChatGPTLinkStore(ChatLinkStore):
+    """Extends ChatLinkStore to handle ChatGPT-specific link management."""
+    
+    def __init__(self):
+        super().__init__()
+        self.chatgpt_link_initialized = False
+    
+    async def ensure_chatgpt_link_column(self):
+        """Ensure the chatgpt_link column exists in the chatlink table."""
+        if self.chatgpt_link_initialized:
+            return
+            
+        try:
+            connection = await get_db_connection()
+            async with connection.cursor() as cursor:
+                # Check if chatgpt_link column exists
+                await cursor.execute("""
+                    SELECT COUNT(*) 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() 
+                    AND TABLE_NAME = 'chatlink' 
+                    AND COLUMN_NAME = 'chatgpt_link'
+                """)
+                result = await cursor.fetchone()
+                
+                if result[0] == 0:
+                    # Add chatgpt_link column
+                    await cursor.execute("""
+                        ALTER TABLE chatlink 
+                        ADD COLUMN chatgpt_link VARCHAR(255) NULL
+                    """)
+                    await connection.commit()
+                    log_info("[selenium_chatgpt] Added chatgpt_link column to chatlink table")
+                
+            await connection.ensure_closed()
+            self.chatgpt_link_initialized = True
+        except Exception as e:
+            log_error(f"[selenium_chatgpt] Failed to ensure chatgpt_link column: {e}")
+    
+    async def get_chatgpt_link(self, chat_id, thread_id=None, interface="unknown"):
+        """Get ChatGPT link for a chat, creating chat record if needed."""
+        await self.ensure_chatgpt_link_column()
+        
+        # Ensure chat exists first
+        await self.ensure_chat_exists(chat_id, thread_id, interface)
+        
+        try:
+            connection = await get_db_connection()
+            async with connection.cursor() as cursor:
+                if thread_id:
+                    await cursor.execute("""
+                        SELECT chatgpt_link 
+                        FROM chatlink 
+                        WHERE chat_id = %s AND thread_id = %s AND interface = %s
+                    """, (str(chat_id), str(thread_id), interface))
+                else:
+                    await cursor.execute("""
+                        SELECT chatgpt_link 
+                        FROM chatlink 
+                        WHERE chat_id = %s AND thread_id IS NULL AND interface = %s
+                    """, (str(chat_id), interface))
+                
+                result = await cursor.fetchone()
+                await connection.ensure_closed()
+                
+                return result[0] if result and result[0] else None
+        except Exception as e:
+            log_error(f"[selenium_chatgpt] Failed to get ChatGPT link: {e}")
+            return None
+    
+    async def store_chatgpt_link(self, chat_id, chatgpt_link, thread_id=None, interface="unknown", chat_name=None):
+        """Store ChatGPT link for a chat."""
+        await self.ensure_chatgpt_link_column()
+        
+        # Ensure chat exists first
+        await self.ensure_chat_exists(chat_id, thread_id, interface, chat_name)
+        
+        try:
+            connection = await get_db_connection()
+            async with connection.cursor() as cursor:
+                if thread_id:
+                    await cursor.execute("""
+                        UPDATE chatlink 
+                        SET chatgpt_link = %s 
+                        WHERE chat_id = %s AND thread_id = %s AND interface = %s
+                    """, (chatgpt_link, str(chat_id), str(thread_id), interface))
+                else:
+                    await cursor.execute("""
+                        UPDATE chatlink 
+                        SET chatgpt_link = %s 
+                        WHERE chat_id = %s AND thread_id IS NULL AND interface = %s
+                    """, (chatgpt_link, str(chat_id), interface))
+                
+                await connection.commit()
+                await connection.ensure_closed()
+                log_debug(f"[selenium_chatgpt] Stored ChatGPT link: {chatgpt_link} for chat {chat_id}")
+                return True
+        except Exception as e:
+            log_error(f"[selenium_chatgpt] Failed to store ChatGPT link: {e}")
+            return False
+    
+    async def remove_chatgpt_link(self, chat_id, thread_id=None, interface="unknown"):
+        """Remove ChatGPT link for a chat (sets to NULL)."""
+        await self.ensure_chatgpt_link_column()
+        
+        try:
+            connection = await get_db_connection()
+            async with connection.cursor() as cursor:
+                if thread_id:
+                    await cursor.execute("""
+                        UPDATE chatlink 
+                        SET chatgpt_link = NULL 
+                        WHERE chat_id = %s AND thread_id = %s AND interface = %s
+                    """, (str(chat_id), str(thread_id), interface))
+                else:
+                    await cursor.execute("""
+                        UPDATE chatlink 
+                        SET chatgpt_link = NULL 
+                        WHERE chat_id = %s AND thread_id IS NULL AND interface = %s
+                    """, (str(chat_id), interface))
+                
+                await connection.commit()
+                await connection.ensure_closed()
+                log_debug(f"[selenium_chatgpt] Removed ChatGPT link for chat {chat_id}")
+                return True
+        except Exception as e:
+            log_error(f"[selenium_chatgpt] Failed to remove ChatGPT link: {e}")
+            return False
+
 # Persistent mapping between interface chats and ChatGPT conversations
-chat_link_store = ChatLinkStore()
+chat_link_store = ChatGPTLinkStore()
 queue_paused = False
 
 
@@ -1391,7 +1522,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         self._init_driver()
                     
                     # Get chat ID for ChatGPT conversation
-                    chat_id = await chat_link_store.get_link(
+                    chat_id = await chat_link_store.get_chatgpt_link(
                         message.chat_id, 
                         getattr(message, "message_thread_id", None),
                         interface=self._get_interface_name(bot)
@@ -1442,7 +1573,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         self._init_driver()
                     
                     # Get chat ID for ChatGPT conversation
-                    chat_id = await chat_link_store.get_link(
+                    chat_id = await chat_link_store.get_chatgpt_link(
                         message.chat_id, 
                         getattr(message, "message_thread_id", None),
                         interface=self._get_interface_name(bot)
@@ -2108,7 +2239,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             else:
                 interface_name = "generic"
             message_thread_id = getattr(message, "message_thread_id", None)
-            chat_id = await chat_link_store.get_link(
+            chat_id = await chat_link_store.get_chatgpt_link(
                 message.chat_id, message_thread_id, interface=interface_name
             )
             prompt_text = json.dumps(prompt, ensure_ascii=False)
@@ -2119,10 +2250,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 if path and go_to_chat_by_path_with_retries(driver, path):
                     chat_id = _extract_chat_id(driver.current_url)
                     if chat_id:
-                        await chat_link_store.store_link(
+                        await chat_link_store.store_chatgpt_link(
                             message.chat_id,
-                            message_thread_id,
                             chat_id,
+                            message_thread_id,
                             interface=interface_name,
                         )
                         _safe_notify(
@@ -2153,7 +2284,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 except Exception as e:
                     log_warning(f"[selenium] Existing chat {chat_id} no longer accessible: {e}")
                     log_info(f"[selenium] Creating new chat to replace inaccessible chat {chat_id}")
-                    await chat_link_store.remove(
+                    await chat_link_store.remove_chatgpt_link(
                         message.chat_id, message_thread_id, interface=interface_name
                     )
                     recent_chats.clear_chat_path(message.chat_id)
@@ -2203,10 +2334,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         log_debug(f"[selenium][DEBUG] New chat created, extracted ID: {new_chat_id}")
                         log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
                         if new_chat_id:
-                            await chat_link_store.store_link(
+                            await chat_link_store.store_chatgpt_link(
                                 message.chat_id,
-                                message_thread_id,
                                 new_chat_id,
+                                message_thread_id,
                                 interface=interface_name,
                             )
                             log_debug(
@@ -2227,10 +2358,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     response_text = process_prompt_in_chat(driver, None, prompt_text, "", temp_image_path)
                     new_chat_id = _extract_chat_id(driver.current_url)
                     if new_chat_id:
-                        await chat_link_store.store_link(
+                        await chat_link_store.store_chatgpt_link(
                             message.chat_id,
-                            message_thread_id,
                             new_chat_id,
+                            message_thread_id,
                             interface=interface_name,
                         )
                         log_debug(
@@ -2317,13 +2448,13 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         """Remove the association between a chat and a ChatGPT conversation.
         If no link exists for the current chat, creates a new one."""
         try:
-            if await chat_link_store.remove(chat_id, None, interface=interface):
+            if await chat_link_store.remove_chatgpt_link(chat_id, None, interface=interface):
                 log_debug(f"[clean_chat_link] Chat link removed for chat_id={chat_id}")
                 return f"✅ Link for chat_id={chat_id} successfully removed."
             else:
                 new_chat_id = f"new_chat_{chat_id}"
-                await chat_link_store.store_link(
-                    chat_id, None, new_chat_id, interface=interface
+                await chat_link_store.store_chatgpt_link(
+                    chat_id, new_chat_id, None, interface=interface
                 )
                 log_debug(f"[clean_chat_link] No link found. Created new link: {new_chat_id}")
                 return f"⚠️ No link found for chat_id={chat_id}. Created new link: {new_chat_id}."
