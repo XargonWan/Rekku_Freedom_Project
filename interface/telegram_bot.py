@@ -92,12 +92,12 @@ if BOTFATHER_TOKEN:
 
 # Validate required configuration
 if not BOTFATHER_TOKEN:
-    log_error("[telegram_bot] BOTFATHER_TOKEN not found in environment variables")
-    raise ValueError("BOTFATHER_TOKEN is required for Telegram interface")
+    log_warning("[telegram_bot] BOTFATHER_TOKEN not found in environment variables - Telegram interface will be disabled")
+    BOTFATHER_TOKEN = None
 
 if not TELEGRAM_TRAINER_ID:
-    log_error("[telegram_bot] TELEGRAM_TRAINER_ID not found in TRAINER_IDS environment variable")
-    raise ValueError("TELEGRAM_TRAINER_ID is required for Telegram interface")
+    log_warning("[telegram_bot] TELEGRAM_TRAINER_ID not found in TRAINER_IDS environment variable - Telegram interface will be disabled")
+    TELEGRAM_TRAINER_ID = None
 
 def is_trainer(user_id: int) -> bool:
     """Check if user is the trainer for this Telegram interface."""
@@ -519,7 +519,9 @@ async def handle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         response = await handle_command_message(command_text, user_id, "telegram_bot", interface_context)
-        await update.message.reply_text(response, parse_mode="Markdown")
+        # Only send response if it's not None (meaning command was recognized)
+        if response is not None:
+            await update.message.reply_text(response, parse_mode="Markdown")
     except Exception as e:
         log_error(f"[telegram_bot] Error handling command: {e}")
         await update.message.reply_text("❌ Error processing command.")
@@ -861,6 +863,14 @@ async def plugin_startup_callback(application):
 
 async def start_bot():
     log_info("[telegram_bot] start_bot() function called")
+    
+    if not BOTFATHER_TOKEN:
+        log_warning("[telegram_bot] BOTFATHER_TOKEN not configured - skipping Telegram bot startup")
+        return
+    
+    if not TELEGRAM_TRAINER_ID:
+        log_warning("[telegram_bot] TELEGRAM_TRAINER_ID not configured - skipping Telegram bot startup")
+        return
     
     # Log system state at startup and initialize with Telegram notify function
     try:
@@ -1454,4 +1464,6 @@ class TelegramInterface:
                         pass
                 return
         await self._verify_delivery(sent_message, payload, original_message)
+
+
 

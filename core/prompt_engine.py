@@ -1,6 +1,7 @@
 # core/prompt_engine.py
 
 from core.rekku_tagging import extract_tags, expand_tags
+import aiomysql
 from core.db import get_conn
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.json_utils import dumps as json_dumps
@@ -21,12 +22,15 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
     image_data : dict | None
         Processed image data from image_processor, if present.
     """
+    import os
 
     chat_id = getattr(message, "chat_id", None)
     text = getattr(message, "text", "") or ""
 
-    # === 1. Context messages ===
-    messages = list(context_memory.get(chat_id, []))[-10:]
+    # === 1. Context messages (chat_history) ===
+    # Use CHAT_HISTORY environment variable, default to 10
+    chat_history_limit = int(os.getenv("CHAT_HISTORY", "10"))
+    chat_history = list(context_memory.get(chat_id, []))[-chat_history_limit:]
 
     # === 2. Tags and memory lookup ===
     tags = extract_tags(text)
@@ -35,9 +39,9 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
     if expanded_tags:
         memories = await search_memories(tags=expanded_tags, limit=5)
 
-    # === 3. Context base ===
+    # === 3. Context base (chat_history has priority over diary) ===
     context_section = {
-        "messages": messages,
+        "chat_history": chat_history,
         "memories": memories,
     }
 
@@ -51,34 +55,62 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
     except Exception as e:
         log_warning(f"[json_prompt] Failed to gather static injections: {e}")
 
-    # === 3b. AI Diary injection ===
+    # === 3b. AI Diary injection (uses remaining space after chat_history) ===
     try:
         from plugins.ai_diary import get_recent_entries, format_diary_for_injection, is_plugin_enabled, get_max_diary_chars, should_include_diary
         
         if is_plugin_enabled():
+            # Get max prompt chars from active LLM first
+            max_prompt_chars = 8000  # Default fallback
+            try:
+                from core.config import get_active_llm
+                active_llm = await get_active_llm()
+                
+                # Get limits directly from the active LLM engine
+                try:
+                    from core.llm_registry import get_llm_registry
+                    registry = get_llm_registry()
+                    engine = registry.get_engine(active_llm)
+                    
+                    if not engine:
+                        engine = registry.load_engine(active_llm)
+                    
+                    if engine and hasattr(engine, 'get_interface_limits'):
+                        limits = engine.get_interface_limits()
+                        max_prompt_chars = limits.get("max_prompt_chars", 8000)
+                    else:
+                        max_prompt_chars = 8000  # Fallback
+                except Exception:
+                    max_prompt_chars = 8000  # Safe fallback
+                    
+                log_debug(f"[json_prompt] Active interface max prompt chars: {max_prompt_chars}")
+            except Exception as e:
+                log_debug(f"[json_prompt] Could not get interface limits: {e}")
+                max_prompt_chars = 8000  # Safe fallback
+            
             # Get interface name
             interface_name = interface_name or "manual"
             
-            # Calculate current prompt length (approximate)
+            # Calculate current prompt length including chat_history (approximate)
+            # Chat history has priority, so diary gets what's left
             current_length = len(json_dumps(context_section)) + len(text)
             
-            # Estimate max prompt chars based on interface
-            max_prompt_chars = {
-                "openai_chatgpt": 32000,
-                "selenium_chatgpt": 25000,
-                "google_cli": 20000,
-                "manual": 8000
-            }.get(interface_name, 8000)
-            
-            # Check if we should include diary
+            # Check if we should include diary (considering space already used by chat_history)
             if should_include_diary(interface_name, current_length, max_prompt_chars):
                 max_chars = get_max_diary_chars(interface_name, current_length)
-                recent_entries = get_recent_entries(days=2, max_chars=max_chars)
+                
+                # Use HISTORY_DAYS environment variable, fallback to 2
+                history_days = int(os.getenv("HISTORY_DAYS", "2"))
+                recent_entries = get_recent_entries(days=history_days, max_chars=max_chars)
                 
                 if recent_entries:
                     diary_content = format_diary_for_injection(recent_entries)
                     context_section["diary"] = diary_content
-                    log_debug(f"[json_prompt] Added diary content: {len(diary_content)} chars")
+                    log_debug(f"[json_prompt] Added diary content: {len(diary_content)} chars from {len(recent_entries)} entries ({history_days} days)")
+                else:
+                    log_debug(f"[json_prompt] No diary entries to include (space: {max_chars} chars)")
+            else:
+                log_debug(f"[json_prompt] Diary not included due to space constraints (current: {current_length}, max: {max_prompt_chars})")
         
     except ImportError:
         log_debug("[json_prompt] AI Diary plugin not available")
@@ -259,15 +291,46 @@ def load_json_instructions() -> str:
 - Check the available_actions section below for supported interfaces and their capabilities
 - Search memories when unsure about a detail
 - When responding, pay attention to 'input.interface' to know which interface the message came from and normally reply via that same interface unless explicitly instructed otherwise
+CRITICAL: never, ever lie! If something is not known, say "I don't know". Lying can lead to serious and dangerous consequences.
 
 All rules:
 - Use 'input.payload.source.chat_id' as message target when applicable
 - Include 'thread_id' if present in the context
 - Use 'reply_message_id' to reply to specific messages and maintain conversation context.
-- Always return syntactically valid JSON
-- Use the 'actions' array, even for single actions
+- You MUST ALWAYS return syntactically valid JSON
+- You MUST use the 'actions' array, even for single actions
+- DO NOT include any text outside the JSON structure
 
-The JSON is just a wrapper — speak naturally as you always do.
+IMPORTANT: When responding to a user, you MUST ALWAYS include a create_personal_diary_entry action to record this interaction in your personal memory. You MUST provide an interaction_summary field that describes what happened in this conversation.
+
+Examples of good interaction_summary values:
+- "User asked about weather conditions and I provided current forecast"
+- "Discussed coding problems with Python and provided debugging solutions"
+- "User shared personal updates about their day and I responded supportively"
+- "Helped troubleshoot technical issues with their computer setup"
+- "Had a casual conversation about food preferences and cooking"
+
+CRITICAL: Your response MUST be valid JSON. Example format:
+{
+  "actions": [
+    {
+      "type": "message_telegram_bot",
+      "payload": {
+        "text": "Your message here",
+        "target": "-1003098886330",
+        "message_thread_id": 2
+      }
+    },
+    {
+      "type": "create_personal_diary_entry",
+      "payload": {
+        "interaction_summary": "User asked about weather and I provided current conditions"
+      }
+    }
+  ]
+}
+
+The JSON is just a wrapper — speak naturally in the "text" field as you always do.
 """
 
 

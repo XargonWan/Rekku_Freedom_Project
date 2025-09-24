@@ -16,8 +16,50 @@ from core.logging_utils import log_debug, log_warning, log_error, log_info
 LAST_JSON_ERROR_INFO: Optional[str] = None
 
 # Track chat_ids for which core initiated a system-message correction request
-_EXPECTING_SYSTEM_REPLY: set = set()
+# Format: {chat_id: timestamp} to allow timeout cleanup
+_EXPECTING_SYSTEM_REPLY: dict = {}
 
+def _get_system_reply_timeout():
+    """Get the system reply timeout from config, default to 10 minutes."""
+    try:
+        import os
+        timeout = int(os.getenv('AWAIT_RESPONSE_TIMEOUT', '600'))
+        return timeout
+    except (ValueError, TypeError):
+        return 600  # 10 minutes default
+
+
+def _cleanup_expired_system_replies():
+    """Remove expired entries from _EXPECTING_SYSTEM_REPLY."""
+    import time
+    current_time = time.time()
+    timeout = _get_system_reply_timeout()
+    expired_keys = [
+        chat_id for chat_id, timestamp in _EXPECTING_SYSTEM_REPLY.items()
+        if current_time - timestamp > timeout
+    ]
+    for chat_id in expired_keys:
+        del _EXPECTING_SYSTEM_REPLY[chat_id]
+        log_debug(f"[transport] Removed expired system reply expectation for chat_id={chat_id} (timeout={timeout}s)")
+
+
+def _add_system_reply_expectation(chat_id: str):
+    """Add a system reply expectation with timestamp."""
+    import time
+    _cleanup_expired_system_replies()  # Clean up expired ones first
+    _EXPECTING_SYSTEM_REPLY[chat_id] = time.time()
+
+
+def _remove_system_reply_expectation(chat_id: str):
+    """Remove a system reply expectation."""
+    if chat_id in _EXPECTING_SYSTEM_REPLY:
+        del _EXPECTING_SYSTEM_REPLY[chat_id]
+
+
+def _is_expecting_system_reply(chat_id: str) -> bool:
+    """Check if we're expecting a system reply for the given chat_id."""
+    _cleanup_expired_system_replies()  # Clean up expired ones first
+    return chat_id in _EXPECTING_SYSTEM_REPLY
 
 
 def _format_json_error(text: str, err: json.JSONDecodeError) -> str:
@@ -33,71 +75,75 @@ def _format_json_error(text: str, err: json.JSONDecodeError) -> str:
     )
 
 
-def extract_json_from_text(text: str) -> dict | list | None:
-    """Extract JSON from text, handling various formats and edge cases."""
-    if not text or not text.strip():
+def extract_json_from_text(text: str) -> Optional[Dict]:
+    """Extract the first valid JSON object or array from text."""
+    if not text:
         return None
-
-    text = text.strip()
     
-    # Handle JSON wrapped in quotes (common LLM response format)
-    if (text.startswith("'") and text.endswith("'")) or (text.startswith('"') and text.endswith('"')):
-        # Remove the wrapping quotes
-        inner_text = text[1:-1]
-        # Try to parse the inner content
-        try:
-            return json.loads(inner_text)
-        except json.JSONDecodeError:
-            # If direct parsing fails, continue with normal extraction on inner text
-            text = inner_text
-
+    # Try to clean up common markdown/formatting issues
+    cleaned_text = text.strip()
+    
+    # Remove markdown code blocks if present
+    if cleaned_text.startswith('```json'):
+        cleaned_text = cleaned_text[7:]  # Remove ```json
+        if cleaned_text.endswith('```'):
+            cleaned_text = cleaned_text[:-3]  # Remove ```
+        cleaned_text = cleaned_text.strip()
+    elif cleaned_text.startswith('```'):
+        cleaned_text = cleaned_text[3:]  # Remove ```
+        if cleaned_text.endswith('```'):
+            cleaned_text = cleaned_text[:-3]  # Remove ```
+        cleaned_text = cleaned_text.strip()
+    
+    # Also try original text in case cleaning broke something
+    texts_to_try = [cleaned_text, text.strip()]
+    
     decoder = json.JSONDecoder()
-
-    # First, attempt to parse the entire text.  If extra characters follow
-    # a valid JSON block, simply warn and return the parsed object.
-    try:
-        obj, end = decoder.raw_decode(text)
-        remainder = text[end:].strip()
-        if remainder:
-            log_warning("[extract_json_from_text] Extra content detected after JSON block")
-        return obj
-    except json.JSONDecodeError:
-        pass
     
-    # Scan greedily for JSON blocks starting from each '{'
-    start_indices = [i for i, char in enumerate(text) if char == '{']
-    if not start_indices:
-        log_debug("[extract_json_from_text] No starting braces found in text")
-        return None
-    for start in start_indices:
-        try:
-            obj, obj_end = decoder.raw_decode(text[start:])
-        except json.JSONDecodeError:
+    for text_variant in texts_to_try:
+        log_debug(f"[extract_json_from_text] Trying text variant (length: {len(text_variant)})")
+        
+        # Scan for JSON objects starting from each '{'
+        object_start_indices = [i for i, char in enumerate(text_variant) if char == '{']
+        if not object_start_indices:
+            log_debug("[extract_json_from_text] No starting braces found in text variant")
             continue
-        obj_end += start
-        prefix = text[:start].strip()
-        suffix = text[obj_end:].strip()
-        if prefix or suffix:
-            log_debug(f"[extract_json_from_text] Extra content detected around JSON object (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
-        # Return JSON even if there's extra content - actions can still be executed
-        return obj
-    
-    # Scan for JSON arrays starting from each '['
-    array_start_indices = [i for i, char in enumerate(text) if char == '[']
-    for start in array_start_indices:
-        try:
-            obj, obj_end = decoder.raw_decode(text[start:])
-        except json.JSONDecodeError:
-            continue
-        obj_end += start
-        prefix = text[:start].strip()
-        suffix = text[obj_end:].strip()
-        if prefix or suffix:
-            log_debug(f"[extract_json_from_text] Extra content detected around JSON array (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
-        # Return JSON even if there's extra content - actions can still be executed
-        return obj
+            
+        for start in object_start_indices:
+            try:
+                obj, obj_end = decoder.raw_decode(text_variant[start:])
+                obj_end += start
+                prefix = text_variant[:start].strip()
+                suffix = text_variant[obj_end:].strip()
+                if prefix or suffix:
+                    log_debug(f"[extract_json_from_text] Extra content detected around JSON object (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
+                # Return JSON even if there's extra content - actions can still be executed
+                log_debug(f"[extract_json_from_text] Found valid JSON object: {type(obj)}")
+                return obj
+            except json.JSONDecodeError as e:
+                log_debug(f"[extract_json_from_text] JSON decode error at position {start}: {e}")
+                continue
+        
+        # Scan for JSON arrays starting from each '['
+        array_start_indices = [i for i, char in enumerate(text_variant) if char == '[']
+        for start in array_start_indices:
+            try:
+                obj, obj_end = decoder.raw_decode(text_variant[start:])
+                obj_end += start
+                prefix = text_variant[:start].strip()
+                suffix = text_variant[obj_end:].strip()
+                if prefix or suffix:
+                    log_debug(f"[extract_json_from_text] Extra content detected around JSON array (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
+                # Return JSON even if there's extra content - actions can still be executed
+                log_debug(f"[extract_json_from_text] Found valid JSON array: {type(obj)}")
+                return obj
+            except json.JSONDecodeError as e:
+                log_debug(f"[extract_json_from_text] JSON decode error at position {start}: {e}")
+                continue
     
     log_debug("[extract_json_from_text] No valid JSON found in text")
+    log_debug(f"[extract_json_from_text] Text content (first 500 chars): {text[:500]}")
+    log_debug(f"[extract_json_from_text] Text content (last 500 chars): {text[-500:]}")
     return None
 
 
@@ -292,6 +338,9 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
 
     max_retries = getattr(action_parser, 'CORRECTOR_RETRIES', 2)
 
+    # Extract message from context if available
+    message = context.get('message') if context else None
+
     # If already valid JSON, nothing to do
     try:
         if extract_json_from_text(text):
@@ -308,6 +357,8 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
         return None
 
     last_error_hint = LAST_JSON_ERROR_INFO or "Invalid or missing JSON"
+
+    llm_plugin = None  # Store the plugin for later use
 
     for attempt in range(1, max_retries + 1):
         try:
@@ -349,9 +400,28 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
             correction_payload = {
                 "system_message": {
                     "type": "error",
-                    "message": f"Please repeat your previous message, corrected so it returns valid JSON actions. Hint: {last_error_hint}",
+                    "message": f"CRITICAL ERROR: Your previous response was not valid JSON. You MUST respond with ONLY valid JSON. {last_error_hint}",
                     "your_reply": text,
                     "full_json_instructions": full_json,
+                    "required_format": {
+                        "actions": [
+                            {
+                                "type": "message_telegram_bot",
+                                "payload": {
+                                    "text": "Your message content here",
+                                    "target": "-1003098886330",
+                                    "message_thread_id": 2
+                                }
+                            }
+                        ]
+                    },
+                    "strict_requirements": [
+                        "MUST start with { and end with }",
+                        "MUST contain 'actions' array",
+                        "NO text outside JSON structure",
+                        "NO markdown formatting",
+                        "NO explanations outside JSON"
+                    ]
                 }
             }
             correction_prompt = json.dumps(correction_payload, ensure_ascii=False)
@@ -371,7 +441,7 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
             # consume it without forwarding and avoid re-entry loops.
             try:
                 if correction_message.chat_id is not None:
-                    _EXPECTING_SYSTEM_REPLY.add(str(correction_message.chat_id))
+                    _add_system_reply_expectation(str(correction_message.chat_id))
             except Exception:
                 pass
 
@@ -414,12 +484,17 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
                 pass
             await asyncio.sleep(1)
 
-    # Exhausted retries — do not send messages to interface here; simply indicate failure
+    # Exhausted retries — send error message if possible
     log_warning(f"[corrector_middleware] Exhausted {max_retries} attempts without valid JSON; blocking message for chat_id={chat_id}")
+    if llm_plugin and hasattr(llm_plugin, '_send_error_message') and message:
+        try:
+            await llm_plugin._send_error_message(bot, message)
+        except Exception as e:
+            log_warning(f"[corrector_middleware] Failed to send error message: {e}")
     # Cleanup expectation for this chat in case it wasn't consumed
     try:
-        if chat_id is not None and str(chat_id) in _EXPECTING_SYSTEM_REPLY:
-            _EXPECTING_SYSTEM_REPLY.discard(str(chat_id))
+        if chat_id is not None:
+            _remove_system_reply_expectation(str(chat_id))
     except Exception:
         pass
     return None
@@ -449,6 +524,21 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
     """
     if text is None:
         text = ""
+
+    # Extract chat_id for logging
+    chat_id = kwargs.get('chat_id')
+    if chat_id is None and args:
+        maybe = args[1] if len(args) > 1 else None
+        chat_id = maybe if isinstance(maybe, (int, str)) else None
+
+    try:
+        log_debug(f"[llm_to_interface] Delivering message to chat_id={chat_id}")
+        log_debug(f"[llm_to_interface] Message preview: {text[:100]}..." if len(str(text)) > 100 else f"[llm_to_interface] Message: {text}")
+    except Exception:
+        pass
+
+    # Clean up expired system reply expectations
+    _cleanup_expired_system_replies()
 
     try:
         log_debug(f"[chain] llm_to_interface called -> interface_send_func={interface_send_func}")
@@ -558,11 +648,28 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
         # If this chat_id is marked as expecting a system/LLM reply from the
         # corrector middleware, consume it here and do not re-enter the message
         # chain. This avoids infinite correction/forwarding loops.
+        # However, only consume if the message actually looks like a correction response.
         try:
-            if chat_id is not None and str(chat_id) in _EXPECTING_SYSTEM_REPLY:
-                _EXPECTING_SYSTEM_REPLY.discard(str(chat_id))
-                log_debug(f"[llm_to_interface] Consuming expected system reply for chat_id={chat_id}; not forwarding to message_chain")
-                return None
+            if chat_id is not None and _is_expecting_system_reply(str(chat_id)):
+                # Check if this is actually a correction response by looking for typical patterns
+                is_correction_response = (
+                    isinstance(text, str) and (
+                        "system_message" in text or
+                        text.strip().startswith('{"actions":') or
+                        "correction" in text.lower() or
+                        "corrected" in text.lower()
+                    )
+                )
+                
+                if is_correction_response:
+                    _remove_system_reply_expectation(str(chat_id))
+                    log_debug(f"[llm_to_interface] Consuming expected system reply for chat_id={chat_id}; not forwarding to message_chain")
+                    return None
+                else:
+                    # This doesn't look like a correction response, might be a normal message
+                    # Log a warning and let it through
+                    log_warning(f"[llm_to_interface] Expected system reply for chat_id={chat_id} but message doesn't look like correction. Allowing through.")
+                    _remove_system_reply_expectation(str(chat_id))  # Clear the expectation anyway
         except Exception:
             pass
         # Pass through to message chain

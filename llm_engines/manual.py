@@ -43,6 +43,17 @@ def supports_functions() -> bool:
     """Check if Manual AI supports functions."""
     return MANUAL_CONFIG["supports_functions"]
 
+def get_interface_limits() -> dict:
+    """Get the limits and capabilities for Manual LLM interface."""
+    log_info(f"[manual] Interface limits: max_prompt_chars={MANUAL_CONFIG['max_prompt_chars']}, supports_images={MANUAL_CONFIG['supports_images']}")
+    return {
+        "max_prompt_chars": MANUAL_CONFIG["max_prompt_chars"],
+        "max_response_chars": MANUAL_CONFIG["max_response_chars"],
+        "supports_images": MANUAL_CONFIG["supports_images"],
+        "supports_functions": MANUAL_CONFIG["supports_functions"],
+        "model_name": MANUAL_CONFIG["model_name"]
+    }
+
 # Global variable for throttling manual logs
 _last_manual_log_time = 0
 _manual_log_throttle_sec = 5

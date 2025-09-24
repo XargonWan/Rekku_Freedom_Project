@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Tuple, Optional
 
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.prompt_engine import build_full_json_instructions
+from core.validation_registry import get_validation_registry
 
 # Global dictionary to track retry attempts per chat/message thread for the corrector
 CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
@@ -131,9 +132,17 @@ def _load_interface_actions() -> Dict[str, str]:
 
 
 def get_supported_action_types() -> set[str]:
-    """Return all supported action types discovered from plugins and interfaces."""
+    """Return all supported action types discovered from plugins, interfaces, and validation registry."""
     supported_types: set[str] = set()
 
+    # Add action types from validation registry (new centralized system)
+    try:
+        validation_registry = get_validation_registry()
+        supported_types.update(validation_registry.get_supported_action_types())
+    except Exception as e:
+        log_warning(f"[action_parser] Error getting action types from validation registry: {e}")
+
+    # Legacy discovery from plugins
     try:
         for plugin in _load_action_plugins():
             if hasattr(plugin, "get_supported_action_types"):
@@ -149,6 +158,7 @@ def get_supported_action_types() -> set[str]:
     except Exception as e:
         log_warning(f"[action_parser] Error discovering action types: {e}")
 
+    # Legacy discovery from interfaces
     try:
         supported_types.update(_load_interface_actions().keys())
     except Exception as e:  # pragma: no cover - defensive
@@ -158,7 +168,27 @@ def get_supported_action_types() -> set[str]:
 
 
 def _validate_payload(action_type: str, payload: dict, errors: List[str]) -> None:
-    """Validate payload using plugins or interfaces that support the action type."""
+    """Validate payload using centralized validation registry and legacy plugin/interface validation.
+    
+    This function implements the new Dynamic Component Validation System that removes 
+    hardcoded validation rules from the corrector. Components register their validation 
+    rules dynamically, and this function applies them automatically.
+    
+    See docs/validation_system.rst for complete documentation.
+    """
+    """Validate payload using centralized validation registry and legacy plugin/interface validation."""
+    
+    # First, use the centralized validation registry (new system)
+    try:
+        validation_registry = get_validation_registry()
+        registry_errors = validation_registry.validate_action_payload(action_type, payload)
+        if registry_errors:
+            errors.extend(registry_errors)
+            log_debug(f"[action_parser] Validation registry added {len(registry_errors)} errors for {action_type}")
+    except Exception as e:
+        log_warning(f"[action_parser] Error using validation registry: {e}")
+    
+    # Legacy validation - keep for backward compatibility until all components migrate
     try:
         for plugin in _load_action_plugins():
             supports_action = False
@@ -832,102 +862,182 @@ async def _create_diary_entry_for_actions(processed_actions, context, original_m
         return
     
     try:
-        from plugins.ai_diary import add_diary_entry_async, is_plugin_enabled
+        from plugins.ai_diary import create_personal_diary_entry, is_plugin_enabled
+        
+        if not is_plugin_enabled():
+            log_debug("[action_parser] Diary plugin disabled, skipping diary entry")
+            return
         
         # Extract relevant information
         interface_name = context.get("interface", "unknown")
         chat_id = getattr(original_message, "chat_id", None)
         thread_id = getattr(original_message, "message_thread_id", None)
         
-        # Summarize actions performed
-        action_types = [action.get("type", "unknown") for action in processed_actions]
-        action_counts = {}
-        for action_type in action_types:
-            action_counts[action_type] = action_counts.get(action_type, 0) + 1
+        # Get user message from context or original_message
+        user_message = ""
+        if hasattr(original_message, "text"):
+            user_message = original_message.text
+        elif isinstance(original_message, dict) and "text" in original_message:
+            user_message = original_message["text"]
+        elif context and "input" in context and "payload" in context["input"]:
+            payload = context["input"]["payload"]
+            if "text" in payload:
+                user_message = payload["text"]
         
-        # Create content summary
-        if len(action_counts) == 1:
-            action_type = list(action_counts.keys())[0]
-            count = action_counts[action_type]
-            if count == 1:
-                content = f"Performed {action_type} action"
-            else:
-                content = f"Performed {count} {action_type} actions"
-        else:
-            action_summary = ", ".join([f"{count} {action_type}" for action_type, count in action_counts.items()])
-            content = f"Performed multiple actions: {action_summary}"
-        
-        # Extract people involved from actions
+        # Extract people involved from context participants for logging
         involved_people = set()
-        for action in processed_actions:
-            payload = action.get("payload", {})
-            
-            # Extract from bio_update actions
-            if action.get("type") == "bio_update":
-                target = payload.get("target")
-                if target and target.lower() != "rekku":
-                    involved_people.add(target)
-            
-            # Extract from message actions
-            elif action.get("type") in ["message_telegram_bot", "message_discord_bot", "message_webui", "message_x"]:
-                # These are outgoing messages, people are implied from context
-                pass
-            
-            # Extract from terminal actions (might mention people in commands)
-            elif action.get("type") == "terminal":
-                command = payload.get("command", "")
-                # Simple heuristic: extract words that start with @ (mentions)
-                import re
-                mentions = re.findall(r'@(\w+)', command)
-                involved_people.update(mentions)
+        if context and "participants" in context:
+            for participant in context["participants"]:
+                if "usertag" in participant:
+                    # Remove @ from usertag
+                    username = participant["usertag"].lstrip('@')
+                    involved_people.add(username)
+                # Also add nicknames if available
+                if "nicknames" in participant and participant["nicknames"]:
+                    for nickname in participant["nicknames"]:
+                        if nickname and nickname.lower() not in ["rekku", "bot"]:
+                            involved_people.add(nickname)
         
-        # Convert to list and filter out Rekku
+        # Convert to list for logging purposes only (not passed to diary)
         involved_list = [person for person in involved_people if person.lower() not in ["rekku", "bot"]]
         
-        # Generate tags based on action types
-        tags = []
-        if "message_telegram_bot" in action_types or "message_discord_bot" in action_types:
-            tags.append("communication")
-        if "bio_update" in action_types or "bio_full_request" in action_types:
-            tags.append("personal_info")
-        if "terminal" in action_types:
-            tags.append("system")
-        if "event" in action_types:
-            tags.append("scheduling")
-        if "speech_selenium_elevenlabs" in action_types or "audio_telegram_bot" in action_types:
-            tags.append("audio")
+        # Generate comprehensive response content from all actions
+        rekku_response_parts = []
+        action_types = [action.get("type", "unknown") for action in processed_actions]
         
-        # Add interface tag
-        if interface_name != "unknown":
-            tags.append(interface_name)
+        # Extract actual text from message actions
+        for action in processed_actions:
+            action_type = action.get("type", "")
+            payload = action.get("payload", {})
+            
+            if action_type.startswith("message_"):
+                text = payload.get("text", "")
+                if text:
+                    rekku_response_parts.append(text)
+            elif action_type == "terminal":
+                command = payload.get("command", "")
+                if command:
+                    rekku_response_parts.append(f"Executed command: {command}")
+            elif action_type == "bio_update":
+                target = payload.get("target", "someone")
+                rekku_response_parts.append(f"Updated bio information for {target}")
+            elif action_type == "event":
+                description = payload.get("description", "created an event")
+                rekku_response_parts.append(f"Scheduled event: {description}")
         
-        # Simple emotion inference based on action types
-        emotions = []
-        if "bio_update" in action_types:
-            emotions.append({"type": "helpful", "intensity": 7})
-        if "message_" in str(action_types):
-            emotions.append({"type": "engaged", "intensity": 6})
-        if "terminal" in action_types:
-            emotions.append({"type": "focused", "intensity": 5})
+        # If no specific content found, create a summary
+        if not rekku_response_parts:
+            action_counts = {}
+            for action_type in action_types:
+                action_counts[action_type] = action_counts.get(action_type, 0) + 1
+            
+            if len(action_counts) == 1:
+                action_type = list(action_counts.keys())[0]
+                count = action_counts[action_type]
+                if count == 1:
+                    rekku_response_parts.append(f"Performed {action_type} action")
+                else:
+                    rekku_response_parts.append(f"Performed {count} {action_type} actions")
+            else:
+                action_summary = ", ".join([f"{count} {action_type}" for action_type, count in action_counts.items()])
+                rekku_response_parts.append(f"Performed multiple actions: {action_summary}")
         
-        # Create diary entry
-        if is_plugin_enabled():
-            await add_diary_entry_async(
-                content=content,
-                tags=tags,
-                involved=involved_list,
-                emotions=emotions,
-                interface=interface_name,
-                chat_id=str(chat_id) if chat_id else None,
-                thread_id=str(thread_id) if thread_id else None
-            )
-        else:
-            log_debug("[action_parser] Diary plugin disabled, skipping diary entry")
+        rekku_response = " | ".join(rekku_response_parts)
         
-        log_debug(f"[action_parser] Created diary entry: {content}")
+        # Generate context tags based on action types and content
+        context_tags = _generate_context_tags(action_types, rekku_response, user_message, interface_name)
+        
+        # Use create_personal_diary_entry for automatic thought and emotion generation
+        create_personal_diary_entry(
+            rekku_response=rekku_response,
+            user_message=user_message if user_message else None,
+            context_tags=context_tags,
+            involved_users=involved_list,
+            interface=interface_name,
+            chat_id=str(chat_id) if chat_id else None,
+            thread_id=str(thread_id) if thread_id else None
+        )
+        
+        log_debug(f"[action_parser] Created personal diary entry: {rekku_response[:100]}...")
         
     except Exception as e:
         log_warning(f"[action_parser] Failed to create diary entry: {e}")
+        import traceback
+        log_debug(f"[action_parser] Diary error traceback: {traceback.format_exc()}")
+
+
+def _generate_context_tags(action_types: List[str], rekku_response: str, user_message: str, interface_name: str) -> List[str]:
+    """Generate specific context tags based on action types and conversation content."""
+    context_tags = []
+    
+    # Action-based tags (more specific than before)
+    if "bio_update" in action_types or "bio_full_request" in action_types:
+        context_tags.append("personal_info")
+    if "terminal" in action_types:
+        context_tags.append("technical")
+    if "event" in action_types:
+        context_tags.append("scheduling")
+    if "speech_selenium_elevenlabs" in action_types or "audio_telegram_bot" in action_types:
+        context_tags.append("audio")
+    
+    # Content-based analysis for specific topics
+    combined_text = (rekku_response + " " + (user_message or "")).lower()
+    
+    # Food and dining
+    if any(word in combined_text for word in ["food", "eat", "cooking", "recipe", "restaurant", "meal"]):
+        context_tags.append("food")
+        # Specific food types
+        if any(word in combined_text for word in ["sushi", "japanese"]):
+            context_tags.append("sushi")
+        if any(word in combined_text for word in ["pizza", "italian"]):
+            context_tags.append("pizza") 
+        if any(word in combined_text for word in ["restaurant", "dining"]):
+            context_tags.append("restaurant")
+    
+    # Cars and vehicles
+    if any(word in combined_text for word in ["car", "auto", "vehicle", "driving", "motor", "bmw", "audi", "honda"]):
+        context_tags.append("cars")
+        if any(word in combined_text for word in ["color", "blue", "red", "black", "white"]):
+            context_tags.append("colors")
+    
+    # Technology and computers
+    if any(word in combined_text for word in ["computer", "software", "programming", "code", "tech"]):
+        context_tags.append("technology")
+    
+    # Entertainment
+    if any(word in combined_text for word in ["movie", "music", "game", "book", "entertainment"]):
+        context_tags.append("entertainment")
+    
+    # Location and travel
+    if any(word in combined_text for word in ["travel", "vacation", "city", "country", "location"]):
+        context_tags.append("travel")
+    
+    # Work and career
+    if any(word in combined_text for word in ["work", "job", "career", "office", "business"]):
+        context_tags.append("work")
+    
+    # Health and wellness
+    if any(word in combined_text for word in ["health", "exercise", "fitness", "medical"]):
+        context_tags.append("health")
+    
+    # Family and relationships
+    if any(word in combined_text for word in ["family", "friend", "relationship", "love", "marriage"]):
+        context_tags.append("relationships")
+    
+    # Only add help tag for explicit help requests
+    if any(word in combined_text for word in ["help me", "can you help", "need help", "assistance"]):
+        context_tags.append("help")
+    
+    # Only add learning tag for explicit learning conversations
+    if any(word in combined_text for word in ["learn", "teach", "explain", "understand", "study"]):
+        context_tags.append("learning")
+    
+    # Only add problem tag for explicit problem-solving
+    if any(word in combined_text for word in ["problem", "issue", "error", "fix", "solve", "bug"]):
+        context_tags.append("problem")
+    
+    # Remove duplicate tags and return
+    return list(set(context_tags))
 
 
 async def parse_action(action: dict, bot, message):
@@ -1208,6 +1318,9 @@ async def corrector_orchestrator(text: str, context: dict, bot, message, max_ret
         # Call the corrector (transport-layer middleware)
         try:
             import core.transport_layer as transport
+            # Add message to context for error handling
+            context = dict(context) if context else {}
+            context['message'] = message
             corrected = await transport.run_corrector_middleware(text, bot=bot, context=context, chat_id=getattr(message, 'chat_id', None))
         except Exception as e:
             log_warning(f"[corrector_orchestrator] Corrector invocation failed: {e}")

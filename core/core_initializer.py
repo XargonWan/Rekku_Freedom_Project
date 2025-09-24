@@ -43,6 +43,9 @@ class CoreInitializer:
         # 2. Load generic plugins (this may load additional plugins)
         self._load_plugins()
         
+        # 2.5. Auto-register validation rules from loaded components
+        self._register_component_validation_rules()
+        
         # 3. Load core actions (like chat_link) if not already loaded
         self._ensure_core_actions()
         
@@ -328,7 +331,7 @@ class CoreInitializer:
             # Get and add instructions
             instr = instr_fn(action_type) if instr_fn else None
             if instr is None:
-                log_warning(f"Missing prompt instructions for {action_type}")
+                log_debug(f"Missing prompt instructions for {action_type}")
                 instr = {}
             if not isinstance(instr, dict):
                 log_warning(f"Prompt instructions for {action_type} must be a dict, got {type(instr)}")
@@ -338,13 +341,16 @@ class CoreInitializer:
             available_actions[action_type]["instructions"] = instr
 
         # --- Load action plugins from registry ---
+        log_debug(f"[core_initializer] Loading actions from {len(PLUGIN_REGISTRY)} plugins: {list(PLUGIN_REGISTRY.keys())}")
         for name, plugin in PLUGIN_REGISTRY.items():
             if not hasattr(plugin, "get_supported_actions"):
+                log_debug(f"[core_initializer] Plugin {name} does not have get_supported_actions method")
                 continue
             try:
                 supported = plugin.get_supported_actions()
                 if not isinstance(supported, dict):
                     raise ValueError(f"Plugin {name} must return dict from get_supported_actions")
+                log_debug(f"[core_initializer] Plugin {name} declares actions: {list(supported.keys())}")
                 for act, schema in supported.items():
                     _register(act, name, schema, getattr(plugin, "get_prompt_instructions", None))
             except Exception as e:
@@ -396,6 +402,7 @@ class CoreInitializer:
             "static_context": static_context,
         }
         log_debug(f"[core_initializer] Actions block built with {len(available_actions)} action types, static_context: {list(static_context.keys())}")
+        log_debug(f"[core_initializer] Available action types: {sorted(available_actions.keys())}")
     
     def _display_startup_summary(self):
         """Display a comprehensive startup summary."""
@@ -466,6 +473,16 @@ class CoreInitializer:
         """Expose explicit action registration through the core initializer."""
         register_action(action_type, handler)
 
+    def _register_component_validation_rules(self):
+        """Register validation rules from loaded components."""
+        try:
+            from core.component_auto_registration import auto_register_all_components
+            auto_register_all_components()
+            log_debug("[core_initializer] Component validation rules registered")
+        except Exception as e:
+            log_error(f"[core_initializer] Failed to register component validation rules: {e}")
+            self.startup_errors.append(f"Component validation registration failed: {e}")
+
     def _ensure_core_actions(self):
         """Ensure core actions like chat_link are loaded exactly once."""
         if "chat_link" not in PLUGIN_REGISTRY:
@@ -489,10 +506,10 @@ def register_action(action_type: str, handler: Any) -> None:
     existing = ACTION_REGISTRY.get(action_type)
     if existing is not None:
         log_warning(
-            f"[core_initializer] Action '{action_type}' is already registered. Overwriting."
+            f"[core_initializer] Action '{action_type}' is already registered by {existing.__class__.__name__}. Overwriting with {handler.__class__.__name__}."
         )
     ACTION_REGISTRY[action_type] = handler
-    log_info(f"[core_initializer] Registered action: {action_type}")
+    log_debug(f"[core_initializer] Registered action: {action_type} -> {handler.__class__.__name__}")
 
     # Invalidate caches - but don't automatically rebuild to avoid loops
     try:
@@ -545,6 +562,19 @@ def register_plugin(name: str, plugin_obj: Any) -> None:
     except Exception:
         pass
 
+    # Rebuild actions block to include new plugin's actions
+    try:
+        import asyncio
+        if asyncio.get_event_loop().is_running():
+            # If event loop is running, schedule the refresh
+            asyncio.create_task(core_initializer.refresh_actions_block())
+        else:
+            # If no event loop, run it synchronously
+            asyncio.run(core_initializer.refresh_actions_block())
+        log_debug(f"[core_initializer] Actions block refreshed after registering plugin {name}")
+    except Exception as e:
+        log_warning(f"[core_initializer] Failed to refresh actions block after plugin {name} registration: {e}")
+
 # Global registry for interface objects
 INTERFACE_REGISTRY: dict[str, Any] = {}
 
@@ -589,3 +619,4 @@ def _schedule_rebuild_actions(core_init_instance):
         _action_rebuild_timer.cancel()
     _action_rebuild_timer = threading.Timer(_ACTION_REBUILD_DEBOUNCE_SEC, lambda: asyncio.run(core_init_instance._build_actions_block()))
     _action_rebuild_timer.start()
+

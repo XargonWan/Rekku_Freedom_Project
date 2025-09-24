@@ -30,10 +30,19 @@ class RedditInterface:
         if asyncpraw is None:
             raise RuntimeError("asyncpraw not available")
 
+        # Check required configuration
+        client_id = os.getenv("REDDIT_CLIENT_ID")
+        client_secret = os.getenv("REDDIT_CLIENT_SECRET")
+        
+        if not client_id or not client_secret:
+            log_warning("[reddit_interface] REDDIT_CLIENT_ID or REDDIT_CLIENT_SECRET not configured - Reddit interface disabled")
+            self.reddit = None
+            return
+
         token = os.getenv("TOKEN")
         self.reddit = asyncpraw.Reddit(
-            client_id=os.getenv("REDDIT_CLIENT_ID"),
-            client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
+            client_id=client_id,
+            client_secret=client_secret,
             user_agent=os.getenv("REDDIT_USER_AGENT", "rekku-agent"),
             username=os.getenv("REDDIT_USERNAME"),
             password=os.getenv("REDDIT_PASSWORD"),
@@ -222,12 +231,21 @@ class RedditInterface:
 async def start_reddit_interface():
     log_info("[reddit_interface] start_reddit_interface() function called")
 
+    # Check if Reddit is configured
+    if not os.getenv("REDDIT_CLIENT_ID") or not os.getenv("REDDIT_CLIENT_SECRET"):
+        log_warning("[reddit_interface] Reddit not configured - skipping startup")
+        return
+
     try:
         log_info("[reddit_interface] Importing core_initializer...")
         from core.core_initializer import core_initializer
         log_info("[reddit_interface] Initializing Reddit interface...")
 
         reddit_interface = RedditInterface()
+        if reddit_interface.reddit is None:
+            log_warning("[reddit_interface] Reddit interface not properly configured")
+            return
+            
         await reddit_interface.start()
 
         log_info("[reddit_interface] Reddit interface initialized successfully")
@@ -238,3 +256,5 @@ async def start_reddit_interface():
 
 INTERFACE_CLASS = RedditInterface
 __all__ = ["RedditInterface"]
+
+

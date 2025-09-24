@@ -91,11 +91,15 @@ async def _send_with_retry(
             return result
         except TimedOut as e:
             last_error = e
+            base_delay = delay * (2 ** (attempt - 1))  # Exponential backoff
+            actual_delay = min(base_delay, 10.0)  # Cap at 10 seconds
+            
             log_warning(f"[telegram_utils] TimedOut on attempt {attempt}/{retries} for chat_id={chat_id}: {e}")
             if attempt < retries:
-                await asyncio.sleep(delay)
+                log_debug(f"[telegram_utils] Waiting {actual_delay:.1f}s before retry {attempt + 1}")
+                await asyncio.sleep(actual_delay)
             else:
-                log_error(f"[telegram_utils] TimedOut persisted after {retries} retries for chat_id={chat_id}")
+                log_error(f"[telegram_utils] TimedOut persisted after {retries} retries for chat_id={chat_id}, final delay was {actual_delay:.1f}s")
         except Exception as e:
             error_message = str(e)
             # On network-like errors, set a cooldown for this chat to avoid tight retry loops
@@ -136,8 +140,17 @@ async def _send_with_retry(
                     except Exception:
                         pass
                     log_error(f"[telegram_utils] Retry after parse_mode removal failed: {e2}")
-                    raise e2
+                    # Don't raise thread errors immediately - let send_with_thread_fallback handle them
+                    if "thread not found" not in str(e2).lower():
+                        raise e2
+                    else:
+                        log_debug(f"[telegram_utils] Thread error after parse_mode retry, letting caller handle: {e2}")
+                        raise e2
             else:
+                # If it's a thread error, let send_with_thread_fallback handle it
+                if "thread not found" in error_message.lower():
+                    log_debug(f"[telegram_utils] Thread error in _send_with_retry, letting caller handle: {e}")
+                    raise e
                 # If it's a non-parse error and not recoverable, re-raise to be handled by caller
                 raise
     trainer_id = TELEGRAM_TRAINER_ID

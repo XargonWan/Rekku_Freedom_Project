@@ -308,19 +308,23 @@ async def _extract_image_data_from_message(message, interface_name: str):
     image_data = None
     has_trigger = False
     
-    # Check for Telegram-style messages
+    # Check for photo attachments (generic interface)
     if hasattr(message, 'photo') and message.photo:
-        # Get the highest resolution photo
-        photo = message.photo[-1]  # Last element is highest resolution
+        # Handle list of photos (multiple resolutions)
+        if isinstance(message.photo, list):
+            photo = message.photo[-1]  # Last element is typically highest resolution
+        else:
+            photo = message.photo
+            
         image_data = {
-            "type": "photo",
-            "file_id": photo.file_id,
-            "file_unique_id": photo.file_unique_id,
-            "width": photo.width,
-            "height": photo.height,
+            "type": "photo", 
+            "file_id": getattr(photo, 'file_id', None),
+            "file_unique_id": getattr(photo, 'file_unique_id', None),
+            "width": getattr(photo, 'width', 0),
+            "height": getattr(photo, 'height', 0),
             "file_size": getattr(photo, 'file_size', 0),
             "caption": getattr(message, 'caption', ''),
-            "mime_type": "image/jpeg"  # Telegram photos are typically JPEG
+            "mime_type": getattr(photo, 'mime_type', "image/jpeg")  # Default to JPEG
         }
         has_trigger = True  # Photos are always considered as having trigger for now
         
@@ -339,9 +343,9 @@ async def _extract_image_data_from_message(message, interface_name: str):
             }
             has_trigger = True  # Documents with images are considered as having trigger
     
-    # Check for other interfaces (Discord, etc.)
+    # Check for attachment-based interfaces
     elif hasattr(message, 'attachments'):
-        # Discord-style attachments
+        # Handle generic attachments
         for attachment in message.attachments:
             if hasattr(attachment, 'content_type') and attachment.content_type and attachment.content_type.startswith('image/'):
                 image_data = {

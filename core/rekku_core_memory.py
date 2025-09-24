@@ -74,3 +74,14 @@ async def silently_record_memory(
         f"→ Response: {response_text}\n"
         f"→ Tags: {tags} | Scope: {scope} | Source: {source}"
     )
+
+# Injection priority for core memory
+INJECTION_PRIORITY = 6  # Medium-low priority
+
+def register_injection_priority():
+    """Register this component's injection priority."""
+    log_info(f"[rekku_core_memory] Registered injection priority: {INJECTION_PRIORITY}")
+    return INJECTION_PRIORITY
+
+# Register priority when module is loaded
+register_injection_priority()

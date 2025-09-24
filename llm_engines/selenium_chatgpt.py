@@ -48,7 +48,7 @@ from core.ai_plugin_base import AIPluginBase
 
 # Selenium ChatGPT-specific configuration
 SELENIUM_CONFIG = {
-    "max_prompt_chars": 25000,  # Browser-based, more conservative
+    "max_prompt_chars": 500000,  # Selenium ChatGPT can handle very long prompts
     "max_response_chars": 4000,
     "supports_images": True,
     "supports_functions": False,  # Browser-based doesn't support functions
@@ -80,6 +80,17 @@ def supports_images() -> bool:
 def supports_functions() -> bool:
     """Check if Selenium ChatGPT supports functions."""
     return SELENIUM_CONFIG["supports_functions"]
+
+def get_interface_limits() -> dict:
+    """Get the limits and capabilities for Selenium ChatGPT interface."""
+    log_info(f"[selenium_chatgpt] Interface limits: max_prompt_chars={SELENIUM_CONFIG['max_prompt_chars']}, supports_images={SELENIUM_CONFIG['supports_images']}")
+    return {
+        "max_prompt_chars": SELENIUM_CONFIG["max_prompt_chars"],
+        "max_response_chars": SELENIUM_CONFIG["max_response_chars"],
+        "supports_images": SELENIUM_CONFIG["supports_images"],
+        "supports_functions": SELENIUM_CONFIG["supports_functions"],
+        "model_name": SELENIUM_CONFIG["model_name"]
+    }
 
 # Load environment variables for root password and other settings
 load_dotenv()
@@ -943,9 +954,8 @@ def process_prompt_in_chat(
     # Some UI experiments may block the textarea with a "I prefer this response"
     # dialog. Dismiss it if present before looking for the textarea.
 
-    log_info(f"[chatgpt_model] Ensuring model {CHATGPT_MODEL} is active")
     if not ensure_chatgpt_model(driver):
-        log_warning(f"[chatgpt_model] Failed to ensure model {CHATGPT_MODEL}")
+        log_warning("[chatgpt_model] Failed to ensure model")
 
     try:
         prefer_btn = WebDriverWait(driver, 2).until(
@@ -1144,7 +1154,7 @@ def process_prompt_in_chat(
 
 
 # Funzione di selezione modello ChatGPT
-CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "GPT-4o")
+CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "")
 
 
 def select_chatgpt_model(driver):
@@ -1191,6 +1201,11 @@ def select_chatgpt_model(driver):
 
 def ensure_chatgpt_model(driver):
     """Ensure the desired ChatGPT model is active before sending a prompt."""
+    # Check if CHATGPT_MODEL is set and not empty
+    if not CHATGPT_MODEL or CHATGPT_MODEL.strip() == "" or CHATGPT_MODEL.upper() == "NONE":
+        log_info("[chatgpt_model] CHATGPT_MODEL not set or disabled, skipping model selection")
+        return True
+        
     try:
         log_info(f"[chatgpt_model] Ensuring model {CHATGPT_MODEL} is active")
         select_chatgpt_model(driver)
@@ -1282,6 +1297,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     def is_worker_running(self) -> bool:
         return self._worker_task is not None and not self._worker_task.done()
 
+    def _get_interface_name(self, bot) -> str:
+        """Determine the interface name from the bot object."""
+        module_name = getattr(bot.__class__, "__module__", "")
+        if module_name.startswith("telegram"):
+            return "telegram"
+        elif hasattr(bot, "get_interface_id"):
+            return bot.get_interface_id()
+        else:
+            return "generic"
+
     def _handle_worker_done(self, fut: asyncio.Future):
         if fut.cancelled():
             log_warning("[selenium] Worker task cancelled")
@@ -1310,16 +1335,26 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 prompt.get("system_message", {}).get("type") == "error"
             )
             
-            if is_correction:
-                # For correction requests, process synchronously and return the response
-                log_debug(f"[selenium] Processing correction request synchronously: chat_id={message.chat_id}")
+            # Check if this is a system message with output (from terminal plugin, etc.)
+            is_system_output = (
+                isinstance(prompt, dict) and 
+                prompt.get("system_message", {}).get("type") == "output"
+            )
+            
+            if is_correction or is_system_output:
+                # For correction requests and system output, process synchronously and return the response
+                request_type = "correction" if is_correction else "system output"
+                log_debug(f"[selenium] Processing {request_type} request synchronously: chat_id={message.chat_id}")
                 
                 # Initialize driver if needed
                 if not self.driver:
                     self._init_driver()
                 
-                # Process the correction message directly
-                response_text = await self._process_correction_message(bot, message, prompt)
+                # Process the message directly
+                if is_correction:
+                    response_text = await self._process_correction_message(bot, message, prompt)
+                else:
+                    response_text = await self._process_system_output_message(bot, message, prompt)
                 return response_text
             else:
                 # For normal messages, use the queue system
@@ -1384,6 +1419,57 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         
         except Exception as e:
             log_error(f"[selenium] Failed to process correction message: {e}")
+            return None
+
+    async def _process_system_output_message(self, bot, message, prompt):
+        """Process a system output message (e.g., from terminal plugin) synchronously and return the response."""
+        try:
+            log_debug(f"[selenium] Processing system output prompt: {prompt}")
+            
+            # Handle dict input (system_message structure)
+            if isinstance(prompt, dict):
+                prompt_text = json.dumps(prompt, ensure_ascii=False)
+            else:
+                prompt_text = prompt
+            
+            # Disable driver initialization retries for system output processing
+            max_attempts = 1
+            response_text = None
+            
+            for attempt in range(max_attempts):
+                try:
+                    if not self.driver:
+                        self._init_driver()
+                    
+                    # Get chat ID for ChatGPT conversation
+                    chat_id = await chat_link_store.get_link(
+                        message.chat_id, 
+                        getattr(message, "message_thread_id", None),
+                        interface=self._get_interface_name(bot)
+                    )
+                    
+                    # Process the prompt in ChatGPT
+                    previous_text = get_previous_response(str(message.chat_id))
+                    response_text = process_prompt_in_chat(
+                        self.driver, chat_id, prompt_text, previous_text
+                    )
+                    
+                    if response_text:
+                        # Update response cache
+                        update_previous_response(str(message.chat_id), response_text)
+                        log_debug(f"[selenium] System output response generated: {len(response_text)} chars")
+                        return response_text.strip()
+                    else:
+                        log_warning("[selenium] No response from ChatGPT for system output")
+                        return None
+                        
+                except Exception as e:
+                    log_error(f"[selenium] Error processing system output message: {e}")
+                    if attempt == max_attempts - 1:
+                        return None
+                        
+        except Exception as e:
+            log_error(f"[selenium] Failed to process system output message: {e}")
             return None
 
     async def _worker_loop(self):
