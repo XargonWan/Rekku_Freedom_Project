@@ -118,7 +118,11 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
         log_warning(f"[json_prompt] Failed to add diary content: {e}")
 
     # === 4. Input payload ===
-    message_thread_id = getattr(message, "message_thread_id", None)
+    thread_id = getattr(message, "thread_id", None)
+    # Handle legacy message_thread_id from Telegram (map to thread_id)
+    if thread_id is None:
+        thread_id = getattr(message, "message_thread_id", None)
+    
     input_payload = {
         "text": text,
         "source": {
@@ -126,7 +130,7 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
             "message_id": message.message_id,
             "username": message.from_user.full_name,
             "usertag": f"@{message.from_user.username}" if message.from_user.username else "(no tag)",
-            "message_thread_id": message_thread_id,
+            "thread_id": thread_id,
             "interface": interface_name,
         },
         "timestamp": message.date.isoformat(),
@@ -318,7 +322,7 @@ CRITICAL: Your response MUST be valid JSON. Example format:
       "payload": {
         "text": "Your message here",
         "target": "-1003098886330",
-        "message_thread_id": 2
+        "thread_id": 2
       }
     },
     {

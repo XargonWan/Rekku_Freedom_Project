@@ -10,6 +10,7 @@ from core.logging_utils import log_debug, log_error, log_warning, log_info
 from core.mention_utils import is_message_for_bot
 from core.interfaces_registry import get_interface_registry
 from plugins.blocklist import is_user_blocked
+from plugins.chat_link import ChatLinkStore
 
 # Use a priority queue so events can be processed before regular messages
 HIGH_PRIORITY = 0
@@ -131,7 +132,16 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
     meta = message.chat.title or message.chat.username or message.chat.first_name
     await recent_chats.track_chat(chat_id, meta)
 
-    thread_id = getattr(message, "message_thread_id", None)
+    # Extract thread_id - unified field name, check both Telegram and generic names
+    # DEBUG: let's see what telegram message actually contains
+    thread_attrs = [attr for attr in dir(message) if 'thread' in attr.lower()]
+    log_debug(f"[QUEUE] Available thread attributes in message: {thread_attrs}")
+    
+    # Use only thread_id, message_thread_id is legacy and deprecated
+    thread_id_val = getattr(message, "thread_id", None)
+    log_debug(f"[QUEUE] message.thread_id = {thread_id_val}")
+    
+    thread_id = thread_id_val
     interface = interface_id if interface_id else (
         bot.get_interface_id()
         if bot and hasattr(bot, "get_interface_id")

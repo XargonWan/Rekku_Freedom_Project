@@ -1127,7 +1127,7 @@ class DiaryPlugin:
                 # Extract information from context and payload
                 interface_name = context.get("interface", "unknown")
                 chat_id = getattr(original_message, "chat_id", None)
-                thread_id = getattr(original_message, "message_thread_id", None)
+                thread_id = getattr(original_message, "thread_id", None)
                 
                 # Get user message from context or original_message
                 user_message = ""

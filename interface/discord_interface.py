@@ -315,13 +315,27 @@ class DiscordInterface:
                         ),
                     )
 
-            # Prepare simplified message for core queue
+            # Discord thread detection and handling
+            thread_id = None
+            parent_channel_id = None
+            
+            if hasattr(message, 'channel') and message.channel:
+                # In Discord.py, threads have type GUILD_PUBLIC_THREAD, GUILD_PRIVATE_THREAD, etc.
+                channel_type = str(getattr(message.channel, 'type', ''))
+                if '_thread' in channel_type.lower():
+                    # We're in a thread - channel_id is already the thread ID
+                    thread_id = channel_id  # Same as message.channel.id
+                    parent_channel_id = getattr(message.channel, 'parent_id', None)
+                    log_debug(f"[discord_interface] Message in thread: {thread_id}, parent: {parent_channel_id}")
+
+            # Prepare simplified message for core queue  
             wrapped = SimpleNamespace(
                 message_id=getattr(message, "id", None),
-                chat_id=channel_id,
+                chat_id=channel_id,  # In Discord, this is thread ID if in thread, channel ID otherwise
                 text=content,
                 caption=None,
                 date=getattr(message, "created_at", None),
+                thread_id=thread_id,  # Thread ID if in thread, None if in regular channel
                 from_user=SimpleNamespace(
                     id=getattr(message.author, "id", None),
                     username=getattr(message.author, "name", None),

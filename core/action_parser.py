@@ -39,12 +39,12 @@ ERROR_RETRY_POLICY = {
 def _get_retry_key(message):
     """Generate a unique key for tracking retries based on chat/thread.
 
-    Preserve chat_id and message_thread_id as strings (no numeric coercion),
+    Preserve chat_id and thread_id as strings (no numeric coercion),
     since external interfaces may represent identifiers as strings. This
     ensures consistent retry keys without changing original identifier types.
     """
     chat_id = getattr(message, "chat_id", None)
-    thread_id = getattr(message, "message_thread_id", None)
+    thread_id = getattr(message, "thread_id", None)
 
     def _norm(value):
         if value is None:
@@ -813,7 +813,7 @@ async def run_actions(actions: Any, context: Dict[str, Any], bot, original_messa
             "chat_id": getattr(original_message, "chat_id", None),
             "message_id": getattr(original_message, "message_id", None),
             "interface_name": interface_name,
-            "message_thread_id": getattr(original_message, "message_thread_id", None),
+            "thread_id": getattr(original_message, "thread_id", None),
         }
 
         try:
@@ -871,7 +871,7 @@ async def _create_diary_entry_for_actions(processed_actions, context, original_m
         # Extract relevant information
         interface_name = context.get("interface", "unknown")
         chat_id = getattr(original_message, "chat_id", None)
-        thread_id = getattr(original_message, "message_thread_id", None)
+        thread_id = getattr(original_message, "thread_id", None)
         
         # Get user message from context or original_message
         user_message = ""

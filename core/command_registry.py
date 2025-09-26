@@ -422,7 +422,7 @@ async def logchat_command(*args, interface_context=None) -> str:
         from core.config import set_log_chat_id_and_thread
         
         chat_id = update.effective_chat.id
-        thread_id = update.effective_message.message_thread_id
+        thread_id = update.effective_message.thread_id
         
         # Get current interface dynamically
         interface_name = getattr(context.get('bot'), 'get_interface_id', lambda: 'unknown')()

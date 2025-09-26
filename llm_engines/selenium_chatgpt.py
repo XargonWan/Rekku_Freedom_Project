@@ -98,7 +98,7 @@ load_dotenv()
 # ChatLinkStore: manages mapping between interface chats and ChatGPT conversations
 from plugins.chat_link import ChatLinkStore
 from interface.telegram_utils import safe_send
-from core.db import get_db_connection
+from core.db import get_conn
 
 # Fallback for notify_trainer when core.notifier module is unavailable
 def notify_trainer(message: str) -> None:
@@ -134,7 +134,7 @@ class ChatGPTLinkStore(ChatLinkStore):
             return
             
         try:
-            connection = await get_db_connection()
+            connection = await get_conn()
             async with connection.cursor() as cursor:
                 # Check if chatgpt_link column exists
                 await cursor.execute("""
@@ -168,7 +168,7 @@ class ChatGPTLinkStore(ChatLinkStore):
         await self.ensure_chat_exists(chat_id, thread_id, interface)
         
         try:
-            connection = await get_db_connection()
+            connection = await get_conn()
             async with connection.cursor() as cursor:
                 if thread_id:
                     await cursor.execute("""
@@ -196,10 +196,10 @@ class ChatGPTLinkStore(ChatLinkStore):
         await self.ensure_chatgpt_link_column()
         
         # Ensure chat exists first
-        await self.ensure_chat_exists(chat_id, thread_id, interface, chat_name)
+        await self.ensure_chat_exists(chat_id, thread_id, interface, chat_name=chat_name)
         
         try:
-            connection = await get_db_connection()
+            connection = await get_conn()
             async with connection.cursor() as cursor:
                 if thread_id:
                     await cursor.execute("""
@@ -227,7 +227,7 @@ class ChatGPTLinkStore(ChatLinkStore):
         await self.ensure_chatgpt_link_column()
         
         try:
-            connection = await get_db_connection()
+            connection = await get_conn()
             async with connection.cursor() as cursor:
                 if thread_id:
                     await cursor.execute("""
@@ -1226,7 +1226,7 @@ def process_prompt_in_chat(
 #         is_group = chat_info.chat.type in ("group", "supergroup")
 #         emoji = "💬" if is_group else "💌"
 #         thread = (
-#             f"/Thread {chat_info.message_thread_id}" if getattr(chat_info, "message_thread_id", None) else ""
+#             f"/Thread {chat_info.thread_id}" if getattr(chat_info, "thread_id", None) else ""
 #         )
 #         new_title = f"⚙️{emoji} Chat/{chat_name}{thread} - 1"
 #         log_debug(f"[selenium][STEP] renaming chat to: {new_title}")
@@ -1524,7 +1524,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     # Get chat ID for ChatGPT conversation
                     chat_id = await chat_link_store.get_chatgpt_link(
                         message.chat_id, 
-                        getattr(message, "message_thread_id", None),
+                        getattr(message, "thread_id", None),
                         interface=self._get_interface_name(bot)
                     )
                     
@@ -1575,7 +1575,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     # Get chat ID for ChatGPT conversation
                     chat_id = await chat_link_store.get_chatgpt_link(
                         message.chat_id, 
-                        getattr(message, "message_thread_id", None),
+                        getattr(message, "thread_id", None),
                         interface=self._get_interface_name(bot)
                     )
                     
@@ -2083,9 +2083,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         reply_id = getattr(message, "message_id", None)
         if reply_id is not None:
             send_params["reply_to_message_id"] = reply_id
-        message_thread_id = getattr(message, "message_thread_id", None)
-        if message_thread_id is not None:
-            send_params["message_thread_id"] = message_thread_id
+        thread_id = getattr(message, "thread_id", None)
+        if thread_id is not None:
+            send_params["thread_id"] = thread_id
 
         # Send system messages through the interface_to_llm entry so they follow
         # the interface-origin path (no corrector middleware run).
@@ -2111,14 +2111,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         text=send_params["text"],
                         interface="discord",
                         reply_to_message_id=send_params.get("reply_to_message_id"),
-                        message_thread_id=send_params.get("message_thread_id")
+                        thread_id=send_params.get("thread_id")
                     )
                 else:
                     await bot.send_message(**send_params)
             else:
                 if module_name.startswith("telegram"):
                     # safe_send expects (bot, chat_id, text, ...)
-                    await interface_to_llm(safe_send, bot, send_params.get("chat_id"), text=send_params.get("text"), reply_to_message_id=send_params.get("reply_to_message_id"), message_thread_id=send_params.get("message_thread_id"))
+                    await interface_to_llm(safe_send, bot, send_params.get("chat_id"), text=send_params.get("text"), reply_to_message_id=send_params.get("reply_to_message_id"), thread_id=send_params.get("thread_id"))
                 elif "discord" in module_name.lower() or bot.__class__.__name__ == "Client":
                     # For Discord, use universal_send through interface_to_llm (system message)
                     from core.transport_layer import universal_send
@@ -2128,7 +2128,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         text=send_params["text"],
                         interface="discord",
                         reply_to_message_id=send_params.get("reply_to_message_id"),
-                        message_thread_id=send_params.get("message_thread_id")
+                        thread_id=send_params.get("thread_id")
                     )
                 else:
                     # Extract text parameter separately to avoid conflicts with interface_to_llm (system message)
@@ -2238,9 +2238,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 interface_name = bot.get_interface_id()
             else:
                 interface_name = "generic"
-            message_thread_id = getattr(message, "message_thread_id", None)
+            thread_id = getattr(message, "thread_id", None)
             chat_id = await chat_link_store.get_chatgpt_link(
-                message.chat_id, message_thread_id, interface=interface_name
+                message.chat_id, thread_id, interface=interface_name
             )
             prompt_text = json.dumps(prompt, ensure_ascii=False)
             if isinstance(prompt, dict) and "system_message" in prompt:
@@ -2253,11 +2253,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         await chat_link_store.store_chatgpt_link(
                             message.chat_id,
                             chat_id,
-                            message_thread_id,
+                            thread_id,
                             interface=interface_name,
                         )
                         _safe_notify(
-                            f"\u26a0\ufe0f Couldn't find ChatGPT conversation for chat_id={message.chat_id}, message_thread_id={message_thread_id}.\n"
+                            f"\u26a0\ufe0f Couldn't find ChatGPT conversation for chat_id={message.chat_id}, thread_id={thread_id}.\n"
                             f"A new ChatGPT chat has been created: {chat_id}"
                         )
                 else:
@@ -2285,7 +2285,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     log_warning(f"[selenium] Existing chat {chat_id} no longer accessible: {e}")
                     log_info(f"[selenium] Creating new chat to replace inaccessible chat {chat_id}")
                     await chat_link_store.remove_chatgpt_link(
-                        message.chat_id, message_thread_id, interface=interface_name
+                        message.chat_id, thread_id, interface=interface_name
                     )
                     recent_chats.clear_chat_path(message.chat_id)
                     _open_new_chat(driver)
@@ -2293,7 +2293,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
             log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
             log_debug(
-                f"[selenium][DEBUG] source chat_id: {message.chat_id}, message_thread_id: {message_thread_id}"
+                f"[selenium][DEBUG] source chat_id: {message.chat_id}, thread_id: {thread_id}"
             )
 
             if not chat_id:
@@ -2337,14 +2337,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                             await chat_link_store.store_chatgpt_link(
                                 message.chat_id,
                                 new_chat_id,
-                                message_thread_id,
+                                thread_id,
                                 interface=interface_name,
                             )
                             log_debug(
-                                f"[selenium][DEBUG] Saved link: {message.chat_id}/{message_thread_id} -> {new_chat_id}"
+                                f"[selenium][DEBUG] Saved link: {message.chat_id}/{thread_id} -> {new_chat_id}"
                             )
                             _safe_notify(
-                                f"\u26a0\ufe0f Couldn't find ChatGPT conversation for chat_id={message.chat_id}, message_thread_id={message_thread_id}.\n"
+                                f"\u26a0\ufe0f Couldn't find ChatGPT conversation for chat_id={message.chat_id}, thread_id={thread_id}.\n"
                                 f"A new ChatGPT chat has been created: {new_chat_id}"
                             )
                         else:
@@ -2361,7 +2361,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         await chat_link_store.store_chatgpt_link(
                             message.chat_id,
                             new_chat_id,
-                            message_thread_id,
+                            thread_id,
                             interface=interface_name,
                         )
                         log_debug(
@@ -2383,7 +2383,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                             message.chat_id,
                             text=response_text,
                             reply_to_message_id=getattr(message, "message_id", None),
-                            message_thread_id=message_thread_id,
+                            thread_id=thread_id,
                             event_id=getattr(message, "event_id", None),
                             interface='telegram',
                         )
@@ -2392,7 +2392,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         # Send error via interface_to_llm (system message)
                         from core.transport_layer import interface_to_llm
                         try:
-                            await interface_to_llm(safe_send, bot, message.chat_id, text="\x1b[31mNo response from LLM\x1b[0m", reply_to_message_id=getattr(message, "message_id", None), message_thread_id=message_thread_id)
+                            await interface_to_llm(safe_send, bot, message.chat_id, text="\x1b[31mNo response from LLM\x1b[0m", reply_to_message_id=getattr(message, "message_id", None), thread_id=thread_id)
                         except Exception as e:
                             log_warning(f"[selenium] Failed to send error notification: {e}")
                             await self._send_error_message(bot, message, error_text="\x1b[31mNo response from LLM\x1b[0m")
@@ -2408,7 +2408,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                 target=message.chat_id,
                                 text=response_text,
                                 interface="discord",
-                                message_thread_id=message_thread_id,
+                                thread_id=thread_id,
                             )
                         else:
                             # For other interfaces, use universal_send as fallback
@@ -2418,7 +2418,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                 target=message.chat_id,
                                 text=response_text,
                                 interface=interface_name,
-                                message_thread_id=message_thread_id,
+                                thread_id=thread_id,
                             )
                     else:
                         log_warning(f"[selenium] Empty LLM response for non-telegram interface {interface_name}; sending error notification")

@@ -223,11 +223,11 @@ async def logchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_trainer(update.effective_user.id):
         return
     chat_id = update.effective_chat.id
-    thread_id = update.effective_message.message_thread_id
+    thread_id = update.effective_message.thread_id
     try:
         await set_log_chat_id_and_thread(chat_id, thread_id, "telegram_bot")
         confirmation = f"This chat is now set as logchat [{chat_id}, {thread_id}] on telegram_bot"
-        await safe_send(context.bot, chat_id, confirmation, message_thread_id=thread_id)
+        await safe_send(context.bot, chat_id, confirmation, thread_id=thread_id)
     except Exception as e:
         log_error(f"[telegram_interface] Failed to set log chat: {e}")
         await update.message.reply_text("❌ Unable to set log chat.")
@@ -992,7 +992,7 @@ class TelegramInterface:
         self.bot = bot
         # setattr(self.bot, "get_interface_id", self.get_interface_id)
         # Register resolver to fetch chat/thread names automatically
-        async def _resolver(chat_id, message_thread_id, bot_instance=None):
+        async def _resolver(chat_id, thread_id, bot_instance=None):
             b = bot_instance or self.bot
             chat_name = None
             thread_name = None
@@ -1012,11 +1012,11 @@ class TelegramInterface:
                 chat_name = getattr(chat, "title", None) or getattr(chat, "username", None)
             except Exception as e:  # pragma: no cover - network failures
                 log_warning(f"[telegram_interface] chat name lookup failed: {e}")
-            if message_thread_id:
+            if thread_id:
                 try:
                     # Check if getForumTopic method exists (available in newer versions of python-telegram-bot)
                     if hasattr(b, 'getForumTopic'):
-                        topic = await b.getForumTopic(chat_id, message_thread_id)
+                        topic = await b.getForumTopic(chat_id, thread_id)
                         thread_name = getattr(topic, "name", None) or getattr(topic, "title", None)
                     else:
                         log_debug("[telegram_interface] getForumTopic method not available, skipping thread name lookup")
@@ -1046,7 +1046,7 @@ class TelegramInterface:
                 "optional_fields": [
                     "target",
                     "chat_name",
-                    "message_thread_id",
+                    "thread_id",
                     "message_thread_name",
                 ],
                 "description": "Send a text message via Telegram",
@@ -1056,7 +1056,7 @@ class TelegramInterface:
                 "optional_fields": [
                     "target",
                     "chat_name",
-                    "message_thread_id",
+                    "thread_id",
                     "message_thread_name",
                 ],
                 "description": "Send a voice message via Telegram",
@@ -1074,7 +1074,7 @@ class TelegramInterface:
                     "target": {
                         "type": "string",
                         "example": "-123456789",
-                        "description": "Numeric chat_id or chat_name of the recipient. REQUIRED when sending to a different chat than the original message.",
+                        "description": "Numeric chat_id or chat_name of the recipient. Use input.payload.source.chat_id to reply in the same chat.",
                         "optional": True,
                     },
                     "chat_name": {
@@ -1083,7 +1083,7 @@ class TelegramInterface:
                         "description": "Alternative to target for specifying the chat by name",
                         "optional": True,
                     },
-                    "message_thread_id": {
+                    "thread_id": {
                         "type": "integer",
                         "example": 456,
                         "description": "Thread ID when replying in a topic/thread. OMIT this field for main chat replies (interface will use default). Only include when replying IN a specific thread!",
@@ -1092,7 +1092,7 @@ class TelegramInterface:
                     "message_thread_name": {
                         "type": "string",
                         "example": "Generale",
-                        "description": "Alternative to message_thread_id to specify the thread by name",
+                        "description": "Alternative to thread_id to specify the thread by name",
                         "optional": True,
                     },
                     "reply_to_message_id": {
@@ -1103,8 +1103,9 @@ class TelegramInterface:
                     },
                 },
                 "important_notes": [
-                    "When replying to a message that was in a thread/topic, ALWAYS include message_thread_id to ensure the reply appears in the correct thread",
-                    "If you omit message_thread_id when it should be included, the message may appear in the main chat instead of the thread",
+                    "ALWAYS specify target field - use input.payload.source.chat_id to reply in the same chat",
+                    "When replying to a message that was in a thread/topic, ALWAYS include thread_id to ensure the reply appears in the correct thread",
+                    "If you omit thread_id when it should be included, the message may appear in the main chat instead of the thread",
                     "For group chats with topics enabled, check if the original message has a thread_id and include it in your response"
                 ]
             }
@@ -1125,7 +1126,7 @@ class TelegramInterface:
                         "description": "Alternative to target for specifying the chat by name",
                         "optional": True,
                     },
-                    "message_thread_id": {
+                    "thread_id": {
                         "type": "integer",
                         "example": 456,
                         "description": "Optional thread ID for group chats",
@@ -1160,17 +1161,17 @@ class TelegramInterface:
             if target is not None:
                 if isinstance(target, dict):
                     chat_id = target.get("chat_id")
-                    message_thread_id = target.get("message_thread_id")
+                    thread_id = target.get("thread_id")
                     if chat_id is not None and not isinstance(chat_id, (int, str)):
                         errors.append("payload.target.chat_id must be an int or string")
-                    if message_thread_id is not None and not isinstance(message_thread_id, int):
-                        errors.append("payload.target.message_thread_id must be an int")
+                    if thread_id is not None and not isinstance(thread_id, int):
+                        errors.append("payload.target.thread_id must be an int")
                 elif not isinstance(target, (int, str)):
                     errors.append("payload.target must be an int, string or dict")
 
-        message_thread_id = payload.get("message_thread_id")
-        if message_thread_id is not None and not isinstance(message_thread_id, int):
-            errors.append("payload.message_thread_id must be an int")
+        thread_id = payload.get("thread_id")
+        if thread_id is not None and not isinstance(thread_id, int):
+            errors.append("payload.thread_id must be an int")
 
         thread_name = payload.get("message_thread_name")
         if thread_name is not None and not isinstance(thread_name, str):
@@ -1225,11 +1226,11 @@ class TelegramInterface:
         ----------
         payload: dict
             Must contain at least ``text`` and ``target``. Optionally may include
-            ``message_thread_id``.
+            ``thread_id``.
         original_message: object | None
             The triggering message; used for reply fallback handling.
 
-        ``message_thread_id`` is the correct Telegram parameter for replies in
+        ``thread_id`` is the correct Telegram parameter for replies in
         topics and replaces the legacy ``thread_id`` name.
         """
         if self.bot is None:
@@ -1239,11 +1240,17 @@ class TelegramInterface:
         text = payload.get("text", "")
         target = payload.get("target")
         chat_name = payload.get("chat_name")
-        message_thread_id = payload.get("message_thread_id")
+        thread_id = payload.get("thread_id")
         thread_name = payload.get("message_thread_name")
 
+        # LLM must explicitly specify target - no auto-injection
+        # Auto-inject thread_id if missing and available (thread_id auto-inject is still useful)
+        if original_message is not None and thread_id is None and hasattr(original_message, "thread_id"):
+            thread_id = original_message.thread_id
+            log_debug(f"[telegram_interface] Auto-injected thread_id from original message: {thread_id}")
+
         log_debug(
-            f"[telegram_interface] Sending to target={target} chat_name={chat_name} thread_id={message_thread_id} thread_name={thread_name}"
+            f"[telegram_interface] Sending to target={target} chat_name={chat_name} thread_id={thread_id} thread_name={thread_name}"
         )
 
         if not text or (target is None and chat_name is None):
@@ -1254,7 +1261,7 @@ class TelegramInterface:
 
         if isinstance(target, dict):
             chat_id = target.get("chat_id")
-            message_thread_id = target.get("message_thread_id", message_thread_id)
+            thread_id = target.get("thread_id", thread_id)
             thread_name = target.get("message_thread_name", thread_name)
         elif target is not None:
             if isinstance(target, str) and not target.lstrip("-").isdigit():
@@ -1265,11 +1272,11 @@ class TelegramInterface:
                 except Exception:
                     chat_name = target
 
-        if chat_id is None or (message_thread_id is None and thread_name is not None):
+        if chat_id is None or (thread_id is None and thread_name is not None):
             try:
                 row = await chat_link_store.resolve(
                     chat_id=chat_id,
-                    message_thread_id=message_thread_id,
+                    thread_id=thread_id,
                     chat_name=chat_name,
                     message_thread_name=thread_name,
                 )
@@ -1293,7 +1300,7 @@ class TelegramInterface:
                 msg.chat_id = None
                 msg.text = ""
                 msg.original_text = json.dumps(correction_payload, ensure_ascii=False)
-                msg.message_thread_id = None
+                msg.thread_id = None
                 msg.date = datetime.utcnow()
                 msg.from_llm = False
                 if action_parser is not None:
@@ -1322,7 +1329,7 @@ class TelegramInterface:
                 msg.chat_id = None
                 msg.text = ""
                 msg.original_text = json.dumps(correction_payload, ensure_ascii=False)
-                msg.message_thread_id = None
+                msg.thread_id = None
                 msg.date = datetime.utcnow()
                 msg.from_llm = False
                 if action_parser is not None:
@@ -1332,22 +1339,22 @@ class TelegramInterface:
                         pass
                 return
             chat_id = row.get("chat_id", chat_id)
-            message_thread_id = row.get("message_thread_id", message_thread_id)
+            thread_id = row.get("thread_id", thread_id)
 
         log_debug(
-            f"[telegram_interface] Resolved: chat_id={chat_id}, final_thread_id={message_thread_id}"
+            f"[telegram_interface] Resolved: chat_id={chat_id}, final_thread_id={thread_id}"
         )
 
-        # Ensure message_thread_id is a string if present
-        if message_thread_id is not None:
-            message_thread_id = str(message_thread_id)
+        # Ensure thread_id is a string if present
+        if thread_id is not None:
+            thread_id = str(thread_id)
 
         # Ensure chat_id is a string
         if chat_id is not None:
             chat_id = str(chat_id)
 
         await chat_link_store.update_names_from_resolver(
-            chat_id, message_thread_id, interface="telegram_bot", bot=self.bot
+            chat_id, thread_id, interface="telegram_bot", bot=self.bot
         )
 
         reply_message_id = None
@@ -1360,15 +1367,15 @@ class TelegramInterface:
             reply_message_id = original_message.message_id
             log_debug(f"[telegram_interface] reply_to_message_id: {reply_message_id}")
             
-            # Also set message_thread_id from original message if not already set
-            if message_thread_id is None and hasattr(original_message, "message_thread_id"):
-                orig_thread_id = getattr(original_message, "message_thread_id")
+            # Also set thread_id from original message if not already set
+            if thread_id is None and hasattr(original_message, "thread_id"):
+                orig_thread_id = getattr(original_message, "thread_id")
                 if orig_thread_id is not None:
-                    message_thread_id = orig_thread_id
-                    log_debug(f"[telegram_interface] message_thread_id from original message: {message_thread_id}")
+                    thread_id = orig_thread_id
+                    log_debug(f"[telegram_interface] thread_id from original message: {thread_id}")
 
         fallback_chat_id = None
-        fallback_message_thread_id = None
+        fallback_thread_id = None
         fallback_reply_to = None
         if (
             original_message
@@ -1376,21 +1383,21 @@ class TelegramInterface:
             and chat_id != getattr(original_message, "chat_id")
         ):
             fallback_chat_id = original_message.chat_id
-            fallback_message_thread_id = getattr(original_message, "message_thread_id", None)
+            fallback_thread_id = getattr(original_message, "thread_id", None)
             if hasattr(original_message, "message_id"):
                 fallback_reply_to = original_message.message_id
         elif (
             original_message
             and hasattr(original_message, "chat_id")
             and chat_id == getattr(original_message, "chat_id")
-            and message_thread_id is None
+            and thread_id is None
         ):
             # Same chat but no thread specified - try to use original message's thread
-            if hasattr(original_message, "message_thread_id"):
-                orig_thread_id = getattr(original_message, "message_thread_id")
+            if hasattr(original_message, "thread_id"):
+                orig_thread_id = getattr(original_message, "thread_id")
                 if orig_thread_id is not None:
-                    message_thread_id = orig_thread_id
-                    log_debug(f"[telegram_interface] Using original message thread for same chat: {message_thread_id}")
+                    thread_id = orig_thread_id
+                    log_debug(f"[telegram_interface] Using original message thread for same chat: {thread_id}")
 
         try:
             sent_message = await send_with_thread_fallback(
@@ -1398,10 +1405,10 @@ class TelegramInterface:
                 chat_id,
                 text,
                 parse_mode="Markdown",
-                message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
+                thread_id=thread_id,  # fixed: correct param is thread_id
                 reply_to_message_id=reply_message_id,
                 fallback_chat_id=fallback_chat_id,
-                fallback_message_thread_id=fallback_message_thread_id,
+                fallback_thread_id=fallback_thread_id,
                 fallback_reply_to_message_id=fallback_reply_to,
             )
         except BadRequest as e:
@@ -1425,7 +1432,7 @@ class TelegramInterface:
                 msg.chat_id = chat_id
                 msg.text = ""
                 msg.original_text = json.dumps(correction_payload, ensure_ascii=False)
-                msg.message_thread_id = message_thread_id
+                msg.thread_id = thread_id
                 msg.date = datetime.utcnow()
                 msg.from_llm = False
                 if action_parser is not None:
@@ -1454,7 +1461,7 @@ class TelegramInterface:
                 msg.chat_id = chat_id
                 msg.text = ""
                 msg.original_text = json.dumps(correction_payload, ensure_ascii=False)
-                msg.message_thread_id = message_thread_id
+                msg.thread_id = thread_id
                 msg.date = datetime.utcnow()
                 msg.from_llm = False
                 if action_parser is not None:

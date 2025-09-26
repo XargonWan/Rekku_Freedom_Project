@@ -42,7 +42,7 @@ async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text:
     - text: incoming text to process
     - source: 'interface'|'user'|'llm' - origin of the text
     - context: optional context dict to pass to action parser
-    - kwargs: additional metadata (e.g., message_thread_id)
+    - kwargs: additional metadata (e.g., thread_id)
 
     Returns one of the constants above.
     """
@@ -57,7 +57,7 @@ async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text:
         message.chat_id = kwargs.get('chat_id')
         message.text = ""
         message.original_text = text
-        message.message_thread_id = kwargs.get('message_thread_id')
+        message.thread_id = kwargs.get('thread_id')
         message.date = datetime.utcnow()
 
     # Mark LLM-origin if source indicates so

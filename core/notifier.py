@@ -135,7 +135,7 @@ def notifier(message: str) -> None:
                     message_data = {"text": message, "target": log_chat_id}
                     thread_id = get_log_chat_thread_id_sync()
                     if thread_id:
-                        message_data["message_thread_id"] = thread_id
+                        message_data["thread_id"] = thread_id
                         log_debug(f"[notifier] Sending to LogChat with thread_id={thread_id}")
                     
                     await iface.send_message(message_data)
@@ -179,7 +179,7 @@ def notify_intelligent(message: str) -> None:
                     message_data = {"text": message, "target": log_chat_id}
                     thread_id = get_log_chat_thread_id_sync()
                     if thread_id:
-                        message_data["message_thread_id"] = thread_id
+                        message_data["thread_id"] = thread_id
                         log_info(f"[notifier] Sending to LogChat with thread_id={thread_id}")
                     else:
                         log_info(f"[notifier] Sending to LogChat without thread_id")
@@ -298,7 +298,7 @@ def notify_trainer(message: str) -> None:
                 if target == log_chat_id:
                     thread_id = get_log_chat_thread_id_sync()
                     if thread_id:
-                        message_data["message_thread_id"] = thread_id
+                        message_data["thread_id"] = thread_id
                         log_info(f"[notifier] Sending to LogChat {target} with thread_id={thread_id}, message_data={message_data}")
                     else:
                         log_info(f"[notifier] Sending to LogChat {target} without thread_id (thread_id={thread_id})")

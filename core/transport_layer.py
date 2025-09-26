@@ -229,7 +229,7 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
             message.chat_id = chat_id_value
             message.text = ""
             message.original_text = text
-            message.message_thread_id = kwargs.get('message_thread_id')
+            message.thread_id = kwargs.get('thread_id')
             from datetime import datetime
             message.date = datetime.utcnow()
 
@@ -253,7 +253,7 @@ async def universal_send(interface_send_func, *args, text: str = None, **kwargs)
             context = {
                 "interface": current_interface,
                 "original_chat_id": chat_id_value,
-                "original_message_thread_id": kwargs.get('message_thread_id'),
+                "original_thread_id": kwargs.get('thread_id'),
                 "original_text": text[:500] if text else "",  # Include preview of original text
                 "thread_defaults": {
                     "default": None
@@ -410,7 +410,7 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
                                 "payload": {
                                     "text": "Your message content here",
                                     "target": "-1003098886330",
-                                    "message_thread_id": 2
+                                    "thread_id": 2
                                 }
                             }
                         ]
@@ -430,7 +430,7 @@ async def run_corrector_middleware(text: str, bot=None, context: dict = None, ch
             correction_message = SimpleNamespace()
             correction_message.chat_id = chat_id or getattr(bot, 'chat_id', None) or -1
             correction_message.text = correction_prompt
-            correction_message.message_thread_id = None
+            correction_message.thread_id = None
             correction_message.date = None
             correction_message.from_user = None
             correction_message.chat = SimpleNamespace(id=correction_message.chat_id, type='private')
@@ -589,7 +589,7 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
                 message.chat_id = chat_id
                 message.text = ""
                 message.original_text = text
-                message.message_thread_id = kwargs.get('message_thread_id')
+                message.thread_id = kwargs.get('thread_id')
                 # Mark this message as originating from the LLM so the orchestrator
                 # will process it. This complements the is_llm_response flag.
                 message.from_llm = True
@@ -599,7 +599,7 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
                 corrector_context = {
                     'interface': current_interface,
                     'original_chat_id': chat_id,
-                    'original_message_thread_id': kwargs.get('message_thread_id'),
+                    'original_thread_id': kwargs.get('thread_id'),
                     'original_text': text[:500] if text else ''
                 }
 
@@ -643,7 +643,7 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
         message.chat_id = chat_id
         message.text = ""
         message.original_text = text
-        message.message_thread_id = kwargs.get('message_thread_id')
+        message.thread_id = kwargs.get('thread_id')
         message.date = datetime.utcnow()
         # If this chat_id is marked as expecting a system/LLM reply from the
         # corrector middleware, consume it here and do not re-enter the message
