@@ -799,14 +799,13 @@ class CoreInitializer:
             if persona_manager:
                 log_info("[core_initializer] ✅ Persona Manager initialized successfully")
                 
-                # Verify database table was created
+                # Initialize persona asynchronously (load default persona)
                 try:
                     import asyncio
-                    from core.persona_manager import init_persona_table
-                    asyncio.create_task(init_persona_table())
-                    log_debug("[core_initializer] Persona table initialization scheduled")
-                except Exception as db_e:
-                    log_warning(f"[core_initializer] Database table check failed: {db_e}")
+                    asyncio.create_task(persona_manager.async_init())
+                    log_debug("[core_initializer] Persona async initialization scheduled")
+                except Exception as init_e:
+                    log_warning(f"[core_initializer] Persona async init failed: {init_e}")
             else:
                 log_warning("[core_initializer] ⚠️ Failed to initialize Persona Manager")
                 self.startup_errors.append("Persona Manager initialization failed")

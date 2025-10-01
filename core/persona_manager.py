@@ -158,6 +158,7 @@ class PersonaManager(PluginBase):
     def __init__(self, config=None):
         super().__init__(config)
         self._current_persona: Optional[PersonaData] = None
+        self._persona_loaded = False
         
         # Initialize database table asynchronously without blocking
         # The table will be created by the scheduled task in core_initializer
@@ -166,6 +167,16 @@ class PersonaManager(PluginBase):
         # Register the plugin
         register_plugin("persona_manager", self)
         log_info("[persona_manager] PersonaManager initialized and registered")
+    
+    async def async_init(self):
+        """Async initialization - load the default persona."""
+        try:
+            await init_persona_table()
+            self._current_persona = await self.load_persona("default")
+            self._persona_loaded = True
+            log_info("[persona_manager] Default persona loaded successfully")
+        except Exception as e:
+            log_error(f"[persona_manager] Error loading default persona: {e}")
 
     def get_metadata(self) -> dict:
         """Return plugin metadata."""
@@ -384,9 +395,13 @@ class PersonaManager(PluginBase):
             return False
 
     def get_current_persona(self) -> Optional[PersonaData]:
-        """Get the current active persona."""
-        if not self._current_persona:
-            self._current_persona = _run(self.load_persona("default"))
+        """Get the current active persona.
+        
+        Returns the cached persona if available. If not yet loaded,
+        returns None instead of blocking (async_init should be called first).
+        """
+        if not self._persona_loaded:
+            log_warning("[persona_manager] Persona not yet loaded, returning None")
         return self._current_persona
 
     def extract_emotion_tags_from_text(self, text: str) -> Dict[str, float]:
