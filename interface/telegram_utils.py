@@ -325,15 +325,18 @@ async def send_with_thread_fallback(
                 _CHAT_COOLDOWNS[chat_id] = time.time() + DEFAULT_COOLDOWN_SECONDS
         except Exception:
             pass
-        log_error(f"[telegram_utils] send_with_thread_fallback caught error: {repr(e)}")
+        
         error_message = str(e)
         if "chat not found" in error_message.lower():
+            log_error(f"[telegram_utils] send_with_thread_fallback caught error: {repr(e)}")
             log_error(
                 f"[telegram_utils] Failed to send to {chat_id} (thread {thread_id}): {repr(e)}"
             )
             raise
 
         if thread_id and "thread not found" in error_message.lower():
+            # Don't log as ERROR since this is expected behavior - thread fallback is normal
+            log_debug(f"[telegram_utils] send_with_thread_fallback caught thread error: {repr(e)}")
             log_warning(
                 f"[telegram_utils] Thread {thread_id} not found; retrying without thread"
             )
@@ -344,6 +347,8 @@ async def send_with_thread_fallback(
             )
             return message
 
+        # Log as error for all other cases  
+        log_error(f"[telegram_utils] send_with_thread_fallback caught error: {repr(e)}")
         log_error(
             f"[telegram_utils] Failed to send to {chat_id} (thread {thread_id}): {repr(e)}"
         )

@@ -264,7 +264,8 @@ if __name__ == "__main__":
             from interface.telegram_bot import start_bot, BOTFATHER_TOKEN, TELEGRAM_TRAINER_ID
             if BOTFATHER_TOKEN and TELEGRAM_TRAINER_ID:
                 log_info("[main] Starting Telegram bot...")
-                await start_bot()
+                asyncio.create_task(start_bot())
+                log_info("[main] Telegram bot started as background task")
         except Exception as e:
             log_warning(f"[main] Telegram bot startup failed: {repr(e)}")
             
@@ -273,7 +274,8 @@ if __name__ == "__main__":
             import os
             if os.getenv("REDDIT_CLIENT_ID") and os.getenv("REDDIT_CLIENT_SECRET"):
                 log_info("[main] Starting Reddit interface...")
-                await start_reddit_interface()
+                asyncio.create_task(start_reddit_interface())
+                log_info("[main] Reddit interface started as background task")
         except Exception as e:
             log_warning(f"[main] Reddit interface startup failed: {repr(e)}")
             
@@ -294,8 +296,18 @@ if __name__ == "__main__":
         # 🎯 Display startup summary after all components are ready (this should be the last message)
         log_info("[main] All components initialized, displaying startup summary...")
         core_initializer.display_startup_summary()
+        
+        # Also display a quick resume even if some components are still loading
+        resume = core_initializer.get_system_resume()
+        log_info(f"[main] 🎯 QUICK STATUS: {resume['successful']}/{resume['total_components']} components loaded, {resume['total_actions']} actions available")
+        
+        # Keep the application running indefinitely
+        log_info("[main] Application startup completed successfully - entering main loop")
+        try:
+            # Wait forever (or until interrupted)
+            await asyncio.Event().wait()
+        except KeyboardInterrupt:
+            log_info("[main] Received shutdown signal, exiting...")
 
     # Run the async application
     asyncio.run(start_application())
-
-    log_info("[main] Application startup completed successfully")

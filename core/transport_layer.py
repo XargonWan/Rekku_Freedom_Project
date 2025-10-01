@@ -677,6 +677,9 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
         if result == 'ACTIONS_EXECUTED' or result == 'BLOCKED':
             # Orchestrator handled or blocked: nothing to forward
             return None
+        elif result == 'LLM_FAILED':
+            # LLM failed and fallback message was already sent: nothing more to forward
+            return None
         # Else forward as usual
         return await universal_send(interface_send_func, *args, text=text, **kwargs)
     except Exception as e:

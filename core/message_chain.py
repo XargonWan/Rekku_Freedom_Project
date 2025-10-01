@@ -22,15 +22,47 @@ Return codes:
 """
 
 import asyncio
+import os
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
-from core.logging_utils import log_debug, log_info, log_warning
+from core.logging_utils import log_debug, log_info, log_warning, log_error
 
 # Result constants
-ACTIONS_EXECUTED = "ACTIONS_EXECUTED"
-BLOCKED = "BLOCKED"
-FORWARD_AS_TEXT = "FORWARD_AS_TEXT"
+# Result constants
+ACTIONS_EXECUTED = 'ACTIONS_EXECUTED'
+FORWARD_AS_TEXT = 'FORWARD_AS_TEXT'
+BLOCKED = 'BLOCKED'
+LLM_FAILED = 'LLM_FAILED'
+
+def get_failed_message_text() -> str:
+    """Get the fallback message when LLM fails."""
+    return os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
+
+async def send_llm_fallback_message(bot, message: SimpleNamespace, failure_reason: str) -> str:
+    """Send fallback message when LLM fails and log the failure reason."""
+    fallback_text = get_failed_message_text()
+    chat_id = getattr(message, 'chat_id', None)
+    
+    # Log detailed error
+    log_error(f"[message_chain] LLM FAILURE - Chat: {chat_id}, Reason: {failure_reason}")
+    log_error(f"[message_chain] Sending fallback message: '{fallback_text}'")
+    
+    # Send fallback message through transport layer
+    try:
+        from core.transport_layer import universal_send
+        await universal_send(
+            bot=bot,
+            target=chat_id,
+            text=fallback_text,
+            thread_id=getattr(message, 'thread_id', None),
+            is_llm_response=True  # Mark as LLM response so interface handles normally
+        )
+        log_debug(f"[message_chain] Fallback message sent to chat {chat_id}")
+        return fallback_text
+    except Exception as e:
+        log_error(f"[message_chain] Failed to send fallback message: {e}")
+        return fallback_text
 
 
 async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text: str, *, source: str = "interface", context: Optional[Dict[str, Any]] = None, **kwargs):
@@ -62,6 +94,16 @@ async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text:
 
     # Mark LLM-origin if source indicates so
     message.from_llm = True if source == 'llm' else getattr(message, 'from_llm', False)
+
+    # Process LLM messages for emotional state updates
+    if getattr(message, 'from_llm', False) or source == 'llm':
+        try:
+            from core.persona_manager import get_persona_manager
+            persona_manager = get_persona_manager()
+            if persona_manager:
+                persona_manager.process_llm_message_for_emotions(text)
+        except Exception as e:
+            log_debug(f"[message_chain] Error processing LLM emotions: {e}")
 
     # Default context
     ctx = context or {}
@@ -143,12 +185,16 @@ async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text:
 
         attempt += 1
         if attempt > max_retries:
-            log_warning(f"[message_chain] Exhausted {max_retries} correction attempts; blocking chat {getattr(message,'chat_id',None)}")
-            return BLOCKED
+            failure_reason = f"Exhausted {max_retries} correction attempts for invalid JSON"
+            log_warning(f"[message_chain] {failure_reason}; sending fallback message")
+            await send_llm_fallback_message(bot, message, failure_reason)
+            return LLM_FAILED
 
         if text in tried_texts:
-            log_warning('[message_chain] Saw same text previously; aborting to avoid loop')
-            return BLOCKED
+            failure_reason = "Correction loop detected - same text repeated"
+            log_warning(f'[message_chain] {failure_reason}; sending fallback message')
+            await send_llm_fallback_message(bot, message, failure_reason)
+            return LLM_FAILED
 
         tried_texts.add(text)
 
@@ -156,11 +202,19 @@ async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text:
         try:
             corrected = await run_corrector_middleware(text, bot=bot, context=ctx, chat_id=getattr(message, 'chat_id', None))
         except Exception as e:
-            log_warning(f"[message_chain] Corrector middleware failed: {e}")
-            return BLOCKED
+            failure_reason = f"Corrector middleware exception: {str(e)}"
+            log_warning(f"[message_chain] {failure_reason}")
+            await send_llm_fallback_message(bot, message, failure_reason)
+            return LLM_FAILED
 
         if not corrected:
             log_debug('[message_chain] Corrector returned no correction this attempt')
+            # Check if we're approaching max retries to avoid infinite waiting
+            if attempt >= max_retries - 1:
+                failure_reason = f"Corrector returned no correction after {attempt} attempts"
+                log_warning(f"[message_chain] {failure_reason}; sending fallback message")
+                await send_llm_fallback_message(bot, message, failure_reason)
+                return LLM_FAILED
             # On no-correction, loop and let retry counter enforce blocking
             await asyncio.sleep(0.5)
             continue

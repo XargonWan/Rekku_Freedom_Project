@@ -9,6 +9,28 @@ from pathlib import Path
 from typing import Optional, Any
 from core.logging_utils import log_info, log_error, log_warning, log_debug
 from core.config import get_active_llm, list_available_llms
+from dataclasses import dataclass, field
+from typing import List, Dict, Any
+from enum import Enum
+
+
+class ComponentStatus(Enum):
+    """Status of a system component."""
+    LOADING = "loading"
+    SUCCESS = "success"  
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+@dataclass 
+class ComponentInfo:
+    """Information about a system component."""
+    name: str
+    type: str  # "plugin", "interface", "llm", "core"
+    status: ComponentStatus = ComponentStatus.LOADING
+    actions: List[str] = field(default_factory=list)
+    error: str = ""
+    details: str = ""
 
 
 class CoreInitializer:
@@ -22,41 +44,156 @@ class CoreInitializer:
         self.actions_block = {"available_actions": {}}
         self.interface_actions = {}
         self._summary_displayed = False  # Flag to prevent duplicate summaries
+        self._building_actions_block = False  # Flag to prevent infinite rebuild loops
+        self._initial_initialization = False  # Flag to indicate we're in initial startup phase
+        
+        # Component tracking system
+        self.components: Dict[str, ComponentInfo] = {}
+        self.initialization_completed = False
     
     async def initialize_all(self, notify_fn=None):
         """Initialize all Rekku components in the correct order."""
         log_info("🚀 Initializing Rekku core components...")
-
-        # Don't reset loaded_plugins as they may have been registered during import
-        # Only reset interface state for fresh initialization  
-        self.interface_actions = {}
-        self.actions_block = {"available_actions": {}}
         
-        log_debug(f"[core_initializer] Starting with {len(self.loaded_plugins)} pre-registered plugins: {self.loaded_plugins}")
-
-        # 0. Initialize registries
-        self._initialize_registries()
-
-        # 1. Load LLM engine
-        await self._load_llm_engine(notify_fn)
-
-        # 2. Load generic plugins (this may load additional plugins)
-        self._load_plugins()
+        # Set flag to prevent plugin auto-registration from triggering refreshes
+        self._initial_initialization = True
+        log_debug("[core_initializer] Set _initial_initialization=True to prevent auto-refresh loops")
         
-        # 2.5. Auto-register validation rules from loaded components
-        self._register_component_validation_rules()
-        
-        # 3. Load core actions (like chat_link) if not already loaded
-        self._ensure_core_actions()
-        
-        await self._build_actions_block()
+        try:
+            # Don't reset loaded_plugins as they may have been registered during import
+            # Only reset interface state for fresh initialization  
+            self.interface_actions = {}
+            self.actions_block = {"available_actions": {}}
+            
+            log_debug(f"[core_initializer] Starting with {len(self.loaded_plugins)} pre-registered plugins: {self.loaded_plugins}")
 
-        # 4. Auto-discover active interfaces
-        self._discover_interfaces()
-        
-        # Note: Startup summary will be displayed by main.py after all interfaces are started
+            # 0. Initialize registries
+            self._initialize_registries()
 
-        return True
+            # 1. Load LLM engine
+            await self._load_llm_engine(notify_fn)
+
+            # 2. Load generic plugins (this may load additional plugins)
+            self._load_plugins()
+        
+            # 2.5. Auto-register validation rules from loaded components
+            log_debug("[core_initializer] 🔍 About to call _register_component_validation_rules()")
+            self._register_component_validation_rules()
+            log_debug("[core_initializer] ✅ _register_component_validation_rules() completed")
+            
+            # 3. Load core actions (like chat_link) if not already loaded
+            log_debug("[core_initializer] 🔍 About to call _ensure_core_actions()")
+            self._ensure_core_actions()
+            log_debug("[core_initializer] ✅ _ensure_core_actions() completed")
+            
+            # 4. Initialize core persona manager
+            log_debug("[core_initializer] 🔍 About to call _initialize_persona_manager()")
+            self._initialize_persona_manager()
+            log_debug("[core_initializer] ✅ _initialize_persona_manager() completed")
+        
+            log_debug("[core_initializer] About to call _build_actions_block()")
+            try:
+                await self._build_actions_block()
+                log_debug("[core_initializer] 🎯 CRITICAL: SECOND CALL - _build_actions_block() returned successfully!")
+                log_debug("[core_initializer] Actions block build completed")
+            except Exception as e:
+                log_error(f"[core_initializer] Error in _build_actions_block: {e}")
+                import traceback
+                log_error(f"[core_initializer] Traceback: {traceback.format_exc()}")
+                self.startup_errors.append(f"Actions block build failed: {e}")
+
+            log_info("[core_initializer] 🎯 CHECKPOINT: Actions block completed, proceeding to interface discovery")
+            
+            # 4. Auto-discover active interfaces
+            log_debug("[core_initializer] About to call _discover_interfaces()")
+            try:
+                self._discover_interfaces()
+                log_debug("[core_initializer] Interface discovery completed")
+            except Exception as e:
+                log_error(f"[core_initializer] Error in _discover_interfaces: {e}")
+                self.startup_errors.append(f"Interface discovery failed: {e}")
+
+            # Note: Startup summary will be displayed by main.py after all interfaces are started
+            log_info("[core_initializer] Core initialization completed successfully")
+
+            # Mark initialization as completed
+            self._initial_initialization = False  # Reset flag - plugins can now trigger auto-refresh
+            log_debug("[core_initializer] Set _initial_initialization=False - auto-refresh now allowed")
+            self.initialization_completed = True
+            log_info("[core_initializer] ✅ All core components initialized successfully")
+            
+            # Display summary at the end of initialization
+            self._display_startup_summary()
+            return True
+            
+        except Exception as e:
+            log_error(f"[core_initializer] Error during initialization: {e}")
+            self.startup_errors.append(f"Initialization error: {e}")
+            # Also reset flag in case of error
+            self._initial_initialization = False
+            log_debug("[core_initializer] Set _initial_initialization=False (after error)")
+            # Display summary even if initialization failed
+            self.display_startup_summary()
+            return False
+    
+    def track_component(self, name: str, component_type: str, status: ComponentStatus = ComponentStatus.LOADING, 
+                       actions: List[str] = None, error: str = "", details: str = ""):
+        """Track the status of a system component."""
+        self.components[name] = ComponentInfo(
+            name=name,
+            type=component_type,
+            status=status,
+            actions=actions or [],
+            error=error,
+            details=details
+        )
+        log_debug(f"[core_initializer] Tracking component {name} ({component_type}): {status.value}")
+
+    def mark_component_success(self, name: str, actions: List[str] = None, details: str = ""):
+        """Mark a component as successfully loaded."""
+        if name in self.components:
+            self.components[name].status = ComponentStatus.SUCCESS
+            if actions:
+                self.components[name].actions = actions
+            if details:
+                self.components[name].details = details
+        else:
+            # Create new component entry
+            self.track_component(name, "unknown", ComponentStatus.SUCCESS, actions, details=details)
+    
+    def mark_component_failed(self, name: str, error: str, details: str = ""):
+        """Mark a component as failed to load."""
+        if name in self.components:
+            self.components[name].status = ComponentStatus.FAILED
+            self.components[name].error = error
+            if details:
+                self.components[name].details = details
+        else:
+            # Create new component entry
+            self.track_component(name, "unknown", ComponentStatus.FAILED, error=error, details=details)
+
+    def get_system_resume(self) -> Dict[str, Any]:
+        """Generate a complete system status resume."""
+        successful = [c for c in self.components.values() if c.status == ComponentStatus.SUCCESS]
+        failed = [c for c in self.components.values() if c.status == ComponentStatus.FAILED]
+        loading = [c for c in self.components.values() if c.status == ComponentStatus.LOADING]
+        
+        total_actions = sum(len(c.actions) for c in successful)
+        
+        return {
+            "total_components": len(self.components),
+            "successful": len(successful),
+            "failed": len(failed),
+            "loading": len(loading),
+            "total_actions": total_actions,
+            "successful_components": successful,
+            "failed_components": failed,
+            "loading_components": loading,
+            "active_llm": self.active_llm,
+            "active_interfaces": self.active_interfaces,
+            "startup_errors": self.startup_errors,
+            "initialization_completed": self.initialization_completed
+        }
     
     def _initialize_registries(self):
         """Initialize the core registries."""
@@ -88,6 +225,7 @@ class CoreInitializer:
         """Load the active LLM engine."""
         try:
             self.active_llm = await get_active_llm()
+            self.track_component(self.active_llm, "llm", ComponentStatus.LOADING, details="Loading LLM engine")
             
             # Import here to avoid circular imports
             from core.plugin_instance import load_plugin
@@ -96,15 +234,23 @@ class CoreInitializer:
             # Verify plugin was loaded successfully
             from core.plugin_instance import plugin
             if plugin is None:
-                log_error(f"[core_initializer] Plugin {self.active_llm} failed to load!")
-                self.startup_errors.append(f"Plugin {self.active_llm} failed to load")
+                error_msg = f"Plugin {self.active_llm} failed to load"
+                log_error(f"[core_initializer] {error_msg}!")
+                self.startup_errors.append(error_msg)
+                self.mark_component_failed(self.active_llm, error_msg, "LLM plugin initialization failed")
             else:
                 log_debug(f"[core_initializer] Plugin {self.active_llm} loaded successfully: {plugin.__class__.__name__}")
+                self.mark_component_success(self.active_llm, details=f"LLM engine: {plugin.__class__.__name__}")
             
             log_debug(f"[core_initializer] Active LLM engine loaded: {self.active_llm}")
         except Exception as e:
-            log_error(f"[core_initializer] Failed to load active LLM: {repr(e)}")
+            error_msg = f"Failed to load active LLM: {repr(e)}"
+            log_error(f"[core_initializer] {error_msg}")
             self.startup_errors.append(f"LLM engine error: {e}")
+            if hasattr(self, 'active_llm') and self.active_llm:
+                self.mark_component_failed(self.active_llm, str(e), "LLM loading exception")
+            else:
+                self.track_component("unknown_llm", "llm", ComponentStatus.FAILED, error=str(e))
     
     def _load_plugins(self):
         """Auto-discover and load all available plugins for validation and startup."""
@@ -229,26 +375,37 @@ class CoreInitializer:
         log_info(f"[core_initializer] 🔍 Attempting to register interface: {interface_name}")
         if interface_name not in self.active_interfaces:
             self.active_interfaces.append(interface_name)
-            log_info(f"[core_initializer] ✅ Interface registered: {interface_name}")
-
-            # Check if the interface exposes action schemas
+            
+            # Check if the interface exposes action schemas and log them
             interface_instance = INTERFACE_REGISTRY.get(interface_name)
+            actions = []
+            
             if interface_instance and hasattr(interface_instance, 'get_supported_actions'):
-                log_info(
-                    f"[core_initializer] 🔌 Interface {interface_name} supports action registration"
-                )
+                try:
+                    supported_actions = interface_instance.get_supported_actions()
+                    if isinstance(supported_actions, dict):
+                        actions = list(supported_actions.keys())
+                except Exception as e:
+                    log_debug(f"[core_initializer] Error getting actions for interface {interface_name}: {e}")
+            
+            if actions:
+                log_info(f"🔌 Interface loaded: {interface_name} - Registered actions: {', '.join(sorted(actions))}")
             else:
-                log_warning(
-                    f"[core_initializer] ⚠️ Interface {interface_name} does not support action registration"
-                )
+                log_info(f"🔌 Interface loaded: {interface_name} - No actions registered")
 
             # After registering, rebuild actions to expose interface capabilities
-            try:
-                _schedule_rebuild_actions(self)
-            except Exception as e:  # pragma: no cover - defensive
-                log_error(
-                    f"[core_initializer] Error scheduling actions rebuild for {interface_name}: {e}"
-                )
+            # BUT NOT during initial initialization (to avoid triggering rebuild while already building)
+            # DISABLED: This causes infinite loops when interfaces register after initialization
+            # TODO: Implement a smarter rebuild mechanism that doesn't re-import modules
+            if False and not self._initial_initialization:
+                try:
+                    _schedule_rebuild_actions(self)
+                except Exception as e:  # pragma: no cover - defensive
+                    log_error(
+                        f"[core_initializer] Error scheduling actions rebuild for {interface_name}: {e}"
+                    )
+            else:
+                log_debug(f"[core_initializer] Skipping actions rebuild for {interface_name} (initial initialization in progress)")
 
             # Show updated status after interface registration
             self._show_interface_status()
@@ -286,9 +443,19 @@ class CoreInitializer:
 
     async def _build_actions_block(self):
         """Collect and validate action schemas from all plugins and interfaces."""
+        # TEMPORARILY DISABLE FLAG FOR TESTING
+        # if self._building_actions_block:
+        #     log_debug("[core_initializer] Already building actions block, skipping to prevent loop")
+        #     return
+            
+        log_debug("[core_initializer] Starting _build_actions_block")
+            
+        self._building_actions_block = True
+        log_debug("[core_initializer] Starting _build_actions_block")
         from core.core_initializer import PLUGIN_REGISTRY, INTERFACE_REGISTRY
 
         available_actions = {}
+        log_debug("[core_initializer] Initialized available_actions dict")
 
         def _register(action_type: str, owner: str, schema: dict, instr_fn):
             required = schema.get("required_fields", [])
@@ -311,21 +478,25 @@ class CoreInitializer:
                 
                 # Merge fields, giving priority to required over optional
                 merged_required = list(existing_required.union(new_required))
-                merged_optional = list((existing_optional.union(new_optional)) - set(merged_required))
+                merged_optional = list((existing_optional.union(new_optional)) - set(merged_required))                # Keep track of original source, append new sources
+                existing_source = existing.get("source", "")
+                new_source = f"{existing_source}, {owner}" if existing_source else owner
                 
                 available_actions[action_type] = {
                     "description": schema.get("description", ""),
                     "required_fields": merged_required,
                     "optional_fields": merged_optional,
+                    "source": new_source,
                 }
                 log_info(
-                    f"[core_initializer] Merged {action_type} fields: required={merged_required}, optional={merged_optional}"
+                    f"[core_initializer] Merged {action_type} fields: required={merged_required}, optional={merged_optional}, source={new_source}"
                 )
             else:
                 available_actions[action_type] = {
                     "description": schema.get("description", ""),
                     "required_fields": required,
                     "optional_fields": optional,
+                    "source": owner,
                 }
 
             # Get and add instructions
@@ -342,7 +513,9 @@ class CoreInitializer:
 
         # --- Load action plugins from registry ---
         log_debug(f"[core_initializer] Loading actions from {len(PLUGIN_REGISTRY)} plugins: {list(PLUGIN_REGISTRY.keys())}")
+        log_debug("[core_initializer] Starting plugin loop")
         for name, plugin in PLUGIN_REGISTRY.items():
+            log_debug(f"[core_initializer] Processing plugin: {name}")
             if not hasattr(plugin, "get_supported_actions"):
                 log_debug(f"[core_initializer] Plugin {name} does not have get_supported_actions method")
                 continue
@@ -357,7 +530,9 @@ class CoreInitializer:
                 log_error(f"[core_initializer] Error processing plugin {name}: {e}")
 
         # --- Load interface actions from registry ---
+        log_debug("[core_initializer] Starting interface loop")
         for name, iface in INTERFACE_REGISTRY.items():
+            log_debug(f"[core_initializer] Processing interface: {name}")
             if not hasattr(iface, "get_supported_actions"):
                 continue
             try:
@@ -371,8 +546,11 @@ class CoreInitializer:
                 log_error(f"[core_initializer] Error processing interface {name}: {e}")
 
         # --- Collect static context from registry members ---
+        log_debug("[core_initializer] Starting static context collection")
         static_context = {}
+        log_debug("[core_initializer] Starting static injection from plugins")
         for plugin in PLUGIN_REGISTRY.values():
+            log_debug(f"[core_initializer] Checking static injection for plugin: {plugin.__class__.__name__}")
             if hasattr(plugin, "get_static_injection"):
                 try:
                     data = plugin.get_static_injection()
@@ -383,7 +561,15 @@ class CoreInitializer:
                     log_warning(f"[core_initializer] Errore static injection da plugin {plugin}: {e}")
                     continue
                 if inspect.isawaitable(data):
-                    data = await data
+                    try:
+                        # Add timeout to prevent hanging
+                        data = await asyncio.wait_for(data, timeout=5.0)
+                    except asyncio.TimeoutError:
+                        log_warning(f"[core_initializer] Timeout waiting for static injection from {plugin.__class__.__name__}")
+                        continue
+                    except Exception as e:
+                        log_warning(f"[core_initializer] Error awaiting static injection from {plugin.__class__.__name__}: {e}")
+                        continue
                 if data:
                     static_context.update(data)
         for iface in INTERFACE_REGISTRY.values():
@@ -391,7 +577,15 @@ class CoreInitializer:
                 try:
                     data = iface.get_static_injection()
                     if inspect.isawaitable(data):
-                        data = await data
+                        try:
+                            # Add timeout to prevent hanging  
+                            data = await asyncio.wait_for(data, timeout=5.0)
+                        except asyncio.TimeoutError:
+                            log_warning(f"[core_initializer] Timeout waiting for static injection from {iface.__class__.__name__}")
+                            continue
+                        except Exception as e:
+                            log_warning(f"[core_initializer] Error awaiting static injection from {iface.__class__.__name__}: {e}")
+                            continue
                     if data:
                         static_context.update(data)
                 except Exception as e:
@@ -403,6 +597,11 @@ class CoreInitializer:
         }
         log_debug(f"[core_initializer] Actions block built with {len(available_actions)} action types, static_context: {list(static_context.keys())}")
         log_debug(f"[core_initializer] Available action types: {sorted(available_actions.keys())}")
+        log_debug("[core_initializer] About to reset _building_actions_block flag")
+        
+        # Reset the flag
+        self._building_actions_block = False
+        log_debug("[core_initializer] _building_actions_block flag reset, exiting _build_actions_block()")
     
     def _display_startup_summary(self):
         """Display a comprehensive startup summary."""
@@ -412,48 +611,113 @@ class CoreInitializer:
             return
         
         self._summary_displayed = True
-        log_info("=" * 60)
-        log_info("🚀 Rekku startup summary")
-        log_info("=" * 60)
+        
+        log_debug("[core_initializer] Starting display_startup_summary")
+        
+        # Get system resume
+        log_debug("[core_initializer] Getting system resume...")
+        resume = self.get_system_resume()
+        log_debug("[core_initializer] System resume obtained successfully")
+        
+        log_info("=" * 80)
+        log_info("🚀 REKKU FREEDOM PROJECT (RFP) - SYSTEM ONLINE")
+        log_info("=" * 80)
 
-        # --- LLMs ---
+        # --- System Status ---
+        if resume["initialization_completed"]:
+            log_info("✅ RFP initialization completed successfully!")
+        else:
+            log_info("⚠️  RFP initialization in progress...")
+        
+        # --- Component Summary ---
+        log_info(f"📊 COMPONENT STATUS SUMMARY:")
+        log_info(f"   • Total components: {resume['total_components']}")
+        log_info(f"   • ✅ Successful: {resume['successful']}")
+        log_info(f"   • ❌ Failed: {resume['failed']}")
+        log_info(f"   • 🔄 Loading: {resume['loading']}")
+        log_info(f"   • ⚡ Total actions available: {resume['total_actions']}")
+        
+        # --- LLM Engine ---
         available_llms = list_available_llms()
-        if self.active_llm:
-            log_info(f"Active LLM: {self.active_llm}")
+        if resume["active_llm"]:
+            llm_status = "✅" if any(c.name == resume["active_llm"] and c.status == ComponentStatus.SUCCESS 
+                                  for c in resume["successful_components"]) else "❌"
+            log_info(f"🧠 Active LLM Engine: {llm_status} {resume['active_llm']}")
         else:
-            log_info("Active LLM: None")
+            log_info("🧠 Active LLM Engine: ❌ None")
         if available_llms:
-            log_info(f"Available LLMs: {', '.join(sorted(available_llms))}")
+            log_info(f"🧠 Available LLM Engines: {', '.join(sorted(available_llms))}")
 
-        # --- Interfaces and their actions ---
-        if self.active_interfaces:
-            log_info("Interfaces and actions:")
-            for iface in self.active_interfaces:
-                actions = sorted(self.interface_actions.get(iface, set()))
-                actions_str = ", ".join(actions) if actions else "none"
-                log_info(f"  {iface}: {actions_str}")
-        else:
-            log_info("Interfaces: none")
+        # --- Successful Components ---
+        if resume["successful_components"]:
+            log_info("✅ SUCCESSFUL COMPONENTS:")
+            # Group by type
+            by_type = {}
+            for comp in resume["successful_components"]:
+                if comp.type not in by_type:
+                    by_type[comp.type] = []
+                by_type[comp.type].append(comp)
+            
+            for comp_type, components in sorted(by_type.items()):
+                type_emoji = {"plugin": "🧩", "interface": "🔌", "llm": "🧠", "core": "⚙️"}.get(comp_type, "📦")
+                log_info(f"   {type_emoji} {comp_type.upper()}S ({len(components)}):")
+                for comp in sorted(components, key=lambda x: x.name):
+                    if comp.actions:
+                        actions_list = ', '.join(sorted(comp.actions))
+                        log_info(f"      ├─ {comp.name}: {actions_list}")
+                    else:
+                        log_info(f"      ├─ {comp.name}: no actions")
+        
+        # --- Failed Components ---
+        if resume["failed_components"]:
+            log_info("❌ FAILED COMPONENTS:")
+            for comp in sorted(resume["failed_components"], key=lambda x: x.name):
+                log_info(f"   ├─ {comp.name} ({comp.type}): {comp.error}")
+                if comp.details:
+                    log_info(f"   │  └─ {comp.details}")
+        
+        # --- Loading Components ---
+        if resume["loading_components"]:
+            log_info("🔄 COMPONENTS STILL LOADING:")
+            for comp in sorted(resume["loading_components"], key=lambda x: x.name):
+                log_info(f"   ├─ {comp.name} ({comp.type})")
+                if comp.details:
+                    log_info(f"   │  └─ {comp.details}")
 
-        # --- Plugins and their actions ---
-        if self.loaded_plugins:
-            log_info("Plugins and actions:")
-            for plugin in sorted(set(self.loaded_plugins)):
-                actions = sorted(self.interface_actions.get(plugin, set()))
-                actions_str = ", ".join(actions) if actions else "none"
-                log_info(f"  {plugin}: {actions_str}")
+        # --- All available actions by category ---
+        log_debug("[core_initializer] Checking available actions...")
+        if self.actions_block.get("available_actions"):
+            log_info("⚡ AVAILABLE SYSTEM ACTIONS:")
+            action_categories = {}
+            
+            log_debug(f"[core_initializer] Processing {len(self.actions_block['available_actions'])} actions...")
+            # Group actions by source (interface/plugin)
+            for action_type, action_data in self.actions_block["available_actions"].items():
+                log_debug(f"[core_initializer] Processing action: {action_type}")
+                source = action_data.get("source", "core")
+                if source not in action_categories:
+                    action_categories[source] = []
+                action_categories[source].append(action_type)
+            
+            log_debug(f"[core_initializer] Action categories: {list(action_categories.keys())}")
+            for source, actions in sorted(action_categories.items()):
+                log_info(f"   ├─ {source} ({len(actions)} actions)")
+                for action in sorted(actions):
+                    log_info(f"   │  ├─ {action}")
         else:
-            log_info("Plugins: none")
+            log_debug("[core_initializer] No available_actions in actions_block")
 
         # Startup errors
         if self.startup_errors:
-            log_warning("⚠️ Startup warnings/errors:")
+            log_warning("⚠️  STARTUP WARNINGS/ERRORS:")
             for error in self.startup_errors:
-                log_warning(f"  - {error}")
+                log_warning(f"   - {error}")
 
-        log_info("=" * 60)
-        log_info("🎯 System ready for operations")
-        log_info("=" * 60)
+        log_info("=" * 80)
+        log_info("🎯 SYSTEM FULLY INITIALIZED AND READY FOR OPERATIONS")
+        log_info("=" * 80)
+        
+        log_debug("[core_initializer] Startup summary completed successfully")
 
     def display_startup_summary(self):
         """Public method to log the startup summary on demand."""
@@ -462,11 +726,39 @@ class CoreInitializer:
     def register_plugin(self, plugin_name: str):
         """Record that a plugin has been loaded and started."""
         log_debug(f"[core_initializer] Instance register_plugin called for: {plugin_name}")
+        
         if plugin_name not in self.loaded_plugins:
             self.loaded_plugins.append(plugin_name)
-            log_info(f"[core_initializer] ✅ Plugin loaded and started: {plugin_name}")
+            
+            # Check if the plugin exposes action schemas and log them
+            from core.core_initializer import PLUGIN_REGISTRY
+            plugin_obj = PLUGIN_REGISTRY.get(plugin_name)
+            actions = []
+            
+            try:
+                if plugin_obj and hasattr(plugin_obj, "get_supported_actions"):
+                    supported_actions = plugin_obj.get_supported_actions()
+                    if isinstance(supported_actions, dict):
+                        actions = list(supported_actions.keys())
+                
+                # Track successful plugin loading
+                self.track_component(plugin_name, "plugin", ComponentStatus.SUCCESS, actions, 
+                                   details=f"Plugin with {len(actions)} actions" if actions else "Plugin with no actions")
+                
+                if actions:
+                    log_info(f"🧩 Plugin loaded: {plugin_name} - Registered actions: {', '.join(sorted(actions))}")
+                else:
+                    log_info(f"🧩 Plugin loaded: {plugin_name} - No actions registered")
+            
+            except Exception as e:
+                error_msg = f"Error getting actions: {e}"
+                log_debug(f"[core_initializer] Error getting actions for {plugin_name}: {e}")
+                self.mark_component_failed(plugin_name, error_msg, "Plugin loaded but action retrieval failed")
+                log_info(f"🧩 Plugin loaded: {plugin_name} - Error getting actions: {e}")
+        
         else:
             log_info(f"[core_initializer] 🔄 Plugin {plugin_name} is already registered")
+        
         log_debug(f"[core_initializer] Current loaded_plugins: {self.loaded_plugins}")
 
     def register_action(self, action_type: str, handler: Any) -> None:
@@ -494,6 +786,34 @@ class CoreInitializer:
                 log_error(f"[core_initializer] Failed to load core chat_link actions: {e}")
                 self.startup_errors.append(f"Core actions error: {e}")
 
+    def _initialize_persona_manager(self):
+        """Initialize the persona manager as a core component."""
+        try:
+            # Import the module to trigger auto-initialization
+            import core.persona_manager  # This will trigger _auto_initialize()
+            
+            # Get the instance to verify initialization
+            from core.persona_manager import get_persona_manager
+            persona_manager = get_persona_manager()
+            
+            if persona_manager:
+                log_info("[core_initializer] ✅ Persona Manager initialized successfully")
+                
+                # Verify database table was created
+                try:
+                    import asyncio
+                    from core.persona_manager import init_persona_table
+                    asyncio.create_task(init_persona_table())
+                    log_debug("[core_initializer] Persona table initialization scheduled")
+                except Exception as db_e:
+                    log_warning(f"[core_initializer] Database table check failed: {db_e}")
+            else:
+                log_warning("[core_initializer] ⚠️ Failed to initialize Persona Manager")
+                self.startup_errors.append("Persona Manager initialization failed")
+        except Exception as e:
+            log_error(f"[core_initializer] ❌ Error initializing Persona Manager: {e}")
+            self.startup_errors.append(f"Persona Manager error: {e}")
+
 
 # Global instance
 core_initializer = CoreInitializer()
@@ -504,12 +824,30 @@ ACTION_REGISTRY: dict[str, Any] = {}
 def register_action(action_type: str, handler: Any) -> None:
     """Register a single action type with its handling object."""
     existing = ACTION_REGISTRY.get(action_type)
-    if existing is not None:
-        log_warning(
-            f"[core_initializer] Action '{action_type}' is already registered by {existing.__class__.__name__}. Overwriting with {handler.__class__.__name__}."
-        )
-    ACTION_REGISTRY[action_type] = handler
-    log_debug(f"[core_initializer] Registered action: {action_type} -> {handler.__class__.__name__}")
+    
+    # Special handling for static_inject - allow multiple handlers
+    if action_type == "static_inject":
+        if existing is not None:
+            # If there's already a handler, create a list or extend existing list
+            if isinstance(existing, list):
+                existing.append(handler)
+                log_debug(f"[core_initializer] Added {handler.__class__.__name__} to existing static_inject handlers: {[h.__class__.__name__ for h in existing]}")
+            else:
+                # Convert single handler to list and add new one
+                ACTION_REGISTRY[action_type] = [existing, handler]
+                log_debug(f"[core_initializer] Converted static_inject to multi-handler: [{existing.__class__.__name__}, {handler.__class__.__name__}]")
+        else:
+            # First handler for static_inject
+            ACTION_REGISTRY[action_type] = handler
+            log_debug(f"[core_initializer] Registered first static_inject handler: {handler.__class__.__name__}")
+    else:
+        # Normal handling for other actions
+        if existing is not None:
+            log_warning(
+                f"[core_initializer] Action '{action_type}' is already registered by {existing.__class__.__name__}. Overwriting with {handler.__class__.__name__}."
+            )
+        ACTION_REGISTRY[action_type] = handler
+        log_debug(f"[core_initializer] Registered action: {action_type} -> {handler.__class__.__name__}")
 
     # Invalidate caches - but don't automatically rebuild to avoid loops
     try:
@@ -562,16 +900,37 @@ def register_plugin(name: str, plugin_obj: Any) -> None:
     except Exception:
         pass
 
-    # Rebuild actions block to include new plugin's actions
+    # Rebuild actions block to include new plugin's actions (but only if not already building)
     try:
-        import asyncio
-        if asyncio.get_event_loop().is_running():
-            # If event loop is running, schedule the refresh
-            asyncio.create_task(core_initializer.refresh_actions_block())
+        # Skip auto-refresh during initial initialization - it will be done at the end
+        if core_initializer._initial_initialization:
+            log_debug(f"[core_initializer] Skipping auto-refresh for plugin {name} during initial initialization")
+        elif not core_initializer._building_actions_block:
+            import asyncio
+            if asyncio.get_event_loop().is_running():
+                # If event loop is running, schedule the refresh
+                asyncio.create_task(core_initializer.refresh_actions_block())
+            else:
+                # If no event loop, run it synchronously
+                asyncio.run(core_initializer.refresh_actions_block())
+            log_debug(f"[core_initializer] Actions block refreshed after registering plugin {name}")
         else:
-            # If no event loop, run it synchronously
-            asyncio.run(core_initializer.refresh_actions_block())
-        log_debug(f"[core_initializer] Actions block refreshed after registering plugin {name}")
+            # If already building, schedule a retry after a short delay
+            log_debug(f"[core_initializer] Actions block building in progress, scheduling retry for plugin {name}")
+            import asyncio
+            async def retry_refresh():
+                await asyncio.sleep(0.1)  # Short delay to allow current build to complete
+                try:
+                    await core_initializer.refresh_actions_block()
+                    log_debug(f"[core_initializer] Actions block refresh completed after retry for plugin {name}")
+                except Exception as e:
+                    log_warning(f"[core_initializer] Failed to refresh actions block after retry for plugin {name}: {e}")
+            
+            if asyncio.get_event_loop().is_running():
+                asyncio.create_task(retry_refresh())
+            else:
+                # This shouldn't happen in normal operation, but handle it
+                asyncio.run(retry_refresh())
     except Exception as e:
         log_warning(f"[core_initializer] Failed to refresh actions block after plugin {name} registration: {e}")
 
