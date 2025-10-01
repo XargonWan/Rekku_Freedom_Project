@@ -382,6 +382,8 @@ async def last_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    log_info(f"[telegram_bot] 🔔 HANDLE_MESSAGE CALLED! Update: {update}")
+    log_debug(f"[telegram_bot] Update type: {type(update)}, Message: {update.message if update else 'None'}")
     log_info(f"[telegram_bot] Received message update: {update}")
 
     plugin_loaded = await ensure_plugin_loaded(update)
@@ -929,6 +931,16 @@ async def start_bot():
             handle_incoming_response
         ))
         log_info("[telegram_bot] All handlers added successfully")
+        
+        # Add error handler to catch any exceptions
+        async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+            """Log errors caused by updates."""
+            log_error(f"[telegram_bot] Exception while handling an update: {context.error}")
+            if update:
+                log_error(f"[telegram_bot] Update that caused error: {update}")
+        
+        app.add_error_handler(error_handler)
+        log_info("[telegram_bot] Error handler added")
 
         # The interface will register itself once the Telegram application has
         # been initialized below. Calling core_initializer.register_interface
