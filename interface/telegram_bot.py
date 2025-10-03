@@ -79,16 +79,8 @@ for trainer_config in TELEGRAM_TRAINER_ID_STR:
         except (ValueError, IndexError):
             log_warning(f"[telegram_bot] Invalid trainer ID format in TRAINER_IDS: {trainer_config}")
 
-# Get bot username from token if available
+# Bot username will be fetched dynamically using bot.get_me()
 BOT_USERNAME = None
-if BOTFATHER_TOKEN:
-    try:
-        # Extract username from token (format: 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11)
-        token_parts = BOTFATHER_TOKEN.split(':')
-        if len(token_parts) == 2:
-            BOT_USERNAME = f"@{token_parts[0]}"
-    except Exception as e:
-        log_warning(f"[telegram_bot] Could not extract username from token: {e}")
 
 # Validate required configuration
 if not BOTFATHER_TOKEN:
@@ -232,95 +224,6 @@ async def logchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_error(f"[telegram_interface] Failed to set log chat: {e}")
         await update.message.reply_text("❌ Unable to set log chat.")
 
-async def handle_incoming_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not await ensure_plugin_loaded(update):
-        return
-
-    if not is_trainer(update.effective_user.id):
-        log_debug("Message ignored: not from get_trainer_id()")
-        return
-
-    message = update.message
-    if not message:
-        log_debug("❌ No message present, aborting.")
-        return
-
-    media_type = detect_media_type(message)
-    log_debug(f"✅ handle_incoming_response: media_type = {media_type}; reply_message_id = {bool(message.reply_to_message)}")
-
-    # === 1. Prova target da response_proxy (es. /say)
-    target = response_proxy.get_target(get_trainer_id())
-    log_debug(f"Initial target from response_proxy = {target}")
-
-    # === 2. If replying to a message, search in plugin mapping
-    if not target and message.reply_to_message:
-        reply = message.reply_to_message
-        log_debug(f"Reply to trainer_message_id={reply.message_id}")
-        possible_ids = [reply.message_id]
-        if reply.reply_to_message:
-            possible_ids.append(reply.reply_to_message.message_id)
-
-        for mid in possible_ids:
-            tracked = plugin_instance.get_target(mid)
-            if tracked:
-                target = {
-                    "chat_id": tracked["chat_id"],
-                    "message_id": tracked["message_id"],
-                    "type": media_type
-                }
-                log_debug(f"Found target via plugin_instance.get_target({mid}): {target}")
-                break
-        if not target:
-            log_debug("❌ No mapping found in plugin")
-
-    # === 3. Fallback from /say
-    if not target:
-        fallback = say_proxy.get_target(get_trainer_id())
-        log_debug(f"Fallback from say_proxy = {fallback}")
-        if fallback and fallback != "EXPIRED":
-            target = {
-                "chat_id": fallback,
-                "message_id": None,
-                "type": media_type
-            }
-            log_debug(f"Target set from say_proxy: {target}")
-        elif fallback == "EXPIRED":
-            await message.reply_text("⏳ Timeout expired, run /say again.")
-            return
-
-    # === 4. If still nothing, abort
-    if not target:
-        log_error("No target found for sending.")
-        await message.reply_text("⚠️ No recipient detected. Use /say or reply to a forwarded message.")
-        return
-
-    # === 5. Send content
-    chat_id = target["chat_id"]
-    reply_message_id = target["message_id"]
-    content_type = target["type"]
-
-    log_debug(f"Sending media_type={content_type} to chat_id={chat_id}, reply_message_id={reply_message_id}")
-    # Diagnostic: log detailed send_content params
-    try:
-        log_debug(f"[telegram_interface] Calling send_content with bot={repr(context.bot)}, chat_id={chat_id}, message_id={message.message_id}, content_type={content_type}, reply_message_id={reply_message_id}")
-    except Exception:
-        log_debug("[telegram_interface] Failed to repr context.bot for diagnostics")
-    success, feedback = await send_content(context.bot, chat_id, message, content_type, reply_message_id)
-
-    # Diagnostic: log result from send_content
-    log_debug(f"[telegram_interface] send_content returned: success={success}, feedback={feedback}")
-
-    await message.reply_text(feedback)
-
-    if success:
-        log_debug("✅ Sending successful. Cleaning proxy.")
-        response_proxy.clear_target(get_trainer_id())
-        say_proxy.clear(get_trainer_id())
-    else:
-        log_error("Sending failed.")
-
-
 # === Generic command for sticker/audio/photo/file/video ===
 
 async def handle_response_command(update: Update, context: ContextTypes.DEFAULT_TYPE, content_type: str):
@@ -429,14 +332,114 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_debug(f"[telegram_bot] Context added to memory")
     log_debug(f"context_memory[{message.chat_id}] = {list(context_memory[message.chat_id])}")
 
-    # Interactive /say step
+    # === PRIORITY 1: Handle /say step (chat selection) ===
     log_debug(f"Checking say_step conditions - chat_type: {message.chat.type}, user_id: {user_id}, trainer_id: {get_trainer_id()}, say_choices: {context.user_data.get('say_choices') is not None}")
     if message.chat.type == "private" and user_id == get_trainer_id() and context.user_data.get("say_choices"):
         log_debug(f"Message intercepted by say_step handler")
-        await handle_say_step(update, context)
-        return
+        target_chat = say_proxy.get_target(user_id)
+        
+        if target_chat == "EXPIRED":
+            await message.reply_text("⏳ Time expired. Use /say again.")
+            return
+        
+        # If target not yet chosen, try to interpret text as number
+        if not target_chat and message.text:
+            stripped = message.text.strip()
+            if stripped.isdigit():
+                try:
+                    index = int(stripped) - 1
+                    choices = context.user_data.get("say_choices", [])
+                    if 0 <= index < len(choices):
+                        selected_chat_id = choices[index][0]
+                        say_proxy.set_target(user_id, selected_chat_id)
+                        context.user_data.pop("say_choices", None)
+                        await message.reply_text(
+                            "✅ Chat selected.\n\nNow send me the *message*, a *photo*, a *file*, an *audio* or any other content to forward.",
+                            parse_mode="Markdown"
+                        )
+                        return
+                except Exception:
+                    pass
+            
+            await message.reply_text("❌ Invalid selection. Send a correct number.")
+            return
+        
+        # Chat selected → forward content through plugin
+        if target_chat:
+            log_debug(f"Forwarding via plugin_instance.handle_incoming_message (chat_id={target_chat})")
+            try:
+                await plugin_instance.handle_incoming_message(context.bot, message, context.user_data, "telegram_bot")
+                response_proxy.clear_target(get_trainer_id())
+                say_proxy.clear(get_trainer_id())
+                return
+            except Exception as e:
+                log_error(f"Error during plugin_instance.handle_incoming_message in /say: {e}", e)
+                await message.reply_text("❌ Error sending message.")
+                return
+    
+    # === PRIORITY 2: Handle trainer incoming responses (stickers, media with target) ===
+    if message.chat.type == "private" and is_trainer(user_id):
+        media_type = detect_media_type(message)
+        log_debug(f"Trainer message detected: media_type={media_type}")
+        
+        # Check if there's a target set (from /say or reply)
+        target = response_proxy.get_target(get_trainer_id())
+        log_debug(f"Initial target from response_proxy = {target}")
+        
+        # If replying to a message, search in plugin mapping
+        if not target and message.reply_to_message:
+            reply = message.reply_to_message
+            log_debug(f"Reply to trainer_message_id={reply.message_id}")
+            possible_ids = [reply.message_id]
+            if reply.reply_to_message:
+                possible_ids.append(reply.reply_to_message.message_id)
+            
+            for mid in possible_ids:
+                tracked = plugin_instance.get_target(mid)
+                if tracked:
+                    target = {
+                        "chat_id": tracked["chat_id"],
+                        "message_id": tracked["message_id"],
+                        "type": media_type
+                    }
+                    log_debug(f"Found target via plugin_instance.get_target({mid}): {target}")
+                    break
+        
+        # Fallback from /say
+        if not target:
+            fallback = say_proxy.get_target(get_trainer_id())
+            log_debug(f"Fallback from say_proxy = {fallback}")
+            if fallback and fallback != "EXPIRED":
+                target = {
+                    "chat_id": fallback,
+                    "message_id": None,
+                    "type": media_type
+                }
+                log_debug(f"Target set from say_proxy: {target}")
+            elif fallback == "EXPIRED":
+                await message.reply_text("⏳ Timeout expired, run /say again.")
+                return
+        
+        # If we have a target, send the content
+        if target:
+            chat_id = target["chat_id"]
+            reply_message_id = target["message_id"]
+            content_type = target["type"]
+            
+            log_debug(f"Sending media_type={content_type} to chat_id={chat_id}, reply_message_id={reply_message_id}")
+            success, feedback = await send_content(context.bot, chat_id, message, content_type, reply_message_id)
+            log_debug(f"send_content returned: success={success}, feedback={feedback}")
+            
+            await message.reply_text(feedback)
+            
+            if success:
+                log_debug("✅ Sending successful. Cleaning proxy.")
+                response_proxy.clear_target(get_trainer_id())
+                say_proxy.clear(get_trainer_id())
+            return
 
-    log_debug(f"After say_step check - continuing to message processing")
+    log_debug(f"After trainer-specific checks - continuing to message processing")
+    log_debug(f"After trainer-specific checks - continuing to message processing")
     log_debug(f"Checking if message is for bot - calling is_message_for_bot")
     
     # Check if message is directed to bot
@@ -446,7 +449,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     log_debug(f"human_count={human_count}, message.chat.type={message.chat.type}")
     
-    directed, reason = await is_message_for_bot(message, context.bot, human_count=human_count)
+    # Get bot username for mention checking
+    bot_username = None
+    try:
+        bot_info = await context.bot.get_me()
+        bot_username = bot_info.username if bot_info else None
+        log_debug(f"Bot username: {bot_username}")
+    except Exception as e:
+        log_debug(f"Could not get bot username: {e}")
+    
+    directed, reason = await is_message_for_bot(message, context.bot, bot_username=bot_username, human_count=human_count)
     log_debug(f"is_message_for_bot returned directed={directed}, reason='{reason}'")
     
     if not directed:
@@ -462,7 +474,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_debug(f"[telegram_bot] DEBUG: Message is directed to bot - continuing processing")
     log_debug(f"[telegram_bot] Message from {user_id} ({message.chat.type}): {text}")
 
-    # trainer reply to forwarded message
+    # === PRIORITY 3: Trainer reply to forwarded message ===
     trainer_id = get_trainer_id()
     log_debug(f"Checking trainer reply conditions - chat_type: {message.chat.type}, user_id: {user_id}, trainer_id: {trainer_id}, has_reply: {bool(message.reply_to_message)}")
     if message.chat.type == "private" and user_id == trainer_id and message.reply_to_message:
@@ -477,7 +489,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=original["chat_id"],
                 text=message.text,
                 reply_to_message_id=original["message_id"]
-            )  # [FIX]
+            )
             await message.reply_text("✅ Reply sent.")
         else:
             log_warning("⚠️ No target found for reply. Ensure plugin mapping is correct.")
@@ -486,7 +498,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         log_debug(f"Not a trainer reply - continuing to queue forwarding")
 
-    # === Forward to centralized queue
+    # === PRIORITY 4: Forward to centralized queue (default behavior) ===
     log_debug(f"About to forward message to queue: '{text}' from user {user_id}")
     log_debug(f"Checking message_queue module availability")
     
@@ -663,56 +675,6 @@ async def say_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["say_choices"] = entries
 
     await update.message.reply_text(numbered, parse_mode="Markdown")
-
-async def handle_say_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not await ensure_plugin_loaded(update):
-        return
-
-    user_id = update.effective_user.id
-    message = update.message
-
-    target_chat = say_proxy.get_target(user_id)
-
-    if target_chat == "EXPIRED":
-        await message.reply_text("⏳ Time expired. Use /say again.")
-        return
-
-    # If target not yet chosen, always try to interpret text as number
-    if not target_chat and message.text:
-        stripped = message.text.strip()
-        if stripped.isdigit():
-            try:
-                index = int(stripped) - 1
-                choices = context.user_data.get("say_choices", [])
-                if 0 <= index < len(choices):
-                    selected_chat_id = choices[index][0]
-                    say_proxy.set_target(user_id, selected_chat_id)
-                    context.user_data.pop("say_choices", None)
-                    await message.reply_text(
-                        "✅ Chat selected.\n\nNow send me the *message*, a *photo*, a *file*, an *audio* or any other content to forward.",
-                        parse_mode="Markdown"
-                    )
-                    return
-            except Exception:
-                pass
-
-        await message.reply_text("❌ Invalid selection. Send a correct number.")
-        return
-
-    # Chat selected → forward content through plugin
-    if target_chat:
-        log_debug(f"Forwarding via plugin_instance.handle_incoming_message (chat_id={target_chat})")
-        try:
-            await plugin_instance.handle_incoming_message(context.bot, message, context.user_data, "telegram_bot")
-            response_proxy.clear_target(get_trainer_id())
-            say_proxy.clear(get_trainer_id())
-        except Exception as e:
-            log_error(
-                f"Error during plugin_instance.handle_incoming_message in /say: {e}",
-                e,
-            )
-            await message.reply_text("❌ Error sending message.")
 
 async def llm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_info(f"[telegram_bot] LLM command received from user {update.effective_user.id}")
@@ -907,28 +869,13 @@ async def start_bot():
         log_info("[telegram_bot] Adding command handlers...")
         # Use generic command handler for all commands
         app.add_handler(MessageHandler(filters.COMMAND, handle_command))
-        log_info("[telegram_bot] Adding MessageHandler for general messages (text and images)...")
+        
+        # Single unified message handler for ALL non-command messages
+        log_info("[telegram_bot] Adding unified MessageHandler for all messages...")
         app.add_handler(MessageHandler(
-            (filters.TEXT & ~filters.COMMAND) | filters.PHOTO | filters.Document.ALL, 
+            (filters.TEXT & ~filters.COMMAND) | filters.PHOTO | filters.Document.ALL | 
+            filters.Sticker.ALL | filters.AUDIO | filters.VOICE | filters.VIDEO, 
             handle_message
-        ))
-        log_info("[telegram_bot] Adding MessageHandler for get_trainer_id() say steps...")
-
-        app.add_handler(MessageHandler(
-            filters.Chat(get_trainer_id()) & (
-                filters.TEXT | filters.PHOTO | filters.AUDIO | filters.VOICE |
-                filters.VIDEO | filters.Document.ALL
-            ),
-            handle_say_step
-        ))
-        log_info("[telegram_bot] Adding MessageHandler for get_trainer_id() incoming responses...")
-
-        app.add_handler(MessageHandler(
-            filters.Chat(get_trainer_id()) & (
-                filters.Sticker.ALL | filters.PHOTO | filters.AUDIO |
-                filters.VOICE | filters.VIDEO | filters.Document.ALL
-            ),
-            handle_incoming_response
         ))
         log_info("[telegram_bot] All handlers added successfully")
         
