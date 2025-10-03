@@ -556,5 +556,10 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
             log_debug(f"[telegram_safe_send] Sending chunk {i//chunk_size + 1} (len={len(chunk)}) to chat_id={chat_id}")
             await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
     except Exception as e:
-        log_error(f"[telegram_safe_send] Failed to send text chunks: {repr(e)}")
+        # Log as WARNING if it's a thread error (will be handled by fallback), ERROR otherwise
+        error_msg = str(e).lower()
+        if "thread not found" in error_msg or "message thread not found" in error_msg:
+            log_warning(f"[telegram_safe_send] Thread error (will retry without thread): {repr(e)}")
+        else:
+            log_error(f"[telegram_safe_send] Failed to send text chunks: {repr(e)}")
         raise
