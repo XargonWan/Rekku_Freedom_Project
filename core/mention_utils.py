@@ -76,6 +76,15 @@ def is_rekku_mentioned(text: str) -> bool:
     return False
 
 
+def get_message_text(message) -> str | None:
+    """
+    Extract text from a message, checking both text and caption fields.
+    Returns None if neither is available.
+    """
+    return message.text if hasattr(message, 'text') and message.text else \
+           message.caption if hasattr(message, 'caption') and message.caption else None
+
+
 async def is_message_for_bot(
     message,
     bot,
@@ -104,8 +113,11 @@ async def is_message_for_bot(
               considered for the bot. ``None`` when ``is_for_bot`` is True.
     """
     # First log to ensure function is called
+    # Extract text from message (handles both text and caption)
+    message_text = get_message_text(message)
+    
     try:
-        log_debug(f"[mention] ENTRY: Function called with message.text='{getattr(message, 'text', 'NO_TEXT')}' chat_type='{getattr(message.chat, 'type', 'NO_CHAT_TYPE')}'")
+        log_debug(f"[mention] ENTRY: Function called with message.text='{message_text}' chat_type='{getattr(message.chat, 'type', 'NO_CHAT_TYPE')}'")
     except Exception as e:
         print(f"ERROR in log_debug: {e}")
         return False, "error_in_function"
@@ -138,19 +150,19 @@ async def is_message_for_bot(
                 return True, None
     
     # Priority 3: Check for @mention/tag (explicit mentions)
-    if message.text and "@" in message.text:
+    if message_text and "@" in message_text:
         # Check for @rekku mention
-        if "@rekku" in message.text.lower():
+        if "@rekku" in message_text.lower():
             log_debug("[mention] ✅ Explicit @rekku mention found - PRIORITY 3 - message is for bot")
             return True, None
         # Check for bot username if provided
-        if bot_username and f"@{bot_username}" in message.text:
+        if bot_username and f"@{bot_username}" in message_text:
             log_debug(f"[mention] ✅ Explicit @mention found: @{bot_username} - PRIORITY 3 - message is for bot")
             return True, None
     
     # Priority 4: Check for Rekku aliases in message text (activation words)
-    if message.text:
-        text_lower = message.text.lower()
+    if message_text:
+        text_lower = message_text.lower()
         log_debug(f"[mention] Checking aliases in text: '{text_lower}'")
         for alias in REKKU_ALIASES:
             if alias.lower() in text_lower:
@@ -162,7 +174,7 @@ async def is_message_for_bot(
         try:
             from core.persona_manager import get_persona_manager
             persona_manager = get_persona_manager()
-            if persona_manager and persona_manager.check_triggers(message.text):
+            if persona_manager and persona_manager.check_triggers(message_text):
                 log_debug("[mention] ✅ Persona manager trigger found - PRIORITY 4.5 - message is for bot")
                 return True, None
         except Exception as e:

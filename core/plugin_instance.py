@@ -310,11 +310,23 @@ async def _extract_image_data_from_message(message, interface_name: str):
     
     # Check for photo attachments (generic interface)
     if hasattr(message, 'photo') and message.photo:
+        # DEBUG: Log the photo object BEFORE any processing
+        log_debug(f"[plugin_instance] message.photo type BEFORE processing: {type(message.photo)}")
+        log_debug(f"[plugin_instance] message.photo value BEFORE processing: {message.photo}")
+        log_debug(f"[plugin_instance] message.photo is list: {isinstance(message.photo, list)}")
+        log_debug(f"[plugin_instance] message.photo is tuple: {isinstance(message.photo, tuple)}")
+        
         # Handle list of photos (multiple resolutions)
         if isinstance(message.photo, list):
             photo = message.photo[-1]  # Last element is typically highest resolution
         else:
             photo = message.photo
+        
+        # Debug: Log photo object type and attributes
+        log_debug(f"[plugin_instance] Photo object type: {type(photo)}")
+        log_debug(f"[plugin_instance] Photo object attributes: {dir(photo)}")
+        log_debug(f"[plugin_instance] Photo file_id: {getattr(photo, 'file_id', None)}")
+        log_debug(f"[plugin_instance] Photo file_unique_id: {getattr(photo, 'file_unique_id', None)}")
             
         image_data = {
             "type": "photo", 
@@ -326,6 +338,7 @@ async def _extract_image_data_from_message(message, interface_name: str):
             "caption": getattr(message, 'caption', ''),
             "mime_type": getattr(photo, 'mime_type', "image/jpeg")  # Default to JPEG
         }
+        log_info(f"[plugin_instance] Extracted image_data: {image_data}")
         has_trigger = True  # Photos are always considered as having trigger for now
         
     elif hasattr(message, 'document') and message.document:
