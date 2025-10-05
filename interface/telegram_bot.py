@@ -24,6 +24,7 @@ from core import say_proxy, message_queue
 from core.context import context_command
 from core import recent_chats  # For command functions only, not for tracking
 from core.mention_utils import is_message_for_bot
+from core.reaction_handler import react_when_mentioned
 from collections import deque
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
@@ -472,6 +473,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     log_debug(f"[telegram_bot] DEBUG: Message is directed to bot - continuing processing")
+    
+    # Add reaction if configured (REACT_WHEN_MENTIONED)
+    try:
+        await react_when_mentioned(context.bot, message)
+    except Exception as e:
+        log_warning(f"[telegram_bot] Failed to add reaction: {e}")
+    
     log_debug(f"[telegram_bot] Message from {user_id} ({message.chat.type}): {text}")
 
     # === PRIORITY 3: Trainer reply to forwarded message ===
@@ -856,10 +864,19 @@ async def start_bot():
 
     try:
         log_info("[telegram_bot] Building Telegram application...")
+        # Configure timeouts to avoid frequent TimedOut warnings
+        # connect_timeout: time to establish connection
+        # read_timeout: time to wait for response from Telegram servers
+        # write_timeout: time to send data to Telegram servers
+        # pool_timeout: time to wait for connection from pool
         app = (
             ApplicationBuilder()
             .token(BOTFATHER_TOKEN)
             .post_init(plugin_startup_callback)
+            .connect_timeout(30.0)  # Increased from default ~5s to 30s
+            .read_timeout(30.0)     # Increased from default ~5s to 30s
+            .write_timeout(30.0)    # Increased from default ~5s to 30s
+            .pool_timeout(10.0)     # Connection pool timeout
             .build()
         )
         log_info("[telegram_bot] Telegram application built successfully")
