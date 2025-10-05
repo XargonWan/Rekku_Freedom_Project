@@ -1,3 +1,7 @@
+> [!NOTE]
+> This project will be made more generic and will soon be renamed into **SyntH - Synthetic Heart** allowing any user to easly create their own persona.
+> Contributons are welcome.
+
 <img src="docs/res/RFP_logo.png" alt="RFP Logo" width="300"/>
 
 ![Docker Pulls](https://img.shields.io/docker/pulls/xargonwan/rekku_freedom_project)
