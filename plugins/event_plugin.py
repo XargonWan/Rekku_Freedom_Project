@@ -35,6 +35,10 @@ class EventPlugin(AIPluginBase):
         self._pending_events: dict[str, dict] = {}  # message_id -> event_info
         log_info("[event_plugin] EventPlugin instance created")
         register_plugin("event", self)
+        
+        # Register custom validation with the new validation system
+        self._register_custom_validation()
+        
         log_info("[event_plugin] Registered EventPlugin")
 
     def set_bot(self, bot):
@@ -287,7 +291,7 @@ class EventPlugin(AIPluginBase):
                 reminder_description,
                 created_by,
             )
-            from core.rekku_utils import parse_local_to_utc, format_dual_time
+            from core.time_zone_utils import parse_local_to_utc, format_dual_time
             try:
                 utc_dt = parse_local_to_utc(date_str, time_str or "00:00")
                 dual = format_dual_time(utc_dt)
@@ -467,7 +471,7 @@ class EventPlugin(AIPluginBase):
 
         # Extract event details
         event_id = event.get("id", "unknown")
-        from core.rekku_utils import format_dual_time
+        from core.time_zone_utils import format_dual_time
         date = event.get("date", "")
         time = event.get("time", "")
         description = event.get("description", "")
@@ -602,7 +606,7 @@ For recurring events, you can use:
             chat=SimpleNamespace(
                 id="SYSTEM_SCHEDULER", type="private", title="System Scheduler"
             ),
-            message_thread_id=None,
+            thread_id=None,
         )
 
     async def _execute_action_silently(self, action: dict, event_id: int):
@@ -632,7 +636,7 @@ For recurring events, you can use:
         try:
             text = payload.get("text", "")
             target_chat_id = payload.get("target")
-            message_thread_id = payload.get("message_thread_id")
+            thread_id = payload.get("thread_id")
 
             if not text or not target_chat_id:
                 log_error(
@@ -646,7 +650,7 @@ For recurring events, you can use:
 
             # Get the appropriate transport layer directly
             await self._send_via_transport_layer(
-                target_chat_id, text, message_thread_id, event_id
+                target_chat_id, text, thread_id, event_id
             )
 
         except Exception as e:
@@ -658,7 +662,7 @@ For recurring events, you can use:
         self,
         chat_id: int,
         text: str,
-        message_thread_id: int = None,
+        thread_id: int = None,
         event_id: int = None,
     ):
         """Send message directly via transport layer, bypassing interfaces."""
@@ -667,12 +671,12 @@ For recurring events, you can use:
             if chat_id < 0:
                 # Negative IDs are typically Telegram groups/channels
                 await self._send_via_telegram_transport(
-                    chat_id, text, message_thread_id, event_id
+                    chat_id, text, thread_id, event_id
                 )
             else:
                 # Positive IDs could be Telegram private chats or other platforms
                 await self._send_via_telegram_transport(
-                    chat_id, text, message_thread_id, event_id
+                    chat_id, text, thread_id, event_id
                 )
 
         except Exception as e:
@@ -684,7 +688,7 @@ For recurring events, you can use:
         self,
         chat_id: int,
         text: str,
-        message_thread_id: int = None,
+        thread_id: int = None,
         event_id: int = None,
     ):
         """Send message directly via Telegram transport layer."""
@@ -705,7 +709,7 @@ For recurring events, you can use:
                 bot,
                 chat_id,
                 text,
-                message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
+                thread_id=thread_id,  # fixed: correct param is thread_id
                 parse_mode="Markdown",
             )
 
@@ -719,7 +723,7 @@ For recurring events, you can use:
             )
             # Fallback: use the bot instance directly if available
             await self._fallback_send_telegram(
-                chat_id, text, message_thread_id, event_id
+                chat_id, text, thread_id, event_id
             )
         except Exception as e:
             log_error(
@@ -730,7 +734,7 @@ For recurring events, you can use:
         self,
         chat_id: int,
         text: str,
-        message_thread_id: int = None,
+        thread_id: int = None,
         event_id: int = None,
     ):
         """Fallback method to send via Telegram bot directly."""
@@ -750,7 +754,7 @@ For recurring events, you can use:
                     bot,
                     chat_id,
                     text,
-                    message_thread_id=message_thread_id,  # fixed: correct param is message_thread_id
+                    thread_id=thread_id,  # fixed: correct param is thread_id
                     parse_mode="Markdown",
                 )
                 log_info(
@@ -781,7 +785,7 @@ For recurring events, you can use:
                 (),
                 {
                     "chat_id": -999999999,  # Special ID for silent execution
-                    "message_thread_id": None,
+                    "thread_id": None,
                 },
             )()
 
@@ -857,7 +861,7 @@ For recurring events, you can use:
         target_chat_id = action.get("payload", {}).get(
             "target", SCHEDULED_EVENTS_CHAT_ID
         )
-        message_thread_id = action.get("payload", {}).get("message_thread_id")
+        thread_id = action.get("payload", {}).get("thread_id")
 
         # Extract lateness info
         is_late = event_info.get("is_late", False) if event_info else False
@@ -890,12 +894,12 @@ For recurring events, you can use:
             ),
             # Store the real target info for final message routing
             _scheduled_target_chat_id=target_chat_id,
-            _scheduled_message_thread_id=message_thread_id,
+            _scheduled_thread_id=thread_id,
             # Store lateness info
             _is_late=is_late,
             _minutes_late=minutes_late,
-            # Add message_thread_id if present (for topic support)
-            message_thread_id=None,  # Scheduled events don't use threads in their own chat
+            # Add thread_id if present (for topic support)
+            thread_id=None,  # Scheduled events don't use threads in their own chat
         )
 
         return message
@@ -908,7 +912,7 @@ For recurring events, you can use:
         # Extract lateness info if available
         is_late = event_info.get("is_late", False) if event_info else False
         minutes_late = event_info.get("minutes_late", 0) if event_info else 0
-        from core.rekku_utils import format_dual_time
+        from core.time_zone_utils import format_dual_time
         scheduled_time = "unknown"
         if event_info:
             next_run_val = event_info.get("next_run")
@@ -1048,7 +1052,7 @@ Weekly recurring reminder:
                 """Handle LLM responses and delegate to action parser."""
                 text = kwargs.get("text", "")
                 chat_id = kwargs.get("chat_id")
-                message_thread_id = kwargs.get("message_thread_id")
+                thread_id = kwargs.get("thread_id")
 
                 log_debug(f"[event_plugin] LLM responded with: {text[:100]}...")
 
@@ -1073,9 +1077,9 @@ Weekly recurring reminder:
                                 "chat_id": response_action.get("payload", {}).get(
                                     "target", chat_id
                                 ),
-                                "message_thread_id": response_action.get(
+                                "thread_id": response_action.get(
                                     "payload", {}
-                                ).get("message_thread_id", message_thread_id),
+                                ).get("thread_id", thread_id),
                             },
                         )()
 
@@ -1094,6 +1098,66 @@ Weekly recurring reminder:
 
         return ScheduledEventBot(self)
 
+    def _register_custom_validation(self):
+        """Register custom validation rules with the new validation system."""
+        try:
+            from core.validation_registry import ValidationRule, get_validation_registry
+            
+            def validate_event_payload(payload):
+                """Enhanced validation for event actions."""
+                errors = []
+                
+                # Validate date format and logic
+                date_str = payload.get("date")
+                if date_str:
+                    try:
+                        from datetime import datetime
+                        event_date = datetime.strptime(date_str, "%Y-%m-%d")
+                        # Check if date is not in the past
+                        today = datetime.now().date()
+                        if event_date.date() < today:
+                            errors.append("Event date cannot be in the past")
+                    except Exception:
+                        errors.append("payload.date must be in format YYYY-MM-DD")
+                
+                # Validate time format if provided
+                time_str = payload.get("time")
+                if time_str:
+                    try:
+                        from datetime import datetime
+                        datetime.strptime(time_str, "%H:%M")
+                    except Exception:
+                        errors.append("payload.time must be in format HH:MM")
+                
+                # Validate repeat options
+                repeat = payload.get("repeat")
+                if repeat and repeat not in ["none", "daily", "weekly", "monthly", "always"]:
+                    errors.append("payload.repeat must be one of: none, daily, weekly, monthly, always")
+                
+                # Validate description length
+                description = payload.get("description", "")
+                if len(description) > 500:
+                    errors.append("Event description cannot exceed 500 characters")
+                
+                return errors
+            
+            # Create custom validation rule
+            rule = ValidationRule(
+                action_type="event",
+                required_fields=["date", "description"],
+                custom_validator=validate_event_payload,
+                component_name="event"
+            )
+            
+            # Register with validation registry
+            registry = get_validation_registry()
+            registry.register_component_rules("event", [rule])
+            
+            log_debug("[event_plugin] Registered custom validation rules with validation registry")
+            
+        except Exception as e:
+            log_warning(f"[event_plugin] Failed to register custom validation: {e}")
+    
 
 # Export the plugin class for the loader
 PLUGIN_CLASS = EventPlugin

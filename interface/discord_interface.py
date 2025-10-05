@@ -28,7 +28,16 @@ class DiscordInterface:
     """Discord interface mirroring Telegram bot behaviour."""
 
     def __init__(self, bot_token: str):
-        self.bot_token = bot_token
+        self.bot_token = bot_token.strip() if bot_token else ""
+        
+        if not self.bot_token:
+            log_warning("[discord_interface] No bot token provided - Discord interface disabled")
+            self.client = None
+            return
+        
+        # Register custom validation with the new validation system
+        self._register_custom_validation()
+        
         intents = None
         if discord is not None:  # pragma: no branch
             intents = discord.Intents.default()
@@ -86,11 +95,17 @@ class DiscordInterface:
 
     async def _start_discord_client(self):
         """Start the Discord client with proper error handling."""
+        if not self.bot_token or self.bot_token.strip() == "":
+            log_warning("[discord_interface] No valid Discord bot token provided - skipping Discord startup")
+            return
+            
         try:
             log_info("[discord_interface] Starting Discord client...")
             await self.client.start(self.bot_token)
         except Exception as e:  # pragma: no cover - startup errors
             log_error(f"[discord_interface] Failed to start Discord client: {e}")
+            if "Improper token" in str(e):
+                log_warning("[discord_interface] Invalid Discord token - Discord interface will remain disabled")
 
     @staticmethod
     def get_interface_id() -> str:
@@ -300,13 +315,27 @@ class DiscordInterface:
                         ),
                     )
 
-            # Prepare simplified message for core queue
+            # Discord thread detection and handling
+            thread_id = None
+            parent_channel_id = None
+            
+            if hasattr(message, 'channel') and message.channel:
+                # In Discord.py, threads have type GUILD_PUBLIC_THREAD, GUILD_PRIVATE_THREAD, etc.
+                channel_type = str(getattr(message.channel, 'type', ''))
+                if '_thread' in channel_type.lower():
+                    # We're in a thread - channel_id is already the thread ID
+                    thread_id = channel_id  # Same as message.channel.id
+                    parent_channel_id = getattr(message.channel, 'parent_id', None)
+                    log_debug(f"[discord_interface] Message in thread: {thread_id}, parent: {parent_channel_id}")
+
+            # Prepare simplified message for core queue  
             wrapped = SimpleNamespace(
                 message_id=getattr(message, "id", None),
-                chat_id=channel_id,
+                chat_id=channel_id,  # In Discord, this is thread ID if in thread, channel ID otherwise
                 text=content,
                 caption=None,
                 date=getattr(message, "created_at", None),
+                thread_id=thread_id,  # Thread ID if in thread, None if in regular channel
                 from_user=SimpleNamespace(
                     id=getattr(message.author, "id", None),
                     username=getattr(message.author, "name", None),
@@ -365,11 +394,65 @@ class DiscordInterface:
             "- When a message arrives from Discord, respond using the message_discord_bot action; do not use other interfaces unless explicitly requested."
         )
 
+    def _register_custom_validation(self):
+        """Register custom validation rules with the new validation system."""
+        try:
+            from core.validation_registry import ValidationRule, get_validation_registry
+            
+            def validate_discord_message(payload):
+                """Enhanced validation for Discord message actions."""
+                errors = []
+                
+                # Validate text content
+                text = payload.get("text")
+                if text:
+                    if len(text) > 2000:  # Discord message limit
+                        errors.append("Message text cannot exceed 2000 characters")
+                    if not text.strip():
+                        errors.append("Message text cannot be empty or only whitespace")
+                
+                # Validate target (channel_id)
+                target = payload.get("target")
+                if target is not None:
+                    if isinstance(target, str) and not target.isdigit():
+                        errors.append("Channel ID must be numeric")
+                    elif isinstance(target, int) and target <= 0:
+                        errors.append("Channel ID must be positive")
+                
+                # Validate reply_to_message_id
+                reply_to = payload.get("reply_to_message_id")
+                if reply_to is not None:
+                    if not isinstance(reply_to, int) or reply_to <= 0:
+                        errors.append("reply_to_message_id must be a positive integer")
+                
+                return errors
+            
+            # Create custom validation rule
+            rule = ValidationRule(
+                action_type="message_discord_bot",
+                required_fields=["text", "target"],
+                custom_validator=validate_discord_message,
+                component_name="discord_interface"
+            )
+            
+            # Register with validation registry
+            registry = get_validation_registry()
+            registry.register_component_rules("discord_interface", [rule])
+            
+            log_debug("[discord_interface] Registered custom validation rules with validation registry")
+            
+        except Exception as e:
+            log_warning(f"[discord_interface] Failed to register custom validation: {e}")
+
 # Expose class for dynamic loading
 INTERFACE_CLASS = DiscordInterface
 
 # Instantiate and register the interface at import time so the core
 # initializer can discover it during startup.
 _token = os.getenv("DISCORD_BOT_TOKEN", "")
-discord_interface = DiscordInterface(_token)
+if _token:
+    discord_interface = DiscordInterface(_token)
+else:
+    log_warning("[discord_interface] DISCORD_BOT_TOKEN not configured - Discord interface disabled")
+    discord_interface = None
 

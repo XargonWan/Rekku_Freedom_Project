@@ -18,3 +18,5 @@ sphinx
 sphinx_rtd_theme
 unittest-xml-reporting
 discord.py
+pytest>=7.0.0
+pytest-asyncio>=0.21.0

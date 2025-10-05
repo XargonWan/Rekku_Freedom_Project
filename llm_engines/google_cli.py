@@ -10,7 +10,7 @@ from core.transport_layer import llm_to_interface
 
 # Google CLI-specific configuration
 GOOGLE_CLI_CONFIG = {
-    "max_prompt_chars": 20000,  # Google Gemini limits
+    "max_prompt_chars": 1000000,  # Gemini 1.5 Pro has 1M token context
     "max_response_chars": 3000,
     "supports_images": True,
     "supports_functions": True,
@@ -40,6 +40,17 @@ def supports_images() -> bool:
 def supports_functions() -> bool:
     """Check if Google CLI supports functions."""
     return GOOGLE_CLI_CONFIG["supports_functions"]
+
+def get_interface_limits() -> dict:
+    """Get the limits and capabilities for Google CLI interface."""
+    log_info(f"[google_cli] Interface limits: max_prompt_chars={GOOGLE_CLI_CONFIG['max_prompt_chars']}, supports_images={GOOGLE_CLI_CONFIG['supports_images']}")
+    return {
+        "max_prompt_chars": GOOGLE_CLI_CONFIG["max_prompt_chars"],
+        "max_response_chars": GOOGLE_CLI_CONFIG["max_response_chars"],
+        "supports_images": GOOGLE_CLI_CONFIG["supports_images"],
+        "supports_functions": GOOGLE_CLI_CONFIG["supports_functions"],
+        "model_name": GOOGLE_CLI_CONFIG["model_name"]
+    }
 
 class GoogleCLIPlugin(AIPluginBase):
     """

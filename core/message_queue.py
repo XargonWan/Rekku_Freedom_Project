@@ -10,6 +10,7 @@ from core.logging_utils import log_debug, log_error, log_warning, log_info
 from core.mention_utils import is_message_for_bot
 from core.interfaces_registry import get_interface_registry
 from plugins.blocklist import is_user_blocked
+from plugins.chat_link import ChatLinkStore
 
 # Use a priority queue so events can be processed before regular messages
 HIGH_PRIORITY = 0
@@ -64,8 +65,18 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
 
     log_debug(f"[QUEUE] DEBUG: human_count={human_count}, message.chat.type={getattr(message.chat, 'type', 'unknown')}")
     
+    # Get bot username for mention detection
+    bot_username = None
+    try:
+        if bot and hasattr(bot, 'get_me'):
+            bot_info = await bot.get_me()
+            bot_username = bot_info.username if bot_info else None
+            log_debug(f"[QUEUE] Bot username: {bot_username}")
+    except Exception as e:
+        log_debug(f"[QUEUE] Error getting bot username: {e}")
+    
     directed, reason = await is_message_for_bot(
-        message, bot, human_count=human_count
+        message, bot, bot_username=bot_username, human_count=human_count
     )
     log_debug(f"[QUEUE] DEBUG: is_message_for_bot returned directed={directed}, reason='{reason}'")
     
@@ -131,12 +142,41 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
     meta = message.chat.title or message.chat.username or message.chat.first_name
     await recent_chats.track_chat(chat_id, meta)
 
-    thread_id = getattr(message, "message_thread_id", None)
+    # Extract thread_id - unified field name, check both Telegram and generic names
+    # DEBUG: let's see what telegram message actually contains
+    thread_attrs = [attr for attr in dir(message) if 'thread' in attr.lower()]
+    log_debug(f"[QUEUE] Available thread attributes in message: {thread_attrs}")
+    
+    # Use only thread_id, message_thread_id is legacy and deprecated
+    thread_id_val = getattr(message, "thread_id", None)
+    log_debug(f"[QUEUE] message.thread_id = {thread_id_val}")
+    
+    thread_id = thread_id_val
     interface = interface_id if interface_id else (
         bot.get_interface_id()
         if bot and hasattr(bot, "get_interface_id")
         else bot.__class__.__name__ if bot else None
     )
+
+    # Resolve chat and thread names automatically
+    chat_name = None
+    message_thread_name = None
+    try:
+        store = ChatLinkStore()
+        resolver = store.get_name_resolver(interface)
+        if resolver:
+            log_debug(f"[QUEUE] Resolving names for chat {chat_id}, thread {thread_id}")
+            names = await resolver(chat_id, thread_id, bot)
+            if names:
+                chat_name = names.get("chat_name")
+                message_thread_name = names.get("message_thread_name")
+                log_debug(f"[QUEUE] Resolved names: chat='{chat_name}', thread='{message_thread_name}'")
+            else:
+                log_debug("[QUEUE] Resolver returned no names")
+        else:
+            log_debug(f"[QUEUE] No name resolver for interface '{interface}'")
+    except Exception as e:
+        log_warning(f"[QUEUE] Failed to resolve chat/thread names: {e}")
 
     item = {
         "bot": bot,
@@ -144,6 +184,8 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
         "chat_id": chat_id,
         "thread_id": thread_id,
         "interface": interface,
+        "chat_name": chat_name,
+        "message_thread_name": message_thread_name,
         "timestamp": time.time(),
         "context": context_memory,
         "priority": priority,
@@ -231,7 +273,7 @@ async def _consumer_loop() -> None:
                         text="\n".join(lines),
                         from_user=SimpleNamespace(id=0, username="group", full_name="group"),
                         date=getattr(base, "date", datetime.utcnow()),
-                        message_thread_id=getattr(base, "message_thread_id", None),
+                        thread_id=getattr(base, "thread_id", None),
                         chat=getattr(base, "chat", None),
                         reply_to_message=getattr(base, "reply_to_message", None),
                     )
@@ -240,6 +282,23 @@ async def _consumer_loop() -> None:
                 log_debug(
                     f"[QUEUE] Processing message from chat {final.get('chat_id')}"
                 )
+
+            # Ensure chat exists with resolved names
+            chat_name = final.get("chat_name")
+            message_thread_name = final.get("message_thread_name")
+            if chat_name or message_thread_name:
+                try:
+                    store = ChatLinkStore()
+                    await store.ensure_chat_exists(
+                        chat_id=final.get("chat_id"),
+                        thread_id=final.get("thread_id"),
+                        interface=final.get("interface"),
+                        chat_name=chat_name,
+                        message_thread_name=message_thread_name
+                    )
+                    log_debug(f"[QUEUE] Updated chat record with names: chat='{chat_name}', thread='{message_thread_name}'")
+                except Exception as e:
+                    log_warning(f"[QUEUE] Failed to update chat names: {e}")
 
             plugin = plugin_instance.get_plugin()
             if not plugin:
@@ -306,7 +365,7 @@ async def _consumer_loop() -> None:
                     if bot and chat_id:
                         kwargs = {"chat_id": chat_id, "text": "😵‍💫"}
                         if thread_id:
-                            kwargs["message_thread_id"] = thread_id
+                            kwargs["thread_id"] = thread_id
                         reply_msg = final.get("message")
                         reply_id = getattr(reply_msg, "message_id", None)
                         if reply_id:

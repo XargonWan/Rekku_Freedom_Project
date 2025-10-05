@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
-from core.rekku_utils import get_local_timezone, format_dual_time
+from core.time_zone_utils import get_local_timezone, format_dual_time
 
 from core.db import get_due_events
 from core import message_queue

@@ -8,7 +8,7 @@ import json
 
 from core.db import get_conn
 from core.logging_utils import log_debug, log_error, log_warning, log_info
-from core.core_initializer import core_initializer, register_plugin
+from core.core_initializer import register_plugin
 
 
 class ChatLinkError(Exception):
@@ -38,7 +38,6 @@ class ChatLinkStore:
 
     def __init__(self) -> None:
         self._table_ensured = False
-        self._new_table_ensured = False
 
     # ------------------------------------------------------------------
     # Resolver management
@@ -59,82 +58,83 @@ class ChatLinkStore:
     # ------------------------------------------------------------------
     # Table management
     async def _ensure_table(self) -> None:
-        """Create the chatgpt_links table if it doesn't exist."""
+        """Create the chatlink table if it doesn't exist with all required columns."""
         if self._table_ensured:
             return
+        
         conn = await get_conn()
         async with conn.cursor() as cursor:
-            await cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS chatgpt_links (
-                    interface VARCHAR(32) NOT NULL,
-                    chat_id TEXT NOT NULL,
-                    message_thread_id TEXT,
-                    link VARCHAR(2048),
-                    chat_name TEXT,
-                    message_thread_name TEXT,
-                    PRIMARY KEY (interface, chat_id(255), message_thread_id(255))
-                )
-                """
-            )
-            # Ensure new columns exist for older installations
-            try:
-                await cursor.execute(
-                    "ALTER TABLE chatgpt_links ADD COLUMN IF NOT EXISTS chat_name TEXT"
-                )
-            except Exception:
-                pass
-            try:
-                await cursor.execute(
-                    "ALTER TABLE chatgpt_links ADD COLUMN IF NOT EXISTS message_thread_name TEXT"
-                )
-            except Exception:
-                pass
-            await conn.commit()
-        conn.close()
-        self._table_ensured = True
-
-    async def _ensure_new_table(self) -> None:
-        """Create the new chatlink table with improved structure."""
-        if self._new_table_ensured:
-            return
-        conn = await get_conn()
-        async with conn.cursor() as cursor:
-            # Create new table with improved structure
+            # Create table with base structure (chatgpt_link will be added by selenium_chatgpt.py)
             await cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chatlink (
                     int_id INT AUTO_INCREMENT PRIMARY KEY,
                     interface VARCHAR(32) NOT NULL,
                     chat_id TEXT NOT NULL,
-                    thread_id JSON NOT NULL DEFAULT ('[]'),
-                    chatgpt_link VARCHAR(2048),
-                    last_contact TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    chat_name TEXT,
-                    message_thread_name TEXT,
+                    thread_id TEXT DEFAULT NULL,
+                    chat_name TEXT DEFAULT NULL,
+                    message_thread_name TEXT DEFAULT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     UNIQUE KEY unique_chat (interface, chat_id(255))
                 )
                 """
             )
+            
+            # Ensure all required columns exist (for existing installations)
+            # Note: chatgpt_link is NOT included here - it's managed by selenium_chatgpt.py
+            columns_to_ensure = [
+                ('thread_id', 'TEXT DEFAULT NULL'),
+                ('chat_name', 'TEXT DEFAULT NULL'),
+                ('message_thread_name', 'TEXT DEFAULT NULL'),
+                ('int_id', 'INT AUTO_INCREMENT PRIMARY KEY'),
+                ('created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'),
+                ('last_updated', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')
+            ]
+            
+            for col_name, col_definition in columns_to_ensure:
+                try:
+                    # Check if column exists
+                    await cursor.execute(
+                        """
+                        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+                        WHERE TABLE_SCHEMA = DATABASE() 
+                        AND TABLE_NAME = 'chatlink' 
+                        AND COLUMN_NAME = %s
+                        """,
+                        (col_name,)
+                    )
+                    result = await cursor.fetchone()
+                    
+                    if not result:
+                        # Column doesn't exist, add it
+                        await cursor.execute(f"ALTER TABLE chatlink ADD COLUMN {col_name} {col_definition}")
+                except Exception as e:
+                    # Log but continue - this is not fatal
+                    print(f"Warning: Could not add column {col_name}: {e}")
+                    pass
+            
             await conn.commit()
         conn.close()
-        self._new_table_ensured = True
+        self._table_ensured = True
+
+
 
     async def get_or_create_internal_id(
         self,
         chat_id: int | str,
-        message_thread_id: Optional[int | str],
+        thread_id: Optional[int | str],
         interface: Optional[str] = None,
         *,
         chat_name: Optional[str] = None,
         message_thread_name: Optional[str] = None,
     ) -> int:
         """Get or create an internal ID for a chat/thread combination."""
-        await self._ensure_new_table()
+        await self._ensure_table()
         
         thread_ids = []
-        if message_thread_id is not None:
-            thread_ids = [str(message_thread_id)]
+        if thread_id is not None:
+            thread_ids = [str(thread_id)]
         
         conn = await get_conn()
         try:
@@ -179,54 +179,81 @@ class ChatLinkStore:
         finally:
             conn.close()
 
-    async def store_link(
+    async def ensure_chat_exists(
         self,
         chat_id: int | str,
-        message_thread_id: Optional[int | str],
-        link: str,
+        thread_id: Optional[int | str] = None,
         interface: Optional[str] = None,
         *,
         chat_name: Optional[str] = None,
         message_thread_name: Optional[str] = None,
     ) -> None:
-        """Store or update a ChatGPT conversation link."""
+        """Ensure a chat record exists in the database."""
         await self._ensure_table()
         
         conn = await get_conn()
         async with conn.cursor() as cursor:
+            # Check what columns actually exist
             await cursor.execute(
                 """
-                REPLACE INTO chatgpt_links 
-                (interface, chat_id, message_thread_id, link, chat_name, message_thread_name)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'chatlink'
+                """
+            )
+            existing_columns = {row[0] for row in await cursor.fetchall()}
+            
+            # Build the query based on available columns
+            base_columns = ['interface', 'chat_id']
+            base_values = [interface, str(chat_id)]
+            
+            if 'thread_id' in existing_columns:
+                base_columns.append('thread_id')
+                base_values.append(str(thread_id) if thread_id is not None else '0')
+            
+            if 'chat_name' in existing_columns and chat_name is not None:
+                base_columns.append('chat_name')
+                base_values.append(chat_name)
+                
+            if 'message_thread_name' in existing_columns and message_thread_name is not None:
+                base_columns.append('message_thread_name')
+                base_values.append(message_thread_name)
+            
+            columns_str = ', '.join(base_columns)
+            placeholders = ', '.join(['%s'] * len(base_values))
+            
+            await cursor.execute(
+                f"""
+                REPLACE INTO chatlink 
+                ({columns_str})
+                VALUES ({placeholders})
                 """,
-                (interface, str(chat_id), str(message_thread_id) if message_thread_id is not None else '0', 
-                 link, chat_name, message_thread_name)
+                base_values
             )
             await conn.commit()
         conn.close()
 
-    async def get_link(
+    async def get_chat_info(
         self,
         chat_id: int | str,
-        message_thread_id: Optional[int | str] = None,
+        thread_id: Optional[int | str] = None,
         interface: Optional[str] = None,
-    ) -> Optional[str]:
-        """Get the ChatGPT link for a chat/thread combination."""
+    ) -> Optional[Dict[str, Any]]:
+        """Get chat information for a chat/thread combination."""
         await self._ensure_table()
         
         conn = await get_conn()
         try:
-            async with conn.cursor() as cursor:
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
                 await cursor.execute(
                     """
-                    SELECT link FROM chatgpt_links
-                    WHERE interface = %s AND chat_id = %s AND message_thread_id = %s
+                    SELECT * FROM chatlink
+                    WHERE interface = %s AND chat_id = %s AND thread_id = %s
                     """,
-                    (interface, str(chat_id), str(message_thread_id) if message_thread_id is not None else '0')
+                    (interface, str(chat_id), str(thread_id) if thread_id is not None else '0')
                 )
                 row = await cursor.fetchone()
-                return row[0] if row else None
+                return dict(row) if row else None
         finally:
             conn.close()
 
@@ -244,7 +271,7 @@ class ChatLinkStore:
                 # Try exact chat_id match first
                 await cursor.execute(
                     """
-                    SELECT * FROM chatgpt_links
+                    SELECT * FROM chatlink
                     WHERE interface = %s AND chat_id = %s
                     """,
                     (interface, identifier)
@@ -255,7 +282,7 @@ class ChatLinkStore:
                     # Try chat name match
                     await cursor.execute(
                         """
-                        SELECT * FROM chatgpt_links
+                        SELECT * FROM chatlink
                         WHERE interface = %s AND chat_name LIKE %s
                         """,
                         (interface, f"%{identifier}%")
@@ -269,7 +296,7 @@ class ChatLinkStore:
     async def update_chat_names(
         self,
         chat_id: int | str,
-        message_thread_id: Optional[int | str],
+        thread_id: Optional[int | str],
         interface: Optional[str] = None,
         *,
         chat_name: Optional[str] = None,
@@ -283,13 +310,13 @@ class ChatLinkStore:
             async with conn.cursor() as cursor:
                 await cursor.execute(
                     """
-                    UPDATE chatgpt_links 
+                    UPDATE chatlink 
                     SET chat_name = COALESCE(%s, chat_name),
                         message_thread_name = COALESCE(%s, message_thread_name)
-                    WHERE interface = %s AND chat_id = %s AND message_thread_id = %s
+                    WHERE interface = %s AND chat_id = %s AND thread_id = %s
                     """,
                     (chat_name, message_thread_name, interface, str(chat_id), 
-                     str(message_thread_id) if message_thread_id is not None else '0')
+                     str(thread_id) if thread_id is not None else '0')
                 )
                 affected_rows = cursor.rowcount
                 await conn.commit()
@@ -300,7 +327,7 @@ class ChatLinkStore:
     async def update_names_from_resolver(
         self,
         chat_id: int | str,
-        message_thread_id: Optional[int | str],
+        thread_id: Optional[int | str],
         *,
         interface: Optional[str] = None,
         bot: Any = None,
@@ -317,9 +344,9 @@ class ChatLinkStore:
             
         try:
             try:
-                result = await resolver(chat_id, message_thread_id, bot)
+                result = await resolver(chat_id, thread_id, bot)
             except TypeError:  # resolver might not accept bot parameter
-                result = await resolver(chat_id, message_thread_id)
+                result = await resolver(chat_id, thread_id)
         except Exception as e:
             log_warning(f"[chatlink] Resolver execution failed: {e}")
             return False
@@ -331,7 +358,7 @@ class ChatLinkStore:
         # Update names using the resolved values
         affected_rows = await self.update_chat_names(
             chat_id,
-            message_thread_id,
+            thread_id,
             interface,
             chat_name=result.get("chat_name"),
             message_thread_name=result.get("message_thread_name"),
@@ -350,7 +377,7 @@ class ChatLinkStore:
                 if interface:
                     await cursor.execute(
                         """
-                        SELECT * FROM chatgpt_links
+                        SELECT * FROM chatlink
                         WHERE interface = %s
                         ORDER BY chat_name, message_thread_name
                         """,
@@ -359,7 +386,7 @@ class ChatLinkStore:
                 else:
                     await cursor.execute(
                         """
-                        SELECT * FROM chatgpt_links
+                        SELECT * FROM chatlink
                         ORDER BY interface, chat_name, message_thread_name
                         """
                     )
@@ -377,19 +404,19 @@ class ChatLinkPlugin:
         log_info("[chat_link] ChatLinkPlugin initialized and registered")
 
     def get_supported_action_types(self):
-        return ["store_link", "get_link", "resolve_chat", "update_chat_names", "list_links"]
+        return ["ensure_chat", "get_chat_info", "resolve_chat", "update_chat_names", "list_chats"]
 
     def get_supported_actions(self):
         return {
-            "store_link": {
-                "description": "Store or update a ChatGPT conversation link",
-                "required_fields": ["chat_id", "link"],
-                "optional_fields": ["message_thread_id", "interface", "chat_name", "message_thread_name"],
-            },
-            "get_link": {
-                "description": "Get the ChatGPT link for a chat/thread combination",
+            "ensure_chat": {
+                "description": "Ensure a chat record exists in the database",
                 "required_fields": ["chat_id"],
-                "optional_fields": ["message_thread_id", "interface"],
+                "optional_fields": ["thread_id", "interface", "chat_name", "message_thread_name"],
+            },
+            "get_chat_info": {
+                "description": "Get chat information for a chat/thread combination",
+                "required_fields": ["chat_id"],
+                "optional_fields": ["thread_id", "interface"],
             },
             "resolve_chat": {
                 "description": "Resolve a chat identifier to chat records",
@@ -399,10 +426,10 @@ class ChatLinkPlugin:
             "update_chat_names": {
                 "description": "Update chat and thread names",
                 "required_fields": ["chat_id"],
-                "optional_fields": ["message_thread_id", "interface", "chat_name", "message_thread_name"],
+                "optional_fields": ["thread_id", "interface", "chat_name", "message_thread_name"],
             },
-            "list_links": {
-                "description": "List all stored chat links",
+            "list_chats": {
+                "description": "List all stored chat records",
                 "required_fields": [],
                 "optional_fields": ["interface"],
             },
@@ -412,13 +439,13 @@ class ChatLinkPlugin:
         action_type = action.get("type")
         payload = action.get("payload", {}) or {}
         
-        if action_type == "store_link":
+        if action_type == "ensure_chat":
             import asyncio
-            asyncio.create_task(self._store_link_action(payload))
+            asyncio.create_task(self._ensure_chat_action(payload))
             
-        elif action_type == "get_link":
+        elif action_type == "get_chat_info":
             import asyncio
-            asyncio.create_task(self._get_link_action(bot, original_message, payload))
+            asyncio.create_task(self._get_chat_info_action(bot, original_message, payload))
             
         elif action_type == "resolve_chat":
             import asyncio
@@ -428,41 +455,40 @@ class ChatLinkPlugin:
             import asyncio
             asyncio.create_task(self._update_names_action(payload))
             
-        elif action_type == "list_links":
+        elif action_type == "list_chats":
             import asyncio
-            asyncio.create_task(self._list_links_action(bot, original_message, payload))
+            asyncio.create_task(self._list_chats_action(bot, original_message, payload))
 
-    async def _store_link_action(self, payload):
-        """Execute store link action."""
+    async def _ensure_chat_action(self, payload):
+        """Execute ensure chat action."""
         try:
-            await self.store.store_link(
+            await self.store.ensure_chat_exists(
                 chat_id=payload["chat_id"],
-                message_thread_id=payload.get("message_thread_id"),
-                link=payload["link"],
+                thread_id=payload.get("thread_id"),
                 interface=payload.get("interface"),
                 chat_name=payload.get("chat_name"),
                 message_thread_name=payload.get("message_thread_name")
             )
-            log_info(f"[chat_link] Stored link for chat {payload['chat_id']}")
+            log_info(f"[chat_link] Ensured chat record for {payload['chat_id']}")
         except Exception as e:
-            log_error(f"[chat_link] Failed to store link: {e}")
+            log_error(f"[chat_link] Failed to ensure chat: {e}")
 
-    async def _get_link_action(self, bot, original_message, payload):
-        """Execute get link action and send response."""
+    async def _get_chat_info_action(self, bot, original_message, payload):
+        """Execute get chat info action and send response."""
         try:
-            link = await self.store.get_link(
+            info = await self.store.get_chat_info(
                 chat_id=payload["chat_id"],
-                message_thread_id=payload.get("message_thread_id"),
+                thread_id=payload.get("thread_id"),
                 interface=payload.get("interface")
             )
-            if link:
-                response = f"ChatGPT link: {link}"
+            if info:
+                response = f"Chat info: {info}"
             else:
-                response = f"No link found for chat {payload['chat_id']}"
+                response = f"No chat info found for {payload['chat_id']}"
             
             await bot.send_message(original_message.chat_id, response)
         except Exception as e:
-            log_error(f"[chat_link] Failed to get link: {e}")
+            log_error(f"[chat_link] Failed to get chat info: {e}")
 
     async def _resolve_chat_action(self, bot, original_message, payload):
         """Execute resolve chat action and send response."""
@@ -487,7 +513,7 @@ class ChatLinkPlugin:
         try:
             affected = await self.store.update_chat_names(
                 chat_id=payload["chat_id"],
-                message_thread_id=payload.get("message_thread_id"),
+                thread_id=payload.get("thread_id"),
                 interface=payload.get("interface"),
                 chat_name=payload.get("chat_name"),
                 message_thread_name=payload.get("message_thread_name")
@@ -496,25 +522,25 @@ class ChatLinkPlugin:
         except Exception as e:
             log_error(f"[chat_link] Failed to update names: {e}")
 
-    async def _list_links_action(self, bot, original_message, payload):
-        """Execute list links action and send response."""
+    async def _list_chats_action(self, bot, original_message, payload):
+        """Execute list chats action and send response."""
         try:
-            links = await self.store.list_all_links(
+            chats = await self.store.list_all_links(
                 interface=payload.get("interface")
             )
-            if links:
-                response = f"Found {len(links)} chat link(s):\n"
-                for link in links[:10]:  # Limit to first 10
-                    name = link['chat_name'] or link['chat_id']
-                    response += f"• {name} ({link['interface']})\n"
-                if len(links) > 10:
-                    response += f"... and {len(links) - 10} more"
+            if chats:
+                response = f"Found {len(chats)} chat(s):\n"
+                for chat in chats[:10]:  # Limit to first 10
+                    name = chat['chat_name'] or chat['chat_id']
+                    response += f"• {name} ({chat['interface']})\n"
+                if len(chats) > 10:
+                    response += f"... and {len(chats) - 10} more"
             else:
-                response = "No chat links found"
+                response = "No chats found"
             
             await bot.send_message(original_message.chat_id, response)
         except Exception as e:
-            log_error(f"[chat_link] Failed to list links: {e}")
+            log_error(f"[chat_link] Failed to list chats: {e}")
 
 
 PLUGIN_CLASS = ChatLinkPlugin

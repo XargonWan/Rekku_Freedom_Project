@@ -29,16 +29,23 @@ class ImageProcessor:
             Tuple of (allowed, reason)
         """
         
+        # Check for deprecated "deny_all" mode (same as "on")
         if self.restrict_mode == "deny_all":
-            return False, "Image processing is completely disabled"
+            return False, "Image processing is completely disabled (RESTRICT_ACTIONS=deny_all)"
+        
+        # "on" mode: nobody can send images, not even the trainer
+        if self.restrict_mode == "on":
+            return False, "Image processing is completely disabled (RESTRICT_ACTIONS=on)"
         
         if not has_trigger:
             return False, "Message does not contain bot trigger"
         
+        # "off" mode: everyone can send images
         if self.restrict_mode == "off":
-            return True, "Image processing is open to all users"
+            return True, "Image processing is open to all users (RESTRICT_ACTIONS=off)"
         
-        if self.restrict_mode in ["on", "trainer_only"]:
+        # "trainer_only" mode: only trainers can send images
+        if self.restrict_mode == "trainer_only":
             # Check if user is trainer for this interface
             registry = get_interface_registry()
             is_trainer = registry.is_trainer(interface_name, user_id)

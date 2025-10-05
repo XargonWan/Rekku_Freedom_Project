@@ -1,51 +1,96 @@
 LLM Engines
 ===========
 
-The Rekku Freedom Project can operate with multiple language model backends. Use the ``/llm`` command in chat to switch engines at runtime.
+The Rekku Freedom Project supports multiple language model backends through a modular engine system. Engines are automatically discovered and can be switched at runtime using the ``/llm`` command. This design ensures that LLM implementations are completely decoupled from the core system.
+
+Engine Architecture
+-------------------
+
+All LLM engines follow a consistent architecture:
+
+- **Auto-Discovery**: Engines are automatically found in the ``llm_engines/`` directory
+- **Standard Interface**: All engines extend ``AIPluginBase`` for consistent integration
+- **Capability Reporting**: Engines declare their supported models and features
+- **Dynamic Switching**: Active engine can be changed without restarting the system
+- **Unified Limits**: Engines report their constraints (token limits, modalities, etc.)
 
 Available Engines
 -----------------
 
-* ``manual`` – forward prompts to a human trainer (no configuration).
-* ``openai_chatgpt`` – access OpenAI's ChatGPT API.  Set ``OPENAI_API_KEY`` and optional ``CHATGPT_MODEL``.
-* ``google_cli`` – use Google's Gemini via the ``gemini`` command-line client.  Requires ``GEMINI_API_KEY`` and the ``gemini`` tool.
-* ``selenium_chatgpt`` – drive a browser session of ChatGPT.  Use ``CHROMIUM_HEADLESS`` and ``CHATGPT_MODEL``; ``WEBVIEW_HOST``/``WEBVIEW_PORT`` expose the desktop.
+* ``manual`` – Forward prompts to a human trainer for manual responses (useful for debugging and development).
+* ``openai_chatgpt`` – Access OpenAI's ChatGPT API with support for GPT-3.5, GPT-4, and GPT-4o models. Requires ``OPENAI_API_KEY``.
+* ``google_cli`` – Use Google's Gemini models via the command-line ``gemini`` tool. Requires ``GEMINI_API_KEY`` and the ``gemini`` CLI tool.
+* ``selenium_chatgpt`` – Drive a browser-based ChatGPT session for advanced interaction. Uses ``CHROMIUM_HEADLESS`` and ``CHATGPT_MODEL``; ``WEBVIEW_HOST``/``WEBVIEW_PORT`` expose the desktop interface.
 
-Selenium ChatGPT
-----------------
+Manual Engine
+-------------
 
-The ``selenium_chatgpt`` plugin drives a real ChatGPT session using a browser. A manual login is required the first time.  Set ``CHATGPT_MODEL`` to pick a model and ``CHROMIUM_HEADLESS=0`` (default) to view the browser. ``WEBVIEW_HOST`` and ``WEBVIEW_PORT`` determine the remote desktop address.
+The ``manual`` engine forwards all prompts to a human trainer instead of an AI model:
 
-Steps:
+- **Debugging Tool**: Useful for testing interfaces and workflows without API costs
+- **Development Aid**: Allows manual inspection of prompts and responses
+- **No Configuration**: Works immediately without API keys or external dependencies
+- **Trainer Feedback**: Responses are sent back through the normal message flow
 
-#. Start the stack with ``docker compose up``.
-#. Open ``http://<host>:5006`` in your browser to access the virtual desktop.
-#. Log in to ChatGPT and solve any captchas.
+OpenAI ChatGPT Engine
+---------------------
 
-Once authenticated, Rekku can interact with ChatGPT in real time. Periodic manual intervention may be required when captchas appear.
+The ``openai_chatgpt`` engine provides access to OpenAI's models:
 
-Manual
-------
+- **Model Support**: GPT-3.5-turbo, GPT-4, GPT-4o with automatic capability detection
+- **Token Management**: Respects model-specific context limits and token budgets
+- **Multimodal**: GPT-4o supports image inputs and analysis
+- **Rate Limiting**: Built-in rate limiting and retry logic for API stability
 
-The ``manual`` engine simply forwards prompts to a human trainer. It can be useful for debugging or during development.
+Configuration:
 
-OpenAI ChatGPT
---------------
+.. code-block:: bash
 
-The ``openai_chatgpt`` engine calls OpenAI's ChatGPT API using the ``openai`` Python package.
-Provide an API key via ``OPENAI_API_KEY`` and optionally set ``CHATGPT_MODEL``.
+   OPENAI_API_KEY=your_api_key_here
+   CHATGPT_MODEL=gpt-4o  # Optional, defaults to gpt-3.5-turbo
 
-Google CLI
-----------
+Google CLI Engine
+-----------------
 
-The ``google_cli`` engine sends prompts to the ``gemini`` command-line tool in order to use Google's Gemini models.  Set ``GEMINI_API_KEY`` and ensure ``gemini`` is installed.
+The ``google_cli`` engine uses Google's command-line Gemini tool:
 
-Developing Engines
-------------------
+- **Local Execution**: Runs Gemini models locally via CLI
+- **API Key Required**: Set ``GEMINI_API_KEY`` for authentication
+- **Installation Required**: Must install the ``gemini`` CLI tool separately
+- **Offline Capable**: Can work without internet once models are cached
 
-Create a new module under ``llm_engines/`` and expose a ``PLUGIN_CLASS`` pointing
-to a subclass of ``AIPluginBase``.  The class is responsible for turning a prompt
-into a response and optionally dispatching it back to the interface.
+Selenium ChatGPT Engine
+-----------------------
+
+The ``selenium_chatgpt`` engine controls a real ChatGPT browser session:
+
+- **Full Browser Control**: Uses Selenium to interact with ChatGPT web interface
+- **Captcha Handling**: Manual intervention required for initial setup and captchas
+- **Visual Desktop**: Optional web interface at ``http://<host>:5006`` for monitoring
+- **Model Selection**: Supports different ChatGPT models via ``CHATGPT_MODEL``
+
+Setup Steps:
+
+1. Start the system with ``docker compose up``
+2. Access ``http://<host>:5006`` in your browser
+3. Complete ChatGPT login and captcha verification
+4. Rekku can then interact with ChatGPT in real-time
+
+Engine Registration and Discovery
+---------------------------------
+
+LLM engines are automatically discovered through the core initializer:
+
+1. **Directory Scanning**: Core scans ``llm_engines/`` for Python files
+2. **Class Inspection**: Files are checked for ``PLUGIN_CLASS`` attribute
+3. **Registry Registration**: Engines register with the LLM registry
+4. **Capability Indexing**: Engine capabilities are indexed for runtime selection
+5. **Dynamic Loading**: Engines can be loaded/unloaded without system restart
+
+Developing LLM Engines
+----------------------
+
+Creating a new LLM engine requires extending ``AIPluginBase`` and implementing the core methods:
 
 .. code-block:: python
 
@@ -53,24 +98,81 @@ into a response and optionally dispatching it back to the interface.
    from core.transport_layer import llm_to_interface
 
    class MyEngine(AIPluginBase):
+       def __init__(self, notify_fn=None):
+           self.notify_fn = notify_fn
+
        async def handle_incoming_message(self, bot, message, prompt):
+           """Process a message and generate response."""
+           # Generate response using your LLM
            reply = await self.generate_response(prompt)
+           
+           # Send response back through the interface
            await llm_to_interface(bot.send_message, chat_id=message.chat_id, text=reply)
            return reply
 
-       async def generate_response(self, prompt):
-           ...  # call external model and return text
+       async def generate_response(self, messages):
+           """Core LLM interaction method."""
+           # Implement your model API calls here
+           # messages is a list of message objects with role/content
+           response = await call_my_llm_api(messages)
+           return response
 
+       def get_supported_models(self) -> list[str]:
+           """Return available model names."""
+           return ["my-model-v1", "my-model-v2"]
+
+       def get_rate_limit(self):
+           """Return (requests_per_hour, time_window_seconds, burst_limit)."""
+           return (100, 3600, 10)  # 100 requests/hour with 10 burst
+
+   # Required: Export the engine class
    PLUGIN_CLASS = MyEngine
 
-Register the engine with the LLM registry so it can be selected at runtime:
+Engine Integration
+------------------
+
+Once created, register your engine with the LLM registry:
 
 .. code-block:: python
 
    from core.llm_registry import get_llm_registry
    get_llm_registry().register_engine_module("my_engine", "llm_engines.my_engine")
 
-Once registered, switch to the new engine using ``/llm my_engine``.
+Switch to your engine at runtime:
 
-For a full example, review ``llm_engines/selenium_chatgpt.py`` which drives a
-browser-based ChatGPT session.
+.. code-block:: text
+
+   /llm my_engine
+
+Engine Capabilities
+-------------------
+
+Engines report their capabilities to the system:
+
+- **Model List**: Available models and their identifiers
+- **Token Limits**: Maximum prompt and response lengths
+- **Modalities**: Support for text, images, audio, etc.
+- **Rate Limits**: API constraints and throttling requirements
+- **Features**: Function calling, streaming, fine-tuning support
+
+These capabilities are used by the prompt engine to construct appropriate prompts and by the interface layer to handle different content types.
+
+Best Practices
+--------------
+
+**Error Handling**
+    Implement robust error handling with user-friendly messages.
+
+**Rate Limiting**
+    Respect API limits and implement backoff strategies.
+
+**Token Management**
+    Track token usage and handle context window limitations.
+
+**Async Operations**
+    Use async methods for all I/O operations to maintain responsiveness.
+
+**Security**
+    Never log API keys or sensitive authentication data.
+
+For complete examples, examine ``llm_engines/openai_chatgpt.py`` or ``llm_engines/selenium_chatgpt.py`` in the repository.

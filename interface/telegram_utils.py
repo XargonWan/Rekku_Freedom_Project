@@ -91,11 +91,15 @@ async def _send_with_retry(
             return result
         except TimedOut as e:
             last_error = e
+            base_delay = delay * (2 ** (attempt - 1))  # Exponential backoff
+            actual_delay = min(base_delay, 10.0)  # Cap at 10 seconds
+            
             log_warning(f"[telegram_utils] TimedOut on attempt {attempt}/{retries} for chat_id={chat_id}: {e}")
             if attempt < retries:
-                await asyncio.sleep(delay)
+                log_debug(f"[telegram_utils] Waiting {actual_delay:.1f}s before retry {attempt + 1}")
+                await asyncio.sleep(actual_delay)
             else:
-                log_error(f"[telegram_utils] TimedOut persisted after {retries} retries for chat_id={chat_id}")
+                log_error(f"[telegram_utils] TimedOut persisted after {retries} retries for chat_id={chat_id}, final delay was {actual_delay:.1f}s")
         except Exception as e:
             error_message = str(e)
             # On network-like errors, set a cooldown for this chat to avoid tight retry loops
@@ -136,8 +140,17 @@ async def _send_with_retry(
                     except Exception:
                         pass
                     log_error(f"[telegram_utils] Retry after parse_mode removal failed: {e2}")
-                    raise e2
+                    # Don't raise thread errors immediately - let send_with_thread_fallback handle them
+                    if "thread not found" not in str(e2).lower():
+                        raise e2
+                    else:
+                        log_debug(f"[telegram_utils] Thread error after parse_mode retry, letting caller handle: {e2}")
+                        raise e2
             else:
+                # If it's a thread error, let send_with_thread_fallback handle it
+                if "thread not found" in error_message.lower():
+                    log_debug(f"[telegram_utils] Thread error in _send_with_retry, letting caller handle: {e}")
+                    raise e
                 # If it's a non-parse error and not recoverable, re-raise to be handled by caller
                 raise
     trainer_id = TELEGRAM_TRAINER_ID
@@ -234,19 +247,19 @@ async def send_with_thread_fallback(
     chat_id: int | str,
     text: str,
     *,
-    message_thread_id: int | None = None,
+    thread_id: int | None = None,
     reply_to_message_id: int | None = None,
     fallback_chat_id: int | None = None,
-    fallback_message_thread_id: int | None = None,
+    fallback_thread_id: int | None = None,
     fallback_reply_to_message_id: int | None = None,
     **kwargs,
 ) -> object | None:
     """Send a Telegram message with automatic thread fallback.
 
-    ``message_thread_id`` is the correct Telegram Bot API parameter.  This
+    ``thread_id`` is the correct Telegram Bot API parameter.  This
     helper mirrors the old ``_send_telegram_message`` logic so that any
     interface can reuse the same behaviour.  It first tries to send with the
-    provided ``message_thread_id`` and falls back to sending without it if the
+    provided ``thread_id`` and falls back to sending without it if the
     thread does not exist.  If ``fallback_chat_id`` is provided it will then try
     sending to that chat using the accompanying fallback parameters.
     """
@@ -280,8 +293,11 @@ async def send_with_thread_fallback(
     # chat_id remains as provided (int or str).
 
     send_kwargs = {**kwargs}
-    if message_thread_id is not None:
-        send_kwargs["message_thread_id"] = message_thread_id
+    if thread_id is not None:
+        # Convert thread_id to int if it's a string (for Telegram API compatibility)
+        if isinstance(thread_id, str) and thread_id.isdigit():
+            thread_id = int(thread_id)
+        send_kwargs["message_thread_id"] = thread_id
     if reply_to_message_id is not None:
         send_kwargs["reply_to_message_id"] = reply_to_message_id
 
@@ -295,7 +311,7 @@ async def send_with_thread_fallback(
         )
         log_info(
             f"[telegram_utils] Message sent to {chat_id}"
-            f" (thread: {message_thread_id}, reply_message_id: {reply_to_message_id})"
+            f" (thread: {thread_id}, reply_message_id: {reply_to_message_id})"
         )
         log_debug(f"[telegram_utils] telegram_safe_send returned: {repr(message)}")
         return message
@@ -309,17 +325,20 @@ async def send_with_thread_fallback(
                 _CHAT_COOLDOWNS[chat_id] = time.time() + DEFAULT_COOLDOWN_SECONDS
         except Exception:
             pass
-        log_error(f"[telegram_utils] send_with_thread_fallback caught error: {repr(e)}")
+        
         error_message = str(e)
         if "chat not found" in error_message.lower():
+            log_error(f"[telegram_utils] send_with_thread_fallback caught error: {repr(e)}")
             log_error(
-                f"[telegram_utils] Failed to send to {chat_id} (thread {message_thread_id}): {repr(e)}"
+                f"[telegram_utils] Failed to send to {chat_id} (thread {thread_id}): {repr(e)}"
             )
             raise
 
-        if message_thread_id and "thread not found" in error_message.lower():
+        if thread_id and "thread not found" in error_message.lower():
+            # Don't log as ERROR since this is expected behavior - thread fallback is normal
+            log_debug(f"[telegram_utils] send_with_thread_fallback caught thread error: {repr(e)}")
             log_warning(
-                f"[telegram_utils] Thread {message_thread_id} not found; retrying without thread"
+                f"[telegram_utils] Thread {thread_id} not found; retrying without thread"
             )
             send_kwargs.pop("message_thread_id", None)
             message = await telegram_safe_send(bot, chat_id, text, **send_kwargs)
@@ -328,15 +347,20 @@ async def send_with_thread_fallback(
             )
             return message
 
+        # Log as error for all other cases  
+        log_error(f"[telegram_utils] send_with_thread_fallback caught error: {repr(e)}")
         log_error(
-            f"[telegram_utils] Failed to send to {chat_id} (thread {message_thread_id}): {repr(e)}"
+            f"[telegram_utils] Failed to send to {chat_id} (thread {thread_id}): {repr(e)}"
         )
         raise
 
     if fallback_chat_id and fallback_chat_id != chat_id:
         fallback_kwargs = {**kwargs}
-        if fallback_message_thread_id is not None:
-            fallback_kwargs["message_thread_id"] = fallback_message_thread_id
+        if fallback_thread_id is not None:
+            # Convert fallback_thread_id to int if it's a string (for Telegram API compatibility)
+            if isinstance(fallback_thread_id, str) and fallback_thread_id.isdigit():
+                fallback_thread_id = int(fallback_thread_id)
+            fallback_kwargs["message_thread_id"] = fallback_thread_id
         if fallback_reply_to_message_id is not None:
             fallback_kwargs["reply_to_message_id"] = fallback_reply_to_message_id
         log_debug(
@@ -430,14 +454,14 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
                 message.chat_id = chat_id
                 message.text = ""
                 message.original_text = text
-                message.message_thread_id = kwargs.get('message_thread_id')
+                message.thread_id = kwargs.get('thread_id')
                 message.date = datetime.utcnow()
 
                 current_interface = 'telegram'
                 corrector_context = {
                     'interface': current_interface,
                     'original_chat_id': chat_id,
-                    'original_message_thread_id': kwargs.get('message_thread_id'),
+                    'original_thread_id': kwargs.get('thread_id'),
                     'original_text': text[:500] if text else ''
                 }
 
@@ -483,7 +507,7 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
                 message.chat_id = chat_id
                 message.text = ""
                 message.original_text = text
-                message.message_thread_id = kwargs.get('message_thread_id')
+                message.thread_id = kwargs.get('thread_id')
                 if 'event_id' in kwargs:
                     message.event_id = kwargs['event_id']
 
@@ -494,7 +518,7 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
                     context = {
                         "interface": "telegram",
                         "original_chat_id": chat_id,
-                        "original_message_thread_id": kwargs.get('message_thread_id'),
+                        "original_thread_id": kwargs.get('thread_id'),
                         "original_text": text[:500] if text else "",
                         "thread_defaults": {
                             "telegram": None,
@@ -532,5 +556,10 @@ async def telegram_safe_send(bot, chat_id: int, text: str, chunk_size: int = 400
             log_debug(f"[telegram_safe_send] Sending chunk {i//chunk_size + 1} (len={len(chunk)}) to chat_id={chat_id}")
             await _send_with_retry(bot, chat_id, chunk, retries, delay, **kwargs)
     except Exception as e:
-        log_error(f"[telegram_safe_send] Failed to send text chunks: {repr(e)}")
+        # Log as WARNING if it's a thread error (will be handled by fallback), ERROR otherwise
+        error_msg = str(e).lower()
+        if "thread not found" in error_msg or "message thread not found" in error_msg:
+            log_warning(f"[telegram_safe_send] Thread error (will retry without thread): {repr(e)}")
+        else:
+            log_error(f"[telegram_safe_send] Failed to send text chunks: {repr(e)}")
         raise

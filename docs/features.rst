@@ -7,100 +7,105 @@ Features
     :align: center
 
 
-The project exposes several core capabilities that are configured via chat
-commands.
+Rekku Freedom Project is a highly modular AI system with extensible capabilities. The core system automatically discovers and integrates components at runtime, ensuring that functionality can be added or removed without code changes.
+
+Modular Architecture
+--------------------
+
+**Component Auto-Discovery**
+    Rekku automatically scans ``interface/``, ``plugins/``, and ``llm_engines/`` directories to load compatible components. No manual registration or configuration files required.
+
+**Zero Hardcoding**
+    Components are completely decoupled from the core. Adding new functionality requires only placing a compatible Python module in the appropriate directory.
+
+**Runtime Flexibility**
+    Switch LLM engines, enable/disable plugins, and manage interfaces dynamically without restarting the system.
 
 Adaptive Intelligence
 ---------------------
 
-Rekku can operate with different language models:
+Rekku supports multiple language model backends with seamless switching:
 
-* ``manual`` – forwards prompts to the trainer for manual replies.
-* ``openai_chatgpt`` – uses the OpenAI API.
-* ``selenium_chatgpt`` – drives a real ChatGPT session via Selenium.
+* ``openai_chatgpt`` – OpenAI API integration with GPT-3.5, GPT-4, and GPT-4o support
+* ``google_cli`` – Google Gemini models via command-line interface
+* ``selenium_chatgpt`` – Browser-controlled ChatGPT for advanced interaction
+* ``manual`` – Human trainer input for debugging and development
 
-Switch between engines at runtime with ``/llm``.
+**Runtime Engine Switching**
+    Use ``/llm <engine_name>`` to switch engines instantly during operation.
 
-Automatic Forwarding
---------------------
+Multi-Platform Integration
+---------------------------
 
-Messages are forwarded to the trainer when Rekku is mentioned, in small groups,
-or via private chat.
+**Available Interfaces**
+    - **Telegram**: Bot and userbot support with media handling
+    - **Discord**: Full bot integration with threading
+    - **Reddit**: Post creation, commenting, and monitoring
+    - **Web UI**: Browser-based interface with real-time updates
+    - **CLI**: Command-line interface for direct interaction
 
-Chat Link Resolver
-------------------
+**Cross-Platform Messaging**
+    Send messages across different platforms using unified chat identifiers.
 
-Rekku stores chat and thread identifiers in a central resolver. Interfaces can
-target conversations using either numeric IDs or human‑readable names, and the
-``update_chat_name`` action refreshes the stored titles when they change.
+Plugin Ecosystem
+----------------
 
-Plugin Architecture
--------------------
+**Action Plugins**
+    - ``terminal``: Secure shell command execution
+    - ``ai_diary``: Personal memory and interaction tracking
+    - ``event``: Scheduled reminders and notifications
+    - ``weather``: Real-time weather information
+    - ``bio_manager``: Persistent user profile management
+    - ``message_plugin``: Cross-platform message routing
 
-LLM engines and other actions are provided through plugins. Available action
-plugins include ``terminal`` for shell access and ``event`` for scheduled
-reminders.
+**Specialized Plugins**
+    - ``chat_link``: Conversation linking and management
+    - ``recent_chats``: Access to conversation history
+    - ``blocklist``: User access control
+    - ``time_plugin``: Time and location awareness
 
-Context Memory
---------------
+Contextual Memory
+-----------------
 
-With ``/context`` enabled, the last ten messages are injected into prompts.
+**Message Context**
+    Toggle contextual memory with ``/context on/off`` to include recent conversation history in prompts.
 
-Miscellaneous Commands
-----------------------
+**Personal Memory**
+    The AI Diary plugin provides persistent memory of interactions, emotions, and relationships.
 
-Other useful commands include ``/say`` to send messages to any chat, ``/block``
-and ``/unblock`` for user management, ``/model`` to switch models, and
-``/last_chats`` to list recent conversations.
+**User Profiles**
+    Bio management system maintains detailed user profiles for personalized interactions.
 
-Bio Management
---------------
+Security & Access Control
+-------------------------
 
-Rekku maintains detailed user profiles called "bios" that store personal information,
-preferences, and interaction history. This feature helps Rekku remember user details
-and provide more personalized responses.
+**Trainer ID Validation**
+    Sensitive operations require authorization from configured trainer IDs.
 
-**Key Features:**
+**Rate Limiting**
+    Built-in rate limiting prevents abuse across all components.
 
-* **Persistent Storage**: User bios are stored in a dedicated database table with fields
-  for known names, likes, dislikes, personal information, past events, feelings,
-  contacts, and social accounts.
+**Input Validation**
+    All actions are validated against component schemas before execution.
 
-* **Consistency Validation**: The system validates bio updates for consistency, checking
-  for contradictory information like age or location mismatches.
+**Error Handling**
+    Comprehensive error handling with user-friendly notifications and automatic recovery.
 
-* **Update Limits**: To prevent abuse, updates are limited to 3 fields per update,
-  with a minimum 1-hour gap between updates and a daily limit of 5 updates.
+Extensibility
+-------------
 
-* **Privacy Controls**: Each bio includes privacy settings to control how information
-  is shared.
+**Creating New Components**
+    Add functionality by implementing ``AIPluginBase`` and placing modules in appropriate directories:
 
-**Usage Example:**
+    - **Plugins**: Extend capabilities with new actions
+    - **LLM Engines**: Add support for new AI models
+    - **Interfaces**: Integrate new communication platforms
 
-When interacting with a user named Takeshi, Rekku can access his bio to recall
-that he enjoys programming and dislikes spicy food, providing more relevant
-conversations.
+**No Core Modifications**
+    Components are self-contained and register their capabilities automatically. The core system remains unchanged when adding features.
 
-**Database Schema:**
-
-.. code-block:: sql
-
-   CREATE TABLE bio (
-       id VARCHAR(255) PRIMARY KEY,
-       known_as TEXT,
-       likes TEXT,
-       not_likes TEXT,
-       information TEXT,
-       past_events TEXT,
-       feelings TEXT,
-       contacts TEXT,
-       social_accounts TEXT,
-       privacy TEXT,
-       created_at VARCHAR(50),
-       last_accessed VARCHAR(50),
-       last_update TIMESTAMP,
-       update_count INT
-   );
+**Development Friendly**
+    Clear interfaces, comprehensive documentation, and example implementations make extension straightforward.
 
 AI Diary
 --------

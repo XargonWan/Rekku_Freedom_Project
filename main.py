@@ -13,7 +13,6 @@ from core.logging_utils import (
     setup_logging,
     log_error,
 )
-from interface.reddit_interface import start_reddit_interface
 
 
 def cleanup_chromium_processes():
@@ -117,7 +116,9 @@ async def initialize_core_components():
     
     try:
         # Load and log active interfaces
-        active_interfaces = ["telegram_bot", "telegram_userbot", "discord"]  # Example interfaces
+        from core.interfaces_registry import get_interface_registry
+        registry = get_interface_registry()
+        active_interfaces = registry.get_interface_names()
         log_info("[main] Active interfaces initialized.")
         for interface in active_interfaces:
             log_info(f"[main] Active interface: {interface}")
@@ -234,6 +235,7 @@ if __name__ == "__main__":
     log_info(f"[vnc] Webtop GUI available at: http://{host}:{port}")
 
     log_info("[main] Starting bot initialization...")
+
     
     async def start_application():
         # Initialize core components BEFORE starting the bot
@@ -256,23 +258,56 @@ if __name__ == "__main__":
             traceback.print_exc()
             sys.exit(1)
 
-        # 🎯 Display startup summary before starting bot (after all interfaces are initialized)
+        # ✅ Start configured interfaces by calling their start functions
+        # Each interface checks its own configuration before starting
+        try:
+            from interface.telegram_bot import start_bot, BOTFATHER_TOKEN, TELEGRAM_TRAINER_ID
+            if BOTFATHER_TOKEN and TELEGRAM_TRAINER_ID:
+                log_info("[main] Starting Telegram bot...")
+                asyncio.create_task(start_bot())
+                log_info("[main] Telegram bot started as background task")
+        except Exception as e:
+            log_warning(f"[main] Telegram bot startup failed: {repr(e)}")
+            
+        try:
+            from interface.reddit_interface import start_reddit_interface
+            import os
+            if os.getenv("REDDIT_CLIENT_ID") and os.getenv("REDDIT_CLIENT_SECRET"):
+                log_info("[main] Starting Reddit interface...")
+                asyncio.create_task(start_reddit_interface())
+                log_info("[main] Reddit interface started as background task")
+        except Exception as e:
+            log_warning(f"[main] Reddit interface startup failed: {repr(e)}")
+            
+        try:
+            import interface.discord_interface  # Auto-starts if DISCORD_BOT_TOKEN is present
+            log_info("[main] Discord interface imported")
+        except Exception as e:
+            log_warning(f"[main] Discord interface import failed: {repr(e)}")
+            
+        try:
+            import interface.telethon_userbot  # Auto-starts if API_ID/API_HASH are present
+            log_info("[main] Telethon userbot imported")
+        except Exception as e:
+            log_warning(f"[main] Telethon userbot import failed: {repr(e)}")
+        
+        log_info("[main] Interface startup completed")
+        
+        # 🎯 Display startup summary after all components are ready (this should be the last message)
         log_info("[main] All components initialized, displaying startup summary...")
         core_initializer.display_startup_summary()
-
-        # ✅ Start the bot
+        
+        # Also display a quick resume even if some components are still loading
+        resume = core_initializer.get_system_resume()
+        log_info(f"[main] 🎯 QUICK STATUS: {resume['successful']}/{resume['total_components']} components loaded, {resume['total_actions']} actions available")
+        
+        # Keep the application running indefinitely
+        log_info("[main] Application startup completed successfully - entering main loop")
         try:
-            from interface.telegram_bot import start_bot
-            log_info("[main] Starting Telegram bot...")
-            await start_bot()
-            log_info("[main] Telegram bot started successfully")
-        except Exception as e:
-            log_error(f"[main] Critical error starting Telegram bot: {repr(e)}")
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
+            # Wait forever (or until interrupted)
+            await asyncio.Event().wait()
+        except KeyboardInterrupt:
+            log_info("[main] Received shutdown signal, exiting...")
 
     # Run the async application
     asyncio.run(start_application())
-
-    log_info("[main] Application startup completed successfully")

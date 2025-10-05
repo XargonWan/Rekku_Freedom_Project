@@ -12,6 +12,7 @@ import asyncio
 import logging
 import requests
 import base64
+import traceback
 from collections import defaultdict
 from typing import Optional, Dict
 from pathlib import Path
@@ -48,7 +49,7 @@ from core.ai_plugin_base import AIPluginBase
 
 # Selenium ChatGPT-specific configuration
 SELENIUM_CONFIG = {
-    "max_prompt_chars": 25000,  # Browser-based, more conservative
+    "max_prompt_chars": 500000,  # Selenium ChatGPT can handle very long prompts
     "max_response_chars": 4000,
     "supports_images": True,
     "supports_functions": False,  # Browser-based doesn't support functions
@@ -81,12 +82,24 @@ def supports_functions() -> bool:
     """Check if Selenium ChatGPT supports functions."""
     return SELENIUM_CONFIG["supports_functions"]
 
+def get_interface_limits() -> dict:
+    """Get the limits and capabilities for Selenium ChatGPT interface."""
+    log_info(f"[selenium_chatgpt] Interface limits: max_prompt_chars={SELENIUM_CONFIG['max_prompt_chars']}, supports_images={SELENIUM_CONFIG['supports_images']}")
+    return {
+        "max_prompt_chars": SELENIUM_CONFIG["max_prompt_chars"],
+        "max_response_chars": SELENIUM_CONFIG["max_response_chars"],
+        "supports_images": SELENIUM_CONFIG["supports_images"],
+        "supports_functions": SELENIUM_CONFIG["supports_functions"],
+        "model_name": SELENIUM_CONFIG["model_name"]
+    }
+
 # Load environment variables for root password and other settings
 load_dotenv()
 
 # ChatLinkStore: manages mapping between interface chats and ChatGPT conversations
 from plugins.chat_link import ChatLinkStore
 from interface.telegram_utils import safe_send
+from core.db import get_conn
 
 # Fallback for notify_trainer when core.notifier module is unavailable
 def notify_trainer(message: str) -> None:
@@ -108,8 +121,138 @@ MAX_WAIT_TIMEOUT_SECONDS = 5 * 60  # hard ceiling
 previous_responses: Dict[str, str] = {}
 response_cache_lock = threading.Lock()
 
+# Extended ChatLinkStore for ChatGPT-specific functionality
+class ChatGPTLinkStore(ChatLinkStore):
+    """Extends ChatLinkStore to handle ChatGPT-specific link management."""
+    
+    def __init__(self):
+        super().__init__()
+        self.chatgpt_link_initialized = False
+    
+    async def ensure_chatgpt_link_column(self):
+        """Ensure the chatgpt_link column exists in the chatlink table."""
+        if self.chatgpt_link_initialized:
+            return
+            
+        try:
+            connection = await get_conn()
+            async with connection.cursor() as cursor:
+                # Check if chatgpt_link column exists
+                await cursor.execute("""
+                    SELECT COUNT(*) 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() 
+                    AND TABLE_NAME = 'chatlink' 
+                    AND COLUMN_NAME = 'chatgpt_link'
+                """)
+                result = await cursor.fetchone()
+                
+                if result[0] == 0:
+                    # Add chatgpt_link column
+                    await cursor.execute("""
+                        ALTER TABLE chatlink 
+                        ADD COLUMN chatgpt_link VARCHAR(255) NULL
+                    """)
+                    await connection.commit()
+                    log_info("[selenium_chatgpt] Added chatgpt_link column to chatlink table")
+                
+            await connection.ensure_closed()
+            self.chatgpt_link_initialized = True
+        except Exception as e:
+            log_error(f"[selenium_chatgpt] Failed to ensure chatgpt_link column: {e}")
+    
+    async def get_chatgpt_link(self, chat_id, thread_id=None, interface="unknown"):
+        """Get ChatGPT link for a chat, creating chat record if needed."""
+        await self.ensure_chatgpt_link_column()
+        
+        # Ensure chat exists first
+        await self.ensure_chat_exists(chat_id, thread_id, interface)
+        
+        try:
+            connection = await get_conn()
+            async with connection.cursor() as cursor:
+                if thread_id:
+                    await cursor.execute("""
+                        SELECT chatgpt_link 
+                        FROM chatlink 
+                        WHERE chat_id = %s AND thread_id = %s AND interface = %s
+                    """, (str(chat_id), str(thread_id), interface))
+                else:
+                    await cursor.execute("""
+                        SELECT chatgpt_link 
+                        FROM chatlink 
+                        WHERE chat_id = %s AND thread_id IS NULL AND interface = %s
+                    """, (str(chat_id), interface))
+                
+                result = await cursor.fetchone()
+                await connection.ensure_closed()
+                
+                return result[0] if result and result[0] else None
+        except Exception as e:
+            log_error(f"[selenium_chatgpt] Failed to get ChatGPT link: {e}")
+            return None
+    
+    async def store_chatgpt_link(self, chat_id, chatgpt_link, thread_id=None, interface="unknown", chat_name=None):
+        """Store ChatGPT link for a chat."""
+        await self.ensure_chatgpt_link_column()
+        
+        # Ensure chat exists first
+        await self.ensure_chat_exists(chat_id, thread_id, interface, chat_name=chat_name)
+        
+        try:
+            connection = await get_conn()
+            async with connection.cursor() as cursor:
+                if thread_id:
+                    await cursor.execute("""
+                        UPDATE chatlink 
+                        SET chatgpt_link = %s 
+                        WHERE chat_id = %s AND thread_id = %s AND interface = %s
+                    """, (chatgpt_link, str(chat_id), str(thread_id), interface))
+                else:
+                    await cursor.execute("""
+                        UPDATE chatlink 
+                        SET chatgpt_link = %s 
+                        WHERE chat_id = %s AND thread_id IS NULL AND interface = %s
+                    """, (chatgpt_link, str(chat_id), interface))
+                
+                await connection.commit()
+                await connection.ensure_closed()
+                log_debug(f"[selenium_chatgpt] Stored ChatGPT link: {chatgpt_link} for chat {chat_id}")
+                return True
+        except Exception as e:
+            log_error(f"[selenium_chatgpt] Failed to store ChatGPT link: {e}")
+            return False
+    
+    async def remove_chatgpt_link(self, chat_id, thread_id=None, interface="unknown"):
+        """Remove ChatGPT link for a chat (sets to NULL)."""
+        await self.ensure_chatgpt_link_column()
+        
+        try:
+            connection = await get_conn()
+            async with connection.cursor() as cursor:
+                if thread_id:
+                    await cursor.execute("""
+                        UPDATE chatlink 
+                        SET chatgpt_link = NULL 
+                        WHERE chat_id = %s AND thread_id = %s AND interface = %s
+                    """, (str(chat_id), str(thread_id), interface))
+                else:
+                    await cursor.execute("""
+                        UPDATE chatlink 
+                        SET chatgpt_link = NULL 
+                        WHERE chat_id = %s AND thread_id IS NULL AND interface = %s
+                    """, (str(chat_id), interface))
+                
+                await connection.commit()
+                await connection.ensure_closed()
+                log_debug(f"[selenium_chatgpt] Removed ChatGPT link for chat {chat_id}")
+                return True
+        except Exception as e:
+            log_error(f"[selenium_chatgpt] Failed to remove ChatGPT link: {e}")
+            return False
+
 # Persistent mapping between interface chats and ChatGPT conversations
-chat_link_store = ChatLinkStore()
+chat_link_store = ChatGPTLinkStore()
 queue_paused = False
 
 
@@ -388,27 +531,45 @@ def _extract_image_info_from_prompt(prompt_text: str) -> Optional[Dict]:
 
 def _send_text_to_textarea(driver, textarea, text: str) -> None:
     """Inject ``text`` into the ChatGPT prompt area via JavaScript."""
-    clean_text = strip_non_bmp(text)
-    log_debug(f"[DEBUG] Length before sending: {len(clean_text)}")
-    # Log full text content for debugging
-    log_debug(f"[DEBUG] Text to send ({len(clean_text)} chars): {clean_text}")
+    try:
+        clean_text = strip_non_bmp(text)
+        log_debug(f"[DEBUG] Length before sending: {len(clean_text)}")
+        # Log full text content for debugging (truncated for safety)
+        preview = clean_text[:500] + "..." if len(clean_text) > 500 else clean_text
+        log_debug(f"[DEBUG] Text to send ({len(clean_text)} chars): {preview}")
 
-    tag = (textarea.tag_name or "").lower()
-    prop = "value" if tag in {"textarea", "input"} else "textContent"
-    script = (
-        "arguments[0].focus();"
-        f"arguments[0].{prop} = arguments[1];"
-        "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
-    )
-    driver.execute_script(script, textarea, clean_text)
-
-    actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
-    log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
-    # Only warn if the textarea differs noticeably from the injected text
-    if abs(len(clean_text) - len(actual)) > 5:
-        log_warning(
-            f"[selenium] textarea mismatch: expected {len(clean_text)} chars, found {len(actual)}"
+        tag = (textarea.tag_name or "").lower()
+        prop = "value" if tag in {"textarea", "input"} else "textContent"
+        script = (
+            "arguments[0].focus();"
+            f"arguments[0].{prop} = arguments[1];"
+            "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
         )
+        
+        try:
+            driver.execute_script(script, textarea, clean_text)
+            log_debug("[DEBUG] JavaScript injection completed successfully")
+        except Exception as js_error:
+            log_error(f"[selenium] JavaScript injection failed: {js_error}")
+            raise
+
+        try:
+            actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
+            log_debug(f"[DEBUG] Length actually present in textarea: {len(actual)}")
+            # Only warn if the textarea differs noticeably from the injected text
+            if abs(len(clean_text) - len(actual)) > 5:
+                log_warning(
+                    f"[selenium] textarea mismatch: expected {len(clean_text)} chars, found {len(actual)}"
+                )
+        except Exception as check_error:
+            log_warning(f"[selenium] Failed to verify textarea content: {check_error}")
+            # Don't fail the operation, just continue
+            
+    except Exception as e:
+        log_error(f"[selenium] Critical error in _send_text_to_textarea: {e}")
+        import traceback
+        log_error(f"[selenium] Full traceback: {traceback.format_exc()}")
+        raise
 
 
 def paste_and_send(textarea, prompt_text: str) -> None:
@@ -418,22 +579,28 @@ def paste_and_send(textarea, prompt_text: str) -> None:
     verifies the length.  If the content does not match, falls back to a
     chunked ``send_keys`` approach which mimics manual typing.
     """
-    driver = textarea._parent
-    clean = strip_non_bmp(prompt_text)
-
-    # Try JavaScript injection first
     try:
-        _send_text_to_textarea(driver, textarea, clean)
-        tag = (textarea.tag_name or "").lower()
-        prop = "value" if tag in {"textarea", "input"} else "textContent"
-        actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
-        if len(actual) >= len(clean) * 0.9:  # Allow some tolerance
-            log_debug(f"[selenium] JS injection successful: {len(actual)}/{len(clean)} chars")
-            return
-    except StaleElementReferenceException:
-        log_warning("[selenium] Textarea became stale during JS paste, retrying with send_keys")
-    except Exception as e:
-        log_warning(f"[selenium] JS injection failed: {e}, falling back to send_keys")
+        driver = textarea._parent
+        clean = strip_non_bmp(prompt_text)
+
+        # Try JavaScript injection first
+        try:
+            _send_text_to_textarea(driver, textarea, clean)
+            tag = (textarea.tag_name or "").lower()
+            prop = "value" if tag in {"textarea", "input"} else "textContent"
+            actual = driver.execute_script(f"return arguments[0].{prop};", textarea) or ""
+            if len(actual) >= len(clean) * 0.9:  # Allow some tolerance
+                log_debug(f"[selenium] JS injection successful: {len(actual)}/{len(clean)} chars")
+                return
+        except StaleElementReferenceException:
+            log_warning("[selenium] Textarea became stale during JS paste, retrying with send_keys")
+        except Exception as e:
+            log_warning(f"[selenium] JS injection failed: {e}, falling back to send_keys")
+    except Exception as critical_error:
+        log_error(f"[selenium] Critical error in paste_and_send initialization: {critical_error}")
+        import traceback
+        log_error(f"[selenium] paste_and_send init traceback: {traceback.format_exc()}")
+        raise
 
     log_warning(f"[selenium] JS paste failed, falling back to send_keys")
 
@@ -943,9 +1110,8 @@ def process_prompt_in_chat(
     # Some UI experiments may block the textarea with a "I prefer this response"
     # dialog. Dismiss it if present before looking for the textarea.
 
-    log_info(f"[chatgpt_model] Ensuring model {CHATGPT_MODEL} is active")
     if not ensure_chatgpt_model(driver):
-        log_warning(f"[chatgpt_model] Failed to ensure model {CHATGPT_MODEL}")
+        log_warning("[chatgpt_model] Failed to ensure model")
 
     try:
         prefer_btn = WebDriverWait(driver, 2).until(
@@ -976,18 +1142,31 @@ def process_prompt_in_chat(
         attempt += 1
         try:
             wait_for_chatgpt_idle(driver)
-            paste_and_send(textarea, prompt_text)
-            tag = (textarea.tag_name or "").lower()
-            prop = "value" if tag in {"textarea", "input"} else "textContent"
-            final_value = driver.execute_script(
-                f"return arguments[0].{prop};", textarea
-            ) or ""
-            expected_len = len(strip_non_bmp(prompt_text))
-            # Allow small discrepancies (e.g., trailing spaces trimmed by ChatGPT)
-            if abs(expected_len - len(final_value)) > 5:
-                log_warning(
-                    f"[selenium] Prompt mismatch after paste: expected {expected_len} chars, got {len(final_value)}"
-                )
+            
+            try:
+                paste_and_send(textarea, prompt_text)
+                log_debug("[selenium] paste_and_send completed successfully")
+            except Exception as paste_error:
+                log_error(f"[selenium] Critical error in paste_and_send: {paste_error}")
+                import traceback
+                log_error(f"[selenium] paste_and_send traceback: {traceback.format_exc()}")
+                return None
+            
+            try:
+                tag = (textarea.tag_name or "").lower()
+                prop = "value" if tag in {"textarea", "input"} else "textContent"
+                final_value = driver.execute_script(
+                    f"return arguments[0].{prop};", textarea
+                ) or ""
+                expected_len = len(strip_non_bmp(prompt_text))
+                # Allow small discrepancies (e.g., trailing spaces trimmed by ChatGPT)
+                if abs(expected_len - len(final_value)) > 5:
+                    log_warning(
+                        f"[selenium] Prompt mismatch after paste: expected {expected_len} chars, got {len(final_value)}"
+                    )
+            except Exception as check_error:
+                log_error(f"[selenium] Error checking textarea content: {check_error}")
+                # Continue anyway, the paste might have worked
                 time.sleep(1)
                 continue
 
@@ -1085,7 +1264,7 @@ def process_prompt_in_chat(
 #         is_group = chat_info.chat.type in ("group", "supergroup")
 #         emoji = "💬" if is_group else "💌"
 #         thread = (
-#             f"/Thread {chat_info.message_thread_id}" if getattr(chat_info, "message_thread_id", None) else ""
+#             f"/Thread {chat_info.thread_id}" if getattr(chat_info, "thread_id", None) else ""
 #         )
 #         new_title = f"⚙️{emoji} Chat/{chat_name}{thread} - 1"
 #         log_debug(f"[selenium][STEP] renaming chat to: {new_title}")
@@ -1144,7 +1323,7 @@ def process_prompt_in_chat(
 
 
 # Funzione di selezione modello ChatGPT
-CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "GPT-4o")
+CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "")
 
 
 def select_chatgpt_model(driver):
@@ -1191,6 +1370,11 @@ def select_chatgpt_model(driver):
 
 def ensure_chatgpt_model(driver):
     """Ensure the desired ChatGPT model is active before sending a prompt."""
+    # Check if CHATGPT_MODEL is set and not empty
+    if not CHATGPT_MODEL or CHATGPT_MODEL.strip() == "" or CHATGPT_MODEL.upper() == "NONE":
+        log_info("[chatgpt_model] CHATGPT_MODEL not set or disabled, skipping model selection")
+        return True
+        
     try:
         log_info(f"[chatgpt_model] Ensuring model {CHATGPT_MODEL} is active")
         select_chatgpt_model(driver)
@@ -1282,6 +1466,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     def is_worker_running(self) -> bool:
         return self._worker_task is not None and not self._worker_task.done()
 
+    def _get_interface_name(self, bot) -> str:
+        """Determine the interface name from the bot object."""
+        module_name = getattr(bot.__class__, "__module__", "")
+        if module_name.startswith("telegram"):
+            return "telegram"
+        elif hasattr(bot, "get_interface_id"):
+            return bot.get_interface_id()
+        else:
+            return "generic"
+
     def _handle_worker_done(self, fut: asyncio.Future):
         if fut.cancelled():
             log_warning("[selenium] Worker task cancelled")
@@ -1310,16 +1504,26 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 prompt.get("system_message", {}).get("type") == "error"
             )
             
-            if is_correction:
-                # For correction requests, process synchronously and return the response
-                log_debug(f"[selenium] Processing correction request synchronously: chat_id={message.chat_id}")
+            # Check if this is a system message with output (from terminal plugin, etc.)
+            is_system_output = (
+                isinstance(prompt, dict) and 
+                prompt.get("system_message", {}).get("type") == "output"
+            )
+            
+            if is_correction or is_system_output:
+                # For correction requests and system output, process synchronously and return the response
+                request_type = "correction" if is_correction else "system output"
+                log_debug(f"[selenium] Processing {request_type} request synchronously: chat_id={message.chat_id}")
                 
                 # Initialize driver if needed
                 if not self.driver:
                     self._init_driver()
                 
-                # Process the correction message directly
-                response_text = await self._process_correction_message(bot, message, prompt)
+                # Process the message directly
+                if is_correction:
+                    response_text = await self._process_correction_message(bot, message, prompt)
+                else:
+                    response_text = await self._process_system_output_message(bot, message, prompt)
                 return response_text
             else:
                 # For normal messages, use the queue system
@@ -1356,9 +1560,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         self._init_driver()
                     
                     # Get chat ID for ChatGPT conversation
-                    chat_id = await chat_link_store.get_link(
+                    chat_id = await chat_link_store.get_chatgpt_link(
                         message.chat_id, 
-                        getattr(message, "message_thread_id", None),
+                        getattr(message, "thread_id", None),
                         interface=self._get_interface_name(bot)
                     )
                     
@@ -1384,6 +1588,57 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         
         except Exception as e:
             log_error(f"[selenium] Failed to process correction message: {e}")
+            return None
+
+    async def _process_system_output_message(self, bot, message, prompt):
+        """Process a system output message (e.g., from terminal plugin) synchronously and return the response."""
+        try:
+            log_debug(f"[selenium] Processing system output prompt: {prompt}")
+            
+            # Handle dict input (system_message structure)
+            if isinstance(prompt, dict):
+                prompt_text = json.dumps(prompt, ensure_ascii=False)
+            else:
+                prompt_text = prompt
+            
+            # Disable driver initialization retries for system output processing
+            max_attempts = 1
+            response_text = None
+            
+            for attempt in range(max_attempts):
+                try:
+                    if not self.driver:
+                        self._init_driver()
+                    
+                    # Get chat ID for ChatGPT conversation
+                    chat_id = await chat_link_store.get_chatgpt_link(
+                        message.chat_id, 
+                        getattr(message, "thread_id", None),
+                        interface=self._get_interface_name(bot)
+                    )
+                    
+                    # Process the prompt in ChatGPT
+                    previous_text = get_previous_response(str(message.chat_id))
+                    response_text = process_prompt_in_chat(
+                        self.driver, chat_id, prompt_text, previous_text
+                    )
+                    
+                    if response_text:
+                        # Update response cache
+                        update_previous_response(str(message.chat_id), response_text)
+                        log_debug(f"[selenium] System output response generated: {len(response_text)} chars")
+                        return response_text.strip()
+                    else:
+                        log_warning("[selenium] No response from ChatGPT for system output")
+                        return None
+                        
+                except Exception as e:
+                    log_error(f"[selenium] Error processing system output message: {e}")
+                    if attempt == max_attempts - 1:
+                        return None
+                        
+        except Exception as e:
+            log_error(f"[selenium] Failed to process system output message: {e}")
             return None
 
     async def _worker_loop(self):
@@ -1866,9 +2121,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         reply_id = getattr(message, "message_id", None)
         if reply_id is not None:
             send_params["reply_to_message_id"] = reply_id
-        message_thread_id = getattr(message, "message_thread_id", None)
-        if message_thread_id is not None:
-            send_params["message_thread_id"] = message_thread_id
+        thread_id = getattr(message, "thread_id", None)
+        if thread_id is not None:
+            send_params["thread_id"] = thread_id
 
         # Send system messages through the interface_to_llm entry so they follow
         # the interface-origin path (no corrector middleware run).
@@ -1894,14 +2149,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         text=send_params["text"],
                         interface="discord",
                         reply_to_message_id=send_params.get("reply_to_message_id"),
-                        message_thread_id=send_params.get("message_thread_id")
+                        thread_id=send_params.get("thread_id")
                     )
                 else:
                     await bot.send_message(**send_params)
             else:
                 if module_name.startswith("telegram"):
                     # safe_send expects (bot, chat_id, text, ...)
-                    await interface_to_llm(safe_send, bot, send_params.get("chat_id"), text=send_params.get("text"), reply_to_message_id=send_params.get("reply_to_message_id"), message_thread_id=send_params.get("message_thread_id"))
+                    await interface_to_llm(safe_send, bot, send_params.get("chat_id"), text=send_params.get("text"), reply_to_message_id=send_params.get("reply_to_message_id"), thread_id=send_params.get("thread_id"))
                 elif "discord" in module_name.lower() or bot.__class__.__name__ == "Client":
                     # For Discord, use universal_send through interface_to_llm (system message)
                     from core.transport_layer import universal_send
@@ -1911,7 +2166,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         text=send_params["text"],
                         interface="discord",
                         reply_to_message_id=send_params.get("reply_to_message_id"),
-                        message_thread_id=send_params.get("message_thread_id")
+                        thread_id=send_params.get("thread_id")
                     )
                 else:
                     # Extract text parameter separately to avoid conflicts with interface_to_llm (system message)
@@ -2021,9 +2276,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 interface_name = bot.get_interface_id()
             else:
                 interface_name = "generic"
-            message_thread_id = getattr(message, "message_thread_id", None)
-            chat_id = await chat_link_store.get_link(
-                message.chat_id, message_thread_id, interface=interface_name
+            thread_id = getattr(message, "thread_id", None)
+            chat_id = await chat_link_store.get_chatgpt_link(
+                message.chat_id, thread_id, interface=interface_name
             )
             prompt_text = json.dumps(prompt, ensure_ascii=False)
             if isinstance(prompt, dict) and "system_message" in prompt:
@@ -2033,14 +2288,14 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 if path and go_to_chat_by_path_with_retries(driver, path):
                     chat_id = _extract_chat_id(driver.current_url)
                     if chat_id:
-                        await chat_link_store.store_link(
+                        await chat_link_store.store_chatgpt_link(
                             message.chat_id,
-                            message_thread_id,
                             chat_id,
+                            thread_id,
                             interface=interface_name,
                         )
                         _safe_notify(
-                            f"\u26a0\ufe0f Couldn't find ChatGPT conversation for chat_id={message.chat_id}, message_thread_id={message_thread_id}.\n"
+                            f"\u26a0\ufe0f Couldn't find ChatGPT conversation for chat_id={message.chat_id}, thread_id={thread_id}.\n"
                             f"A new ChatGPT chat has been created: {chat_id}"
                         )
                 else:
@@ -2067,8 +2322,8 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 except Exception as e:
                     log_warning(f"[selenium] Existing chat {chat_id} no longer accessible: {e}")
                     log_info(f"[selenium] Creating new chat to replace inaccessible chat {chat_id}")
-                    await chat_link_store.remove(
-                        message.chat_id, message_thread_id, interface=interface_name
+                    await chat_link_store.remove_chatgpt_link(
+                        message.chat_id, thread_id, interface=interface_name
                     )
                     recent_chats.clear_chat_path(message.chat_id)
                     _open_new_chat(driver)
@@ -2076,7 +2331,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
             log_debug(f"[selenium][DEBUG] Chat ID from store: {chat_id}")
             log_debug(
-                f"[selenium][DEBUG] source chat_id: {message.chat_id}, message_thread_id: {message_thread_id}"
+                f"[selenium][DEBUG] source chat_id: {message.chat_id}, thread_id: {thread_id}"
             )
 
             if not chat_id:
@@ -2103,35 +2358,45 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     continue
 
             try:
-                if chat_id:
-                    previous = get_previous_response(message.chat_id)
-                    response_text = process_prompt_in_chat(driver, chat_id, prompt_text, previous, temp_image_path)
-                    if response_text:
-                        update_previous_response(message.chat_id, response_text)
-                else:
-                    previous = get_previous_response(message.chat_id)
-                    response_text = process_prompt_in_chat(driver, None, prompt_text, previous, temp_image_path)
-                    if response_text:
-                        update_previous_response(message.chat_id, response_text)
-                        new_chat_id = _extract_chat_id(driver.current_url)
-                        log_debug(f"[selenium][DEBUG] New chat created, extracted ID: {new_chat_id}")
-                        log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
-                        if new_chat_id:
-                            await chat_link_store.store_link(
-                                message.chat_id,
-                                message_thread_id,
-                                new_chat_id,
-                                interface=interface_name,
-                            )
-                            log_debug(
-                                f"[selenium][DEBUG] Saved link: {message.chat_id}/{message_thread_id} -> {new_chat_id}"
-                            )
-                            _safe_notify(
-                                f"\u26a0\ufe0f Couldn't find ChatGPT conversation for chat_id={message.chat_id}, message_thread_id={message_thread_id}.\n"
-                                f"A new ChatGPT chat has been created: {new_chat_id}"
-                            )
-                        else:
-                            log_warning("[selenium][WARN] Failed to extract chat ID from URL")
+                # Critical section: process prompt with robust error handling
+                response_text = None
+                try:
+                    if chat_id:
+                        previous = get_previous_response(message.chat_id)
+                        response_text = process_prompt_in_chat(driver, chat_id, prompt_text, previous, temp_image_path)
+                        if response_text:
+                            update_previous_response(message.chat_id, response_text)
+                    else:
+                        previous = get_previous_response(message.chat_id)
+                        response_text = process_prompt_in_chat(driver, None, prompt_text, previous, temp_image_path)
+                        if response_text:
+                            update_previous_response(message.chat_id, response_text)
+                            new_chat_id = _extract_chat_id(driver.current_url)
+                            log_debug(f"[selenium][DEBUG] New chat created, extracted ID: {new_chat_id}")
+                            log_debug(f"[selenium][DEBUG] Current URL: {driver.current_url}")
+                            if new_chat_id:
+                                await chat_link_store.store_chatgpt_link(
+                                    message.chat_id,
+                                    new_chat_id,
+                                    thread_id,
+                                    interface=interface_name,
+                                )
+                                log_debug(
+                                    f"[selenium][DEBUG] Saved link: {message.chat_id}/{thread_id} -> {new_chat_id}"
+                                )
+                                _safe_notify(
+                                    f"\u26a0\ufe0f Couldn't find ChatGPT conversation for chat_id={message.chat_id}, thread_id={thread_id}.\n"
+                                    f"A new ChatGPT chat has been created: {new_chat_id}"
+                                )
+                            else:
+                                log_warning("[selenium][WARN] Failed to extract chat ID from URL")
+                
+                except Exception as prompt_error:
+                    # Critical error in process_prompt_in_chat
+                    log_error(f"[selenium] CRITICAL ERROR in process_prompt_in_chat: {repr(prompt_error)}")
+                    log_error(f"[selenium] Chat: {message.chat_id}, ChatGPT ID: {chat_id}")
+                    log_error(f"[selenium] Full traceback: {traceback.format_exc()}")
+                    response_text = None  # Ensure it's None for fallback handling
 
                 if _check_conversation_full(driver):
                     current_id = chat_id or _extract_chat_id(driver.current_url)
@@ -2141,10 +2406,10 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     response_text = process_prompt_in_chat(driver, None, prompt_text, "", temp_image_path)
                     new_chat_id = _extract_chat_id(driver.current_url)
                     if new_chat_id:
-                        await chat_link_store.store_link(
+                        await chat_link_store.store_chatgpt_link(
                             message.chat_id,
-                            message_thread_id,
                             new_chat_id,
+                            thread_id,
                             interface=interface_name,
                         )
                         log_debug(
@@ -2152,8 +2417,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         )
                     queue_paused = False
 
+                # Handle case where ChatGPT completely failed to generate a response
                 if response_text is None:
-                    response_text = ""
+                    fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
+                    log_error(f"[selenium] LLM FAILURE - Chat: {message.chat_id}, Reason: ChatGPT returned None (complete failure)")
+                    log_error(f"[selenium] Sending fallback message: '{fallback_text}'")
+                    response_text = fallback_text
 
                 # Detect interface type for dispatch
                 module_name = getattr(bot.__class__, "__module__", "")
@@ -2166,19 +2435,25 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                             message.chat_id,
                             text=response_text,
                             reply_to_message_id=getattr(message, "message_id", None),
-                            message_thread_id=message_thread_id,
+                            thread_id=thread_id,
                             event_id=getattr(message, "event_id", None),
                             interface='telegram',
                         )
                     else:
-                        log_warning(f"[selenium] Empty LLM response for chat {message.chat_id}; sending error notification instead of forwarding")
-                        # Send error via interface_to_llm (system message)
-                        from core.transport_layer import interface_to_llm
-                        try:
-                            await interface_to_llm(safe_send, bot, message.chat_id, text="\x1b[31mNo response from LLM\x1b[0m", reply_to_message_id=getattr(message, "message_id", None), message_thread_id=message_thread_id)
-                        except Exception as e:
-                            log_warning(f"[selenium] Failed to send error notification: {e}")
-                            await self._send_error_message(bot, message, error_text="\x1b[31mNo response from LLM\x1b[0m")
+                        # Send fallback message when LLM fails to generate response
+                        fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
+                        log_error(f"[selenium] LLM FAILURE - Chat: {message.chat_id}, Reason: Empty response from ChatGPT")
+                        log_error(f"[selenium] Sending fallback message: '{fallback_text}'")
+                        await llm_to_interface(
+                            safe_send,
+                            bot,
+                            message.chat_id,
+                            text=fallback_text,
+                            reply_to_message_id=getattr(message, "message_id", None),
+                            thread_id=thread_id,
+                            event_id=getattr(message, "event_id", None),
+                            interface='telegram',
+                        )
                 else:
                     # Non-Telegram interfaces expect a payload dict
                     if response_text and response_text.strip():
@@ -2191,7 +2466,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                 target=message.chat_id,
                                 text=response_text,
                                 interface="discord",
-                                message_thread_id=message_thread_id,
+                                thread_id=thread_id,
                             )
                         else:
                             # For other interfaces, use universal_send as fallback
@@ -2201,12 +2476,33 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                                 target=message.chat_id,
                                 text=response_text,
                                 interface=interface_name,
-                                message_thread_id=message_thread_id,
+                                thread_id=thread_id,
                             )
                     else:
-                        log_warning(f"[selenium] Empty LLM response for non-telegram interface {interface_name}; sending error notification")
-                        # Send error via _send_error_message (which uses interface_to_llm for system messages)
-                        await self._send_error_message(bot, message, error_text="No response from LLM")
+                        # Send fallback message when LLM fails to generate response  
+                        fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
+                        log_error(f"[selenium] LLM FAILURE - Chat: {message.chat_id}, Interface: {interface_name}, Reason: Empty response from ChatGPT")
+                        log_error(f"[selenium] Sending fallback message: '{fallback_text}'")
+                        # For Discord, use universal_send
+                        if interface_name == "discord_bot" or "discord" in interface_name.lower():
+                            from core.transport_layer import universal_send
+                            await llm_to_interface(
+                                universal_send,
+                                target=message.chat_id,
+                                text=fallback_text,
+                                interface="discord",
+                                thread_id=thread_id,
+                            )
+                        else:
+                            # For other interfaces, use universal_send as fallback
+                            from core.transport_layer import universal_send
+                            await llm_to_interface(
+                                universal_send,
+                                target=message.chat_id,
+                                text=fallback_text,
+                                interface=interface_name,
+                                thread_id=thread_id,
+                            )
 
                 log_debug(
                     f"[selenium][STEP] response forwarded to {message.chat_id}"
@@ -2215,8 +2511,40 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
             except Exception as e:
                 log_error(f"[selenium][ERROR] failed to process message: {repr(e)}", e)
+                log_error(f"[selenium] Full exception traceback: {traceback.format_exc()}")
                 _notify_gui(f"\u274c Selenium error: {e}. Open UI")
                 if attempt == max_attempts - 1:
+                    # Final fallback: send fallback message when all attempts failed
+                    try:
+                        fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
+                        log_error(f"[selenium] LLM FAILURE - Chat: {message.chat_id}, Reason: All {max_attempts} attempts failed with exception")
+                        log_error(f"[selenium] Sending final fallback message: '{fallback_text}'")
+                        
+                        interface_name = "telegram" if getattr(bot.__class__, "__module__", "").startswith("telegram") else "generic"
+                        thread_id = getattr(message, "thread_id", None)
+                        
+                        if interface_name == "telegram":
+                            await llm_to_interface(
+                                safe_send,
+                                bot,
+                                message.chat_id,
+                                text=fallback_text,
+                                reply_to_message_id=getattr(message, "message_id", None),
+                                thread_id=thread_id,
+                                event_id=getattr(message, "event_id", None),
+                                interface='telegram',
+                            )
+                        else:
+                            from core.transport_layer import universal_send
+                            await llm_to_interface(
+                                universal_send,
+                                target=message.chat_id,
+                                text=fallback_text,
+                                interface=interface_name,
+                                thread_id=thread_id,
+                            )
+                    except Exception as fallback_error:
+                        log_error(f"[selenium] CRITICAL: Even fallback message failed: {repr(fallback_error)}")
                     break  # Max attempts reached, exit
                 
         # Clean up temporary image file
@@ -2231,13 +2559,13 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         """Remove the association between a chat and a ChatGPT conversation.
         If no link exists for the current chat, creates a new one."""
         try:
-            if await chat_link_store.remove(chat_id, None, interface=interface):
+            if await chat_link_store.remove_chatgpt_link(chat_id, None, interface=interface):
                 log_debug(f"[clean_chat_link] Chat link removed for chat_id={chat_id}")
                 return f"✅ Link for chat_id={chat_id} successfully removed."
             else:
                 new_chat_id = f"new_chat_{chat_id}"
-                await chat_link_store.store_link(
-                    chat_id, None, new_chat_id, interface=interface
+                await chat_link_store.store_chatgpt_link(
+                    chat_id, new_chat_id, None, interface=interface
                 )
                 log_debug(f"[clean_chat_link] No link found. Created new link: {new_chat_id}")
                 return f"⚠️ No link found for chat_id={chat_id}. Created new link: {new_chat_id}."

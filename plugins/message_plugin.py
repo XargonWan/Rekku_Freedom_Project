@@ -63,7 +63,7 @@ class MessagePlugin:
         payload = action.get("payload", {})
         text = payload.get("text", "")
         target = payload.get("target")
-        message_thread_id = payload.get("message_thread_id")
+        thread_id = payload.get("thread_id")
         
         # Map action types to interface names
         action_type = action.get("type", "")
@@ -91,12 +91,12 @@ class MessagePlugin:
             target = getattr(original_message, "chat_id", None)
             log_debug(f"[message_plugin] No target specified, using original chat_id: {target}")
 
-        if not message_thread_id and hasattr(original_message, "message_thread_id"):
-            orig_thread = getattr(original_message, "message_thread_id", None)
+        if not thread_id and hasattr(original_message, "thread_id"):
+            orig_thread = getattr(original_message, "thread_id", None)
             if orig_thread:
-                message_thread_id = orig_thread  # fixed: use message_thread_id from original message
+                thread_id = orig_thread  # fixed: use thread_id from original message
                 log_debug(
-                    f"[message_plugin] No message_thread_id specified, using original message_thread_id: {message_thread_id}"
+                    f"[message_plugin] No thread_id specified, using original thread_id: {thread_id}"
                 )
 
         if not target:
@@ -119,17 +119,17 @@ class MessagePlugin:
             log_debug(f"[message_plugin] Adding reply_to_message_id: {reply_to}")
 
         send_payload = {"text": text, "target": target}
-        if message_thread_id is not None:
-            send_payload["message_thread_id"] = message_thread_id
+        if thread_id is not None:
+            send_payload["thread_id"] = thread_id
 
         try:
             await handler.send_message(send_payload, original_message)
             log_info(
-                f"[message_plugin] Message successfully sent to {target} (thread: {message_thread_id}, reply_to: {reply_to})"
+                f"[message_plugin] Message successfully sent to {target} (thread: {thread_id}, reply_to: {reply_to})"
             )
         except Exception as e:
             log_error(
-                f"[message_plugin] Failed to send message to {target} (thread: {message_thread_id}): {repr(e)}"
+                f"[message_plugin] Failed to send message to {target} (thread: {thread_id}): {repr(e)}"
             )
 
 

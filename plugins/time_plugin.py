@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from core.rekku_utils import get_local_timezone, format_dual_time, get_local_location
+from core.time_zone_utils import get_local_timezone, format_dual_time, get_local_location
 from core.core_initializer import core_initializer, register_plugin
 
 

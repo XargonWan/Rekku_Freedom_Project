@@ -78,8 +78,8 @@ class AutoResponseSystem:
             # Message metadata expected by downstream handlers
             mock_message.date = datetime.utcnow()
             mock_message.reply_to_message = None
-            mock_message.message_thread_id = original_context.get(
-                "message_thread_id"
+            mock_message.thread_id = original_context.get(
+                "thread_id"
             )
 
             # Provide chat structure expected by message_queue.enqueue

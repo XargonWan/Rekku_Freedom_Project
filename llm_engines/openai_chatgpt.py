@@ -7,16 +7,39 @@ from core.config import get_user_api_key
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.transport_layer import llm_to_interface
 
-# OpenAI-specific configuration
+# Model-specific configurations with appropriate prompt limits
+MODEL_CONFIGS = {
+    "gpt-3.5-turbo": {
+        "max_prompt_chars": 12000,  # 4k context, ~12k chars
+        "max_tokens": 4000,
+        "supports_images": False,
+        "supports_functions": True
+    },
+    "gpt-3.5-turbo-16k": {
+        "max_prompt_chars": 48000,  # 16k context, ~48k chars
+        "max_tokens": 4000,
+        "supports_images": False,
+        "supports_functions": True
+    },
+    "gpt-4": {
+        "max_prompt_chars": 24000,  # 8k context, ~24k chars
+        "max_tokens": 4000,
+        "supports_images": False,
+        "supports_functions": True
+    },
+    "gpt-4o": {
+        "max_prompt_chars": 400000,  # 128k context, ~400k chars
+        "max_tokens": 4000,
+        "supports_images": True,
+        "supports_functions": True
+    }
+}
+
+# Base OpenAI configuration
 OPENAI_CONFIG = {
-    "max_prompt_chars": 32000,  # Conservative estimate for GPT-4
     "max_response_chars": 4000,
-    "supports_images": True,
-    "supports_functions": True,
-    "model_name": "gpt-4o",
     "default_model": "gpt-3.5-turbo",
     "temperature": 0.7,
-    "max_tokens": 4000,
     "api_timeout": 30
 }
 
@@ -24,21 +47,49 @@ def get_openai_config() -> dict:
     """Get OpenAI-specific configuration."""
     return OPENAI_CONFIG.copy()
 
-def get_max_prompt_chars() -> int:
-    """Get maximum prompt characters for OpenAI."""
-    return OPENAI_CONFIG["max_prompt_chars"]
+def get_max_prompt_chars(model_name: str = None) -> int:
+    """Get maximum prompt characters for the specified model."""
+    if model_name and model_name in MODEL_CONFIGS:
+        return MODEL_CONFIGS[model_name]["max_prompt_chars"]
+    # Fallback to default model
+    default_model = OPENAI_CONFIG.get("default_model", "gpt-3.5-turbo")
+    return MODEL_CONFIGS.get(default_model, {}).get("max_prompt_chars", 12000)
 
 def get_max_response_chars() -> int:
     """Get maximum response characters for OpenAI."""
     return OPENAI_CONFIG["max_response_chars"]
 
-def supports_images() -> bool:
-    """Check if OpenAI supports images."""
-    return OPENAI_CONFIG["supports_images"]
+def supports_images(model_name: str = None) -> bool:
+    """Check if the specified model supports images."""
+    if model_name and model_name in MODEL_CONFIGS:
+        return MODEL_CONFIGS[model_name]["supports_images"]
+    return False
 
-def supports_functions() -> bool:
-    """Check if OpenAI supports functions."""
-    return OPENAI_CONFIG["supports_functions"]
+def supports_functions(model_name: str = None) -> bool:
+    """Check if the specified model supports functions."""
+    if model_name and model_name in MODEL_CONFIGS:
+        return MODEL_CONFIGS[model_name]["supports_functions"]
+    return True
+
+def get_interface_limits() -> dict:
+    """Get the limits and capabilities for OpenAI ChatGPT interface."""
+    # Get current model from active LLM or use default
+    try:
+        from core.config import get_active_llm
+        active_llm = get_active_llm()
+        model_name = active_llm.get("model_name", OPENAI_CONFIG["default_model"]) if active_llm else OPENAI_CONFIG["default_model"]
+    except:
+        model_name = OPENAI_CONFIG["default_model"]
+    
+    limits = {
+        "max_prompt_chars": get_max_prompt_chars(model_name),
+        "max_response_chars": OPENAI_CONFIG["max_response_chars"],
+        "supports_images": supports_images(model_name),
+        "supports_functions": supports_functions(model_name),
+        "model_name": model_name
+    }
+    log_info(f"[openai_chatgpt] Interface limits for {model_name}: max_prompt_chars={limits['max_prompt_chars']}")
+    return limits
 
 class OpenAIPlugin(AIPluginBase):
 
@@ -58,21 +109,21 @@ class OpenAIPlugin(AIPluginBase):
         self._current_model = get_current_model() or "gpt-3.5-turbo"
 
     def get_supported_models(self):
-        return [
-            "gpt-3.5-turbo",
-            "gpt-3.5-turbo-16k",
-            "gpt-4",
-            "gpt-4o",
-        ]
+        return list(MODEL_CONFIGS.keys())
 
     def get_current_model(self):
         return self._current_model
+
+    def get_max_prompt_chars_for_current_model(self):
+        """Get max prompt chars for the currently selected model."""
+        return get_max_prompt_chars(self._current_model)
 
     def set_current_model(self, name):
         if name not in self.get_supported_models():
             raise ValueError(f"Unsupported model: {name}")
         self._current_model = name
-        log_debug(f"[openai] Active model updated: {name}")
+        max_chars = self.get_max_prompt_chars_for_current_model()
+        log_debug(f"[openai] Active model updated: {name} (max_prompt_chars: {max_chars})")
 
     def get_target(self, trainer_message_id):
         return self.reply_map.get(trainer_message_id)

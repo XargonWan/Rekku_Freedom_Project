@@ -371,7 +371,7 @@ async def insert_scheduled_event(
     try:
         async with conn.cursor() as cur:
             try:
-                from core.rekku_utils import parse_local_to_utc
+                from core.time_zone_utils import parse_local_to_utc
                 next_run_utc = parse_local_to_utc(date, time)
             except Exception as e:
                 log_warning(
@@ -439,7 +439,7 @@ async def get_due_events(now: datetime | None = None) -> list[dict]:
             else:
                 event_dt = datetime.fromisoformat(str(scheduled_val).replace('Z', '+00:00'))
             if event_dt.tzinfo is None:
-                from core.rekku_utils import get_local_timezone
+                from core.time_zone_utils import get_local_timezone
                 event_dt = (
                     event_dt.replace(tzinfo=get_local_timezone())
                     .astimezone(timezone.utc)
@@ -454,7 +454,7 @@ async def get_due_events(now: datetime | None = None) -> list[dict]:
         minutes_late = int((now - event_dt).total_seconds() / 60) if is_late else 0
 
         ev = dict(r)
-        from core.rekku_utils import format_dual_time
+        from core.time_zone_utils import format_dual_time
         ev.update(
             {
                 "is_late": is_late,
@@ -494,7 +494,7 @@ async def mark_event_delivered(event_id: int) -> bool:
                 else:
                     next_run_dt = None
                 if next_run_dt and next_run_dt.tzinfo is None:
-                    from core.rekku_utils import get_local_timezone
+                    from core.time_zone_utils import get_local_timezone
                     next_run_dt = (
                         next_run_dt.replace(tzinfo=get_local_timezone())
                         .astimezone(timezone.utc)

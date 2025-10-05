@@ -26,8 +26,11 @@ getting started.
    event_id_flow
    auto_response
    chat_links
+   persona_manager
    llm_engines
    plugins
+   validation_system
+   ai_diary_personal_memory
    interfaces
    contributing
    faq

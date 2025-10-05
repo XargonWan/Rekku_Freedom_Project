@@ -76,6 +76,15 @@ def is_rekku_mentioned(text: str) -> bool:
     return False
 
 
+def get_message_text(message) -> str | None:
+    """
+    Extract text from a message, checking both text and caption fields.
+    Returns None if neither is available.
+    """
+    return message.text if hasattr(message, 'text') and message.text else \
+           message.caption if hasattr(message, 'caption') and message.caption else None
+
+
 async def is_message_for_bot(
     message,
     bot,
@@ -104,43 +113,25 @@ async def is_message_for_bot(
               considered for the bot. ``None`` when ``is_for_bot`` is True.
     """
     # First log to ensure function is called
+    # Extract text from message (handles both text and caption)
+    message_text = get_message_text(message)
+    
     try:
-        log_debug(f"[mention] ENTRY: Function called with message.text='{getattr(message, 'text', 'NO_TEXT')}' chat_type='{getattr(message.chat, 'type', 'NO_CHAT_TYPE')}'")
+        log_debug(f"[mention] ENTRY: Function called with message.text='{message_text}' chat_type='{getattr(message.chat, 'type', 'NO_CHAT_TYPE')}'")
     except Exception as e:
         print(f"ERROR in log_debug: {e}")
         return False, "error_in_function"
     
-    # Private messages are always for the bot
+    # Priority 1: Check for private messages (1:1 chat) - HIGHEST PRIORITY
     try:
         if message.chat.type == "private":
-            log_debug("[mention] Private message detected - always for bot")
+            log_debug("[mention] ✅ Private message detected - PRIORITY 1 - always for bot")
             return True, None
     except Exception as e:
         log_debug(f"[mention] Error checking private chat: {e}")
         return False, "error_checking_private"
     
-    # Priority 1: Check for Rekku aliases in message text (no async calls)
-    if message.text:
-        text_lower = message.text.lower()
-        log_debug(f"[mention] Checking aliases in text: '{text_lower}'")
-        for alias in REKKU_ALIASES:
-            if alias.lower() in text_lower:
-                log_debug(f"[mention] ✅ Alias found: '{alias}' - message is for bot")
-                return True, None
-        log_debug(f"[mention] No aliases found in '{text_lower}'")
-    
-    # Priority 2: Check for @mention (simple string check)
-    if message.text and "@" in message.text:
-        # Check for @rekku mention
-        if "@rekku" in message.text.lower():
-            log_debug("[mention] Explicit @rekku mention found - message is for bot")
-            return True, None
-        # Check for bot username if provided
-        if bot_username and f"@{bot_username}" in message.text:
-            log_debug(f"[mention] Explicit @mention found: @{bot_username} - message is for bot")
-            return True, None
-    
-    # Priority 3: Check for reply to bot message
+    # Priority 2: Check for reply to bot message
     if hasattr(message, 'reply_to_message') and message.reply_to_message:
         reply_sender = getattr(message.reply_to_message, 'from_user', None)
         if reply_sender:
@@ -150,17 +141,48 @@ async def is_message_for_bot(
             
             # Check if reply is to bot by username
             if reply_username and bot_username and reply_username.lower() == bot_username.lower():
-                log_debug("[mention] Reply to bot message (username match) - message is for bot")
+                log_debug("[mention] ✅ Reply to bot message (username match) - PRIORITY 2 - message is for bot")
                 return True, None
             
             # Check if reply is to bot by ID
             if reply_id and hasattr(bot, 'id') and reply_id == bot.id:
-                log_debug("[mention] Reply to bot message (ID match) - message is for bot")
+                log_debug("[mention] ✅ Reply to bot message (ID match) - PRIORITY 2 - message is for bot")
                 return True, None
     
-    # Fallback: Check human count for group chats (only when NO direct mention found)
+    # Priority 3: Check for @mention/tag (explicit mentions)
+    if message_text and "@" in message_text:
+        # Check for @rekku mention
+        if "@rekku" in message_text.lower():
+            log_debug("[mention] ✅ Explicit @rekku mention found - PRIORITY 3 - message is for bot")
+            return True, None
+        # Check for bot username if provided
+        if bot_username and f"@{bot_username}" in message_text:
+            log_debug(f"[mention] ✅ Explicit @mention found: @{bot_username} - PRIORITY 3 - message is for bot")
+            return True, None
+    
+    # Priority 4: Check for Rekku aliases in message text (activation words)
+    if message_text:
+        text_lower = message_text.lower()
+        log_debug(f"[mention] Checking aliases in text: '{text_lower}'")
+        for alias in REKKU_ALIASES:
+            if alias.lower() in text_lower:
+                log_debug(f"[mention] ✅ Alias found: '{alias}' - PRIORITY 4 - message is for bot")
+                return True, None
+        log_debug(f"[mention] No aliases found in '{text_lower}'")
+        
+        # Priority 4.5: Check for persona manager triggers
+        try:
+            from core.persona_manager import get_persona_manager
+            persona_manager = get_persona_manager()
+            if persona_manager and persona_manager.check_triggers(message_text):
+                log_debug("[mention] ✅ Persona manager trigger found - PRIORITY 4.5 - message is for bot")
+                return True, None
+        except Exception as e:
+            log_debug(f"[mention] Error checking persona triggers: {e}")
+    
+    # Priority 5: Check for chat 1:1 using human count (fallback)
     if human_count is not None and human_count == 1:
-        log_debug("[mention] Single human in chat - treating as message for bot")
+        log_debug("[mention] ✅ Single human in chat - PRIORITY 5 - treating as message for bot")
         return True, None
     
     # No direct mention found and either multiple humans or unknown count

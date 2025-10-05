@@ -8,7 +8,7 @@ This module currently provides only simple tag extraction and a placeholder for
 
 from typing import List
 
-from core.logging_utils import log_warning
+from core.logging_utils import log_warning, log_debug
 
 def extract_tags(text: str) -> list[str]:
     text = text.lower()
@@ -28,5 +28,5 @@ def expand_tags(tags: List[str]) -> List[str]:
     available. The full implementation will expand tags based on stored
     relationships in the future.
     """
-    log_warning("[rekku_tagging] expand_tags is not implemented yet (placeholder)")
+    log_debug("[rekku_tagging] expand_tags is not implemented yet (placeholder)")
     return tags

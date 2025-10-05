@@ -6,12 +6,12 @@ between chat identifiers and human‑readable names. Each entry stores:
 
 * ``interface`` – originating interface (e.g. ``telegram``, ``discord``)
 * ``chat_id`` – numeric identifier for the chat
-* ``message_thread_id`` – optional thread/topic id
+* ``thread_id`` – optional thread/topic id
 * ``chat_name`` – optional parent chat title (Telegram chat, Discord server)
 * ``message_thread_name`` – optional thread or channel title
 
 Interfaces can resolve a link by supplying any combination of IDs or names.
-This allows actions to target a conversation using ``chat_id``/``message_thread_id``
+This allows actions to target a conversation using ``chat_id``/``thread_id``
 or by specifying ``chat_name``/``message_thread_name``.
 
 Updating names
