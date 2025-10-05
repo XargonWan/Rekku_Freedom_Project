@@ -4,6 +4,7 @@ import os
 import time
 import urllib.parse
 import urllib.request
+import urllib.error
 from typing import Optional
 import concurrent.futures
 
@@ -77,21 +78,36 @@ class WeatherPlugin:
             except RuntimeError:
                 # Event loop is closed; skip update
                 log_warning("[weather_plugin] Event loop closed; aborting weather update")
+                self._cached_weather = f"{location}: ⚠️ Weather service temporarily unavailable (system shutting down)"
                 return
 
             try:
                 response = await loop.run_in_executor(self._executor, urllib.request.urlopen, url)
                 data_bytes = await loop.run_in_executor(self._executor, response.read)
+            except urllib.error.HTTPError as e:
+                # HTTP errors (404, 500, etc.)
+                log_warning(f"[weather_plugin] HTTP error fetching weather: {e.code} {e.reason}")
+                self._cached_weather = f"{location}: ⚠️ Cannot reach weather service (HTTP {e.code})"
+                return
+            except urllib.error.URLError as e:
+                # Network/connection errors
+                log_warning(f"[weather_plugin] Network error fetching weather: {e.reason}")
+                self._cached_weather = f"{location}: ⚠️ Cannot reach weather service (connection failed)"
+                return
             except RuntimeError as e:
                 # Executor or loop has been shutdown
                 log_warning(f"[weather_plugin] Could not schedule weather read: {e}")
+                self._cached_weather = f"{location}: ⚠️ Weather service temporarily unavailable"
                 return
             if not data_bytes:
-                raise ValueError("empty response")
+                log_warning("[weather_plugin] Empty response from weather service")
+                self._cached_weather = f"{location}: ⚠️ Weather service returned empty response"
+                return
             try:
                 data = json.loads(data_bytes.decode())
             except json.JSONDecodeError as e:
                 log_warning(f"[weather_plugin] Invalid JSON weather data: {e}")
+                self._cached_weather = f"{location}: ⚠️ Weather service returned invalid data"
                 return
             cc = data.get("current_condition", [{}])[0]
             desc = cc.get("weatherDesc", [{}])[0].get("value", "N/A")
@@ -123,6 +139,7 @@ class WeatherPlugin:
         except Exception as e:
             log_warning(f"[weather_plugin] Failed to fetch weather: {e}")
             log_error("[weather_plugin] Weather update error", e)
+            self._cached_weather = f"{location}: ⚠️ Weather service error (please try again later)"
 
     @staticmethod
     def _choose_emoji(description: str) -> str:

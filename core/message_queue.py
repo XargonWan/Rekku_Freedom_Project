@@ -65,8 +65,18 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
 
     log_debug(f"[QUEUE] DEBUG: human_count={human_count}, message.chat.type={getattr(message.chat, 'type', 'unknown')}")
     
+    # Get bot username for mention detection
+    bot_username = None
+    try:
+        if bot and hasattr(bot, 'get_me'):
+            bot_info = await bot.get_me()
+            bot_username = bot_info.username if bot_info else None
+            log_debug(f"[QUEUE] Bot username: {bot_username}")
+    except Exception as e:
+        log_debug(f"[QUEUE] Error getting bot username: {e}")
+    
     directed, reason = await is_message_for_bot(
-        message, bot, human_count=human_count
+        message, bot, bot_username=bot_username, human_count=human_count
     )
     log_debug(f"[QUEUE] DEBUG: is_message_for_bot returned directed={directed}, reason='{reason}'")
     
