@@ -75,10 +75,33 @@ def _format_json_error(text: str, err: json.JSONDecodeError) -> str:
     )
 
 
-def extract_json_from_text(text: str) -> Optional[Dict]:
-    """Extract the first valid JSON object or array from text."""
+def extract_json_from_text(text: str, return_metadata: bool = False) -> Optional[Dict]:
+    """Extract the first valid JSON object or array from text.
+    
+    Args:
+        text: The text to parse
+        return_metadata: If True, returns (json_obj, metadata_dict) tuple
+                        If False, returns just json_obj (backward compatible)
+    
+    Returns:
+        If return_metadata=False: JSON object or None
+        If return_metadata=True: (JSON object or None, metadata dict)
+        
+    Metadata dict contains:
+        - 'had_errors': bool - True if parsing encountered errors
+        - 'error_count': int - Number of parsing errors encountered
+        - 'unparsed_content': str - Content that couldn't be parsed (if any)
+        - 'recovered': bool - True if JSON was recovered after errors
+    """
+    metadata = {
+        'had_errors': False,
+        'error_count': 0,
+        'unparsed_content': '',
+        'recovered': False
+    }
+    
     if not text:
-        return None
+        return (None, metadata) if return_metadata else None
     
     # Try to clean up common markdown/formatting issues
     cleaned_text = text.strip()
@@ -99,6 +122,7 @@ def extract_json_from_text(text: str) -> Optional[Dict]:
     texts_to_try = [cleaned_text, text.strip()]
     
     decoder = json.JSONDecoder()
+    found_json = None
     
     for text_variant in texts_to_try:
         log_debug(f"[extract_json_from_text] Trying text variant (length: {len(text_variant)})")
@@ -117,13 +141,24 @@ def extract_json_from_text(text: str) -> Optional[Dict]:
                 suffix = text_variant[obj_end:].strip()
                 if prefix or suffix:
                     log_debug(f"[extract_json_from_text] Extra content detected around JSON object (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
+                    # Check if suffix looks like it could be corrupted JSON
+                    if suffix and ('{' in suffix or '"type"' in suffix or '"actions"' in suffix):
+                        metadata['unparsed_content'] = suffix
+                        metadata['recovered'] = True
+                        log_warning(f"[extract_json_from_text] ⚠️ Corrupted JSON detected - unparsed content contains JSON-like structures")
                 # Return JSON even if there's extra content - actions can still be executed
                 log_debug(f"[extract_json_from_text] Found valid JSON object: {type(obj)}")
-                return obj
+                found_json = obj
+                break
             except json.JSONDecodeError as e:
                 log_debug(f"[extract_json_from_text] JSON decode error at position {start}: {e}")
+                metadata['had_errors'] = True
+                metadata['error_count'] += 1
                 continue
         
+        if found_json:
+            break
+            
         # Scan for JSON arrays starting from each '['
         array_start_indices = [i for i, char in enumerate(text_variant) if char == '[']
         for start in array_start_indices:
@@ -134,17 +169,35 @@ def extract_json_from_text(text: str) -> Optional[Dict]:
                 suffix = text_variant[obj_end:].strip()
                 if prefix or suffix:
                     log_debug(f"[extract_json_from_text] Extra content detected around JSON array (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
+                    if suffix and ('{' in suffix or '"type"' in suffix or '"actions"' in suffix):
+                        metadata['unparsed_content'] = suffix
+                        metadata['recovered'] = True
+                        log_warning(f"[extract_json_from_text] ⚠️ Corrupted JSON detected - unparsed content contains JSON-like structures")
                 # Return JSON even if there's extra content - actions can still be executed
                 log_debug(f"[extract_json_from_text] Found valid JSON array: {type(obj)}")
-                return obj
+                found_json = obj
+                break
             except json.JSONDecodeError as e:
                 log_debug(f"[extract_json_from_text] JSON decode error at position {start}: {e}")
+                metadata['had_errors'] = True
+                metadata['error_count'] += 1
                 continue
+        
+        if found_json:
+            break
     
-    log_debug("[extract_json_from_text] No valid JSON found in text")
-    log_debug(f"[extract_json_from_text] Text content (first 500 chars): {text[:500]}")
-    log_debug(f"[extract_json_from_text] Text content (last 500 chars): {text[-500:]}")
-    return None
+    if not found_json:
+        log_debug("[extract_json_from_text] No valid JSON found in text")
+        log_debug(f"[extract_json_from_text] Text content (first 500 chars): {text[:500]}")
+        log_debug(f"[extract_json_from_text] Text content (last 500 chars): {text[-500:]}")
+        return (None, metadata) if return_metadata else None
+    
+    # If we had errors but found JSON, it means we recovered from corruption
+    if metadata['had_errors'] and found_json:
+        metadata['recovered'] = True
+        log_warning(f"[extract_json_from_text] ⚠️ JSON recovered after {metadata['error_count']} parsing errors - may be incomplete")
+    
+    return (found_json, metadata) if return_metadata else found_json
 
 
 
@@ -562,14 +615,23 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
     # handle it via the parser orchestrator to avoid echoing it back into the interfaces
     try:
         json_payload = None
+        json_metadata = None
         if text and text.strip():
             try:
-                json_payload = extract_json_from_text(text)
+                json_payload, json_metadata = extract_json_from_text(text, return_metadata=True)
             except Exception:
                 json_payload = None
+                json_metadata = None
 
-        # Detect correction/system payloads (top-level "system_message")
-        if isinstance(json_payload, dict) and 'system_message' in json_payload:
+        # Check if JSON was corrupted during parsing
+        is_corrupted = json_metadata and (json_metadata.get('recovered', False) or json_metadata.get('unparsed_content', ''))
+        
+        if is_corrupted:
+            log_warning(f"[llm_to_interface] 🔧 Corrupted JSON detected - activating corrector to regenerate damaged actions")
+            log_debug(f"[llm_to_interface] Unparsed content ({len(json_metadata.get('unparsed_content', ''))} chars): {json_metadata.get('unparsed_content', '')[:200]}...")
+        
+        # Detect correction/system payloads (top-level "system_message") OR corrupted JSON
+        if (isinstance(json_payload, dict) and 'system_message' in json_payload) or is_corrupted:
             try:
                 # Determine bot instance from args if present
                 bot = args[0] if args and len(args) > 0 else None
@@ -602,10 +664,27 @@ async def llm_to_interface(interface_send_func, *args, text: str = None, **kwarg
                     'original_thread_id': kwargs.get('thread_id'),
                     'original_text': text[:500] if text else ''
                 }
+                
+                # If JSON is corrupted, extract already-completed actions from the recovered JSON
+                completed_actions = []
+                if is_corrupted and json_payload:
+                    log_info("[llm_to_interface] Extracting completed actions from corrupted JSON")
+                    # Extract actions from recovered JSON
+                    if isinstance(json_payload, dict) and "actions" in json_payload:
+                        recovered_actions = json_payload.get("actions", [])
+                        if isinstance(recovered_actions, list):
+                            completed_actions = [a.get('type') for a in recovered_actions if isinstance(a, dict) and 'type' in a]
+                            log_info(f"[llm_to_interface] Found {len(completed_actions)} actions in recovered JSON: {completed_actions}")
 
                 # Delegate to the parser orchestrator (will call corrector middleware as needed)
                 from core import action_parser
-                orchestrator_result = await action_parser.corrector_orchestrator(text, corrector_context, bot, message)
+                orchestrator_result = await action_parser.corrector_orchestrator(
+                    text, 
+                    corrector_context, 
+                    bot, 
+                    message,
+                    completed_actions=completed_actions if is_corrupted else None
+                )
 
                 if orchestrator_result is True:
                     log_debug('[llm_to_interface] corrector_orchestrator executed actions; not forwarding text')

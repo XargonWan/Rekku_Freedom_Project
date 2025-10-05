@@ -1238,8 +1238,17 @@ __all__ = [
 ]
 
 
-async def corrector_orchestrator(text: str, context: dict, bot, message, max_retries: int | None = None):
+async def corrector_orchestrator(text: str, context: dict, bot, message, max_retries: int | None = None, completed_actions: list = None):
     """Process model text: parse JSON actions or run the corrector loop.
+    
+    Args:
+        text: The text to parse/correct
+        context: Context information
+        bot: Bot instance
+        message: Message object
+        max_retries: Maximum number of correction attempts
+        completed_actions: List of action types that were already successfully executed
+                          (so the corrector knows not to regenerate them)
 
     Returns:
         True  -> actions parsed and executed
@@ -1257,6 +1266,10 @@ async def corrector_orchestrator(text: str, context: dict, bot, message, max_ret
     # Determine max retries
     if max_retries is None:
         max_retries = CORRECTOR_RETRIES
+    
+    # Initialize completed_actions if not provided
+    if completed_actions is None:
+        completed_actions = []
 
     # Quick parse attempt
     parsed = None
@@ -1279,6 +1292,18 @@ async def corrector_orchestrator(text: str, context: dict, bot, message, max_ret
         else:
             log_warning(f"[corrector_orchestrator] Unrecognized JSON structure: {parsed}")
             return None
+        
+        # Filter out already completed actions to avoid duplicates (e.g., double diary entries)
+        if completed_actions:
+            original_count = len(actions)
+            actions = [a for a in actions if a.get('type') not in completed_actions]
+            if len(actions) < original_count:
+                log_info(f"[corrector_orchestrator] Filtered out {original_count - len(actions)} already-completed actions: {completed_actions}")
+        
+        # If no actions left after filtering, we're done
+        if not actions:
+            log_info("[corrector_orchestrator] All actions were already completed - nothing to regenerate")
+            return True
 
         try:
             result = await run_actions(actions, context, bot, message)
@@ -1301,6 +1326,13 @@ async def corrector_orchestrator(text: str, context: dict, bot, message, max_ret
         return None
 
     # JSON-like but not valid -> run corrector loop here
+    # Build context for corrector, including completed actions
+    if completed_actions:
+        log_info(f"[corrector_orchestrator] Starting correction loop - actions already completed: {completed_actions}")
+        context = dict(context) if context else {}
+        context['completed_actions'] = completed_actions
+        context['instruction'] = f"The previous response had corrupted JSON. These actions were already successfully executed: {', '.join(completed_actions)}. Please regenerate ONLY the missing/corrupted actions. Do NOT regenerate: {', '.join(completed_actions)}"
+    
     tried_texts = set()
     attempt = 0
     while attempt < max_retries:
