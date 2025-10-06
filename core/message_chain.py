@@ -123,12 +123,21 @@ async def handle_incoming_message(bot, message: Optional[SimpleNamespace], text:
             f"[message_chain] iteration attempt={attempt} source={source} chat={getattr(message,'chat_id',None)}"
         )
 
-        # Quick JSON extraction
+        # Quick JSON extraction with metadata to detect corruption
         parsed = None
+        metadata = {}
         try:
-            parsed = extract_json_from_text(text)
+            parsed, metadata = extract_json_from_text(text, return_metadata=True)
         except Exception as e:
             log_debug(f"[message_chain] extract_json failed: {e}")
+
+        # Check if JSON was recovered from corruption - needs correction
+        if parsed is not None and metadata.get('recovered'):
+            log_warning(
+                f"[message_chain] JSON recovered from corruption (errors: {metadata.get('error_count', 0)}, "
+                f"unparsed: {len(metadata.get('unparsed_content', ''))} chars) - triggering corrector"
+            )
+            parsed = None  # Force correction path
 
         if parsed is not None:
             # System messages are produced by the core/system and should NEVER be processed
