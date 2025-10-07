@@ -104,8 +104,8 @@ class CoreInitializer:
 
             log_info("[core_initializer] 🎯 CHECKPOINT: Actions block completed, proceeding to interface discovery")
             
-            # 4. Auto-discover active interfaces
-            log_debug("[core_initializer] About to call _discover_interfaces()")
+            # 4.5. Auto-discover and import interface modules
+            log_debug("[core_initializer] Auto-discovering interface modules...")
             try:
                 self._discover_interfaces()
                 log_debug("[core_initializer] Interface discovery completed")
@@ -365,10 +365,33 @@ class CoreInitializer:
                     self.startup_errors.append(f"Plugin {module_name}: {e}")
     
     def _discover_interfaces(self):
-        """Auto-discover active interfaces by checking running processes/modules."""
-        # This would be called by each interface when it starts up
-        # For now, we'll just log that interfaces should register themselves
-        log_debug("[core_initializer] Interfaces will register themselves when they start")
+        """Auto-discover and import all interface modules from interface directory."""
+        import os
+        import pkgutil
+        import importlib
+        
+        try:
+            import interface
+            interface_path = os.path.dirname(interface.__file__)
+            
+            log_debug(f"[core_initializer] Scanning interface directory: {interface_path}")
+            
+            # Auto-discover all modules in interface package
+            for importer, module_name, is_pkg in pkgutil.iter_modules([interface_path]):
+                if not is_pkg and not module_name.startswith('_'):
+                    module_path = f"interface.{module_name}"
+                    try:
+                        log_debug(f"[core_initializer] Importing interface module: {module_name}")
+                        importlib.import_module(module_path)
+                        log_debug(f"[core_initializer] Successfully imported: {module_name}")
+                    except Exception as e:
+                        log_warning(f"[core_initializer] Failed to import interface {module_name}: {e}")
+            
+            log_debug("[core_initializer] Interface auto-discovery complete")
+            
+        except Exception as e:
+            log_error(f"[core_initializer] Error during interface discovery: {e}")
+            self.startup_errors.append(f"Interface discovery failed: {e}")
     
     def register_interface(self, interface_name: str):
         """Register an active interface."""

@@ -1449,4 +1449,35 @@ class TelegramInterface:
         await self._verify_delivery(sent_message, payload, original_message)
 
 
+# Auto-start Telegram bot at import time if configured
+# This ensures the interface is available when the core initializer runs
+if BOTFATHER_TOKEN and TELEGRAM_TRAINER_ID:
+    log_info("[telegram_bot] BOTFATHER_TOKEN and TELEGRAM_TRAINER_ID configured - scheduling Telegram bot startup")
+    
+    # Schedule the bot to start when an event loop becomes available
+    def _schedule_telegram_startup():
+        """Schedule Telegram bot startup in the event loop."""
+        try:
+            import asyncio
+            loop = asyncio.get_running_loop()
+            loop.create_task(start_bot())
+            log_info("[telegram_bot] Telegram bot startup task scheduled")
+        except RuntimeError:
+            # No event loop yet - will be handled by the main application
+            log_debug("[telegram_bot] No event loop running, bot will start when application initializes")
+    
+    # Try to schedule immediately
+    try:
+        _schedule_telegram_startup()
+    except Exception as e:
+        log_debug(f"[telegram_bot] Could not schedule startup immediately: {e}")
+        # This is expected during import - the main app will handle it
+else:
+    if not BOTFATHER_TOKEN:
+        log_debug("[telegram_bot] BOTFATHER_TOKEN not configured - Telegram interface disabled")
+    if not TELEGRAM_TRAINER_ID:
+        log_debug("[telegram_bot] TELEGRAM_TRAINER_ID not configured - Telegram interface disabled")
+
+
+
 
