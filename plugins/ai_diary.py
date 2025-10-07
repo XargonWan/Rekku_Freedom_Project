@@ -659,7 +659,8 @@ def format_diary_for_injection(entries: List[Dict[str, Any]]) -> str:
         return ""
     
     formatted_lines = ["=== Rekku's Personal Diary ==="]
-    formatted_lines.append("(These are my personal memories of recent interactions)")
+    formatted_lines.append("(This diary contains my past interactions and thoughts from previous conversations)")
+    formatted_lines.append("(Use this information only as contextual reference when relevant, not as a continuation of the current conversation)")
     formatted_lines.append("")
     
     for entry in entries:
@@ -668,7 +669,7 @@ def format_diary_for_injection(entries: List[Dict[str, Any]]) -> str:
         formatted_lines.append(entry_text)
     
     formatted_lines.append("=== End of My Diary ===")
-    formatted_lines.append("(Use these memories to better understand my relationships and personality)")
+    formatted_lines.append("(Reference these memories only when they provide useful context for the current interaction)")
     return "\n".join(formatted_lines)
 
 
