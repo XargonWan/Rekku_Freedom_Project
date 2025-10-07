@@ -14,7 +14,8 @@ ENV PIXELFLUX_USE_XSHM=0 \
     PIXELFLUX_DISABLE_XSHM=1 \
     PIXELFLUX_NO_XSHM=1 \
     QT_X11_NO_MITSHM=1 \
-    DISABLE_XSHM=1
+    DISABLE_XSHM=1 \
+    BROWSER=/usr/local/bin/chromium-browser
 
 # Block snap completely
 RUN echo 'Package: snapd' > /etc/apt/preferences.d/no-snap && \
@@ -62,6 +63,23 @@ RUN ARCH="${TARGETARCH}" && \
 RUN mkdir -p '/config/.config/chromium-rfp' && \
     chown -R abc:abc /config && \
     chmod -R 775 /config
+
+# Set Chromium as default browser with profile
+RUN mkdir -p /usr/local/share/applications && \
+    echo '[Desktop Entry]' > /usr/local/share/applications/chromium-rfp.desktop && \
+    echo 'Version=1.0' >> /usr/local/share/applications/chromium-rfp.desktop && \
+    echo 'Name=Chromium RFP' >> /usr/local/share/applications/chromium-rfp.desktop && \
+    echo 'Comment=Chromium browser for Rekku Freedom Project' >> /usr/local/share/applications/chromium-rfp.desktop && \
+    echo 'Exec=/usr/bin/chromium --no-sandbox --user-data-dir=/config/.config/chromium-rfp %U' >> /usr/local/share/applications/chromium-rfp.desktop && \
+    echo 'Terminal=false' >> /usr/local/share/applications/chromium-rfp.desktop && \
+    echo 'Type=Application' >> /usr/local/share/applications/chromium-rfp.desktop && \
+    echo 'Categories=Network;WebBrowser;' >> /usr/local/share/applications/chromium-rfp.desktop && \
+    echo 'MimeType=text/html;text/xml;application/xhtml+xml;application/xml;x-scheme-handler/http;x-scheme-handler/https;' >> /usr/local/share/applications/chromium-rfp.desktop && \
+    chmod 644 /usr/local/share/applications/chromium-rfp.desktop && \
+    mkdir -p /config/.local/share/applications && \
+    cp /usr/local/share/applications/chromium-rfp.desktop /config/.local/share/applications/ && \
+    chown -R abc:abc /config/.local && \
+    su - abc -c 'xdg-settings set default-web-browser chromium-rfp.desktop'
 
 # Install XFCE4 desktop environment
 RUN apt-get update && \
