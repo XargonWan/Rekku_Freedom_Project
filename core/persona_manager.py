@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass, asdict
 
 from core.plugin_base import PluginBase
-from core.core_initializer import register_plugin
 from core.db import get_conn
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 
@@ -164,7 +163,8 @@ class PersonaManager(PluginBase):
         # The table will be created by the scheduled task in core_initializer
         # or when first accessed
         
-        # Register the plugin
+        # Register the plugin - import here to avoid circular dependency
+        from core.core_initializer import register_plugin
         register_plugin("persona_manager", self)
         log_info("[persona_manager] PersonaManager initialized and registered")
     
@@ -811,19 +811,3 @@ def get_persona_manager() -> Optional[PersonaManager]:
     if _persona_manager_instance is None:
         _persona_manager_instance = PersonaManager()
     return _persona_manager_instance
-
-
-# Auto-initialize when module is imported
-def _auto_initialize():
-    """Auto-initialize the persona manager when the module is imported."""
-    try:
-        # This ensures the persona manager is created and registered when imported
-        get_persona_manager()
-        return True
-    except Exception as e:
-        log_error(f"[persona_manager] Auto-initialization failed: {e}")
-        return False
-
-# Initialize the plugin when module is imported (not when run as main)
-if __name__ != "__main__":
-    _auto_initialize()
