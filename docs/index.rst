@@ -27,6 +27,7 @@ getting started.
    auto_response
    chat_links
    persona_manager
+   persona_configuration
    llm_engines
    plugins
    validation_system
