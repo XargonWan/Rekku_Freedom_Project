@@ -45,6 +45,20 @@ class TestSmoke(unittest.TestCase):
         except Exception as e:
             # Plugins may fail due to missing dependencies
             self.skipTest(f"Plugin import failed (expected): {e}")
+    
+    def test_persona_manager_import(self):
+        """Test that persona_manager can be imported without circular dependencies."""
+        try:
+            # This should not raise a circular import error
+            import core.persona_manager
+            from core.persona_manager import PersonaManager, get_persona_manager
+            
+            # Verify the module has expected exports
+            self.assertTrue(hasattr(core.persona_manager, 'PersonaManager'))
+            self.assertTrue(hasattr(core.persona_manager, 'get_persona_manager'))
+            self.assertTrue(callable(get_persona_manager))
+        except ImportError as e:
+            self.fail(f"Failed to import persona_manager: {e}")
 
     def test_llm_engine_imports(self):
         """Test that LLM engine modules can be imported."""

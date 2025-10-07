@@ -13,6 +13,7 @@ This script tests the basic functionality of the persona manager including:
 import asyncio
 import sys
 import os
+import pytest
 
 # Add the project root to the Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -21,6 +22,7 @@ from core.persona_manager import PersonaManager, PersonaData, EmotiveState, get_
 from core.logging_utils import log_info, log_error
 
 
+@pytest.mark.asyncio
 async def test_persona_manager():
     """Test the persona manager functionality."""
     print("🧪 Testing Persona Manager Plugin...")
