@@ -14,8 +14,8 @@ GOOGLE_CLI_CONFIG = {
     "max_response_chars": 3000,
     "supports_images": True,
     "supports_functions": True,
-    "model_name": "gemini-pro",
-    "default_model": "google-cli",
+    "model_name": "2.5-flash",
+    "default_model": "gemini-cli",
     "timeout": 30,
     "max_retries": 3,
     "temperature": 0.7
@@ -54,14 +54,14 @@ def get_interface_limits() -> dict:
 
 class GoogleCLIPlugin(AIPluginBase):
     """
-    LLM plugin to use google-cli as backend.
+    LLM plugin to use gemini-cli as backend.
     """
     def __init__(self, notify_fn=None):
         if notify_fn:
-            log_debug("[google-cli] Using custom notification function.")
+            log_debug("[gemini-cli] Using custom notification function.")
             set_notifier(notify_fn)
         else:
-            log_debug("[google-cli] No notification function provided, using fallback.")
+            log_debug("[gemini-cli] No notification function provided, using fallback.")
             set_notifier(lambda chat_id, message: log_info(f"[NOTIFY fallback] {message}"))
 
     async def generate_response(self, messages):
@@ -85,18 +85,18 @@ class GoogleCLIPlugin(AIPluginBase):
             return f"Error: {e}"
 
     def get_supported_models(self):
-        return ["google-cli"]
+        return ["gemini-cli"]
 
     def get_current_model(self):
-        return "google-cli"
+        return "gemini-cli"
 
     def set_current_model(self, name):
-        if name != "google-cli":
+        if name != "gemini-cli":
             raise ValueError(f"Unsupported model: {name}")
 
     async def handle_incoming_message(self, bot, message, prompt: dict):
         """
-        Handles an incoming message using google-cli.
+        Handles an incoming message using gemini-cli.
         """
         # Correct path to the message text
         query = prompt.get("input", {}).get("payload", {}).get("text", "")
@@ -125,4 +125,4 @@ class GoogleCLIPlugin(AIPluginBase):
         )
 
 # Ensure the plugin loader can locate the plugin class
-PLUGIN_CLASS = GoogleCLIPlugin
+PLUGIN_CLASS = GeminiCLIPlugin
