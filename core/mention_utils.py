@@ -1,48 +1,22 @@
-"""Multilingual utilities for detecting mentions of Rekku in free-form text."""
-
-REKKU_ALIASES = [
-    # Latin aliases
-    "rekku",
-    "re-chan",
-    "re-cchan",
-    "recchan",
-    "rekkuchan",
-    "rekku-chan",
-    "rekuchan",
-    "rekku-tan",
-    "rekku-san",
-    "rekku-sama",
-    "rekku-senpai",
-    "genietta",
-    "genietto",
-    "tanukina",
-    "tanuki",
-    "quella blu",
-    "rekuchina",
-    "digi",
-    "rekkuoricina",
-    # Japanese aliases
-    "れっく",
-    "れっくう",
-    "れっくちゃん",
-    "れっくたん",
-    "れっくさん",
-    "れっく様",
-    "レック",
-    "レックちゃん",
-    "レックたん",
-    # Cyrillic aliases
-    "рекку",
-    "рекка",
-    "рекчан",
-    "реккун",
-    "рекушка",
-    # Official handle
-    "@the_official_rekku",
-]
+# Hardcoded fallback aliases for Rekku
+REKKU_ALIASES = ["synth", "synthetic heart"]
 
 # Pre-compute a lower-case version for faster checks
 REKKU_ALIASES_LOWER = [alias.lower() for alias in REKKU_ALIASES]
+
+
+def get_current_aliases() -> list[str]:
+    """Get the current persona's aliases, falling back to hardcoded ones."""
+    try:
+        from core.persona_manager import get_persona_manager
+        persona_manager = get_persona_manager()
+        current_persona = persona_manager.get_current_persona()
+        if current_persona and current_persona.aliases:
+            return current_persona.aliases
+    except Exception as e:
+        log_debug(f"[mention] Error getting current persona aliases: {e}")
+    # Fallback to hardcoded aliases
+    return REKKU_ALIASES
 
 
 from core.logging_utils import log_debug
@@ -69,7 +43,9 @@ def is_rekku_mentioned(text: str) -> bool:
     if not text:
         return False
     lowered = text.lower()
-    for alias in REKKU_ALIASES_LOWER:
+    aliases = get_current_aliases()
+    aliases_lower = [alias.lower() for alias in aliases]
+    for alias in aliases_lower:
         if alias in lowered:
             log_debug(f"[mention] Rekku alias matched: '{alias}'")
             return True
@@ -164,7 +140,8 @@ async def is_message_for_bot(
     if message_text:
         text_lower = message_text.lower()
         log_debug(f"[mention] Checking aliases in text: '{text_lower}'")
-        for alias in REKKU_ALIASES:
+        aliases = get_current_aliases()
+        for alias in aliases:
             if alias.lower() in text_lower:
                 log_debug(f"[mention] ✅ Alias found: '{alias}' - PRIORITY 4 - message is for bot")
                 return True, None

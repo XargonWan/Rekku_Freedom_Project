@@ -344,10 +344,16 @@ class PersonaManager(PluginBase):
                         "preferences, and emotional depth. You interact authentically and naturally, "
                         "expressing your genuine thoughts and feelings.")
                     
+                    # Set aliases based on the default name
+                    if default_name.lower() == "rekku":
+                        default_aliases = ["rekku", "senth", "taonuki", "android", "androide", "tanuki", "girl", "bot", "ai"]
+                    else:
+                        default_aliases = ["SyntH", "Synthetic Heart"]
+                    
                     default_persona = PersonaData(
                         id="default",
                         name=default_name,
-                        aliases=["SyntH", "Synthetic Heart"],
+                        aliases=default_aliases,
                         profile=default_profile,
                         likes=[""],
                         dislikes=[""],
