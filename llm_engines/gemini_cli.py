@@ -1,4 +1,4 @@
-# llm_engines/google_cli.py
+# llm_engines/gemini_cli.py
 
 import subprocess
 import json
@@ -8,8 +8,8 @@ from core.notifier import set_notifier
 from core.config import GEMINI_API_KEY
 from core.transport_layer import llm_to_interface
 
-# Google CLI-specific configuration
-GOOGLE_CLI_CONFIG = {
+# Gemini CLI-specific configuration
+GEMINI_CLI_CONFIG = {
     "max_prompt_chars": 1000000,  # Gemini 1.5 Pro has 1M token context
     "max_response_chars": 3000,
     "supports_images": True,
@@ -21,38 +21,38 @@ GOOGLE_CLI_CONFIG = {
     "temperature": 0.7
 }
 
-def get_google_cli_config() -> dict:
-    """Get Google CLI-specific configuration."""
-    return GOOGLE_CLI_CONFIG.copy()
+def get_GEMINI_CLI_config() -> dict:
+    """Get Gemini CLI-specific configuration."""
+    return GEMINI_CLI_CONFIG.copy()
 
 def get_max_prompt_chars() -> int:
-    """Get maximum prompt characters for Google CLI."""
-    return GOOGLE_CLI_CONFIG["max_prompt_chars"]
+    """Get maximum prompt characters for Gemini CLI."""
+    return GEMINI_CLI_CONFIG["max_prompt_chars"]
 
 def get_max_response_chars() -> int:
-    """Get maximum response characters for Google CLI."""
-    return GOOGLE_CLI_CONFIG["max_response_chars"]
+    """Get maximum response characters for Gemini CLI."""
+    return GEMINI_CLI_CONFIG["max_response_chars"]
 
 def supports_images() -> bool:
-    """Check if Google CLI supports images."""
-    return GOOGLE_CLI_CONFIG["supports_images"]
+    """Check if Gemini CLI supports images."""
+    return GEMINI_CLI_CONFIG["supports_images"]
 
 def supports_functions() -> bool:
-    """Check if Google CLI supports functions."""
-    return GOOGLE_CLI_CONFIG["supports_functions"]
+    """Check if Gemini CLI supports functions."""
+    return GEMINI_CLI_CONFIG["supports_functions"]
 
 def get_interface_limits() -> dict:
-    """Get the limits and capabilities for Google CLI interface."""
-    log_info(f"[google_cli] Interface limits: max_prompt_chars={GOOGLE_CLI_CONFIG['max_prompt_chars']}, supports_images={GOOGLE_CLI_CONFIG['supports_images']}")
+    """Get the limits and capabilities for Gemini CLI interface."""
+    log_info(f"[GEMINI_CLI] Interface limits: max_prompt_chars={GEMINI_CLI_CONFIG['max_prompt_chars']}, supports_images={GEMINI_CLI_CONFIG['supports_images']}")
     return {
-        "max_prompt_chars": GOOGLE_CLI_CONFIG["max_prompt_chars"],
-        "max_response_chars": GOOGLE_CLI_CONFIG["max_response_chars"],
-        "supports_images": GOOGLE_CLI_CONFIG["supports_images"],
-        "supports_functions": GOOGLE_CLI_CONFIG["supports_functions"],
-        "model_name": GOOGLE_CLI_CONFIG["model_name"]
+        "max_prompt_chars": GEMINI_CLI_CONFIG["max_prompt_chars"],
+        "max_response_chars": GEMINI_CLI_CONFIG["max_response_chars"],
+        "supports_images": GEMINI_CLI_CONFIG["supports_images"],
+        "supports_functions": GEMINI_CLI_CONFIG["supports_functions"],
+        "model_name": GEMINI_CLI_CONFIG["model_name"]
     }
 
-class GoogleCLIPlugin(AIPluginBase):
+class GeminiCLIPlugin(AIPluginBase):
     """
     LLM plugin to use gemini-cli as backend.
     """
