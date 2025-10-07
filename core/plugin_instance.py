@@ -1,7 +1,6 @@
 # core/plugin_instance.py
 
 from core.config import get_active_llm, set_active_llm
-from core.prompt_engine import load_identity_prompt
 from core.prompt_engine import build_json_prompt
 from core.llm_registry import get_llm_registry
 import asyncio
@@ -16,10 +15,9 @@ from core.mention_utils import is_message_for_bot
 
 # Plugin managed centrally in initialize_core_components
 plugin = None
-rekku_identity_prompt = None
 
 async def load_plugin(name: str, notify_fn=None):
-    global plugin, rekku_identity_prompt
+    global plugin
 
     # 🔁 If already loaded but different, replace it or update notify_fn
     if plugin is not None:
@@ -68,10 +66,6 @@ async def load_plugin(name: str, notify_fn=None):
                 log_debug("[plugin] Plugin start executed.")
         except Exception as e:
             log_error(f"[plugin] Error during plugin start: {e}", e)
-
-    if name != "manual":
-        rekku_identity_prompt = load_identity_prompt()
-        log_debug("[plugin] Identity prompt loaded.")
 
     # Default model
     if hasattr(plugin, "get_supported_models"):
