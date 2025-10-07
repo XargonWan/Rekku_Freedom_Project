@@ -1480,9 +1480,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         if fut.cancelled():
             log_warning("[selenium] Worker task cancelled")
         elif fut.exception():
-            log_warning(
-                f"[selenium] Worker task crashed: {fut.exception()}", fut.exception()
-            )
+            log_warning(f"[selenium] Worker task crashed: {fut.exception()}")
         # Attempt restart if needed
         try:
             loop = asyncio.get_running_loop()
