@@ -789,10 +789,10 @@ class CoreInitializer:
     def _initialize_persona_manager(self):
         """Initialize the persona manager as a core component."""
         try:
-            # Import the module to trigger auto-initialization
-            import core.persona_manager  # This will trigger _auto_initialize()
+            # Import the module (no longer triggers auto-initialization)
+            import core.persona_manager
             
-            # Get the instance to verify initialization
+            # Explicitly get or create the instance
             from core.persona_manager import get_persona_manager
             persona_manager = get_persona_manager()
             
