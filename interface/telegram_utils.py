@@ -74,7 +74,7 @@ async def _send_with_retry(
     # Remove custom parameters that are not supported by bot.send_message()
     # Exclude internal transport-layer kwargs that Telegram's API does not accept
     excluded = {'event_id', 'interface', 'is_llm_response', 'context', 'error_retry_policy'}
-    valid_kwargs = {k: v for k, v in kwargs.items() if k not in excluded}
+    valid_kwargs = {k: v for k, v in kwargs.items() if k not in excluded and v is not None}
 
     # Diagnostic: log attempt and kwargs
     log_debug(f"[telegram_utils] _send_with_retry prepare send: chat_id={chat_id} type={type(chat_id)} len_text={len(text) if text else 0} valid_kwargs={valid_kwargs}")
