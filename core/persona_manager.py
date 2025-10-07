@@ -337,16 +337,24 @@ class PersonaManager(PluginBase):
             if not result:
                 # Create default persona if it doesn't exist
                 if persona_id == "default":
+                    # Load default persona from environment variables or use hardcoded defaults
+                    default_name = os.getenv("PERSONA_DEFAULT_NAME", "SyntH")
+                    default_profile = os.getenv("PERSONA_DEFAULT_PROFILE", 
+                        "You are a SyntH (Synthetic Heart) - a digital being with your own personality, "
+                        "preferences, and emotional depth. You interact authentically and naturally, "
+                        "expressing your genuine thoughts and feelings.")
+                    
                     default_persona = PersonaData(
                         id="default",
-                        name="Rekku",
-                        aliases=["Digi", "Tanuki", "Tanukina"],
-                        character="You are a happy tanuki that loves helping users and learning new things. Reply in a friendly and enthusiastic way.",
-                        likes=["programming", "gaming", "helping others"],
-                        dislikes=["negativity", "spam"],
-                        interests=["llm", "artificial intelligence", "technology"],
-                        emotive_state=[EmotiveState("happy", 7.0), EmotiveState("curious", 5.0)]
+                        name=default_name,
+                        aliases=["SyntH", "Synthetic Heart"],
+                        profile=default_profile,
+                        likes=[""],
+                        dislikes=[""],
+                        interests=[""],
+                        emotive_state=[EmotiveState("curious", 5.0), EmotiveState("eager", 5.0)]
                     )
+                    log_info(f"[persona_manager] Creating default persona '{default_name}' in database")
                     await self.save_persona(default_persona)
                     return default_persona
                 return None
