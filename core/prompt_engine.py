@@ -196,13 +196,7 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
 
     return prompt_with_instructions
 
-def load_identity_prompt() -> str:
-    try:
-        with open("persona/prompt.txt", "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        log_warning("prompt.txt not found. Identity prompt not loaded.")
-        return ""
+
 
 async def search_memories(tags=None, scope=None, limit=5):
     if not tags:
