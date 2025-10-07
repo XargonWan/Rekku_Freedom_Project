@@ -1,4 +1,17 @@
 # core/persona_manager.py
+"""
+Persona Manager - Digital Identity Management for SyntH
+
+This module manages the digital persona (SyntH - Synthetic Heart) - a complete digital identity including:
+- Core profile: personality description of who this SyntH is
+- Aliases: alternative names the SyntH responds to
+- Interests: topics and areas of focus
+- Likes/Dislikes: preferences and aversions
+- Emotive state: current emotional state with intensities
+
+A "persona" in this context refers to the complete digital essence of a SyntH -
+a synthetic being with its own identity, personality, and emotional framework.
+"""
 
 import os
 import json
@@ -33,11 +46,15 @@ class EmotiveState:
 
 @dataclass
 class PersonaData:
-    """Digital persona identity data structure."""
+    """Digital persona identity data structure.
+    
+    Represents the complete digital essence of a SyntH (Synthetic Heart) -
+    a digital being with its own identity, personality, and emotional state.
+    """
     id: str = "default"
     name: str = ""
     aliases: List[str] = None
-    character: str = ""
+    profile: str = ""  # Core personality description - who this SyntH is
     likes: List[str] = None
     dislikes: List[str] = None
     interests: List[str] = None
@@ -86,7 +103,7 @@ class PersonaData:
             id=data.get('id', 'default'),
             name=data.get('name', ''),
             aliases=data.get('aliases', []),
-            character=data.get('character', ''),
+            profile=data.get('profile', ''),
             likes=data.get('likes', []),
             dislikes=data.get('dislikes', []),
             interests=data.get('interests', []),
@@ -138,7 +155,7 @@ async def init_persona_table():
         id VARCHAR(255) PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         aliases JSON,
-        character TEXT,
+        profile TEXT COMMENT 'Core personality description - who this SyntH is',
         likes JSON,
         dislikes JSON,
         interests JSON,
@@ -182,7 +199,7 @@ class PersonaManager(PluginBase):
         """Return plugin metadata."""
         return {
             "name": "persona_manager",
-            "description": "Digital persona identity manager for LLM character definition",
+            "description": "Digital persona identity manager - manages the complete identity of a SyntH (Synthetic Heart) including personality profile, preferences, and emotional state",
             "version": "1.0.0",
             "type": "core",
             "required": True
@@ -339,7 +356,7 @@ class PersonaManager(PluginBase):
                 'id': result[0],
                 'name': result[1],
                 'aliases': json.loads(result[2]) if result[2] else [],
-                'character': result[3] or "",
+                'profile': result[3] or "",
                 'likes': json.loads(result[4]) if result[4] else [],
                 'dislikes': json.loads(result[5]) if result[5] else [],
                 'interests': json.loads(result[6]) if result[6] else [],
@@ -361,12 +378,12 @@ class PersonaManager(PluginBase):
             
             await _execute(
                 """
-                INSERT INTO persona (id, name, aliases, character, likes, dislikes, interests, emotive_state, created_at, last_updated)
+                INSERT INTO persona (id, name, aliases, profile, likes, dislikes, interests, emotive_state, created_at, last_updated)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     name = VALUES(name),
                     aliases = VALUES(aliases),
-                    character = VALUES(character),
+                    character = VALUES(profile),
                     likes = VALUES(likes),
                     dislikes = VALUES(dislikes),
                     interests = VALUES(interests),
@@ -377,7 +394,7 @@ class PersonaManager(PluginBase):
                     persona.id,
                     persona.name,
                     json.dumps(persona.aliases),
-                    persona.character,
+                    persona.profile,
                     json.dumps(persona.likes),
                     json.dumps(persona.dislikes),
                     json.dumps(persona.interests),
@@ -519,8 +536,8 @@ class PersonaManager(PluginBase):
         if persona.aliases:
             content_parts.append(f"Also known as: {', '.join(persona.aliases)}")
             
-        if persona.character:
-            content_parts.append(f"Character: {persona.character}")
+        if persona.profile:
+            content_parts.append(f"Profile: {persona.profile}")
         
         # Preferences and interests
         if persona.likes:
