@@ -391,7 +391,7 @@ class PersonaManager(PluginBase):
                 ON DUPLICATE KEY UPDATE
                     name = VALUES(name),
                     aliases = VALUES(aliases),
-                    character = VALUES(profile),
+                    profile = VALUES(profile),
                     likes = VALUES(likes),
                     dislikes = VALUES(dislikes),
                     interests = VALUES(interests),
