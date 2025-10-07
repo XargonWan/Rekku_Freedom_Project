@@ -5,7 +5,6 @@ import subprocess
 import asyncio
 from core.db import init_db, test_connection, get_conn
 # from core.blocklist import init_blocklist_table  # Now handled by blocklist plugin
-from core.config import get_active_llm
 from core.logging_utils import (
     log_debug,
     log_info,
@@ -15,133 +14,41 @@ from core.logging_utils import (
 )
 
 
-def cleanup_chromium_processes():
-    """Clean up any remaining Chromium processes and lock files while preserving login sessions."""
+def cleanup_components():
+    """Clean up all registered components (engines, plugins, interfaces)."""
     try:
-        # Kill Chromium processes
-        log_debug("[main] Cleaning up Chromium processes...")
-        subprocess.run(["pkill", "-f", "chromium"], capture_output=True, text=True)
-        subprocess.run(["pkill", "-f", "chromedriver"], capture_output=True, text=True)
+        log_debug("[main] Starting component cleanup...")
         
-        # Clean up Chromium lock files and temp directories
-        import tempfile
-        import shutil
-        import glob
+        # Let the core initializer handle cleanup of all registered components
+        from core.core_initializer import core_initializer
         
-        # Remove UC cache (safe to remove)
-        uc_cache_dir = os.path.join(tempfile.gettempdir(), 'undetected_chromedriver')
-        if os.path.exists(uc_cache_dir):
-            shutil.rmtree(uc_cache_dir, ignore_errors=True)
-            log_debug("[main] Removed undetected_chromedriver cache")
+        # Cleanup LLM engines
+        from core.llm_registry import get_llm_registry
+        registry = get_llm_registry()
+        for engine_name in registry.get_registered_engines():
+            try:
+                engine_instance = registry.get_engine_instance(engine_name)
+                if engine_instance and hasattr(engine_instance, 'cleanup'):
+                    engine_instance.cleanup()
+                    log_debug(f"[main] Cleaned up engine: {engine_name}")
+            except Exception as e:
+                log_warning(f"[main] Failed to cleanup engine {engine_name}: {e}")
         
-        # Remove Chromium lock files (preserves login data)
-        profile_patterns = [
-            os.path.expanduser("~/.config/chromium*"),
-        ]
+        log_info("[main] Component cleanup completed")
         
-        for pattern in profile_patterns:
-            for profile_dir in glob.glob(pattern):
-                lock_files = [
-                    os.path.join(profile_dir, "SingletonLock"),
-                    os.path.join(profile_dir, "Default", "SingletonLock"),
-                    os.path.join(profile_dir, "lockfile"),
-                ]
-                
-                for lock_file in lock_files:
-                    if os.path.exists(lock_file):
-                        try:
-                            os.remove(lock_file)
-                            log_debug(f"[main] Removed lock file: {lock_file}")
-                        except Exception as e:
-                            log_warning(f"[main] Failed to remove lock file {lock_file}: {e}")
-        
-        # Remove only temporary profile directories (preserves persistent profiles)
-        temp_patterns = [
-            os.path.expanduser("~/.config/chromium-[0-9]*"),
-            "/tmp/.org.chromium.*",
-            "/tmp/chromium_*"
-        ]
-        
-        for pattern in temp_patterns:
-            for temp_dir in glob.glob(pattern):
-                try:
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                    log_debug(f"[main] Removed temporary directory: {temp_dir}")
-                except Exception as e:
-                    log_debug(f"[main] Could not remove {temp_dir}: {e}")
-        
-        log_info("[main] Chromium cleanup completed (login sessions preserved)")
-
     except Exception as e:
-        log_warning(f"[main] Chromium cleanup failed: {e}")
+        log_warning(f"[main] Component cleanup failed: {e}")
 
 
 def signal_handler(signum, frame):
     """Handle termination signals gracefully."""
     log_info(f"[main] Received signal {signum}, shutting down gracefully...")
     
-    # Clean up Chromium processes
-    cleanup_chromium_processes()
-    
-    # Stop the plugin if it has cleanup methods
-    try:
-        import core.plugin_instance as plugin_instance
-        if hasattr(plugin_instance, 'plugin') and plugin_instance.plugin:
-            if hasattr(plugin_instance.plugin, 'stop'):
-                # Try async stop first
-                try:
-                    asyncio.run(plugin_instance.plugin.stop())
-                    log_debug("[main] Plugin async stop completed")
-                except RuntimeError as e:
-                    if "already running" in str(e):
-                        # Event loop already running, use sync cleanup
-                        if hasattr(plugin_instance.plugin, 'cleanup'):
-                            plugin_instance.plugin.cleanup()
-                            log_debug("[main] Plugin sync cleanup completed")
-                    else:
-                        raise
-            elif hasattr(plugin_instance.plugin, 'cleanup'):
-                plugin_instance.plugin.cleanup()
-                log_debug("[main] Plugin cleanup completed")
-    except Exception as e:
-        log_warning(f"[main] Plugin cleanup failed: {e}")
+    # Clean up all components generically
+    cleanup_components()
     
     log_info("[main] Shutdown complete")
     sys.exit(0)
-
-
-async def initialize_core_components():
-    """Initialize and log all core components."""
-    log_info("[main] initialize_core_components() started")
-    
-    try:
-        # Load and log active interfaces
-        from core.interfaces_registry import get_interface_registry
-        registry = get_interface_registry()
-        active_interfaces = registry.get_interface_names()
-        log_info("[main] Active interfaces initialized.")
-        for interface in active_interfaces:
-            log_info(f"[main] Active interface: {interface}")
-
-        # Load and log plugins in ./plugins
-        log_info("[main] Loading action plugins...")
-        from core.action_parser import set_available_plugins, _load_action_plugins
-        plugins = _load_action_plugins()
-        if plugins:
-            for plugin in plugins:
-                log_info(f"[main] Loaded plugin: {plugin.__class__.__name__}")
-        else:
-            log_warning("[main] No plugins found in ./plugins.")
-
-        # Pass the information to the action parser
-        log_info("[main] Setting available plugins in action parser...")
-        active_llm = await get_active_llm()
-        log_info(f"[main] Active LLM: {active_llm}")
-        set_available_plugins(active_interfaces, active_llm, [plugin.__class__.__name__ for plugin in plugins])
-        log_info("[main] Core components initialization completed")
-    except Exception as e:
-        log_error(f"[main] Error in initialize_core_components(): {repr(e)}")
-        raise
 
 
 async def initialize_database():
@@ -202,9 +109,6 @@ if __name__ == "__main__":
     setup_logging()
     log_info("[main] Starting Rekku application...")
     
-    # Clean up any leftover Chromium processes from previous runs
-    cleanup_chromium_processes()
-    
     # Test DB connectivity and initialize tables with retry mechanism
     import time
     max_retries = 30
@@ -238,60 +142,24 @@ if __name__ == "__main__":
 
     
     async def start_application():
-        # Initialize core components BEFORE starting the bot
+        # Initialize core components - they will auto-discover and load all interfaces/plugins/engines
         try:
             log_info("[main] Initializing core components...")
             from core.core_initializer import core_initializer
             await core_initializer.initialize_all()
             log_info("[main] Core components initialized successfully")
+            
             # Start message queue consumer
             from core import message_queue
             asyncio.create_task(message_queue.run())
             log_info("[main] Message queue consumer started")
-            # Start WebUI server
-            from interface.webui import start_server
-            asyncio.create_task(start_server())
-            log_info("[main] WebUI server started")
         except Exception as e:
             log_error(f"[main] Critical error initializing core components: {repr(e)}")
             import traceback
             traceback.print_exc()
             sys.exit(1)
 
-        # ✅ Start configured interfaces by calling their start functions
-        # Each interface checks its own configuration before starting
-        try:
-            from interface.telegram_bot import start_bot, BOTFATHER_TOKEN, TELEGRAM_TRAINER_ID
-            if BOTFATHER_TOKEN and TELEGRAM_TRAINER_ID:
-                log_info("[main] Starting Telegram bot...")
-                asyncio.create_task(start_bot())
-                log_info("[main] Telegram bot started as background task")
-        except Exception as e:
-            log_warning(f"[main] Telegram bot startup failed: {repr(e)}")
-            
-        try:
-            from interface.reddit_interface import start_reddit_interface
-            import os
-            if os.getenv("REDDIT_CLIENT_ID") and os.getenv("REDDIT_CLIENT_SECRET"):
-                log_info("[main] Starting Reddit interface...")
-                asyncio.create_task(start_reddit_interface())
-                log_info("[main] Reddit interface started as background task")
-        except Exception as e:
-            log_warning(f"[main] Reddit interface startup failed: {repr(e)}")
-            
-        try:
-            import interface.discord_interface  # Auto-starts if DISCORD_BOT_TOKEN is present
-            log_info("[main] Discord interface imported")
-        except Exception as e:
-            log_warning(f"[main] Discord interface import failed: {repr(e)}")
-            
-        try:
-            import interface.telethon_userbot  # Auto-starts if API_ID/API_HASH are present
-            log_info("[main] Telethon userbot imported")
-        except Exception as e:
-            log_warning(f"[main] Telethon userbot import failed: {repr(e)}")
-        
-        log_info("[main] Interface startup completed")
+        log_info("[main] All components auto-discovered and initialized")
         
         # 🎯 Display startup summary after all components are ready (this should be the last message)
         log_info("[main] All components initialized, displaying startup summary...")
