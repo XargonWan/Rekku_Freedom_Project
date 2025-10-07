@@ -86,13 +86,33 @@ def get_llm_registry() -> LLMRegistry:
     return _llm_registry
 
 def register_default_engines():
-    """Register the default LLM engines."""
+    """Auto-discover and register all LLM engines from llm_engines directory."""
+    import os
+    import pkgutil
+    import llm_engines
+    
     registry = get_llm_registry()
     
-    # Register standard LLM engines
-    registry.register_engine_module("openai_chatgpt", "llm_engines.openai_chatgpt")
-    registry.register_engine_module("selenium_chatgpt", "llm_engines.selenium_chatgpt")
-    registry.register_engine_module("google_cli", "llm_engines.google_cli")
-    registry.register_engine_module("manual", "llm_engines.manual")
+    # Auto-discover all modules in llm_engines package
+    llm_engines_path = os.path.dirname(llm_engines.__file__)
     
-    log_debug("[llm_registry] Default engines registered")
+    for importer, module_name, is_pkg in pkgutil.iter_modules([llm_engines_path]):
+        if not is_pkg and not module_name.startswith('_'):
+            module_path = f"llm_engines.{module_name}"
+            try:
+                # Try to import the module to check if it has PLUGIN_CLASS
+                import importlib
+                module = importlib.import_module(module_path)
+                
+                # Check if module has PLUGIN_CLASS defined
+                if hasattr(module, 'PLUGIN_CLASS'):
+                    registry.register_engine_module(module_name, module_path)
+                    log_debug(f"[llm_registry] Auto-registered engine: {module_name}")
+                else:
+                    log_debug(f"[llm_registry] Skipping {module_name} (no PLUGIN_CLASS)")
+            except Exception as e:
+                log_warning(f"[llm_registry] Failed to auto-register {module_name}: {e}")
+    
+    available_engines = registry.get_available_engines()
+    log_info(f"[llm_registry] Auto-discovery complete: {len(available_engines)} engines registered: {', '.join(available_engines)}")
+
