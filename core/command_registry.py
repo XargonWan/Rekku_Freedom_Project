@@ -420,14 +420,20 @@ async def logchat_command(*args, interface_context=None) -> str:
     
     try:
         from core.config import set_log_chat_id_and_thread
+        from core.logging_utils import log_debug
         
         chat_id = update.effective_chat.id
-        # Use hasattr to safely check for thread_id (not all messages have it)
-        thread_id = getattr(update.effective_message, 'thread_id', None) if update.effective_message else None
         
-        # Get bot from interface_context (context.bot is not dict-accessible)
-        bot = interface_context.get('bot')
-        interface_name = getattr(bot, 'get_interface_id', lambda: 'unknown')() if bot else 'unknown'
+        # Try to get thread_id - python-telegram-bot v20+ uses message_thread_id
+        thread_id = None
+        if update.effective_message:
+            # Try both attribute names for compatibility
+            thread_id = getattr(update.effective_message, 'message_thread_id', None) or \
+                       getattr(update.effective_message, 'thread_id', None)
+            log_debug(f"[logchat_command] Extracted thread_id: {thread_id} from message")
+        
+        # Get interface_id from interface_context
+        interface_name = interface_context.get('interface_id', 'unknown')
         
         await set_log_chat_id_and_thread(chat_id, thread_id, interface_name)
         # Escape square brackets to avoid Markdown parsing issues
