@@ -78,6 +78,10 @@ def _format_json_error(text: str, err: json.JSONDecodeError) -> str:
 def extract_json_from_text(text: str, return_metadata: bool = False) -> Optional[Dict]:
     """Extract the first valid JSON object or array from text.
     
+    This function is smart enough to extract JSON even when LLMs (like Gemini) 
+    add extra text before or after the JSON structure. It scans the entire text
+    looking for valid JSON objects or arrays, ignoring any surrounding text.
+    
     Args:
         text: The text to parse
         return_metadata: If True, returns (json_obj, metadata_dict) tuple
@@ -92,12 +96,14 @@ def extract_json_from_text(text: str, return_metadata: bool = False) -> Optional
         - 'error_count': int - Number of parsing errors encountered
         - 'unparsed_content': str - Content that couldn't be parsed (if any)
         - 'recovered': bool - True if JSON was recovered after errors
+        - 'had_extra_text': bool - True if text was found before or after JSON
     """
     metadata = {
         'had_errors': False,
         'error_count': 0,
         'unparsed_content': '',
-        'recovered': False
+        'recovered': False,
+        'had_extra_text': False
     }
     
     if not text:
@@ -140,7 +146,12 @@ def extract_json_from_text(text: str, return_metadata: bool = False) -> Optional
                 prefix = text_variant[:start].strip()
                 suffix = text_variant[obj_end:].strip()
                 if prefix or suffix:
-                    log_debug(f"[extract_json_from_text] Extra content detected around JSON object (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
+                    metadata['had_extra_text'] = True
+                    log_info(f"[extract_json_from_text] ✅ Extracted JSON from text with extra content (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
+                    if prefix:
+                        log_debug(f"[extract_json_from_text] Prefix text: {prefix[:100]}...")
+                    if suffix:
+                        log_debug(f"[extract_json_from_text] Suffix text: {suffix[:100]}...")
                     # Check if suffix looks like it could be corrupted JSON
                     if suffix and ('{' in suffix or '"type"' in suffix or '"actions"' in suffix):
                         metadata['unparsed_content'] = suffix
@@ -168,7 +179,12 @@ def extract_json_from_text(text: str, return_metadata: bool = False) -> Optional
                 prefix = text_variant[:start].strip()
                 suffix = text_variant[obj_end:].strip()
                 if prefix or suffix:
-                    log_debug(f"[extract_json_from_text] Extra content detected around JSON array (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
+                    metadata['had_extra_text'] = True
+                    log_info(f"[extract_json_from_text] ✅ Extracted JSON array from text with extra content (prefix: {len(prefix)} chars, suffix: {len(suffix)} chars)")
+                    if prefix:
+                        log_debug(f"[extract_json_from_text] Prefix text: {prefix[:100]}...")
+                    if suffix:
+                        log_debug(f"[extract_json_from_text] Suffix text: {suffix[:100]}...")
                     if suffix and ('{' in suffix or '"type"' in suffix or '"actions"' in suffix):
                         metadata['unparsed_content'] = suffix
                         metadata['recovered'] = True
