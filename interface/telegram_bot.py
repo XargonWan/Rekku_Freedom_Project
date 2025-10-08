@@ -216,8 +216,8 @@ async def logchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_trainer(update.effective_user.id):
         return
     chat_id = update.effective_chat.id
-    # Use getattr to safely get thread_id (not all messages have it)
-    thread_id = getattr(update.effective_message, 'thread_id', None) if update.effective_message else None
+    # Use getattr to safely get message_thread_id (python-telegram-bot v20+ attribute name)
+    thread_id = getattr(update.effective_message, 'message_thread_id', None) if update.effective_message else None
     try:
         await set_log_chat_id_and_thread(chat_id, thread_id, "telegram_bot")
         # Escape square brackets to avoid Markdown parsing issues
@@ -538,7 +538,8 @@ async def handle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     interface_context = {
         'update': update,
         'context': context,
-        'bot': context.bot
+        'bot': context.bot,
+        'interface_id': 'telegram_bot'
     }
     
     try:
