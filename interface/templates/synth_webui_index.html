@@ -8,16 +8,22 @@
         :root {
             color-scheme: dark;
             --bg: #0d0d16;
-            --surface: rgba(24, 24, 36, 0.88);
-            --surface-alt: rgba(18, 18, 28, 0.76);
+            --surface: rgba(24, 24, 36, 0.9);
+            --surface-alt: rgba(18, 18, 28, 0.75);
             --border: rgba(255, 255, 255, 0.08);
             --border-strong: rgba(255, 255, 255, 0.18);
             --accent: #ff6bd6;
             --accent-soft: rgba(255, 107, 214, 0.16);
             --text: #f5f5ff;
             --text-soft: #b9badc;
-            --shadow: 0 24px 55px -40px rgba(255, 107, 214, 0.85);
-            font-family: 'Segoe UI', system-ui, sans-serif;
+            --success: #18c98c;
+            --warn: #f3c04d;
+            --error: #ff7b93;
+            --log-debug: #9aa0ff;
+            --log-info: #d5d8ff;
+            --log-warn: #ffde85;
+            --log-error: #ff9fae;
+            font-family: "Segoe UI", system-ui, sans-serif;
         }
         * {
             box-sizing: border-box;
@@ -25,25 +31,25 @@
         body {
             margin: 0;
             min-height: 100vh;
+            display: flex;
+            flex-direction: column;
             background:
                 radial-gradient(circle at 20% 0%, rgba(114, 137, 218, 0.18), transparent 55%),
                 radial-gradient(circle at 80% 100%, rgba(255, 107, 214, 0.22), transparent 55%),
                 var(--bg);
             color: var(--text);
-            display: flex;
-            flex-direction: column;
         }
         header.top-bar {
             position: sticky;
             top: 0;
             z-index: 10;
             display: flex;
+            gap: 1.5rem;
             align-items: center;
             justify-content: space-between;
-            gap: 1.5rem;
             padding: 1.2rem min(4vw, 2.4rem);
+            background: linear-gradient(135deg, rgba(12, 12, 20, 0.78), rgba(34, 30, 46, 0.78));
             border-bottom: 1px solid var(--border);
-            background: linear-gradient(135deg, rgba(12, 12, 20, 0.75), rgba(34, 30, 46, 0.75));
             backdrop-filter: blur(18px);
         }
         .brand {
@@ -55,7 +61,7 @@
             width: 48px;
             height: 48px;
             border-radius: 14px;
-            box-shadow: 0 16px 30px -20px rgba(114, 137, 218, 0.9);
+            box-shadow: 0 16px 30px -22px rgba(114, 137, 218, 0.9);
         }
         .brand-text h1 {
             margin: 0;
@@ -70,8 +76,8 @@
         }
         nav.main-nav {
             display: flex;
-            gap: 0.6rem;
             flex-wrap: wrap;
+            gap: 0.6rem;
         }
         .nav-btn {
             display: inline-flex;
@@ -85,18 +91,18 @@
             font-size: 0.95rem;
             letter-spacing: 0.05em;
             cursor: pointer;
-            transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease, color 0.2s ease;
+            transition: transform 0.15s ease, background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
         }
         .nav-btn .icon {
-            font-size: 1.1rem;
+            font-size: 1.05rem;
         }
         .nav-btn.active {
             background: var(--accent);
             color: #07070c;
-            box-shadow: 0 16px 35px -22px rgba(255, 107, 214, 0.9);
+            box-shadow: 0 18px 35px -24px rgba(255, 107, 214, 0.95);
         }
         .nav-btn.active .icon {
-            transform: scale(1.05);
+            transform: scale(1.08);
         }
         .connection-status {
             display: flex;
@@ -110,12 +116,11 @@
             width: 0.7rem;
             height: 0.7rem;
             border-radius: 50%;
-            background: #8a8aa0;
-            box-shadow: none;
+            background: #8585a2;
             transition: background 0.2s ease, box-shadow 0.2s ease;
         }
         .connection-status .indicator.online {
-            background: #18c98c;
+            background: var(--success);
             box-shadow: 0 0 12px rgba(24, 201, 140, 0.7);
         }
         main {
@@ -135,9 +140,9 @@
             border-radius: 26px;
             overflow: hidden;
             border: 1px solid var(--border);
-            background: radial-gradient(circle at 20% 15%, rgba(255, 255, 255, 0.05), transparent 55%), rgba(16, 16, 28, 0.68);
             min-height: clamp(520px, 65vh, 760px);
-            box-shadow: var(--shadow);
+            background: radial-gradient(circle at 20% 15%, rgba(255, 255, 255, 0.05), transparent 55%), rgba(16, 16, 28, 0.72);
+            box-shadow: 0 28px 55px -42px rgba(0, 0, 0, 0.9);
         }
         #vrm-canvas {
             position: absolute;
@@ -153,19 +158,19 @@
             flex-direction: column;
             justify-content: space-between;
             pointer-events: none;
-            background: linear-gradient(180deg, rgba(12, 12, 20, 0.78) 0%, transparent 45%, rgba(12, 12, 20, 0.82) 100%);
+            background: linear-gradient(180deg, rgba(12, 12, 20, 0.82) 0%, transparent 45%, rgba(12, 12, 20, 0.88) 100%);
         }
         .home-overlay h2 {
             margin: 0;
-            font-size: clamp(1.8rem, 4vw, 2.8rem);
+            font-size: clamp(1.9rem, 4vw, 2.8rem);
             letter-spacing: 0.12em;
             text-transform: uppercase;
         }
         .home-overlay p {
-            max-width: 40ch;
-            font-size: clamp(0.95rem, 2vw, 1.1rem);
+            max-width: 42ch;
+            font-size: clamp(0.98rem, 2vw, 1.12rem);
             color: var(--text-soft);
-            line-height: 1.6;
+            line-height: 1.65;
         }
         #chat {
             --chat-height: 320px;
@@ -181,7 +186,7 @@
             border-radius: 22px;
             backdrop-filter: blur(16px);
             height: var(--chat-height);
-            box-shadow: var(--shadow);
+            box-shadow: 0 24px 45px -38px rgba(0, 0, 0, 0.9);
         }
         #chat.resizing {
             cursor: ns-resize;
@@ -196,7 +201,7 @@
             cursor: ns-resize;
         }
         #chat-resize::after {
-            content: '';
+            content: "";
             position: absolute;
             inset: 3px 30px;
             border-radius: 999px;
@@ -285,7 +290,7 @@
             border: 1px solid var(--border);
             border-radius: 22px;
             padding: clamp(1.2rem, 2vw, 1.8rem);
-            box-shadow: var(--shadow);
+            box-shadow: 0 24px 45px -42px rgba(0, 0, 0, 0.85);
         }
         .log-header {
             display: flex;
@@ -297,6 +302,7 @@
         }
         .log-controls {
             display: flex;
+            flex-wrap: wrap;
             gap: 0.8rem;
             align-items: center;
             font-size: 0.9rem;
@@ -327,10 +333,31 @@
             padding: 1rem 1.2rem;
             height: min(60vh, 540px);
             overflow-y: auto;
-            font-family: 'JetBrains Mono', 'Fira Code', monospace;
-            font-size: 0.85rem;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            font-size: 0.88rem;
             line-height: 1.45;
             white-space: pre-wrap;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+        .log-line {
+            word-break: break-word;
+        }
+        .log-line.level-debug {
+            color: var(--log-debug);
+        }
+        .log-line.level-info {
+            color: var(--log-info);
+        }
+        .log-line.level-warning {
+            color: var(--log-warn);
+        }
+        .log-line.level-error {
+            color: var(--log-error);
+        }
+        .log-line.level-other {
+            color: var(--text-soft);
         }
         .settings-grid {
             display: grid;
@@ -341,18 +368,17 @@
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 22px;
-            padding: clamp(1.3rem, 2vw, 1.8rem);
+            padding: clamp(1.3rem, 2vw, 1.9rem);
             display: flex;
             flex-direction: column;
             gap: 1rem;
-            box-shadow: var(--shadow);
+            box-shadow: 0 24px 45px -42px rgba(0, 0, 0, 0.85);
         }
         .card h2 {
             margin: 0;
             letter-spacing: 0.08em;
             font-size: 1.1rem;
             text-transform: uppercase;
-            color: var(--text);
         }
         .card p {
             margin: 0;
@@ -411,8 +437,8 @@
             font-size: 0.9rem;
         }
         .vrm-list li.active {
-            border-color: rgba(255, 107, 214, 0.6);
-            background: rgba(255, 107, 214, 0.12);
+            border-color: rgba(255, 107, 214, 0.65);
+            background: rgba(255, 107, 214, 0.16);
         }
         .vrm-list li .name {
             flex: 1;
@@ -457,16 +483,16 @@
             color: var(--text-soft);
         }
         .status-chip[data-tone="success"] {
-            color: #18c98c;
+            color: var(--success);
             border-color: rgba(24, 201, 140, 0.4);
         }
         .status-chip[data-tone="warn"] {
-            color: #f7c14d;
-            border-color: rgba(247, 193, 77, 0.4);
+            color: var(--warn);
+            border-color: rgba(243, 192, 77, 0.4);
         }
         .status-chip[data-tone="error"] {
-            color: #ff8ba7;
-            border-color: rgba(255, 139, 167, 0.4);
+            color: var(--error);
+            border-color: rgba(255, 123, 147, 0.4);
         }
         .links {
             list-style: none;
@@ -485,7 +511,7 @@
         }
         .links a:hover {
             border-color: rgba(255, 107, 214, 0.6);
-            background: rgba(255, 107, 214, 0.14);
+            background: rgba(255, 107, 214, 0.16);
         }
         dl {
             margin: 0;
@@ -531,26 +557,26 @@
             <img src="%%LOGO_URL%%" alt="SyntH logo" />
             <div class="brand-text">
                 <h1>%%BRAND_NAME%%</h1>
-                <span> Synthetic Heart Command Console </span>
+                <span>Synthetic Heart Command Console</span>
             </div>
         </div>
-        <nav class="main-nav" aria-label="Navigazione principale">
+        <nav class="main-nav" aria-label="Primary navigation">
             <button class="nav-btn active" data-tab="home" aria-controls="tab-home" aria-pressed="true">
                 <span class="icon" aria-hidden="true">🏠</span><span>Home</span>
             </button>
             <button class="nav-btn" data-tab="logs" aria-controls="tab-logs" aria-pressed="false">
-                <span class="icon" aria-hidden="true">📜</span><span>Log</span>
+                <span class="icon" aria-hidden="true">📜</span><span>Logs</span>
             </button>
             <button class="nav-btn" data-tab="settings" aria-controls="tab-settings" aria-pressed="false">
-                <span class="icon" aria-hidden="true">⚙️</span><span>Impostazioni</span>
+                <span class="icon" aria-hidden="true">⚙️</span><span>Settings</span>
             </button>
             <button class="nav-btn" data-tab="about" aria-controls="tab-about" aria-pressed="false">
-                <span class="icon" aria-hidden="true">ℹ️</span><span>Informazioni</span>
+                <span class="icon" aria-hidden="true">ℹ️</span><span>About</span>
             </button>
         </nav>
         <div class="connection-status">
             <span class="indicator offline" aria-hidden="true"></span>
-            <span id="status-label">Connessione…</span>
+            <span id="status-label">Connecting…</span>
         </div>
     </header>
     <main>
@@ -560,16 +586,16 @@
                 <div class="home-overlay">
                     <div>
                         <h2>Welcome to SyntH: Synthetic Heart</h2>
-                        <p>Controlla e dialoga con il cuore sintetico. L'avatar VRM attivo apparirà qui appena configurato.</p>
+                        <p>Orchestrate your companion, monitor live status, and keep the conversation flowing. The active VRM avatar will appear on this stage.</p>
                     </div>
                     <div></div>
                 </div>
-                <div id="chat" aria-label="Pannello chat">
+                <div id="chat" aria-label="Chat panel">
                     <div id="chat-resize" role="separator" aria-orientation="vertical"></div>
                     <div id="messages" aria-live="polite"></div>
                     <form id="composer" autocomplete="off">
-                        <textarea id="input" placeholder="Scrivi un messaggio…" rows="2"></textarea>
-                        <button id="send" type="submit" disabled>Invia</button>
+                        <textarea id="input" placeholder="Type a message…" rows="2"></textarea>
+                        <button id="send" type="submit" disabled>Send</button>
                     </form>
                 </div>
             </div>
@@ -577,57 +603,62 @@
         <section class="tab-panel" id="tab-logs" data-tab="logs" role="tabpanel">
             <div class="logs-wrapper">
                 <div class="log-header">
-                    <h2>Log di esecuzione</h2>
+                    <h2>Live Log Stream</h2>
                     <div class="log-controls">
-                        <button id="logs-refresh" type="button">Riconnetti</button>
+                        <button id="logs-refresh" type="button">Reconnect</button>
                         <label><input type="checkbox" id="logs-autoscroll" checked /> Auto-scroll</label>
+                        <label><input type="checkbox" class="log-filter" data-level="debug" checked /> Debug</label>
+                        <label><input type="checkbox" class="log-filter" data-level="info" checked /> Info</label>
+                        <label><input type="checkbox" class="log-filter" data-level="warning" checked /> Warning</label>
+                        <label><input type="checkbox" class="log-filter" data-level="error" checked /> Error</label>
+                        <label><input type="checkbox" class="log-filter" data-level="other" checked /> Other</label>
                     </div>
                 </div>
-                <pre id="log-output">Apri la scheda Log per avviare lo streaming…</pre>
+                <div id="log-output"><div class="log-line level-info">Open the Logs tab to begin streaming…</div></div>
             </div>
         </section>
         <section class="tab-panel" id="tab-settings" data-tab="settings" role="tabpanel">
             <div class="settings-grid">
                 <article class="card">
-                    <h2>Avatar VRM</h2>
-                    <p>Carica o seleziona l'avatar VRM. Il modello attivo viene visualizzato nella Home.</p>
+                    <h2>VRM Avatar</h2>
+                    <p>Upload or select a VRM avatar. The active model renders on the Home stage.</p>
                     <div class="vrm-controls">
                         <input type="file" id="vrm-upload" accept=".vrm" />
-                        <label class="pill" for="vrm-upload">Carica VRM</label>
-                        <button class="pill secondary" type="button" id="vrm-refresh">Aggiorna elenco</button>
+                        <label class="pill" for="vrm-upload">Upload VRM</label>
+                        <button class="pill secondary" type="button" id="vrm-refresh">Refresh List</button>
                     </div>
                     <ul class="vrm-list" id="vrm-list">
-                        <li class="empty">Nessun modello disponibile</li>
+                        <li class="empty">No models available</li>
                     </ul>
                 </article>
                 <article class="card">
-                    <h2>Notifiche</h2>
-                    <p>Attiva avvisi desktop e suoni quando arrivano nuovi messaggi.</p>
+                    <h2>Notifications</h2>
+                    <p>Enable desktop notifications and audio cues whenever new messages arrive.</p>
                     <label class="toggle">
                         <input type="checkbox" id="notify-toggle" />
-                        <span>Abilita notifiche desktop</span>
+                        <span>Enable desktop notifications</span>
                     </label>
-                    <div id="notify-status" class="meta">Disattivate</div>
-                    <div id="connection" class="status-chip" data-tone="info">Pronto.</div>
+                    <div id="notify-status" class="meta">Disabled</div>
+                    <div id="connection" class="status-chip" data-tone="info">Ready.</div>
                 </article>
             </div>
         </section>
         <section class="tab-panel" id="tab-about" data-tab="about" role="tabpanel">
             <div class="settings-grid">
                 <article class="card">
-                    <h2>Stato</h2>
+                    <h2>Runtime Status</h2>
                     <dl>
-                        <div><dt>Interfaccia</dt><dd>%%BRAND_NAME%%</dd></div>
+                        <div><dt>Interface</dt><dd>%%BRAND_NAME%%</dd></div>
                         <div><dt>Uptime</dt><dd><span id="stats-uptime">--</span></dd></div>
-                        <div><dt>Sessioni attive</dt><dd><span id="stats-sessions">--</span></dd></div>
+                        <div><dt>Active sessions</dt><dd><span id="stats-sessions">--</span></dd></div>
                     </dl>
                 </article>
                 <article class="card">
-                    <h2>Risorse</h2>
+                    <h2>Resources</h2>
                     <ul class="links">
-                        <li><a href="https://github.com/XargonWan/Rekku_Freedom_Project/tree/develop" target="_blank" rel="noreferrer">Repository</a></li>
-                        <li><a href="https://rekku-freedom-project.readthedocs.io/en/latest/" target="_blank" rel="noreferrer">Documentazione</a></li>
-                        <li><a href="https://discord.gg/" target="_blank" rel="noreferrer">Community (presto)</a></li>
+                        <li><a href="https://github.com/XargonWan/Rekku_Freedom_Project/tree/develop" target="_blank" rel="noreferrer">Project repository</a></li>
+                        <li><a href="https://rekku-freedom-project.readthedocs.io/en/latest/" target="_blank" rel="noreferrer">Documentation</a></li>
+                        <li><a href="https://discord.gg/" target="_blank" rel="noreferrer">Community (coming soon)</a></li>
                     </ul>
                 </article>
             </div>
@@ -649,13 +680,14 @@
         const notifyStatus = document.getElementById('notify-status');
         const logOutput = document.getElementById('log-output');
         const logAutoscroll = document.getElementById('logs-autoscroll');
+        const logFilters = document.querySelectorAll('.log-filter');
         const logsRefreshBtn = document.getElementById('logs-refresh');
         const chatPanel = document.getElementById('chat');
         const resizeHandle = document.getElementById('chat-resize');
         const NOTIFY_KEY = 'synth-webui-notify';
         const HISTORY_KEY = 'synth-webui-history';
         const HISTORY_LIMIT = 200;
-        const LOG_MAX_CHARS = 200000;
+        const LOG_BUFFER_LIMIT = 2000;
         const IS_SECURE = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
         let ws = null;
         let sessionId = null;
@@ -665,6 +697,8 @@
         let logsSocket = null;
         let logsReconnectTimer = null;
         let activeTab = 'home';
+        const logBuffer = [];
+        const logFilterState = { debug: true, info: true, warning: true, error: true, other: true };
 
         function setStatusMessage(message, tone = 'info') {
             if (!connectionEl) return;
@@ -672,7 +706,7 @@
             connectionEl.dataset.tone = tone;
         }
         window.SynthWebUISetStatus = setStatusMessage;
-        setStatusMessage('Pronto.', 'info');
+        setStatusMessage('Ready.', 'info');
 
         function activateTab(tab) {
             if (!tab || activeTab === tab) return;
@@ -696,17 +730,50 @@
             btn.addEventListener('click', () => activateTab(btn.dataset.tab));
         });
 
-        function appendLog(line) {
+        function detectLogLevel(line) {
+            const match = line.match(/\[(TRACE|DEBUG|INFO|WARN|WARNING|ERR|ERROR|CRITICAL)\]/i);
+            if (!match) return 'other';
+            const token = match[1].toLowerCase();
+            if (token.includes('debug') || token.includes('trace')) return 'debug';
+            if (token.includes('warn')) return 'warning';
+            if (token.includes('err') || token.includes('critical')) return 'error';
+            return 'info';
+        }
+
+        function renderLog() {
             if (!logOutput) return;
             const shouldScroll = logAutoscroll ? logAutoscroll.checked : true;
-            logOutput.textContent += (logOutput.textContent ? '\n' : '') + line;
-            if (logOutput.textContent.length > LOG_MAX_CHARS) {
-                logOutput.textContent = logOutput.textContent.slice(-LOG_MAX_CHARS);
-            }
+            logOutput.textContent = '';
+            const fragment = document.createDocumentFragment();
+            logBuffer.forEach(({ text, level }) => {
+                if (!logFilterState[level]) return;
+                const div = document.createElement('div');
+                div.className = `log-line level-${level}`;
+                div.textContent = text;
+                fragment.appendChild(div);
+            });
+            logOutput.appendChild(fragment);
             if (shouldScroll) {
                 logOutput.scrollTop = logOutput.scrollHeight;
             }
         }
+
+        function appendLog(line) {
+            const level = detectLogLevel(line);
+            logBuffer.push({ text: line, level });
+            if (logBuffer.length > LOG_BUFFER_LIMIT) {
+                logBuffer.splice(0, logBuffer.length - LOG_BUFFER_LIMIT);
+            }
+            renderLog();
+        }
+
+        logFilters.forEach((checkbox) => {
+            checkbox.addEventListener('change', (event) => {
+                const level = event.target.dataset.level;
+                logFilterState[level] = event.target.checked;
+                renderLog();
+            });
+        });
 
         function openLogStream() {
             if (!logOutput) return;
@@ -714,17 +781,16 @@
                 return;
             }
             const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-            logOutput.textContent = 'Connessione allo stream dei log…';
+            appendLog('--- connecting to log stream ---');
             logsSocket = new WebSocket(`${protocol}://${window.location.host}/logs`);
             logsSocket.addEventListener('open', () => {
-                logOutput.textContent = '';
-                appendLog('--- stream log connesso ---');
+                appendLog('--- log stream connected ---');
             });
             logsSocket.addEventListener('message', (event) => {
                 appendLog(event.data);
             });
             logsSocket.addEventListener('close', () => {
-                appendLog('--- stream log chiuso ---');
+                appendLog('--- log stream closed ---');
                 logsSocket = null;
                 if (activeTab === 'logs') {
                     clearTimeout(logsReconnectTimer);
@@ -732,7 +798,7 @@
                 }
             });
             logsSocket.addEventListener('error', () => {
-                appendLog('--- errore stream log ---');
+                appendLog('--- log stream error ---');
             });
         }
 
@@ -802,9 +868,9 @@
                 const data = await res.json();
                 if (uptimeEl) uptimeEl.textContent = formatUptime(Number(data.uptime || 0));
                 if (sessionsEl) sessionsEl.textContent = Number(data.sessions || 0);
-                if (!silent) setStatusMessage('Statistiche aggiornate', 'success');
+                if (!silent) setStatusMessage('Statistics updated', 'success');
             } catch (error) {
-                if (!silent) setStatusMessage('Impossibile recuperare le statistiche', 'warn');
+                if (!silent) setStatusMessage('Unable to fetch statistics', 'warn');
             }
         }
 
@@ -871,27 +937,27 @@
             if (notifyToggle) notifyToggle.checked = notificationsEnabled;
             if (notifyStatus) {
                 if (!IS_SECURE) {
-                    notifyStatus.textContent = 'Richieste HTTPS o localhost';
+                    notifyStatus.textContent = 'HTTPS or localhost required';
                 } else {
-                    notifyStatus.textContent = notificationsEnabled ? 'Attivate' : 'Disattivate';
+                    notifyStatus.textContent = notificationsEnabled ? 'Enabled' : 'Disabled';
                 }
             }
             localStorage.setItem(NOTIFY_KEY, notificationsEnabled ? '1' : '0');
             if (!silent) {
                 const tone = notificationsEnabled ? 'success' : 'info';
-                const message = notificationsEnabled ? 'Notifiche desktop attive' : 'Notifiche disattivate';
+                const message = notificationsEnabled ? 'Desktop notifications enabled' : 'Desktop notifications disabled';
                 setStatusMessage(message, tone);
             }
         }
 
         function requestNotifications() {
             if (!IS_SECURE) {
-                setStatusMessage('Le notifiche richiedono HTTPS o localhost', 'warn');
+                setStatusMessage('Notifications require HTTPS or localhost', 'warn');
                 updateNotifyUI(false, true);
                 return;
             }
             if (!('Notification' in window)) {
-                setStatusMessage('Il browser non supporta le notifiche', 'warn');
+                setStatusMessage('This browser does not support desktop notifications', 'warn');
                 updateNotifyUI(false, true);
                 return;
             }
@@ -900,11 +966,11 @@
                     updateNotifyUI(true);
                 } else {
                     updateNotifyUI(false, true);
-                    setStatusMessage('Notifiche bloccate dal browser', 'warn');
+                    setStatusMessage('Notifications blocked by the browser', 'warn');
                 }
             }).catch(() => {
                 updateNotifyUI(false, true);
-                setStatusMessage('Impossibile richiedere il permesso per le notifiche', 'error');
+                setStatusMessage('Unable to request notification permission', 'error');
             });
         }
 
@@ -935,7 +1001,7 @@
             playChime();
             if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
                 try {
-                    const note = new Notification('Nuovo messaggio', {
+                    const note = new Notification('New message', {
                         body: text,
                         tag: 'synth-webui-chat',
                         icon: '%%LOGO_URL%%'
@@ -969,14 +1035,14 @@
 
         function connect() {
             const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-            setStatusMessage('Connessione in corso...', 'info');
+            setStatusMessage('Connecting…', 'info');
             ws = new WebSocket(`${protocol}://${window.location.host}/ws`);
 
             ws.addEventListener('open', () => {
-                statusLabel.textContent = 'Connesso';
+                statusLabel.textContent = 'Connected';
                 statusIndicator?.classList.add('online');
                 sendBtn.disabled = false;
-                setStatusMessage('Connessione stabilita.', 'success');
+                setStatusMessage('Connection established.', 'success');
                 refreshStats(true);
             });
 
@@ -994,15 +1060,15 @@
             });
 
             ws.addEventListener('close', () => {
-                statusLabel.textContent = 'Disconnesso';
+                statusLabel.textContent = 'Disconnected';
                 statusIndicator?.classList.remove('online');
-                setStatusMessage('Connessione persa. Riconnessione…', 'warn');
+                setStatusMessage('Connection lost. Reconnecting…', 'warn');
                 sendBtn.disabled = true;
                 setTimeout(connect, 1500);
             });
 
             ws.addEventListener('error', () => {
-                setStatusMessage('Errore di comunicazione.', 'error');
+                setStatusMessage('Communication error.', 'error');
             });
         }
 
@@ -1078,6 +1144,10 @@
             loader.setResourcePath('/avatars/');
             loader.register((parser) => new VRMLoaderPlugin(parser));
 
+            const blobLoader = new GLTFLoader();
+            blobLoader.setCrossOrigin('anonymous');
+            blobLoader.register((parser) => new VRMLoaderPlugin(parser));
+
             const clock = new THREE.Clock();
 
             function resizeRenderer() {
@@ -1099,17 +1169,18 @@
                 }
             }
 
-            async function loadVRM(url, name) {
+            async function loadVRM(url, name, { isObjectUrl = false } = {}) {
                 if (!url) {
                     clearVRM();
                     currentModel = null;
-                    setStatus('Nessun avatar attivo', 'warn');
+                    setStatus('No active avatar', 'warn');
                     return;
                 }
                 try {
-                    const fullUrl = url.includes('?') ? `${url}&t=${Date.now()}` : `${url}?t=${Date.now()}`;
-                    setStatus(`Caricamento avatar ${name}...`, 'info');
-                    const gltf = await loader.loadAsync(fullUrl);
+                    const targetLoader = isObjectUrl ? blobLoader : loader;
+                    const cacheBusted = isObjectUrl ? url : (url.includes('?') ? `${url}&t=${Date.now()}` : `${url}?t=${Date.now()}`);
+                    setStatus(`Loading avatar ${name}…`, 'info');
+                    const gltf = await targetLoader.loadAsync(cacheBusted);
                     const vrm = gltf.userData.vrm || await VRM.from(gltf);
                     if (vrm && vrm.scene) {
                         VRMUtils.removeUnnecessaryJoints(vrm.scene);
@@ -1127,10 +1198,10 @@
                     scene.add(vrm.scene);
                     currentVRM = vrm;
                     currentModel = name;
-                    setStatus(`Avatar ${name} caricato`, 'success');
+                    setStatus(`Avatar ${name} loaded`, 'success');
                 } catch (error) {
                     console.error('[synth_webui] Failed to load VRM', error);
-                    setStatus('Impossibile caricare il modello VRM', 'error');
+                    setStatus('Unable to load the VRM model', 'error');
                 }
             }
 
@@ -1150,7 +1221,7 @@
                 if (!data.models.length) {
                     const li = document.createElement('li');
                     li.className = 'empty';
-                    li.textContent = 'Nessun modello disponibile';
+                    li.textContent = 'No models available';
                     listEl.appendChild(li);
                     clearVRM();
                     currentModel = null;
@@ -1166,7 +1237,7 @@
                     actions.className = 'vrm-actions';
 
                     const activate = document.createElement('button');
-                    activate.textContent = model.active ? 'Attivo' : 'Attiva';
+                    activate.textContent = model.active ? 'Active' : 'Activate';
                     if (!model.active) {
                         activate.addEventListener('click', () => setActive(model.name));
                     } else {
@@ -1174,7 +1245,7 @@
                     }
 
                     const remove = document.createElement('button');
-                    remove.textContent = 'Elimina';
+                    remove.textContent = 'Delete';
                     remove.addEventListener('click', () => removeModel(model.name));
 
                     actions.appendChild(activate);
@@ -1196,13 +1267,13 @@
                         await loadVRM(activeModel.url, activeModel.name);
                     } else if (!activeModel) {
                         clearVRM();
-                        if (feedback) setStatus('Nessun avatar attivo', 'warn');
+                        if (feedback) setStatus('No active avatar', 'warn');
                     } else if (feedback) {
-                        setStatus('Avatar aggiornato', 'success');
+                        setStatus('Avatar updated', 'success');
                     }
                 } catch (error) {
                     console.error('[synth_webui] Unable to refresh models', error);
-                    setStatus('Impossibile aggiornare la lista avatar', 'error');
+                    setStatus('Unable to refresh avatar list', 'error');
                 }
             }
 
@@ -1217,12 +1288,12 @@
                     await refreshModels(true);
                 } catch (error) {
                     console.error('[synth_webui] Failed to set active VRM', error);
-                    setStatus('Impossibile attivare il modello', 'error');
+                    setStatus('Unable to activate the model', 'error');
                 }
             }
 
             async function removeModel(name) {
-                if (!confirm(`Eliminare il modello "${name}"?`)) return;
+                if (!confirm(`Delete the model "${name}"?`)) return;
                 try {
                     const res = await fetch(`/api/vrm/${encodeURIComponent(name)}`, {
                         method: 'DELETE',
@@ -1231,7 +1302,7 @@
                     await refreshModels(true);
                 } catch (error) {
                     console.error('[synth_webui] Failed to delete VRM', error);
-                    setStatus('Impossibile eliminare il modello', 'error');
+                    setStatus('Unable to delete the model', 'error');
                 }
             }
 
@@ -1239,13 +1310,13 @@
                 const file = event.target.files?.[0];
                 if (!file) return;
                 if (!file.name.toLowerCase().endsWith('.vrm')) {
-                    setStatus('Seleziona un file .vrm valido', 'warn');
+                    setStatus('Select a valid .vrm file', 'warn');
                     uploadInput.value = '';
                     return;
                 }
                 const formData = new FormData();
                 formData.append('file', file);
-                setStatus('Caricamento modello in corso...', 'info');
+                setStatus('Uploading model…', 'info');
                 try {
                     const res = await fetch('/api/vrm', {
                         method: 'POST',
@@ -1253,14 +1324,15 @@
                     });
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     const payload = await res.json();
-                    const modelUrl = payload.url || `/avatars/${encodeURIComponent(payload.name)}`;
-                    await loadVRM(modelUrl, payload.name);
-                    setStatus('Modello caricato con successo', 'success');
+                    const localUrl = URL.createObjectURL(file);
+                    await loadVRM(localUrl, payload.name, { isObjectUrl: true });
+                    URL.revokeObjectURL(localUrl);
+                    setStatus('Model uploaded successfully', 'success');
                     uploadInput.value = '';
                     await refreshModels();
                 } catch (error) {
                     console.error('[synth_webui] Upload failed', error);
-                    setStatus('Impossibile caricare il modello', 'error');
+                    setStatus('Unable to upload the model', 'error');
                 }
             });
 

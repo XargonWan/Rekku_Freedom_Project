@@ -561,13 +561,13 @@ class SynthWebUIInterface:
             log_error(f"{LOG_PREFIX} template not found: {template_path}")
             return (
                 f"<html><body><h1>{BRAND_NAME}</h1>"
-                "<p>Template non disponibile.</p></body></html>"
+                "<p>Template not available.</p></body></html>"
             )
         except Exception as exc:  # pragma: no cover - runtime issues
             log_error(f"{LOG_PREFIX} unable to read template: {exc}")
             return (
                 f"<html><body><h1>{BRAND_NAME}</h1>"
-                "<p>Errore nel rendering.</p></body></html>"
+                "<p>Failed to render UI.</p></body></html>"
             )
 
         return (
