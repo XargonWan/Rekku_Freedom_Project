@@ -104,6 +104,8 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
                 recent_entries = get_recent_entries(days=history_days, max_chars=max_chars)
                 
                 if recent_entries:
+                    # Store entries for potential reduction, and also formatted content
+                    context_section["diary_entries"] = recent_entries
                     diary_content = format_diary_for_injection(recent_entries)
                     context_section["diary"] = diary_content
                     log_debug(f"[json_prompt] Added diary content: {len(diary_content)} chars from {len(recent_entries)} entries ({history_days} days)")
@@ -193,6 +195,31 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
     except Exception as e:
         log_warning(f"[prompt_engine] Failed to inject actions block: {e}")
         prompt_with_instructions["actions"] = {}
+
+    # === Final check: Reduce prompt if it exceeds LLM character limits ===
+    try:
+        # Get max prompt chars from active LLM
+        max_prompt_chars = 8000  # Default fallback
+        try:
+            active_llm = await get_active_llm()
+            registry = get_llm_registry()
+            engine = registry.get_engine(active_llm)
+            
+            if not engine:
+                engine = registry.load_engine(active_llm)
+            
+            if engine and hasattr(engine, 'get_interface_limits'):
+                limits = engine.get_interface_limits()
+                max_prompt_chars = limits.get("max_prompt_chars", 8000)
+        except Exception as e:
+            log_debug(f"[json_prompt] Could not get interface limits for reduction: {e}")
+            max_prompt_chars = 8000  # Safe fallback
+        
+        # Apply reduction if needed
+        prompt_with_instructions = reduce_prompt_for_llm_limit(prompt_with_instructions, max_prompt_chars)
+        
+    except Exception as e:
+        log_warning(f"[json_prompt] Failed to apply prompt reduction: {e}")
 
     return prompt_with_instructions
 
@@ -347,6 +374,110 @@ def build_full_json_instructions() -> dict:
     except Exception as e:  # pragma: no cover - defensive
         log_warning(f"[prompt_engine] Failed to load actions block: {e}")
     return {"instructions": instructions, "actions": actions}
+
+def reduce_prompt_for_llm_limit(prompt: dict, max_chars: int) -> dict:
+    """Reduce the prompt if it exceeds the LLM character limit by removing low-priority sections.
+    
+    Priority order (highest to lowest):
+    1. input (never remove)
+    2. instructions (never remove) 
+    3. actions (never remove)
+    4. context.chat_history (remove oldest messages)
+    5. context.memories (remove oldest)
+    6. context.diary (remove oldest entries)
+    
+    Args:
+        prompt: The JSON prompt dictionary
+        max_chars: Maximum allowed characters
+        
+    Returns:
+        Reduced prompt that fits within limits
+    """
+    import copy
+    from core.json_utils import dumps as json_dumps
+    
+    # Make a copy to avoid modifying the original
+    reduced_prompt = copy.deepcopy(prompt)
+    
+    # Check current size
+    current_size = len(json_dumps(reduced_prompt))
+    if current_size <= max_chars:
+        log_debug(f"[reduce_prompt] Prompt size {current_size} <= {max_chars}, no reduction needed")
+        return reduced_prompt
+    
+    log_warning(f"[reduce_prompt] Prompt size {current_size} exceeds limit {max_chars}, reducing...")
+    
+    # Priority 6: Reduce diary (lowest priority) - remove entries from oldest to newest
+    if "context" in reduced_prompt and "diary_entries" in reduced_prompt["context"]:
+        diary_entries = reduced_prompt["context"]["diary_entries"]
+        if diary_entries:
+            # Remove oldest entries first (they're at the end of the list since ordered by timestamp DESC)
+            while diary_entries and current_size > max_chars:
+                removed_entry = diary_entries.pop()
+                # Reformat diary with remaining entries
+                try:
+                    from plugins.ai_diary import format_diary_for_injection
+                    new_diary_content = format_diary_for_injection(diary_entries)
+                    reduced_prompt["context"]["diary"] = new_diary_content
+                except Exception:
+                    # Fallback: remove diary if formatting fails
+                    if "diary" in reduced_prompt["context"]:
+                        del reduced_prompt["context"]["diary"]
+                
+                current_size = len(json_dumps(reduced_prompt))
+                log_debug(f"[reduce_prompt] Removed diary entry, now {current_size} chars")
+            
+            if current_size <= max_chars:
+                log_debug(f"[reduce_prompt] Reduced diary entries, now {current_size} <= {max_chars}")
+                return reduced_prompt
+    
+    # If diary still too big or no entries, remove diary entirely
+    if "context" in reduced_prompt and "diary" in reduced_prompt["context"] and current_size > max_chars:
+        del reduced_prompt["context"]["diary"]
+        if "diary_entries" in reduced_prompt["context"]:
+            del reduced_prompt["context"]["diary_entries"]
+        current_size = len(json_dumps(reduced_prompt))
+        log_debug(f"[reduce_prompt] Removed entire diary, now {current_size} chars")
+        if current_size <= max_chars:
+            return reduced_prompt
+    
+    # Priority 5: Reduce memories
+    if "context" in reduced_prompt and "memories" in reduced_prompt["context"]:
+        memories = reduced_prompt["context"]["memories"]
+        if memories:
+            # Remove oldest memories first (they're at the end of the list)
+            while memories and current_size > max_chars:
+                removed = memories.pop()
+                current_size = len(json_dumps(reduced_prompt))
+                log_debug(f"[reduce_prompt] Removed memory, now {current_size} chars")
+            if current_size <= max_chars:
+                log_debug(f"[reduce_prompt] Reduced memories, now {current_size} <= {max_chars}")
+                return reduced_prompt
+    
+    # Priority 4: Reduce chat_history
+    if "context" in reduced_prompt and "chat_history" in reduced_prompt["context"]:
+        chat_history = reduced_prompt["context"]["chat_history"]
+        if chat_history:
+            # Remove oldest messages first (they're at the end of the list)
+            while chat_history and current_size > max_chars:
+                removed = chat_history.pop()
+                current_size = len(json_dumps(reduced_prompt))
+                log_debug(f"[reduce_prompt] Removed chat message, now {current_size} chars")
+            if current_size <= max_chars:
+                log_debug(f"[reduce_prompt] Reduced chat_history, now {current_size} <= {max_chars}")
+                return reduced_prompt
+    
+    # If still too big, log error and return as-is (should not happen with proper limits)
+    final_size = len(json_dumps(reduced_prompt))
+    if final_size > max_chars:
+        log_error(f"[reduce_prompt] Could not reduce prompt below {max_chars} chars, final size: {final_size}")
+        # Try removing entire context sections if desperate
+        if "context" in reduced_prompt:
+            del reduced_prompt["context"]
+            final_size = len(json_dumps(reduced_prompt))
+            log_warning(f"[reduce_prompt] Removed entire context, final size: {final_size}")
+    
+    return reduced_prompt
 
 
 
