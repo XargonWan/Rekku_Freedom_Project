@@ -48,8 +48,20 @@ import core.recent_chats as recent_chats
 from core.ai_plugin_base import AIPluginBase
 
 # Selenium ChatGPT-specific configuration
+# Model-specific character limits (based on official documentation and testing)
+CHATGPT_MODEL_LIMITS = {
+    "gpt-4o": 128000,        # GPT-4o: 128k tokens context (~400k characters)
+    "gpt-4o-mini": 128000,   # GPT-4o-mini: 128k tokens context (~400k characters)
+    "gpt-4-turbo": 128000,   # GPT-4 Turbo: 128k tokens context (~400k characters)
+    "gpt-4": 8000,           # GPT-4: 8k tokens context (~24k characters)
+    "gpt-3.5-turbo": 16000,  # GPT-3.5 Turbo: 16k tokens context (~48k characters)
+    "o1-preview": 128000,    # o1-preview: 128k tokens context (~400k characters)
+    "o1-mini": 128000,       # o1-mini: 128k tokens context (~400k characters)
+    "default": 128000        # Safe default for unknown models (assume newer models)
+}
+
 SELENIUM_CONFIG = {
-    "max_prompt_chars": 500000,  # Selenium ChatGPT can handle very long prompts
+    "max_prompt_chars": 128000,  # Default to gpt-4o limit
     "max_response_chars": 4000,
     "supports_images": True,
     "supports_functions": False,  # Browser-based doesn't support functions
@@ -62,13 +74,62 @@ SELENIUM_CONFIG = {
     "retry_delay": 2
 }
 
+def get_model_char_limit(model_name: str) -> int:
+    """Get the character limit for a specific ChatGPT model.
+    
+    Args:
+        model_name: The model name (e.g., "gpt-4o", "gpt-4-turbo")
+        
+    Returns:
+        Maximum characters allowed for the model, or default if unknown
+    """
+    # Normalize model name (lowercase, strip)
+    normalized = model_name.lower().strip()
+    
+    # Check direct match first
+    if normalized in CHATGPT_MODEL_LIMITS:
+        return CHATGPT_MODEL_LIMITS[normalized]
+    
+    # Try to match partial names (e.g., "chatgpt-4o" -> "gpt-4o")
+    for key in CHATGPT_MODEL_LIMITS.keys():
+        if key in normalized or normalized.endswith(key):
+            return CHATGPT_MODEL_LIMITS[key]
+    
+    # Special case: check for model variants
+    if "4o" in normalized:
+        if "mini" in normalized:
+            return CHATGPT_MODEL_LIMITS["gpt-4o-mini"]
+        return CHATGPT_MODEL_LIMITS["gpt-4o"]
+    elif "turbo" in normalized:
+        if "3.5" in normalized or "3-5" in normalized:
+            return CHATGPT_MODEL_LIMITS["gpt-3.5-turbo"]
+        return CHATGPT_MODEL_LIMITS["gpt-4-turbo"]
+    elif "o1" in normalized:
+        if "mini" in normalized:
+            return CHATGPT_MODEL_LIMITS["o1-mini"]
+        return CHATGPT_MODEL_LIMITS["o1-preview"]
+    elif "gpt-4" in normalized:
+        return CHATGPT_MODEL_LIMITS["gpt-4"]
+    
+    # Return default if no match found
+    log_warning(f"[selenium_chatgpt] Unknown model '{model_name}', using default limit of {CHATGPT_MODEL_LIMITS['default']} chars")
+    return CHATGPT_MODEL_LIMITS["default"]
+
 def get_selenium_config() -> dict:
     """Get Selenium ChatGPT-specific configuration."""
     return SELENIUM_CONFIG.copy()
 
 def get_max_prompt_chars() -> int:
-    """Get maximum prompt characters for Selenium ChatGPT."""
-    return SELENIUM_CONFIG["max_prompt_chars"]
+    """Get maximum prompt characters for the current ChatGPT model.
+    
+    Checks CHATGPT_MODEL environment variable or uses default model,
+    then returns the model-specific character limit.
+    """
+    # Get current model from environment or config
+    model_name = os.getenv("CHATGPT_MODEL", SELENIUM_CONFIG.get("default_model", "gpt-4o"))
+    
+    # Return model-specific limit
+    return get_model_char_limit(model_name)
 
 def get_max_response_chars() -> int:
     """Get maximum response characters for Selenium ChatGPT."""
@@ -83,14 +144,21 @@ def supports_functions() -> bool:
     return SELENIUM_CONFIG["supports_functions"]
 
 def get_interface_limits() -> dict:
-    """Get the limits and capabilities for Selenium ChatGPT interface."""
-    log_info(f"[selenium_chatgpt] Interface limits: max_prompt_chars={SELENIUM_CONFIG['max_prompt_chars']}, supports_images={SELENIUM_CONFIG['supports_images']}")
+    """Get the limits and capabilities for Selenium ChatGPT interface.
+    
+    Returns model-specific character limits based on the current model.
+    """
+    # Get current model and its specific limit
+    model_name = os.getenv("CHATGPT_MODEL", SELENIUM_CONFIG.get("default_model", "gpt-4o"))
+    max_chars = get_model_char_limit(model_name)
+    
+    log_info(f"[selenium_chatgpt] Interface limits for model '{model_name}': max_prompt_chars={max_chars}, supports_images={SELENIUM_CONFIG['supports_images']}")
     return {
-        "max_prompt_chars": SELENIUM_CONFIG["max_prompt_chars"],
+        "max_prompt_chars": max_chars,
         "max_response_chars": SELENIUM_CONFIG["max_response_chars"],
         "supports_images": SELENIUM_CONFIG["supports_images"],
         "supports_functions": SELENIUM_CONFIG["supports_functions"],
-        "model_name": SELENIUM_CONFIG["model_name"]
+        "model_name": model_name
     }
 
 # Load environment variables for root password and other settings
