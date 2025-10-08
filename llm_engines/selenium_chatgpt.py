@@ -1401,6 +1401,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         self.driver = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task = None
+        self._restarting = False  # Flag to prevent concurrent restart attempts
         self._notify_fn = notify_fn or notify_trainer
         log_debug(f"[selenium] notify_fn passed: {bool(notify_fn)}")
         set_notifier(self._notify_fn)
@@ -1457,6 +1458,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             return
         if self._worker_task is not None and self._worker_task.done():
             log_warning("[selenium] Previous worker task ended, restarting")
+            self._worker_task = None  # Clear the old task reference
+        
+        # Create new worker task
         self._worker_task = asyncio.create_task(
             self._worker_loop(), name="selenium_worker"
         )
@@ -1477,17 +1481,34 @@ class SeleniumChatGPTPlugin(AIPluginBase):
             return "generic"
 
     def _handle_worker_done(self, fut: asyncio.Future):
+        """Handle worker task completion and attempt restart if needed."""
         if fut.cancelled():
             log_warning("[selenium] Worker task cancelled")
         elif fut.exception():
             log_warning(f"[selenium] Worker task crashed: {fut.exception()}")
-        # Attempt restart if needed
+        
+        # Attempt restart if needed, but prevent concurrent restart attempts
+        if self._restarting:
+            log_debug("[selenium] Restart already in progress, skipping")
+            return
+            
+        self._restarting = True
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():
-                loop.create_task(self.start())
+                # Schedule restart as a new task
+                async def restart_worker():
+                    try:
+                        await asyncio.sleep(0.1)  # Brief delay before restart
+                        await self.start()
+                    finally:
+                        self._restarting = False
+                
+                loop.create_task(restart_worker())
+            else:
+                self._restarting = False
         except RuntimeError:
-            pass
+            self._restarting = False
 
     async def handle_incoming_message(self, bot, message, prompt):
         """Handle incoming messages by queuing them for processing."""
