@@ -422,13 +422,16 @@ async def logchat_command(*args, interface_context=None) -> str:
         from core.config import set_log_chat_id_and_thread
         
         chat_id = update.effective_chat.id
-        thread_id = update.effective_message.thread_id
+        # Use hasattr to safely check for thread_id (not all messages have it)
+        thread_id = getattr(update.effective_message, 'thread_id', None) if update.effective_message else None
         
-        # Get current interface dynamically
-        interface_name = getattr(context.get('bot'), 'get_interface_id', lambda: 'unknown')()
+        # Get bot from interface_context (context.bot is not dict-accessible)
+        bot = interface_context.get('bot')
+        interface_name = getattr(bot, 'get_interface_id', lambda: 'unknown')() if bot else 'unknown'
         
         await set_log_chat_id_and_thread(chat_id, thread_id, interface_name)
-        return f"✅ This chat is now set as logchat [{chat_id}, {thread_id}] on {interface_name}"
+        # Escape square brackets to avoid Markdown parsing issues
+        return f"✅ This chat is now set as logchat \\[{chat_id}, {thread_id}\\] on {interface_name}"
     except Exception as e:
         return f"❌ Unable to set log chat: {e}"
 
