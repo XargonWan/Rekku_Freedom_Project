@@ -20,6 +20,16 @@ CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
 _retry_tracker = {}
 
 
+def _extract_json_local(text: str):
+    """Local helper to extract JSON from text using transport_layer's extract_json_from_text.
+    
+    Returns:
+        Parsed JSON object or None if not found
+    """
+    from core.transport_layer import extract_json_from_text
+    return extract_json_from_text(text, return_metadata=False)
+
+
 ERROR_RETRY_POLICY = {
     "description": (
         "If you receive a system_message of type 'error' with the phrase 'Please repeat your "
@@ -1366,7 +1376,37 @@ async def corrector_orchestrator(text: str, context: dict, bot, message, max_ret
 
         # If corrected same as previous tried value, avoid infinite loop
         if corrected in tried_texts:
-            log_warning("[corrector_orchestrator] Corrector returned previously seen output; aborting to avoid loop")
+            log_warning("[corrector_orchestrator] Corrector returned previously seen output; attempting to execute already-parsed actions if available")
+            # Try to execute already-parsed actions from the original text instead of blocking completely
+            if parsed is not None:
+                log_info("[corrector_orchestrator] Attempting to execute actions from originally-parsed JSON before blocking")
+                # Build actions list
+                if isinstance(parsed, dict) and "actions" in parsed:
+                    actions = parsed["actions"] if isinstance(parsed["actions"], list) else None
+                elif isinstance(parsed, list):
+                    actions = parsed
+                elif isinstance(parsed, dict) and "type" in parsed:
+                    actions = [parsed]
+                else:
+                    actions = None
+                
+                if actions:
+                    # Filter out already-completed actions
+                    if completed_actions:
+                        original_count = len(actions)
+                        actions = [a for a in actions if a.get('type') not in completed_actions]
+                        log_info(f"[corrector_orchestrator] Filtered {original_count - len(actions)} already-completed actions")
+                    
+                    if actions:
+                        try:
+                            result = await run_actions(actions, context, bot, message)
+                            if isinstance(result, dict) and result.get("processed"):
+                                log_info('[corrector_orchestrator] Successfully executed originally-parsed actions despite loop')
+                                return True
+                        except Exception as e:
+                            log_warning(f"[corrector_orchestrator] Failed to execute originally-parsed actions: {e}")
+            
+            log_warning("[corrector_orchestrator] No valid actions to execute; blocking due to loop")
             return False
         tried_texts.add(corrected)
 
