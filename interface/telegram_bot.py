@@ -216,10 +216,12 @@ async def logchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_trainer(update.effective_user.id):
         return
     chat_id = update.effective_chat.id
-    thread_id = update.effective_message.thread_id
+    # Use getattr to safely get thread_id (not all messages have it)
+    thread_id = getattr(update.effective_message, 'thread_id', None) if update.effective_message else None
     try:
         await set_log_chat_id_and_thread(chat_id, thread_id, "telegram_bot")
-        confirmation = f"This chat is now set as logchat [{chat_id}, {thread_id}] on telegram_bot"
+        # Escape square brackets to avoid Markdown parsing issues
+        confirmation = f"This chat is now set as logchat \\[{chat_id}, {thread_id}\\] on telegram_bot"
         await safe_send(context.bot, chat_id, confirmation, thread_id=thread_id)
     except Exception as e:
         log_error(f"[telegram_interface] Failed to set log chat: {e}")
@@ -543,7 +545,12 @@ async def handle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = await handle_command_message(command_text, user_id, "telegram_bot", interface_context)
         # Only send response if it's not None (meaning command was recognized)
         if response is not None:
-            await update.message.reply_text(response, parse_mode="Markdown")
+            try:
+                await update.message.reply_text(response, parse_mode="Markdown")
+            except Exception as parse_err:
+                # If Markdown parsing fails, send as plain text
+                log_error(f"[telegram_bot] Markdown parse error, sending as plain text: {parse_err}")
+                await update.message.reply_text(response)
     except Exception as e:
         log_error(f"[telegram_bot] Error handling command: {e}")
         await update.message.reply_text("❌ Error processing command.")
