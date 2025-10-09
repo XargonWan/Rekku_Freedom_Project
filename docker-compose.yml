@@ -14,8 +14,8 @@ services:
       - "${OLLAMA_PORT:-11434}:11434"
     volumes:
       - rfp_data:/config
+      - rfp_res:/app/res
       - ./logs:/app/logs
-      - ./avatars:/app/res/synth_webui/avatars
       - .env:/app/.env:ro
     environment:
       - WEBVIEW_PORT=${WEBVIEW_PORT:-5006}
@@ -87,6 +87,7 @@ services:
 volumes:
   rfp_db_data:
   rfp_data:
+  rfp_res:
 
 networks:
   rfp_network:
