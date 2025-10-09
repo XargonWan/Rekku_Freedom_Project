@@ -40,6 +40,7 @@ from core.logging_utils import _LOG_FILE, log_debug, log_error, log_info, log_wa
 from core.config_manager import config_registry
 from core.message_chain import get_failed_message_text, RESPONSE_TIMEOUT, FAILED_MESSAGE_TEXT
 import core.plugin_instance as plugin_instance
+import mimetypes
 
 
 BRAND_NAME = "SyntH Web UI"
@@ -49,6 +50,13 @@ _LEGACY_AUTOSTART_ENV = "WEBWAIFU_AUTOSTART"
 _AUTOSTART_ENV = "SYNTH_WEBUI_AUTOSTART"
 _LEGACY_VRM_DIR_ENV = "WEBWAIFU_VRM_DIR"
 _VRM_DIR_ENV = "SYNTH_WEBUI_VRM_DIR"
+
+
+# Ensure correct MIME types are registered
+mimetypes.init()
+mimetypes.add_type('text/javascript', '.js')
+mimetypes.add_type('text/javascript', '.mjs')
+mimetypes.add_type('application/json', '.json')
 
 
 class SynthWebUIInterface:
@@ -248,6 +256,14 @@ class SynthWebUIInterface:
             self.app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
         else:
             log_warning(f"{LOG_PREFIX} static directory not found: {static_dir}")
+        
+        # Mount JS directory for Mixamo animations (separate mount to avoid path conflicts)
+        js_dir = Path(__file__).resolve().parent.parent / "res" / "synth_webui" / "js"
+        if js_dir.exists():
+            self.app.mount("/js", StaticFiles(directory=str(js_dir)), name="synth-webui-js")
+            log_info(f"{LOG_PREFIX} Mounted /js to {js_dir}")
+        else:
+            log_warning(f"{LOG_PREFIX} JS directory not found: {js_dir}")
 
         log_info(f"{LOG_PREFIX} ========== VRM DIRECTORY MOUNT ==========")
         log_info(f"{LOG_PREFIX} VRM directory path: {self.vrm_dir}")
@@ -408,6 +424,8 @@ class SynthWebUIInterface:
 
     async def logs_ws_endpoint(self, websocket: WebSocket):  # pragma: no cover - runtime streaming
         await websocket.accept()
+        log_info(f"{LOG_PREFIX} Log stream WebSocket connected")
+        
         log_override = (self.log_source_path or "").strip()
         candidates = []
         if log_override:
@@ -433,19 +451,25 @@ class SynthWebUIInterface:
             seen.add(key)
             unique_candidates.append(candidate)
 
+        log_info(f"{LOG_PREFIX} Log file candidates: {[str(c) for c in unique_candidates]}")
         path = next((candidate for candidate in unique_candidates if candidate.exists()), unique_candidates[0])
+        log_info(f"{LOG_PREFIX} Selected log file: {path} (exists: {path.exists()})")
 
         try:
             wait_seconds = self.log_wait_seconds if self.log_wait_seconds else 20
             waited = 0
             while not path.exists() and waited < wait_seconds:
+                log_debug(f"{LOG_PREFIX} Waiting for log file... ({waited}/{wait_seconds}s)")
                 await asyncio.sleep(1)
                 waited += 1
 
             if not path.exists():
-                await websocket.send_text(f"Log file not found: {path}")
+                error_msg = f"Log file not found: {path}"
+                log_warning(f"{LOG_PREFIX} {error_msg}")
+                await websocket.send_text(error_msg)
                 return
 
+            log_info(f"{LOG_PREFIX} Opening log file: {path}")
             with path.open("r", encoding="utf-8", errors="replace") as log_file:
                 # Send last 200 lines
                 log_file.seek(0)
