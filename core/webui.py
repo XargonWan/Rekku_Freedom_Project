@@ -1,0 +1,1651 @@
+"""FastAPI-based web interface branded as the SyntH Web UI.
+
+This is a core component of RFP that provides a functional chat front-end
+integrating with the existing Rekku core infrastructure. It offers a refined
+layout, VRM avatar management, and notification helpers so the Docker container
+can serve the application directly.
+
+Note: This was moved from interface/ to core/ as it's now considered an
+integral and inseparable part of the RFP system.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import re
+import threading
+import uuid
+from collections import deque
+from datetime import datetime
+from pathlib import Path
+from typing import Deque, Dict, Optional, List, Any
+
+from fastapi import (
+    FastAPI,
+    WebSocket,
+    WebSocketDisconnect,
+    UploadFile,
+    File,
+    Request,
+    HTTPException,
+)
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from core.core_initializer import register_interface
+from core.logging_utils import _LOG_FILE, log_debug, log_error, log_info, log_warning
+from core.config_manager import config_registry
+from core.message_chain import get_failed_message_text, RESPONSE_TIMEOUT, FAILED_MESSAGE_TEXT
+import core.plugin_instance as plugin_instance
+
+
+BRAND_NAME = "SyntH Web UI"
+INTERFACE_NAME = "synth_webui"
+LOG_PREFIX = "[synth_webui]"
+_LEGACY_AUTOSTART_ENV = "WEBWAIFU_AUTOSTART"
+_AUTOSTART_ENV = "SYNTH_WEBUI_AUTOSTART"
+_LEGACY_VRM_DIR_ENV = "WEBWAIFU_VRM_DIR"
+_VRM_DIR_ENV = "SYNTH_WEBUI_VRM_DIR"
+
+
+class SynthWebUIInterface:
+    """Production-ready web interface served from the Docker container."""
+
+    def __init__(self) -> None:
+        self.app = FastAPI(title=BRAND_NAME, version="1.0")
+        self.start_time = datetime.utcnow()
+        self.connections: Dict[str, WebSocket] = {}
+        self.message_history: Dict[str, Deque[dict]] = {}
+        self.max_history = 100
+
+        self.host = config_registry.get_value(
+            "WEBUI_HOST",
+            "0.0.0.0",
+            label="Web UI Host",
+            description="Address the Web UI server binds to.",
+            group="core",
+            component=INTERFACE_NAME,
+            advanced=True,
+            tags=["bootstrap"],
+        )
+
+        def _update_host(value: str | None) -> None:
+            self.host = (value or "0.0.0.0").strip() or "0.0.0.0"
+
+        config_registry.add_listener("WEBUI_HOST", _update_host)
+
+        self.port = config_registry.get_value(
+            "WEBUI_PORT",
+            8000,
+            label="Web UI Port",
+            description="Port used by the Web UI server.",
+            value_type=int,
+            group="core",
+            component=INTERFACE_NAME,
+            advanced=True,
+            tags=["bootstrap"],
+        )
+
+        def _update_port(value) -> None:
+            try:
+                self.port = int(value)
+            except Exception:
+                log_warning(f"{LOG_PREFIX} Ignoring invalid WEBUI_PORT value: {value}")
+
+        config_registry.add_listener("WEBUI_PORT", _update_port)
+
+        autostart_flag = config_registry.get_value(
+            _AUTOSTART_ENV,
+            True,
+            label="Autostart Web UI",
+            description="Automatically start the Web UI background server when Rekku boots.",
+            value_type=bool,
+            group="core",
+            component=INTERFACE_NAME,
+            tags=["bootstrap"],  # Hidden from UI
+        )
+        legacy_autostart = os.getenv(_LEGACY_AUTOSTART_ENV)
+        if legacy_autostart is not None:
+            autostart_flag = str(legacy_autostart).strip().lower() not in {"0", "false", "False"}
+        self.autostart = bool(autostart_flag)
+
+        def _update_autostart(value) -> None:
+            if isinstance(value, bool):
+                self.autostart = value
+            else:
+                self.autostart = str(value).strip().lower() not in {"0", "false", "False"}
+
+        config_registry.add_listener(_AUTOSTART_ENV, _update_autostart)
+
+        self._server_thread: Optional[threading.Thread] = None
+        self._server: Optional[object] = None  # uvicorn.Server set when started
+        self._server_lock = threading.Lock()
+
+        default_vrm_dir = Path(__file__).resolve().parent.parent / "res" / "synth_webui" / "avatars"
+        vrm_dir_setting = config_registry.get_value(
+            _VRM_DIR_ENV,
+            str(default_vrm_dir),
+            label="VRM Storage Directory",
+            description="Directory where uploaded VRM avatars are stored.",
+            group="core",
+            component=INTERFACE_NAME,
+            tags=["bootstrap"],  # Hidden from UI - managed via docker volume
+        )
+        legacy_vrm_dir = os.getenv(_LEGACY_VRM_DIR_ENV)
+        if legacy_vrm_dir:
+            vrm_dir_setting = legacy_vrm_dir
+        self.vrm_dir = Path(vrm_dir_setting).expanduser()
+
+        def _update_vrm_dir(value: str | None) -> None:
+            try:
+                new_dir = Path(value or str(default_vrm_dir)).expanduser()
+                new_dir.mkdir(parents=True, exist_ok=True)
+                self.vrm_dir = new_dir
+                log_info(f"{LOG_PREFIX} VRM directory updated to {new_dir}")
+            except Exception as exc:
+                log_warning(f"{LOG_PREFIX} Failed to update VRM directory: {exc}")
+
+        config_registry.add_listener(_VRM_DIR_ENV, _update_vrm_dir)
+
+        try:
+            self.vrm_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:  # pragma: no cover - runtime issues
+            log_warning(f"{LOG_PREFIX} Failed to ensure VRM directory {self.vrm_dir}: {exc}")
+
+        self.active_vrm_marker = self.vrm_dir / ".active"
+        self.active_vrm = self._load_active_vrm()
+
+        self.log_source_path = config_registry.get_value(
+            "SYNTH_LOG_PATH",
+            "",
+            label="Log File Override",
+            description="Optional absolute path to the log file streamed to the browser.",
+            group="core",
+            component=INTERFACE_NAME,
+            tags=["bootstrap"],  # Hidden from UI
+        )
+        self.log_wait_seconds = config_registry.get_value(
+            "SYNTH_LOG_WAIT",
+            20,
+            label="Log Stream Wait",
+            description="Seconds to wait for the log file to appear before aborting.",
+            value_type=int,
+            group="core",
+            component=INTERFACE_NAME,
+            advanced=True,
+        )
+        self.log_level = config_registry.get_value(
+            "WEBUI_LOG_LEVEL",
+            "info",
+            label="Web UI Log Level",
+            description="Uvicorn log level for the embedded Web UI server. Requires restart to take effect.",
+            group="logging",
+            component=INTERFACE_NAME,
+            constraints={"choices": ["critical", "error", "warning", "info", "debug", "trace"]},
+        )
+        
+        def _update_log_level(value: str | None) -> None:
+            self.log_level = (value or "info").lower()
+
+        config_registry.add_listener("WEBUI_LOG_LEVEL", _update_log_level)
+        
+        # Selkies (desktop) ports
+        self.selkies_https_port = config_registry.get_value(
+            "SELKIES_HTTPS_PORT",
+            "3000",
+            label="Selkies HTTPS Port",
+            description="HTTPS port for Selkies desktop access.",
+            group="core",
+            component=INTERFACE_NAME,
+            advanced=True,
+        )
+        
+        self.selkies_http_port = config_registry.get_value(
+            "SELKIES_HTTP_PORT",
+            "3001",
+            label="Selkies HTTP Port",
+            description="HTTP port for Selkies desktop access.",
+            group="core",
+            component=INTERFACE_NAME,
+            advanced=True,
+        )
+
+        config_registry.add_listener("SYNTH_LOG_PATH", lambda value: setattr(self, "log_source_path", value or ""))
+
+        def _update_log_wait(value) -> None:
+            try:
+                parsed = int(value)
+                self.log_wait_seconds = parsed if parsed > 0 else 20
+            except Exception:
+                log_warning(f"{LOG_PREFIX} Invalid SYNTH_LOG_WAIT value: {value}")
+
+        config_registry.add_listener("SYNTH_LOG_WAIT", _update_log_wait)
+        
+        def _update_selkies_https_port(value) -> None:
+            self.selkies_https_port = value or "3000"
+        
+        config_registry.add_listener("SELKIES_HTTPS_PORT", _update_selkies_https_port)
+        
+        def _update_selkies_http_port(value) -> None:
+            self.selkies_http_port = value or "3001"
+        
+        config_registry.add_listener("SELKIES_HTTP_PORT", _update_selkies_http_port)
+
+        # Allow the UI to be embedded if desired (same-origin by default)
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+        static_dir = Path(__file__).resolve().parent.parent / "docs" / "res"
+        if static_dir.exists():
+            self.app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+        else:
+            log_warning(f"{LOG_PREFIX} static directory not found: {static_dir}")
+
+        log_info(f"{LOG_PREFIX} ========== VRM DIRECTORY MOUNT ==========")
+        log_info(f"{LOG_PREFIX} VRM directory path: {self.vrm_dir}")
+        log_info(f"{LOG_PREFIX} VRM directory exists: {self.vrm_dir.exists()}")
+        
+        if self.vrm_dir.exists():
+            log_debug(f"{LOG_PREFIX} VRM directory is_dir: {self.vrm_dir.is_dir()}")
+            log_debug(f"{LOG_PREFIX} VRM directory is readable: {os.access(self.vrm_dir, os.R_OK)}")
+            
+            try:
+                files = list(self.vrm_dir.iterdir())
+                log_info(f"{LOG_PREFIX} VRM directory contains {len(files)} items:")
+                for item in files:
+                    file_type = 'file' if item.is_file() else 'dir'
+                    size = item.stat().st_size if item.is_file() else 'N/A'
+                    log_info(f"{LOG_PREFIX}   - {item.name} ({file_type}, {size} bytes)")
+            except Exception as list_exc:
+                log_warning(f"{LOG_PREFIX} Unable to list VRM directory contents: {list_exc}")
+            
+            try:
+                log_info(f"{LOG_PREFIX} Mounting /avatars to {self.vrm_dir}...")
+                self.app.mount("/avatars", StaticFiles(directory=str(self.vrm_dir)), name="synth-webui-avatars")
+                log_info(f"{LOG_PREFIX} ✓ Successfully mounted /avatars endpoint")
+            except Exception as exc:  # pragma: no cover - runtime
+                log_error(f"{LOG_PREFIX} ⚠️ Unable to mount VRM directory {self.vrm_dir}: {exc}")
+                import traceback
+                log_error(f"{LOG_PREFIX} Traceback: {traceback.format_exc()}")
+        else:
+            log_warning(f"{LOG_PREFIX} VRM directory does not exist, /avatars endpoint NOT mounted")
+        
+        log_info(f"{LOG_PREFIX} ========== VRM DIRECTORY MOUNT END ==========")
+
+
+        self.app.get("/")(self.index)
+        self.app.get("/health")(self.health)
+        self.app.get("/stats")(self.stats)
+        self.app.get("/logs")(self.logs_page)
+        self.app.websocket("/ws")(self.websocket_endpoint)
+        self.app.websocket("/logs")(self.logs_ws_endpoint)
+        self.app.get("/api/vrm")(self.list_vrm_models)
+        self.app.get("/api/vrm/active")(self.get_active_vrm_endpoint)
+        self.app.post("/api/vrm")(self.upload_vrm_model)
+        self.app.post("/api/vrm/active")(self.set_active_vrm_endpoint)
+        self.app.delete("/api/vrm/{model_name}")(self.delete_vrm_model)
+        self.app.get("/api/components")(self.components_summary)
+        self.app.get("/api/config")(self.config_summary)
+        self.app.post("/api/config")(self.update_config_entry)
+        self.app.post("/api/components/llm")(self.set_llm_engine)
+        self.app.get("/api/logchat/info")(self.get_logchat_info)
+        self.app.get("/api/diary")(self.diary_summary)
+        self.app.get("/api/selkies")(self.get_selkies_config)
+
+        register_interface(INTERFACE_NAME, self)
+        log_info(f"{LOG_PREFIX} Interface registered")
+        if self.autostart:
+            self._ensure_background_server()
+        else:
+            log_info(f"{LOG_PREFIX} Autostart disabled - {BRAND_NAME} will not start automatically")
+
+    # ------------------------------------------------------------------
+    # Interface metadata
+    # ------------------------------------------------------------------
+    @staticmethod
+    def get_interface_id() -> str:
+        return INTERFACE_NAME
+
+    @staticmethod
+    def get_supported_actions() -> dict:
+        return {
+            "message_synth_webui": {
+                "required_fields": ["text", "target"],
+                "optional_fields": [],
+                "description": f"Send a text message to a {BRAND_NAME} session.",
+            }
+        }
+
+    @staticmethod
+    def get_prompt_instructions(action_name: str) -> dict:
+        if action_name == "message_synth_webui":
+            return {
+                "description": f"Send a message to the {BRAND_NAME} browser client.",
+                "payload": {
+                    "text": {
+                        "type": "string",
+                        "example": "Ciao!",
+                        "description": "Message content to deliver",
+                    },
+                    "target": {
+                        "type": "string",
+                        "example": "session-id",
+                        "description": "Session identifier returned by the websocket",
+                    },
+                },
+            }
+        return {}
+
+    @staticmethod
+    def get_interface_instructions() -> str:
+        return (
+            f"Use interface: {INTERFACE_NAME} to converse through the {BRAND_NAME} browser UI. "
+            "The target field must contain the session identifier emitted by the "
+            "websocket handshake."
+        )
+
+    # ------------------------------------------------------------------
+    # HTTP Handlers
+    # ------------------------------------------------------------------
+    async def index(self):
+        try:
+            html = self._render_index()
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} failed to render index: {exc}")
+            raise HTTPException(status_code=500, detail="Unable to render SyntH Web UI") from exc
+        return HTMLResponse(content=html)
+
+    async def health(self):
+        return JSONResponse({"status": "ok", "time": datetime.utcnow().isoformat()})
+
+    async def stats(self):
+        uptime = int((datetime.utcnow() - self.start_time).total_seconds())
+        return JSONResponse({"uptime": uptime, "sessions": len(self.connections)})
+
+    async def logs_page(self):
+        html = self._render_logs()
+        return HTMLResponse(content=html)
+
+    # ------------------------------------------------------------------
+    # WebSocket logic
+    # ------------------------------------------------------------------
+    async def websocket_endpoint(self, websocket: WebSocket):
+        await websocket.accept()
+        session_id = str(uuid.uuid4())
+        self.connections[session_id] = websocket
+        self.message_history.setdefault(session_id, deque(maxlen=self.max_history))
+        await websocket.send_json({"type": "session", "session_id": session_id})
+        await self._replay_history(session_id)
+        log_info(f"{LOG_PREFIX} Client connected: {session_id}")
+
+        try:
+            while True:
+                data = await websocket.receive_text()
+                try:
+                    payload = json.loads(data)
+                except json.JSONDecodeError:
+                    payload = {"text": data}
+                text = (payload.get("text") or "").strip()
+                if not text:
+                    continue
+                await self._append_history(session_id, "user", text)
+                await self._handle_user_message(session_id, text)
+        except WebSocketDisconnect:
+            log_info(f"{LOG_PREFIX} Client disconnected: {session_id}")
+        except Exception as exc:  # pragma: no cover - runtime issues
+            log_error(f"{LOG_PREFIX} websocket error: {exc}")
+        finally:
+            self.connections.pop(session_id, None)
+            self.message_history.pop(session_id, None)
+
+    async def logs_ws_endpoint(self, websocket: WebSocket):  # pragma: no cover - runtime streaming
+        await websocket.accept()
+        log_override = (self.log_source_path or "").strip()
+        candidates = []
+        if log_override:
+            candidates.append(Path(log_override).expanduser())
+        candidates.extend(
+            [
+                Path("/app/logs/rfp.log"),
+                Path.cwd() / "logs" / "rfp.log",
+                Path.cwd() / "logs" / "dev" / "rfp.log",
+                Path(_LOG_FILE),
+            ]
+        )
+
+        unique_candidates = []
+        seen = set()
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            candidate = Path(candidate)
+            key = candidate.expanduser()
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_candidates.append(candidate)
+
+        path = next((candidate for candidate in unique_candidates if candidate.exists()), unique_candidates[0])
+
+        try:
+            wait_seconds = self.log_wait_seconds if self.log_wait_seconds else 20
+            waited = 0
+            while not path.exists() and waited < wait_seconds:
+                await asyncio.sleep(1)
+                waited += 1
+
+            if not path.exists():
+                await websocket.send_text(f"Log file not found: {path}")
+                return
+
+            with path.open("r", encoding="utf-8", errors="replace") as log_file:
+                # Send last 200 lines
+                log_file.seek(0)
+                recent_lines = deque(log_file, maxlen=200)
+                for line in recent_lines:
+                    await websocket.send_text(line.rstrip())
+                log_file.seek(0, os.SEEK_END)
+                while True:
+                    line = log_file.readline()
+                    if not line:
+                        await asyncio.sleep(1)
+                        continue
+                    await websocket.send_text(line.rstrip())
+        except Exception as exc:  # pragma: no cover - runtime issues
+            import traceback
+            log_error(f"{LOG_PREFIX} log stream error: {exc}")
+            log_error(f"{LOG_PREFIX} Exception type: {type(exc).__name__}")
+            log_error(f"{LOG_PREFIX} Traceback: {traceback.format_exc()}")
+            try:
+                # Try to send error to client
+                await websocket.send_text(f"--- log stream error: {exc} ---")
+            except Exception:
+                pass  # Websocket might be closed already
+        finally:
+            try:
+                await websocket.close()
+            except Exception:
+                pass  # Websocket might already be closed
+
+    async def _handle_user_message(self, session_id: str, text: str) -> None:
+        from types import SimpleNamespace
+
+        message = SimpleNamespace(
+            chat_id=session_id,
+            message_id=int(datetime.utcnow().timestamp() * 1000) % 1_000_000,
+            text=text,
+            date=datetime.utcnow(),
+            from_user=SimpleNamespace(
+                id=session_id,
+                username=f"synth_{session_id[:8]}",
+                first_name="SyntH",
+                last_name="",
+                full_name="SyntH User",
+            ),
+            chat=SimpleNamespace(
+                id=session_id,
+                type="web",
+                title=f"{BRAND_NAME} Session",
+                full_name=f"{BRAND_NAME} Session",
+            ),
+            reply_to_message=None,
+        )
+
+        log_debug(f"{LOG_PREFIX} message from {session_id}: {text}")
+        
+        # Get the configured response timeout from message_chain
+        from core.message_chain import RESPONSE_TIMEOUT
+        timeout_seconds = RESPONSE_TIMEOUT
+        
+        try:
+            # Wait for response with timeout
+            response = await asyncio.wait_for(
+                plugin_instance.handle_incoming_message(
+                    self, message, {}, INTERFACE_NAME
+                ),
+                timeout=timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            log_error(f"{LOG_PREFIX} Message handling timed out after {timeout_seconds}s for session {session_id}")
+            response = get_failed_message_text()  # Use configured fallback message
+        except Exception as exc:  # pragma: no cover - runtime issues
+            log_error(f"{LOG_PREFIX} error handling message: {exc}")
+            response = get_failed_message_text()  # Use configured fallback message
+
+        if response:
+            await self.send_message(session_id, text=response)
+
+    async def _replay_history(self, session_id: str) -> None:
+        history = self.message_history.get(session_id)
+        if not history:
+            return
+        websocket = self.connections.get(session_id)
+        if not websocket:
+            return
+        for item in history:
+            await websocket.send_json({"type": "message", **item})
+
+    async def _append_history(self, session_id: str, sender: str, text: str) -> None:
+        history = self.message_history.setdefault(
+            session_id, deque(maxlen=self.max_history)
+        )
+        history.append({"sender": sender, "text": text})
+
+    # ------------------------------------------------------------------
+    # Methods used by actions / plugins
+    # ------------------------------------------------------------------
+    async def send_message(
+        self,
+        payload_or_chat_id=None,
+        text: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        if isinstance(payload_or_chat_id, dict):
+            payload = payload_or_chat_id
+            text = payload.get("text", text)
+            chat_id = payload.get("target") or payload.get("chat_id")
+        else:
+            chat_id = payload_or_chat_id or kwargs.get("chat_id")
+            if text is None:
+                text = kwargs.get("text")
+
+        if not text or not chat_id:
+            log_warning(f"{LOG_PREFIX} send_message missing text or chat_id")
+            return
+
+        websocket = self.connections.get(str(chat_id))
+        if not websocket:
+            log_warning(f"{LOG_PREFIX} no active websocket for session {chat_id}")
+            return
+
+        await websocket.send_json({"type": "message", "sender": "rekku", "text": text})
+        await self._append_history(str(chat_id), "rekku", text)
+
+    async def execute_action(self, action: dict, context: dict, bot, original_message):
+        if action.get("type") == "message_synth_webui":
+            payload = action.get("payload", {})
+            await self.send_message(payload, original_message=original_message)
+
+    # ------------------------------------------------------------------
+    # VRM management API
+    # ------------------------------------------------------------------
+    def _load_active_vrm(self) -> Optional[str]:
+        log_debug(f"{LOG_PREFIX} Loading active VRM model...")
+        log_debug(f"{LOG_PREFIX} VRM directory: {self.vrm_dir}")
+        log_debug(f"{LOG_PREFIX} Active VRM marker file: {self.active_vrm_marker}")
+        
+        if self.active_vrm_marker.exists():
+            try:
+                name = self.active_vrm_marker.read_text(encoding="utf-8").strip()
+                log_debug(f"{LOG_PREFIX} Found marker file with name: {name}")
+            except Exception as exc:
+                log_warning(f"{LOG_PREFIX} Failed to read marker file: {exc}")
+                name = ""
+            if name:
+                candidate = self.vrm_dir / Path(name).name
+                if candidate.exists():
+                    log_info(f"{LOG_PREFIX} Active VRM loaded from marker: {candidate.name}")
+                    return candidate.name
+                else:
+                    log_warning(f"{LOG_PREFIX} Marker references non-existent file: {candidate}")
+        else:
+            log_debug(f"{LOG_PREFIX} No marker file found, looking for first available VRM...")
+        
+        # Fallback to first available model
+        available_vrms = list(sorted(self.vrm_dir.glob("*.vrm")))
+        log_debug(f"{LOG_PREFIX} Available VRM files: {[v.name for v in available_vrms]}")
+        for candidate in available_vrms:
+            log_info(f"{LOG_PREFIX} Using first available VRM: {candidate.name}")
+            return candidate.name
+        
+        log_warning(f"{LOG_PREFIX} No VRM models found in directory")
+        return None
+
+    def _set_active_vrm(self, model_name: Optional[str]) -> None:
+        log_info(f"{LOG_PREFIX} ========== SET ACTIVE VRM START ==========")
+        log_info(f"{LOG_PREFIX} Setting active VRM to: '{model_name}'")
+        log_debug(f"{LOG_PREFIX} Current active VRM before change: '{self.active_vrm}'")
+        log_debug(f"{LOG_PREFIX} Active VRM marker path: {self.active_vrm_marker}")
+        log_debug(f"{LOG_PREFIX} Active VRM marker exists: {self.active_vrm_marker.exists() if hasattr(self, 'active_vrm_marker') else 'N/A'}")
+        
+        if not model_name:
+            log_info(f"{LOG_PREFIX} Clearing active VRM (model_name is None/empty)")
+            try:
+                if self.active_vrm_marker.exists():
+                    log_debug(f"{LOG_PREFIX} Removing active VRM marker file...")
+                    self.active_vrm_marker.unlink()
+                    log_info(f"{LOG_PREFIX} ✓ Removed active VRM marker")
+                else:
+                    log_debug(f"{LOG_PREFIX} Active VRM marker does not exist, nothing to remove")
+            except Exception as exc:
+                log_warning(f"{LOG_PREFIX} ⚠️ Failed to remove marker: {exc}")
+                import traceback
+                log_warning(f"{LOG_PREFIX} Traceback: {traceback.format_exc()}")
+            self.active_vrm = None
+            log_info(f"{LOG_PREFIX} ✓ Active VRM cleared")
+            log_info(f"{LOG_PREFIX} ========== SET ACTIVE VRM END (cleared) ==========")
+            return
+            
+        log_debug(f"{LOG_PREFIX} Model name provided: '{model_name}'")
+        log_debug(f"{LOG_PREFIX} Extracting basename from model_name...")
+        basename = Path(model_name).name
+        log_debug(f"{LOG_PREFIX} Basename extracted: '{basename}'")
+        
+        candidate = self.vrm_dir / basename
+        log_info(f"{LOG_PREFIX} Full VRM candidate path: {candidate}")
+        log_debug(f"{LOG_PREFIX} VRM directory: {self.vrm_dir}")
+        log_debug(f"{LOG_PREFIX} VRM directory exists: {self.vrm_dir.exists()}")
+        log_debug(f"{LOG_PREFIX} Candidate file exists: {candidate.exists()}")
+        
+        if not candidate.exists():
+            log_error(f"{LOG_PREFIX} ⚠️ VRM file not found at: {candidate}")
+            log_error(f"{LOG_PREFIX} Directory contents:")
+            try:
+                if self.vrm_dir.exists():
+                    contents = list(self.vrm_dir.iterdir())
+                    for item in contents:
+                        log_error(f"{LOG_PREFIX}   - {item.name} ({'file' if item.is_file() else 'dir'})")
+                    if not contents:
+                        log_error(f"{LOG_PREFIX}   (directory is empty)")
+                else:
+                    log_error(f"{LOG_PREFIX}   (directory does not exist)")
+            except Exception as list_exc:
+                log_error(f"{LOG_PREFIX} Failed to list directory: {list_exc}")
+            
+            log_info(f"{LOG_PREFIX} ========== SET ACTIVE VRM END (not found) ==========")
+            raise FileNotFoundError(model_name)
+            
+        log_debug(f"{LOG_PREFIX} ✓ VRM file exists, writing marker...")
+        log_debug(f"{LOG_PREFIX} Marker will contain: '{candidate.name}'")
+        
+        try:
+            self.active_vrm_marker.write_text(candidate.name, encoding="utf-8")
+            log_info(f"{LOG_PREFIX} ✓ Wrote marker file for: {candidate.name}")
+            log_debug(f"{LOG_PREFIX} Marker file exists after write: {self.active_vrm_marker.exists()}")
+            if self.active_vrm_marker.exists():
+                marker_content = self.active_vrm_marker.read_text(encoding="utf-8")
+                log_debug(f"{LOG_PREFIX} Marker file content: '{marker_content}'")
+        except Exception as exc:  # pragma: no cover - file system issues
+            log_warning(f"{LOG_PREFIX} ⚠️ Failed to persist active VRM marker: {exc}")
+            import traceback
+            log_warning(f"{LOG_PREFIX} Traceback: {traceback.format_exc()}")
+            
+        self.active_vrm = candidate.name
+        log_info(f"{LOG_PREFIX} ✓ Active VRM set to: '{self.active_vrm}'")
+        log_info(f"{LOG_PREFIX} ========== SET ACTIVE VRM END (success) ==========")
+
+
+    @staticmethod
+    def _sanitize_vrm_filename(name: str) -> str:
+        stem = Path(name or "avatar").stem
+        safe = "".join(ch for ch in stem if ch.isalnum() or ch in ("-", "_")).strip("_-")
+        if not safe:
+            safe = "avatar"
+        return f"{safe}_{uuid.uuid4().hex[:8]}.vrm"
+
+    def _models_payload(self) -> dict:
+        models: List[dict] = []
+        for path in sorted(self.vrm_dir.glob("*.vrm")):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            models.append(
+                {
+                    "name": path.name,
+                    "url": f"/avatars/{path.name}",
+                    "size": stat.st_size,
+                    "modified": int(stat.st_mtime),
+                    "active": path.name == self.active_vrm,
+                }
+            )
+        return {"models": models, "active": self.active_vrm}
+
+    async def list_vrm_models(self):
+        log_debug(f"{LOG_PREFIX} Listing VRM models from {self.vrm_dir}")
+        payload = self._models_payload()
+        log_debug(f"{LOG_PREFIX} VRM models payload: {payload}")
+        return JSONResponse(payload)
+
+    async def config_summary(self):
+        definitions = config_registry.export_definitions()
+        items = []
+        for entry in definitions:
+            # Skip bootstrap-tagged items (not meant for UI)
+            if "bootstrap" in entry.get("tags", []):
+                continue
+            component_label = self._get_display_name(entry["component"], None)
+            items.append(
+                {
+                    "key": entry["key"],
+                    "label": entry["label"],
+                    "description": entry["description"],
+                    "value": entry["value"],
+                    "default": entry["default"],
+                    "group": entry["group"],
+                    "component": entry["component"],
+                    "component_label": component_label,
+                    "advanced": entry["advanced"],
+                    "sensitive": entry["sensitive"],
+                    "env_override": entry["env_override"],
+                    "value_type": entry["value_type"],
+                    "editable": not entry["env_override"],
+                    "constraints": entry.get("constraints"),
+                }
+            )
+
+        return JSONResponse(
+            {
+                "items": items,
+                "messages": {
+                    "env_override": "Variables marked with ⚠️ icon are overridden by environment values. Remove the override to re-enable editing.",
+                    "advanced_warning": "Changing network ports may render the service unavailable. Update Docker compose exposure before applying.",
+                },
+            }
+        )
+
+    async def get_selkies_config(self):
+        """Return Selkies configuration for dynamic URL construction."""
+        return JSONResponse({
+            "https_port": self.selkies_https_port,
+            "http_port": self.selkies_http_port
+        })
+
+    async def diary_summary(self, request: Request):
+        """Return persona snapshot and recent diary entries for the Diary tab."""
+        params = request.query_params
+
+        def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError):
+                return default
+            return max(minimum, min(maximum, parsed))
+
+        days = _bounded_int(params.get("days"), default=14, minimum=1, maximum=365)
+        limit = _bounded_int(params.get("limit"), default=40, minimum=1, maximum=200)
+        max_chars_param = params.get("max_chars")
+        if max_chars_param is not None:
+            max_chars = _bounded_int(max_chars_param, default=20000, minimum=1000, maximum=200000)
+        else:
+            max_chars = 20000
+
+        persona_snapshot = await self._fetch_persona_snapshot()
+        diary_payload = self._fetch_diary_entries(days=days, limit=limit, max_chars=max_chars)
+
+        if not persona_snapshot.get("created_at") and diary_payload.get("earliest_timestamp"):
+            persona_snapshot["created_at"] = diary_payload["earliest_timestamp"]
+
+        response = {
+            "persona": persona_snapshot,
+            "diary": {
+                "available": diary_payload["available"],
+                "plugin_enabled": diary_payload["plugin_enabled"],
+                "entries": diary_payload["entries"],
+                "count": diary_payload["count"],
+                "days": days,
+                "limit": limit,
+                "max_chars": max_chars,
+                "earliest_timestamp": diary_payload["earliest_timestamp"],
+                "latest_timestamp": diary_payload["latest_timestamp"],
+                "error": diary_payload.get("error"),
+            },
+        }
+        return JSONResponse(response)
+
+    async def _fetch_persona_snapshot(self) -> Dict[str, Any]:
+        """Load core persona information for display."""
+        snapshot: Dict[str, Any] = {
+            "available": False,
+            "id": None,
+            "name": None,
+            "aliases": [],
+            "profile": None,
+            "created_at": None,
+            "last_updated": None,
+            "emotive_state": [],
+            "dominant_emotion": None,
+        }
+
+        try:
+            from core.persona_manager import (  # type: ignore
+                get_persona_manager,
+                init_persona_table,
+            )
+        except Exception as exc:  # pragma: no cover - defensive import
+            log_debug(f"{LOG_PREFIX} Persona manager unavailable: {exc}")
+            snapshot["error"] = str(exc)
+            return snapshot
+
+        try:
+            await init_persona_table()
+        except Exception as exc:
+            log_warning(f"{LOG_PREFIX} Unable to ensure persona table: {exc}")
+
+        persona = None
+        try:
+            manager = get_persona_manager()
+            if manager:
+                persona = manager.get_current_persona()
+                if persona is None and hasattr(manager, "async_init"):
+                    try:
+                        await manager.async_init()
+                        persona = manager.get_current_persona()
+                    except Exception as async_exc:
+                        log_debug(f"{LOG_PREFIX} Persona async_init failed: {async_exc}")
+                if persona is None:
+                    persona = await manager.load_persona("default")
+                    if persona is not None:
+                        try:
+                            manager._current_persona = persona  # type: ignore[attr-defined]
+                            manager._persona_loaded = True  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
+        except Exception as exc:
+            log_warning(f"{LOG_PREFIX} Unable to load persona: {exc}")
+
+        if not persona:
+            return snapshot
+
+        def _format_emotions(emotions: Optional[List[Any]]) -> List[Dict[str, Any]]:
+            formatted: List[Dict[str, Any]] = []
+            if not emotions:
+                return formatted
+            for state in emotions:
+                if isinstance(state, dict):
+                    emotion_type = str(state.get("type") or "").strip().lower()
+                    intensity = float(state.get("intensity", 0))
+                elif hasattr(state, "type") and hasattr(state, "intensity"):
+                    emotion_type = str(state.type).strip().lower()
+                    intensity = float(state.intensity)
+                else:
+                    continue
+                if not emotion_type:
+                    continue
+                formatted.append(
+                    {
+                        "type": emotion_type,
+                        "intensity": max(0.0, min(10.0, intensity)),
+                    }
+                )
+            formatted.sort(key=lambda item: item["intensity"], reverse=True)
+            return formatted
+
+        emotions = _format_emotions(getattr(persona, "emotive_state", []))
+        dominant = emotions[0] if emotions else None
+
+        snapshot.update(
+            {
+                "available": True,
+                "id": getattr(persona, "id", None),
+                "name": getattr(persona, "name", None) or None,
+                "aliases": getattr(persona, "aliases", []) or [],
+                "profile": getattr(persona, "profile", None) or None,
+                "created_at": getattr(persona, "created_at", None) or None,
+                "last_updated": getattr(persona, "last_updated", None) or None,
+                "emotive_state": emotions,
+                "dominant_emotion": dominant,
+            }
+        )
+        return snapshot
+
+    def _fetch_diary_entries(self, *, days: int, limit: int, max_chars: int) -> Dict[str, Any]:
+        """Retrieve diary entries via the AI diary plugin when available."""
+        payload: Dict[str, Any] = {
+            "available": False,
+            "plugin_enabled": False,
+            "entries": [],
+            "count": 0,
+            "earliest_timestamp": None,
+            "latest_timestamp": None,
+        }
+
+        try:
+            from plugins import ai_diary  # type: ignore
+        except Exception as exc:  # pragma: no cover - defensive import
+            log_debug(f"{LOG_PREFIX} Diary plugin unavailable: {exc}")
+            payload["error"] = str(exc)
+            return payload
+
+        plugin_enabled = bool(getattr(ai_diary, "PLUGIN_ENABLED", True))
+        payload["plugin_enabled"] = plugin_enabled
+
+        if not plugin_enabled:
+            payload["error"] = "Diary plugin disabled"
+            return payload
+
+        try:
+            entries = ai_diary.get_recent_entries(days=days, max_chars=max_chars) or []
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} Failed to fetch diary entries: {exc}")
+            payload["error"] = str(exc)
+            return payload
+
+        trimmed = entries[:limit] if limit else entries
+        payload["entries"] = trimmed
+        payload["count"] = len(trimmed)
+        payload["available"] = plugin_enabled and bool(trimmed)
+
+        timestamps = [entry.get("timestamp") for entry in entries if entry.get("timestamp")]
+        if timestamps:
+            payload["earliest_timestamp"] = min(timestamps)
+            payload["latest_timestamp"] = max(timestamps)
+
+        return payload
+
+    async def update_config_entry(self, request: Request):
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+
+        key = str(payload.get("key") or "").strip()
+        if not key:
+            raise HTTPException(status_code=400, detail="Missing configuration key")
+
+        if "value" not in payload:
+            raise HTTPException(status_code=400, detail="Missing configuration value")
+
+        value = payload.get("value")
+        
+        # Get component info before updating
+        try:
+            definitions = config_registry.export_definitions()
+            config_def = next((d for d in definitions if d["key"] == key), None)
+            component = config_def.get("component") if config_def else None
+        except Exception:
+            component = None
+        
+        try:
+            await config_registry.set_value(key, value)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} failed to update config {key}: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to update configuration") from exc
+
+        response_data = {"status": "ok"}
+        
+        # Check if component reload is needed
+        if component and component not in ["core", "webui"]:
+            response_data["requires_reload"] = True
+            response_data["component"] = component
+            response_data["message"] = f"Configuration updated. Component '{component}' should be reloaded for changes to take effect."
+            log_warning(f"{LOG_PREFIX} Config '{key}' for component '{component}' changed - component reload recommended")
+        
+        return JSONResponse(response_data)
+
+    async def get_logchat_info(self):
+        """Return LogChat configuration status."""
+        try:
+            from core.config import get_log_chat_id, get_log_chat_interface
+            log_chat_id = await get_log_chat_id()
+            log_chat_interface = await get_log_chat_interface()
+            
+            if log_chat_id and log_chat_interface:
+                return JSONResponse({
+                    "configured": True,
+                    "interface": log_chat_interface,
+                    "chat_id": str(log_chat_id)
+                })
+            return JSONResponse({"configured": False})
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} Failed to get logchat info: {exc}")
+            return JSONResponse({"configured": False, "error": str(exc)})
+
+    async def get_active_vrm_endpoint(self):
+        log_debug(f"{LOG_PREFIX} Getting active VRM: {self.active_vrm}")
+        if self.active_vrm:
+            result = {"name": self.active_vrm, "url": f"/avatars/{self.active_vrm}"}
+            log_debug(f"{LOG_PREFIX} Active VRM response: {result}")
+            return JSONResponse(result)
+        log_debug(f"{LOG_PREFIX} No active VRM set")
+        return JSONResponse({"name": None, "url": None})
+
+    async def set_active_vrm_endpoint(self, request: Request):
+        data = await request.json()
+        name = data.get("name")
+        log_debug(f"{LOG_PREFIX} Request to set active VRM: {name}")
+        if not name:
+            log_warning(f"{LOG_PREFIX} Set active VRM called without name")
+            raise HTTPException(status_code=400, detail="Missing 'name'")
+        candidate = self.vrm_dir / Path(name).name
+        log_debug(f"{LOG_PREFIX} Checking VRM candidate: {candidate}")
+        if not candidate.exists():
+            log_error(f"{LOG_PREFIX} VRM not found: {candidate}")
+            raise HTTPException(status_code=404, detail="Model not found")
+        self._set_active_vrm(candidate.name)
+        log_info(f"{LOG_PREFIX} Active VRM set to: {candidate.name}")
+        return JSONResponse(
+            {"status": "ok", "name": candidate.name, "url": f"/avatars/{candidate.name}"}
+        )
+
+    async def upload_vrm_model(self, file: UploadFile = File(...)):
+        log_info(f"{LOG_PREFIX} ========== VRM UPLOAD START ==========")
+        log_info(f"{LOG_PREFIX} VRM upload started: {file.filename if file else 'no file'}")
+        log_debug(f"{LOG_PREFIX} File content type: {file.content_type if file else 'N/A'}")
+        log_debug(f"{LOG_PREFIX} File size (from file object): {file.size if hasattr(file, 'size') else 'unknown'}")
+        log_debug(f"{LOG_PREFIX} VRM directory: {self.vrm_dir}")
+        log_debug(f"{LOG_PREFIX} VRM directory exists: {self.vrm_dir.exists()}")
+        log_debug(f"{LOG_PREFIX} VRM directory is_dir: {self.vrm_dir.is_dir() if self.vrm_dir.exists() else 'N/A'}")
+        
+        if not file or not file.filename:
+            log_warning(f"{LOG_PREFIX} VRM upload failed: no file provided")
+            raise HTTPException(status_code=400, detail="No file uploaded")
+        
+        log_debug(f"{LOG_PREFIX} Original filename: '{file.filename}'")
+        
+        if not file.filename.lower().endswith(".vrm"):
+            log_warning(f"{LOG_PREFIX} VRM upload failed: invalid extension for {file.filename}")
+            raise HTTPException(status_code=400, detail="Only .vrm files are accepted")
+        
+        filename = self._sanitize_vrm_filename(file.filename)
+        log_info(f"{LOG_PREFIX} Sanitized filename: '{filename}'")
+        
+        destination = self.vrm_dir / filename
+        log_info(f"{LOG_PREFIX} Full destination path: {destination}")
+        log_debug(f"{LOG_PREFIX} Destination parent exists: {destination.parent.exists()}")
+        log_debug(f"{LOG_PREFIX} Destination parent is writable: {os.access(destination.parent, os.W_OK) if destination.parent.exists() else 'N/A'}")
+        
+        try:
+            log_debug(f"{LOG_PREFIX} Opening destination file for writing...")
+            with destination.open("wb") as buffer:
+                log_debug(f"{LOG_PREFIX} File opened successfully, starting to read chunks...")
+                bytes_written = 0
+                chunk_count = 0
+                while True:
+                    chunk = await file.read(1 << 20)  # 1MB chunks
+                    if not chunk:
+                        log_debug(f"{LOG_PREFIX} No more chunks to read")
+                        break
+                    buffer.write(chunk)
+                    bytes_written += len(chunk)
+                    chunk_count += 1
+                    if chunk_count % 5 == 0:  # Log every 5MB
+                        log_debug(f"{LOG_PREFIX} Written {bytes_written} bytes so far...")
+                        
+                log_info(f"{LOG_PREFIX} VRM upload complete: {filename} ({bytes_written} bytes, {chunk_count} chunks)")
+                log_debug(f"{LOG_PREFIX} File exists after write: {destination.exists()}")
+                log_debug(f"{LOG_PREFIX} File size on disk: {destination.stat().st_size if destination.exists() else 'N/A'}")
+                
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} ⚠️ Failed to store VRM upload: {exc}")
+            log_error(f"{LOG_PREFIX} Exception type: {type(exc).__name__}")
+            import traceback
+            log_error(f"{LOG_PREFIX} Traceback: {traceback.format_exc()}")
+            
+            if destination.exists():
+                try:
+                    destination.unlink()
+                    log_debug(f"{LOG_PREFIX} Cleaned up partial upload: {destination}")
+                except Exception as cleanup_exc:
+                    log_error(f"{LOG_PREFIX} Failed to cleanup partial upload: {cleanup_exc}")
+            raise HTTPException(status_code=500, detail="Failed to store VRM file")
+        finally:
+            await file.close()
+            log_debug(f"{LOG_PREFIX} File handle closed")
+
+        log_info(f"{LOG_PREFIX} Setting active VRM to: {filename}")
+        self._set_active_vrm(filename)
+        log_info(f"{LOG_PREFIX} Active VRM set successfully")
+        
+        response_data = {"status": "ok", "name": filename, "url": f"/avatars/{filename}"}
+        log_info(f"{LOG_PREFIX} Returning response: {response_data}")
+        log_info(f"{LOG_PREFIX} ========== VRM UPLOAD END ==========")
+        
+        return JSONResponse(response_data, status_code=201)
+
+    async def delete_vrm_model(self, model_name: str):
+        sanitized = Path(model_name).name
+        target = self.vrm_dir / sanitized
+        if not target.exists():
+            raise HTTPException(status_code=404, detail="Model not found")
+        try:
+            target.unlink()
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} Failed to delete VRM {sanitized}: {exc}")
+            raise HTTPException(status_code=500, detail="Unable to delete VRM file")
+
+        if self.active_vrm == sanitized:
+            fallback = None
+            for candidate in sorted(self.vrm_dir.glob("*.vrm")):
+                fallback = candidate.name
+                break
+            self._set_active_vrm(fallback)
+        return JSONResponse(self._models_payload())
+
+    @staticmethod
+    def _prettify_name(raw_name: str) -> str:
+        if not raw_name:
+            return ""
+        overrides = {
+            "synth_webui": "SyntH Web UI",
+            "synth-webui": "SyntH Web UI",
+            "synth_webui_interface": "SyntH Web UI",
+            "telegram_bot": "Telegram Bot",
+            "discord_interface": "Discord Interface",
+            "selenium_gemini": "Selenium Gemini",
+            "selenium_chatgpt": "Selenium ChatGPT",
+            "manual": "Manual",
+            "openai": "OpenAI",
+            "llama_cpp": "LLaMA.cpp",
+            "chat_link": "Chat Link",
+        }
+        key = str(raw_name)
+        lower_key = key.lower()
+        if key in overrides:
+            return overrides[key]
+        if lower_key in overrides:
+            return overrides[lower_key]
+        cleaned = re.sub(r"[_\-.]+", " ", key).strip()
+        if not cleaned:
+            return key
+        return " ".join(part.capitalize() if part.upper() != part else part for part in cleaned.split())
+
+    @staticmethod
+    def _get_display_name(identifier: str, component: object | None) -> str:
+        if component is not None:
+            for attr in ("display_name", "friendly_name", "name"):
+                value = getattr(component, attr, None)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+                if callable(value):
+                    try:
+                        result = value()
+                    except Exception:  # pragma: no cover - defensive
+                        continue
+                    if isinstance(result, str) and result.strip():
+                        return result.strip()
+        return SynthWebUIInterface._prettify_name(identifier)
+
+    @staticmethod
+    def _extract_description(component: object) -> str:
+        if component is None:
+            return ""
+        description = ""
+        try:
+            candidate = getattr(component, "description", None)
+            if isinstance(candidate, str):
+                description = candidate
+            elif callable(candidate):
+                result = candidate()
+                if isinstance(result, str):
+                    description = result
+        except Exception:  # pragma: no cover - defensive
+            description = ""
+
+        if not description:
+            getter = getattr(component, "get_description", None)
+            if callable(getter):
+                try:
+                    result = getter()
+                    if isinstance(result, str):
+                        description = result
+                except Exception:  # pragma: no cover - defensive
+                    description = ""
+
+        if not description:
+            doc = getattr(component, "__doc__", "") or getattr(
+                getattr(component, "__class__", object), "__doc__", ""
+            )
+            if doc:
+                description = doc
+
+        description = (description or "").strip()
+        if not description:
+            return ""
+        # Normalize whitespace to keep UI tidy
+        return " ".join(description.split())
+
+    @staticmethod
+    def _format_actions(actions) -> List[dict]:
+        formatted: List[dict] = []
+        if isinstance(actions, dict):
+            for name, cfg in actions.items():
+                formatted.append(SynthWebUIInterface._format_action_entry(name, cfg))
+        elif isinstance(actions, (list, tuple, set)):
+            for name in actions:
+                formatted.append(
+                    {
+                        "name": str(name),
+                        "description": "",
+                        "required_fields": [],
+                        "optional_fields": [],
+                    }
+                )
+        return formatted
+
+    @staticmethod
+    def _format_action_entry(name: str, config) -> dict:
+        entry = {
+            "name": str(name),
+            "description": "",
+            "required_fields": [],
+            "optional_fields": [],
+        }
+        if isinstance(config, dict):
+            entry["description"] = str(config.get("description") or "").strip()
+            entry["required_fields"] = list(config.get("required_fields") or [])
+            entry["optional_fields"] = list(config.get("optional_fields") or [])
+        elif isinstance(config, (list, tuple, set)):
+            entry["required_fields"] = list(config)
+        return entry
+
+    @staticmethod
+    def _get_component_meta(name: str) -> dict:
+        try:
+            from core.core_initializer import core_initializer
+
+            info = core_initializer.components.get(name)  # type: ignore[attr-defined]
+            if info:
+                status_value = getattr(info.status, "value", str(info.status))
+                return {
+                    "status": status_value,
+                    "details": getattr(info, "details", "") or "",
+                    "error": getattr(info, "error", "") or "",
+                }
+        except Exception as exc:  # pragma: no cover - defensive
+            log_debug(f"{LOG_PREFIX} meta lookup failed for {name}: {exc}")
+        return {"status": "unknown", "details": "", "error": ""}
+
+    async def components_summary(self):
+        try:
+            from core.core_initializer import PLUGIN_REGISTRY, INTERFACE_REGISTRY, core_initializer
+            from core.llm_registry import get_llm_registry
+            from core.config import list_available_llms, get_active_llm
+        except Exception as exc:  # pragma: no cover - defensive
+            log_error(f"{LOG_PREFIX} component inspection import failure: {exc}")
+            raise HTTPException(status_code=500, detail="Unable to inspect components") from exc
+
+        available_llms = []
+        try:
+            available_llms = list_available_llms()
+        except Exception as exc:
+            log_warning(f"{LOG_PREFIX} unable to list available LLMs: {exc}")
+
+        try:
+            active_llm = await get_active_llm()
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} unable to resolve active LLM: {exc}")
+            active_llm = None
+
+        llm_registry = get_llm_registry()
+        engine_names = set()
+        try:
+            engine_names.update(llm_registry.get_available_engines())
+        except Exception as exc:
+            log_warning(f"{LOG_PREFIX} unable to list registered LLM engines: {exc}")
+        engine_names.update(available_llms)
+        if active_llm:
+            engine_names.add(active_llm)
+
+        llm_engines: List[dict] = []
+        for engine_name in sorted(engine_names):
+            instance = None
+            try:
+                instance = llm_registry.get_engine(engine_name)
+            except Exception as exc:
+                log_warning(f"{LOG_PREFIX} unable to retrieve engine {engine_name}: {exc}")
+            actions = []
+            if instance and hasattr(instance, "get_supported_actions"):
+                try:
+                    actions = self._format_actions(instance.get_supported_actions())
+                except Exception as exc:
+                    log_warning(f"{LOG_PREFIX} error reading actions for engine {engine_name}: {exc}")
+            elif instance and hasattr(instance, "get_supported_action_types"):
+                try:
+                    actions = self._format_actions(instance.get_supported_action_types())
+                except Exception as exc:
+                    log_warning(f"{LOG_PREFIX} error reading action types for engine {engine_name}: {exc}")
+
+            meta = self._get_component_meta(engine_name)
+            llm_engines.append(
+                {
+                    "name": engine_name,
+                    "display_name": self._get_display_name(engine_name, instance),
+                    "active": engine_name == active_llm,
+                    "loaded": instance is not None,
+                    "description": self._extract_description(instance),
+                    "status": meta["status"],
+                    "details": meta["details"],
+                    "error": meta["error"],
+                    "actions": actions,
+                }
+            )
+
+        interfaces_data: List[dict] = []
+        for name, interface in sorted(INTERFACE_REGISTRY.items()):
+            description = ""
+            if hasattr(interface, "get_interface_instructions"):
+                try:
+                    description = interface.get_interface_instructions() or ""
+                except Exception as exc:
+                    log_warning(f"{LOG_PREFIX} interface instruction retrieval failed for {name}: {exc}")
+            if not description:
+                description = self._extract_description(interface)
+
+            actions = []
+            if hasattr(interface, "get_supported_actions"):
+                try:
+                    actions = self._format_actions(interface.get_supported_actions())
+                except Exception as exc:
+                    log_warning(f"{LOG_PREFIX} interface action retrieval failed for {name}: {exc}")
+            elif hasattr(interface, "get_supported_action_types"):
+                try:
+                    actions = self._format_actions(interface.get_supported_action_types())
+                except Exception as exc:
+                    log_warning(f"{LOG_PREFIX} interface action type retrieval failed for {name}: {exc}")
+
+            meta = self._get_component_meta(name)
+            interfaces_data.append(
+                {
+                    "name": name,
+                    "display_name": self._get_display_name(name, interface),
+                    "description": description,
+                    "actions": actions,
+                    "status": meta["status"],
+                    "details": meta["details"],
+                    "error": meta["error"],
+                }
+            )
+
+        # Add Selkies Web Desktop as a special hardcoded component
+        # Use SELKIES_HTTPS_PORT (default 3000) for HTTPS connections
+        # Use SELKIES_HTTP_PORT (default 3001) for HTTP connections
+        # Note: The actual hostname will be resolved client-side in JavaScript
+        selkies_protocol = "https" if os.getenv("SECURE_CONNECTION", "0") == "1" else "http"
+        selkies_port = self.selkies_https_port if selkies_protocol == "https" else self.selkies_http_port
+        
+        # Mark as dynamic - JavaScript will construct the full URL client-side
+        interfaces_data.append(
+            {
+                "name": "selkies_desktop",
+                "display_name": "Selkies Web Desktop",
+                "description": "Web-based VNC desktop environment for visual interaction with the RFP container. Provides full desktop access with Chrome browser.",
+                "actions": [],
+                "status": "success",
+                "details": f"Available at {selkies_protocol}://[host]:{selkies_port}",
+                "error": None,
+                "url": None,  # Will be set client-side
+                "is_external": True,
+                "selkies_protocol": selkies_protocol,
+                "selkies_port": selkies_port,
+            }
+        )
+
+        plugins_data: List[dict] = []
+        for name, plugin in sorted(PLUGIN_REGISTRY.items()):
+            description = self._extract_description(plugin)
+            actions = []
+            if hasattr(plugin, "get_supported_actions"):
+                try:
+                    actions = self._format_actions(plugin.get_supported_actions())
+                except Exception as exc:
+                    log_warning(f"{LOG_PREFIX} plugin action retrieval failed for {name}: {exc}")
+            elif hasattr(plugin, "get_supported_action_types"):
+                try:
+                    actions = self._format_actions(plugin.get_supported_action_types())
+                except Exception as exc:
+                    log_warning(f"{LOG_PREFIX} plugin action type retrieval failed for {name}: {exc}")
+
+            meta = self._get_component_meta(name)
+            plugins_data.append(
+                {
+                    "name": name,
+                    "display_name": self._get_display_name(name, plugin),
+                    "description": description,
+                    "actions": actions,
+                    "status": meta["status"],
+                    "details": meta["details"],
+                    "error": meta["error"],
+                }
+            )
+
+        component_summary = {"success": 0, "failed": 0, "loading": 0}
+        try:
+            for info in core_initializer.components.values():  # type: ignore[attr-defined]
+                status = getattr(info.status, "value", str(info.status))
+                if status == "success":
+                    component_summary["success"] += 1
+                elif status == "failed":
+                    component_summary["failed"] += 1
+                elif status == "loading":
+                    component_summary["loading"] += 1
+        except Exception as exc:
+            log_warning(f"{LOG_PREFIX} unable to compile component summary: {exc}")
+
+        payload = {
+            "llm": {
+                "active": active_llm,
+                "available": available_llms,
+                "engines": llm_engines,
+            },
+            "interfaces": interfaces_data,
+            "plugins": plugins_data,
+            "summary": component_summary,
+        }
+        return JSONResponse(payload)
+
+    async def set_llm_engine(self, request: Request):
+        try:
+            data = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+
+        name = str(data.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Missing 'name'")
+
+        try:
+            from core.config import list_available_llms, set_active_llm
+            from core.core_initializer import core_initializer
+        except Exception as exc:  # pragma: no cover - defensive
+            log_error(f"{LOG_PREFIX} unable to import LLM configuration helpers: {exc}")
+            raise HTTPException(status_code=500, detail="Unable to access LLM configuration") from exc
+
+        available = list_available_llms()
+        if name not in available:
+            raise HTTPException(status_code=404, detail=f"LLM '{name}' is not available")
+
+        try:
+            await set_active_llm(name)
+            await core_initializer.initialize_all()
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} failed to switch LLM to {name}: {exc}")
+            raise HTTPException(status_code=500, detail=f"Failed to activate LLM '{name}'") from exc
+
+        return JSONResponse({"status": "ok", "active": name})
+
+    def _ensure_background_server(self) -> None:
+        """Launch the FastAPI app in a background thread if not already running."""
+        with self._server_lock:
+            if self._server_thread and self._server_thread.is_alive():
+                return
+
+            def _runner() -> None:
+                loop = asyncio.new_event_loop()
+                try:
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(self._run_server())
+                except Exception as exc:  # pragma: no cover - runtime issues
+                    log_error(f"{LOG_PREFIX} Failed to start uvicorn server: {exc}")
+                finally:
+                    loop.close()
+
+            log_info(f"{LOG_PREFIX} Starting {BRAND_NAME} server on http://{self.host}:{self.port}")
+            self._server_thread = threading.Thread(
+                target=_runner,
+                name="synth-webui-uvicorn",
+                daemon=True,
+            )
+            self._server_thread.start()
+
+    async def _run_server(self) -> None:
+        """Create and run the uvicorn server."""
+        import uvicorn
+
+        config = uvicorn.Config(
+            self.app,
+            host=self.host,
+            port=self.port,
+            log_level=self.log_level or "info",
+            lifespan="off",
+        )
+        server = uvicorn.Server(config)
+        with self._server_lock:
+            self._server = server
+        try:
+            await server.serve()
+        finally:
+            with self._server_lock:
+                self._server = None
+
+    def cleanup(self) -> None:
+        with self._server_lock:
+            server = self._server
+        if server is not None:
+            try:
+                server.should_exit = True
+            except Exception:  # pragma: no cover - defensive
+                pass
+        if self._server_thread and self._server_thread.is_alive():
+            self._server_thread.join(timeout=2)
+
+    # ------------------------------------------------------------------
+    # HTML template
+    # ------------------------------------------------------------------
+    def _render_index(self) -> str:
+        logo = "/static/synth_logo.png"
+        template_path = Path(__file__).resolve().parent / "webui_templates" / "synth_webui_index.html"
+        try:
+            html = template_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            log_error(f"{LOG_PREFIX} template not found: {template_path}")
+            return (
+                f"<html><body><h1>{BRAND_NAME}</h1>"
+                "<p>Template not available.</p></body></html>"
+            )
+        except Exception as exc:  # pragma: no cover - runtime issues
+            log_error(f"{LOG_PREFIX} unable to read template: {exc}")
+            return (
+                f"<html><body><h1>{BRAND_NAME}</h1>"
+                "<p>Failed to render UI.</p></body></html>"
+            )
+
+        return (
+            html.replace("%%BRAND_NAME%%", BRAND_NAME)
+            .replace("%%LOGO_URL%%", logo)
+            .replace("%%RESPONSE_TIMEOUT%%", str(RESPONSE_TIMEOUT))
+            .replace("%%FAILED_MESSAGE_TEXT%%", FAILED_MESSAGE_TEXT)
+        )
+
+    def _render_logs(self) -> str:
+        template = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{brand_name} Logs</title>
+    <style>
+        body {{ background: #101017; color: #e0ffe0; font-family: monospace; margin: 0; }
+        header {{ padding: 1rem 1.5rem; background: #1b1b28; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; align-items: center; }
+        header .left {{ display: flex; gap: 1rem; align-items: center; }
+        header .filters {{ display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; font-size: 0.9rem; }
+        header label {{ display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; background: rgba(255, 255, 255, 0.08); padding: 0.35rem 0.6rem; border-radius: 999px; }
+        header input[type="checkbox"] {{ accent-color: #ff6bd6; }
+        main {{ padding: 1.5rem; }
+        pre {{
+            background: #09090f;
+            border-radius: 12px;
+            padding: 1.2rem;
+            height: 80vh;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        a {{ color: #9fa8ff; text-decoration: none; }
+        a:hover {{ text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="left">
+            <strong>Realtime logs</strong>
+            <a href="/">Back to chat</a>
+        </div>
+        <div class="filters">
+            <label><input class="level-filter" data-level="info" type="checkbox" checked />INFO</label>
+            <label><input class="level-filter" data-level="warning" type="checkbox" checked />WARNING</label>
+            <label><input class="level-filter" data-level="error" type="checkbox" checked />ERROR</label>
+            <label><input class="level-filter" data-level="debug" type="checkbox" checked />DEBUG</label>
+        </div>
+    </header>
+    <main>
+        <pre id="log"></pre>
+    </main>
+    <script>
+        const log = document.getElementById('log');
+        const filters = document.querySelectorAll('.level-filter');
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const ws = new WebSocket(`${protocol}://${window.location.host}/logs`);
+        const levels = {{ info: true, warning: true, error: true, debug: true }};
+        const lines = [];
+
+        const levelFromLine = (line) => {{
+            const match = line.match(/\\[(INFO|WARNING|ERROR|DEBUG)\\]/i);
+            return match ? match[1].toLowerCase() : 'info';
+        }};
+
+        const render = () => {{
+            const filtered = lines.filter((line) => {{
+                const lvl = levelFromLine(line);
+                return levels[lvl] ?? true;
+            }});
+            log.textContent = filtered.join('\\n');
+            log.scrollTop = log.scrollHeight;
+        }};
+
+        filters.forEach((checkbox) => {{
+            checkbox.addEventListener('change', (event) => {{
+                const level = event.target.dataset.level;
+                levels[level] = event.target.checked;
+                render();
+            }});
+        }});
+
+        ws.addEventListener('message', (event) => {{
+            lines.push(event.data);
+            render();
+        }});
+    </script>
+</body>
+</html>
+"""
+        return template.replace('{brand_name}', BRAND_NAME)
+
+
+# Expose class and instance for dynamic discovery
+INTERFACE_CLASS = SynthWebUIInterface
+synth_webui_interface = SynthWebUIInterface()
+
+
+async def start_server() -> None:
+    """Compatibility helper to run the SyntH Web UI server in the foreground."""
+    if not synth_webui_interface.autostart:
+        await synth_webui_interface._run_server()
+        return
+
+    # If autostart is enabled we already spawned the background server. Keep
+    # the coroutine alive so ``uvicorn`` keeps running until interrupted.
+    event = asyncio.Event()
+    await event.wait()
