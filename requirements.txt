@@ -18,6 +18,7 @@ sphinx
 sphinx_rtd_theme
 unittest-xml-reporting
 discord.py
+matrix-nio
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
 python-multipart
