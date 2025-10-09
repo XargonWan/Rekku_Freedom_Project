@@ -11,6 +11,7 @@ except Exception:  # pragma: no cover - fallback when dotenv not installed
 from core.db import get_conn
 import aiomysql
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.config_manager import config_registry
 """
 notify_trainer(chat_id: int, message: str) -> None
 Send a notification to the trainer via the centralized logic in core/notifier.py.
@@ -20,25 +21,17 @@ Send a notification to the trainer via the centralized logic in core/notifier.py
 load_dotenv(dotenv_path="/app/.env", override=False)
 
 
-def _parse_notify_interfaces(value: str):
+def _parse_trainer_ids(raw_value: str) -> dict[str, int]:
+    """Parse TRAINER_IDS string into a mapping."""
     mapping = {}
-    for item in value.split(","):
-        item = item.strip()
-        if not item:
-            continue
-        if ":" not in item:
-            log_warning(
-                f"[config] Invalid NOTIFY_ERRORS_TO_INTERFACES entry '{item}' (expected interface:trainer_id)"
-            )
-            continue
-        interface, trainer_id = item.split(":", 1)
-        try:
-            mapping[interface.strip()] = int(trainer_id.strip())
-        except ValueError:
-            log_warning(
-                f"[config] Invalid trainer ID '{trainer_id}' for interface '{interface}'"
-            )
+    if not raw_value:
+        return mapping
+    for entry in raw_value.split(","):
+        if ":" in entry:
+            interface_name, trainer_id = entry.split(":", 1)
+            mapping[interface_name.strip()] = int(trainer_id.strip())
     return mapping
+
 
 
 def _parse_trainer_ids(raw_value: str) -> dict[str, int]:
@@ -54,31 +47,52 @@ def _parse_trainer_ids(raw_value: str) -> dict[str, int]:
 
 
 # Parse trainer IDs for all interfaces
-TRAINER_IDS = _parse_trainer_ids(os.getenv("TRAINER_IDS", ""))
+TRAINER_IDS: dict[str, int] = {}
 
-# Legacy support - keep NOTIFY_ERRORS_TO_INTERFACES for backward compatibility
-NOTIFY_ERRORS_TO_INTERFACES = _parse_notify_interfaces(
-    os.getenv("NOTIFY_ERRORS_TO_INTERFACES", "")
+
+def _update_trainer_ids(raw_value: str | None) -> None:
+    TRAINER_IDS.clear()
+    TRAINER_IDS.update(_parse_trainer_ids(raw_value or ""))
+
+
+# Register configuration entries for trainer mappings
+_update_trainer_ids(
+    config_registry.get_value(
+        "TRAINER_IDS",
+        "",
+        label="Trainer IDs",
+        description="Comma separated mapping of interface trainer IDs. Example: telegram_bot:123456,discord_interface:654321",
+        group="core",
+        component="core",
+        tags=["key_value_list"],
+    )
 )
+config_registry.add_listener("TRAINER_IDS", _update_trainer_ids)
+
 
 def get_trainer_id(interface_name: str) -> int | None:
-    """Return the trainer ID for the given interface.
-
-    Prefers the new TRAINER_IDS mapping, falls back to NOTIFY_ERRORS_TO_INTERFACES.
-    """
-    # Try new TRAINER_IDS first
-    trainer_id = TRAINER_IDS.get(interface_name)
-    if trainer_id:
-        return trainer_id
-    # Fallback to legacy NOTIFY_ERRORS_TO_INTERFACES
-    trainer_id = NOTIFY_ERRORS_TO_INTERFACES.get(interface_name)
-    if trainer_id:
-        return trainer_id
+    """Return the trainer ID for the given interface."""
+    return TRAINER_IDS.get(interface_name)
     return None
 
 # LLM Configuration
-LLM_MODE = os.getenv("LLM_MODE", "manual")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_API_KEY")
+LLM_MODE = config_registry.get_value(
+    "LLM_MODE",
+    "manual",
+    label="LLM Mode",
+    description="Legacy compatibility flag for the active LLM mode.",
+    group="core",
+    component="core",
+    tags=["bootstrap"],  # Hidden from UI - LLM is managed via Components tab
+)
+
+
+def _update_llm_mode(value: str | None) -> None:
+    global LLM_MODE
+    LLM_MODE = value or "manual"
+
+
+config_registry.add_listener("LLM_MODE", _update_llm_mode)
 
 # === Persistent LLM mode ===
 
@@ -312,10 +326,6 @@ def list_available_llms():
         if fname.endswith(".py") and not fname.startswith("__")
     )
 
-# === OpenAI API Key ===
-def get_user_api_key():
-    return os.getenv("OPENAI_API_KEY")
-
 # === Global model management ===
 MODEL_FILE = os.path.join(os.path.dirname(__file__), "model_config.json")
 
@@ -334,27 +344,3 @@ def set_current_model(model: str):
             json.dump({"model": model}, f, indent=2)
     except Exception as e:
         log_error(f"Unable to save model: {repr(e)}")
-
-# Generic Bot Configuration
-def get_bot_identifier(interface_name: str = None):
-    """Extract bot identifier from environment variables based on interface."""
-    # Try common bot token environment variables
-    token_vars = ["BOTFATHER_TOKEN", "TELEGRAM_TOKEN", "DISCORD_BOT_TOKEN", "BOT_TOKEN"]
-    
-    for var in token_vars:
-        token = os.getenv(var)
-        if token:
-            try:
-                # Extract identifier from token (common format: 123456:ABC-DEF...)
-                if ':' in token:
-                    token_parts = token.split(':')
-                    if len(token_parts) == 2:
-                        return f"@{token_parts[0]}"
-                # For tokens without colon, use first part as identifier
-                return f"@{token[:10]}..."
-            except Exception as e:
-                log_warning(f"[config] Could not extract identifier from {var}: {e}")
-    
-    return "@bot"  # Generic fallback
-
-BOT_USERNAME = get_bot_identifier()
