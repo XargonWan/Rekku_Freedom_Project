@@ -49,6 +49,7 @@ dist/
 build/
 site/
 logs/
+avatars/
 persona*/
 docker-compose-*.yml
 backups/
