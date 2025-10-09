@@ -1,6 +1,10 @@
+````markdown
 > [!NOTE]
 > This project will be made more generic and will soon be renamed into **SyntH - Synthetic Heart** allowing any user to easly create their own persona.
 > Contributons are welcome.
+
+> [!IMPORTANT]
+> **Recent Changes**: The SyntH Web UI has been moved from `interface/webui.py` to `core/webui.py` as it is now considered a core, integral component of RFP. Templates have been relocated to `core/webui_templates/`. This change reflects the Web UI's essential role in configuration management and system interaction.
 
 <img src="docs/res/RFP_logo.png" alt="RFP Logo" width="300"/>
 
@@ -18,10 +22,15 @@ Built around a lightweight plugin system, RFP lets you combine different chat in
 
 - Switchable LLM engines (manual trainer, ChatGPT API or a Selenium-driven ChatGPT session)
 - Multiple chat interfaces including Telegram and Discord
+- **SyntH Web UI**: A production-ready web interface with VRM avatar support and real-time animations
+- **VRM Avatar System**: 3D animated avatars with idle, talking, and thinking states
 - Action plugins such as a persistent terminal and scheduled events
 - Optional context memory injection with `/context`
 - Ollama-compatible HTTP bridge so existing Ollama clients can talk to Rekku Freedom Project
 - Docker deployment with automatic database backups
+
+> [!IMPORTANT]
+> **Core Web UI**: As of this version, the SyntH Web UI has been promoted from `interface/` to `core/` as it is now considered an integral and inseparable part of the RFP system. It provides essential functionality for configuration management, VRM avatar support, and real-time interaction.
 
 
 ### Ollama Compatibility
