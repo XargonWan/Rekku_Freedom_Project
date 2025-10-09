@@ -2,10 +2,34 @@
 
 from core.ai_plugin_base import AIPluginBase
 import json
+import os
 import openai  # Assicurati che sia installato
-from core.config import get_user_api_key
+from core.config_manager import config_registry
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.transport_layer import llm_to_interface
+
+# Register OpenAI API Key configuration
+OPENAI_API_KEY = config_registry.get_value(
+    "OPENAI_API_KEY",
+    "",
+    label="OpenAI API Key",
+    description="API key for OpenAI ChatGPT models.",
+    group="llm",
+    component="openai_chatgpt",
+    sensitive=True,
+)
+
+def _update_openai_key(value: str | None) -> None:
+    global OPENAI_API_KEY
+    OPENAI_API_KEY = value or ""
+    if OPENAI_API_KEY:
+        openai.api_key = OPENAI_API_KEY
+
+config_registry.add_listener("OPENAI_API_KEY", _update_openai_key)
+
+def get_user_api_key():
+    """Get OpenAI API key from config or environment."""
+    return OPENAI_API_KEY or os.getenv("OPENAI_API_KEY", "")
 
 # Model-specific configurations with appropriate prompt limits
 MODEL_CONFIGS = {
@@ -170,8 +194,7 @@ class OpenAIPlugin(AIPluginBase):
             return "⚠️ Error during response generation."
 
     async def generate_response(self, prompt):
-        from core.config import get_user_api_key
-
+        # Use the module-level function that accesses OPENAI_API_KEY
         openai.api_key = get_user_api_key()
 
         messages = []

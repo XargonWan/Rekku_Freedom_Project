@@ -17,10 +17,11 @@ async def init_recent_chats_table():
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
+            # Use VARCHAR(255) for chat_id to support both int and UUID string formats
             await cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS recent_chats (
-                    chat_id BIGINT PRIMARY KEY,
+                    chat_id VARCHAR(255) PRIMARY KEY,
                     last_active DOUBLE NOT NULL,
                     metadata TEXT,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -42,13 +43,15 @@ async def update_chat_activity(chat_id: int, metadata: Optional[Dict] = None):
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
+            # Convert chat_id to string to handle both int and UUID formats
+            chat_id_str = str(chat_id)
             metadata_json = json.dumps(metadata) if metadata else None
             await cur.execute(
                 """
                 REPLACE INTO recent_chats (chat_id, last_active, metadata)
                 VALUES (%s, %s, %s)
                 """,
-                (chat_id, time.time(), metadata_json)
+                (chat_id_str, time.time(), metadata_json)
             )
             await conn.commit()
     except Exception as e:

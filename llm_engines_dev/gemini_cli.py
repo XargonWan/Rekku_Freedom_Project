@@ -5,8 +5,25 @@ import json
 from core.ai_plugin_base import AIPluginBase
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.notifier import set_notifier
-from core.config import GEMINI_API_KEY
+from core.config_manager import config_registry
 from core.transport_layer import llm_to_interface
+
+# Register Gemini API Key configuration
+GEMINI_API_KEY = config_registry.get_value(
+    "GEMINI_API_KEY",
+    "",
+    label="Gemini API Key",
+    description="API key used by the Gemini CLI LLM engine.",
+    group="llm",
+    component="gemini_cli",
+    sensitive=True,
+)
+
+def _update_gemini_key(value: str | None) -> None:
+    global GEMINI_API_KEY
+    GEMINI_API_KEY = value or ""
+
+config_registry.add_listener("GEMINI_API_KEY", _update_gemini_key)
 
 # Gemini CLI-specific configuration
 GEMINI_CLI_CONFIG = {

@@ -44,8 +44,36 @@ from core.transport_layer import llm_to_interface
 # Local functions and classes
 from core.logging_utils import log_debug, log_error, log_warning, log_info, _LOG_DIR
 from core.notifier import set_notifier
+from core.config_manager import config_registry
 import core.recent_chats as recent_chats
 from core.ai_plugin_base import AIPluginBase
+
+# === Register CHROMIUM_HEADLESS in config_registry (lazy init) ===
+CHROMIUM_HEADLESS = 0
+_chromium_headless_registered = False
+
+def _ensure_chromium_headless_registered():
+    global CHROMIUM_HEADLESS, _chromium_headless_registered
+    if _chromium_headless_registered:
+        return
+    _chromium_headless_registered = True
+    
+    def _update_chromium_headless(new_value):
+        global CHROMIUM_HEADLESS
+        CHROMIUM_HEADLESS = 1 if new_value else 0
+        log_debug(f"[selenium_chatgpt] CHROMIUM_HEADLESS updated to {CHROMIUM_HEADLESS}")
+
+    CHROMIUM_HEADLESS = config_registry.get_value(
+        "CHROMIUM_HEADLESS",
+        0,
+        label="Chromium Headless Mode",
+        description="Enable headless mode for Chromium browser (no GUI). WARNING: Selenium-based LLM engines require non-headless mode for initial login to services. Set to 0 (off) when logging in, can enable afterwards.",
+        group="llm",
+        component="selenium",
+        value_type=bool,
+        advanced=True,
+    )
+    config_registry.add_listener("CHROMIUM_HEADLESS", _update_chromium_headless)
 
 # Selenium ChatGPT-specific configuration
 # Model-specific character limits (based on official documentation and testing)
@@ -122,11 +150,11 @@ def get_selenium_config() -> dict:
 def get_max_prompt_chars() -> int:
     """Get maximum prompt characters for the current ChatGPT model.
     
-    Checks CHATGPT_MODEL environment variable or uses default model,
+    Checks CHATGPT_MODEL configuration variable or uses default model,
     then returns the model-specific character limit.
     """
-    # Get current model from environment or config
-    model_name = os.getenv("CHATGPT_MODEL", SELENIUM_CONFIG.get("default_model", "gpt-4o"))
+    # Get current model from config or use default
+    model_name = CHATGPT_MODEL or SELENIUM_CONFIG.get("default_model", "gpt-4o")
     
     # Return model-specific limit
     return get_model_char_limit(model_name)
@@ -149,7 +177,7 @@ def get_interface_limits() -> dict:
     Returns model-specific character limits based on the current model.
     """
     # Get current model and its specific limit
-    model_name = os.getenv("CHATGPT_MODEL", SELENIUM_CONFIG.get("default_model", "gpt-4o"))
+    model_name = CHATGPT_MODEL or SELENIUM_CONFIG.get("default_model", "gpt-4o")
     max_chars = get_model_char_limit(model_name)
     
     log_info(f"[selenium_chatgpt] Interface limits for model '{model_name}': max_prompt_chars={max_chars}, supports_images={SELENIUM_CONFIG['supports_images']}")
@@ -790,8 +818,39 @@ def wait_for_markdown_block_to_appear(driver, prev_count: int, timeout: int = 10
     return False
 
 
-AWAIT_RESPONSE_TIMEOUT = int(os.getenv("AWAIT_RESPONSE_TIMEOUT", "240"))
-CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
+# Register timeout and retry configurations
+AWAIT_RESPONSE_TIMEOUT = config_registry.get_value(
+    "AWAIT_RESPONSE_TIMEOUT",
+    240,
+    value_type="int",
+    label="Response Timeout",
+    description="Seconds to wait for ChatGPT response before timing out",
+    group="llm",
+    component="selenium_chatgpt",
+)
+
+CORRECTOR_RETRIES = config_registry.get_value(
+    "CORRECTOR_RETRIES",
+    2,
+    value_type="int",
+    label="Corrector Retries",
+    description="Number of times the corrector retries invalid JSON responses",
+    group="llm",
+    component="selenium_chatgpt",
+)
+
+def _update_await_timeout(value: int | None) -> None:
+    """Update global AWAIT_RESPONSE_TIMEOUT variable."""
+    global AWAIT_RESPONSE_TIMEOUT
+    AWAIT_RESPONSE_TIMEOUT = int(value) if value is not None else 240
+
+def _update_corrector_retries(value: int | None) -> None:
+    """Update global CORRECTOR_RETRIES variable."""
+    global CORRECTOR_RETRIES
+    CORRECTOR_RETRIES = int(value) if value is not None else 2
+
+config_registry.add_listener("AWAIT_RESPONSE_TIMEOUT", _update_await_timeout)
+config_registry.add_listener("CORRECTOR_RETRIES", _update_corrector_retries)
 
 
 def wait_until_response_stabilizes(
@@ -1391,7 +1450,21 @@ def process_prompt_in_chat(
 
 
 # Funzione di selezione modello ChatGPT
-CHATGPT_MODEL = os.getenv("CHATGPT_MODEL", "")
+CHATGPT_MODEL = config_registry.get_value(
+    "CHATGPT_MODEL",
+    "",
+    label="ChatGPT Model",
+    description="ChatGPT model to use (e.g., 'gpt-4o', 'gpt-4', 'o1-preview'). Leave empty to use default model.",
+    group="llm",
+    component="selenium_chatgpt",
+)
+
+def _update_chatgpt_model(value: str | None) -> None:
+    """Update global CHATGPT_MODEL variable."""
+    global CHATGPT_MODEL
+    CHATGPT_MODEL = value or ""
+
+config_registry.add_listener("CHATGPT_MODEL", _update_chatgpt_model)
 
 
 def select_chatgpt_model(driver):
@@ -1466,6 +1539,9 @@ class SeleniumChatGPTPlugin(AIPluginBase):
     chat_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
     def __init__(self, notify_fn=None):
         """Initialize the plugin without starting Selenium yet."""
+        # Ensure CHROMIUM_HEADLESS is registered
+        _ensure_chromium_headless_registered()
+        
         self.driver = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task = None
@@ -1967,8 +2043,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     log_debug(
                         f"[selenium] Calling {chromium_binary} {' '.join(options.arguments)}"
                     )
-                    headless_env = os.getenv("CHROMIUM_HEADLESS", "0").lower()
-                    headless = headless_env in ("1", "true", "yes")
+                    headless = bool(CHROMIUM_HEADLESS)
                     log_debug(
                         f"[selenium] Headless mode {'enabled' if headless else 'disabled'}"
                     )

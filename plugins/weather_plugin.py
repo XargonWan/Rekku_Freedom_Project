@@ -11,6 +11,7 @@ import concurrent.futures
 from core.core_initializer import core_initializer, register_plugin
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.time_zone_utils import get_local_location
+from core.config_manager import config_registry
 
 # Injection priority for weather information
 INJECTION_PRIORITY = 2  # High priority - weather is contextually important
@@ -34,10 +35,30 @@ class WeatherPlugin:
         log_info("[weather_plugin] Registered WeatherPlugin")
         self._cached_weather: Optional[str] = None
         self._last_fetch: float = 0.0
-        try:
-            self.fetch_minutes = int(os.getenv("WEATHER_FETCH_TIME", "30"))
-        except ValueError:
-            self.fetch_minutes = 30
+        
+        # Register configuration with config_registry
+        self.fetch_minutes = config_registry.get_value(
+            "WEATHER_FETCH_TIME",
+            60,  # Default 60 minutes as requested
+            label="Weather Fetch Interval",
+            description="Minutes between weather data fetches",
+            value_type=int,
+            group="plugins",
+            component="weather_plugin",
+            advanced=False,
+        )
+        
+        # Add listener to update fetch_minutes when config changes
+        def _update_fetch_minutes(value):
+            try:
+                self.fetch_minutes = int(value) if value is not None else 60
+                log_info(f"[weather_plugin] Fetch interval updated to {self.fetch_minutes} minutes")
+            except (ValueError, TypeError):
+                log_warning(f"[weather_plugin] Invalid WEATHER_FETCH_TIME value: {value}, using default 60")
+                self.fetch_minutes = 60
+        
+        config_registry.add_listener("WEATHER_FETCH_TIME", _update_fetch_minutes)
+        
         # Use a dedicated executor so we don't depend on the event loop's default executor
         # which may be shut down during interpreter shutdown.
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
