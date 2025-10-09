@@ -14,9 +14,29 @@ from typing import Any, Dict, List, Tuple, Optional
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.prompt_engine import build_full_json_instructions
 from core.validation_registry import get_validation_registry
+from core.config_manager import config_registry
+
+# Import RESTRICT_ACTIONS from image_processor (already registered there)
+from core.image_processor import RESTRICT_ACTIONS
 
 # Global dictionary to track retry attempts per chat/message thread for the corrector
-CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
+CORRECTOR_RETRIES = config_registry.get_value(
+    "CORRECTOR_RETRIES",
+    2,
+    value_type="int",
+    label="JSON Corrector Retries",
+    description="Number of times the corrector retries invalid JSON responses from LLM",
+    group="core",
+    component="core",
+)
+
+def _update_corrector_retries(value: int | None) -> None:
+    """Update global CORRECTOR_RETRIES variable."""
+    global CORRECTOR_RETRIES
+    CORRECTOR_RETRIES = int(value) if value is not None else 2
+
+config_registry.add_listener("CORRECTOR_RETRIES", _update_corrector_retries)
+
 _retry_tracker = {}
 
 
@@ -323,8 +343,8 @@ def validate_action(action: dict, context: dict = None, original_message=None) -
         _validate_payload(action_type, payload or {}, errors)
 
         if _is_restricted_action(action_type):
-            mode = os.getenv("RESTRICT_ACTIONS", "on").lower()
-            if mode == "on":
+            mode = RESTRICT_ACTIONS.lower()
+            if mode in ("on", "deny_all"):
                 errors.append(f"Action '{action_type}' is restricted")
             elif mode == "trainer_only":
                 # Check if user is trainer using abstract context

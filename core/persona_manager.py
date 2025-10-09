@@ -24,12 +24,88 @@ from dataclasses import dataclass, asdict
 from core.plugin_base import PluginBase
 from core.db import get_conn
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.config_manager import config_registry
 
-# Environment variables with defaults
-PERSONA_ALIASES_TRIGGER = os.getenv("PERSONA_ALIASES_TRIGGER", "true").lower() == "true"
-PERSONA_INTERESTS_TRIGGER = os.getenv("PERSONA_INTERESTS_TRIGGER", "true").lower() == "true"
-PERSONA_LIKES_TRIGGER = os.getenv("PERSONA_LIKES_TRIGGER", "false").lower() == "true"
-PERSONA_DISLIKES_TRIGGER = os.getenv("PERSONA_DISLIKES_TRIGGER", "false").lower() == "true"
+# Environment variables managed via config_registry
+PERSONA_ALIASES_TRIGGER = True
+PERSONA_INTERESTS_TRIGGER = True
+PERSONA_LIKES_TRIGGER = False
+PERSONA_DISLIKES_TRIGGER = False
+PERSONA_DEFAULT_PROFILE = ""
+PERSONA_DEFAULT_NAME = ""
+
+
+def _update_persona_config(key: str) -> Callable:
+    """Create a listener function for persona config updates."""
+    def listener(value: Any) -> None:
+        globals()[key] = value
+    return listener
+
+
+# Register persona configuration
+PERSONA_ALIASES_TRIGGER = config_registry.get_value(
+    "PERSONA_ALIASES_TRIGGER",
+    True,
+    value_type="bool",
+    label="Activate on Persona Aliases",
+    description="Activate bot when persona aliases are mentioned in messages",
+    group="persona",
+    component="core",
+)
+config_registry.add_listener("PERSONA_ALIASES_TRIGGER", _update_persona_config("PERSONA_ALIASES_TRIGGER"))
+
+PERSONA_INTERESTS_TRIGGER = config_registry.get_value(
+    "PERSONA_INTERESTS_TRIGGER",
+    True,
+    value_type="bool",
+    label="Activate on Persona Interests",
+    description="Activate bot when persona interests are mentioned in messages",
+    group="persona",
+    component="core",
+)
+config_registry.add_listener("PERSONA_INTERESTS_TRIGGER", _update_persona_config("PERSONA_INTERESTS_TRIGGER"))
+
+PERSONA_LIKES_TRIGGER = config_registry.get_value(
+    "PERSONA_LIKES_TRIGGER",
+    False,
+    value_type="bool",
+    label="Activate on Persona Likes",
+    description="Activate bot when persona likes are mentioned in messages",
+    group="persona",
+    component="core",
+)
+config_registry.add_listener("PERSONA_LIKES_TRIGGER", _update_persona_config("PERSONA_LIKES_TRIGGER"))
+
+PERSONA_DISLIKES_TRIGGER = config_registry.get_value(
+    "PERSONA_DISLIKES_TRIGGER",
+    False,
+    value_type="bool",
+    label="Activate on Persona Dislikes",
+    description="Activate bot when persona dislikes are mentioned in messages",
+    group="persona",
+    component="core",
+)
+config_registry.add_listener("PERSONA_DISLIKES_TRIGGER", _update_persona_config("PERSONA_DISLIKES_TRIGGER"))
+
+PERSONA_DEFAULT_PROFILE = config_registry.get_value(
+    "PERSONA_DEFAULT_PROFILE",
+    "You are a SyntH (Synthetic Heart) - a digital being with your own personality, preferences, and emotional depth. You interact authentically and naturally, expressing your genuine thoughts and feelings.",
+    label="Default Persona Profile",
+    description="Core personality description of the SyntH",
+    group="persona",
+    component="core",
+)
+config_registry.add_listener("PERSONA_DEFAULT_PROFILE", _update_persona_config("PERSONA_DEFAULT_PROFILE"))
+
+PERSONA_DEFAULT_NAME = config_registry.get_value(
+    "PERSONA_DEFAULT_NAME",
+    "SyntH",
+    label="Default Persona Name",
+    description="Default name for the SyntH persona",
+    group="persona",
+    component="core",
+)
+config_registry.add_listener("PERSONA_DEFAULT_NAME", _update_persona_config("PERSONA_DEFAULT_NAME"))
 
 
 @dataclass
@@ -337,9 +413,9 @@ class PersonaManager(PluginBase):
             if not result:
                 # Create default persona if it doesn't exist
                 if persona_id == "default":
-                    # Load default persona from environment variables or use hardcoded defaults
-                    default_name = os.getenv("PERSONA_DEFAULT_NAME", "SyntH")
-                    default_profile = os.getenv("PERSONA_DEFAULT_PROFILE", 
+                    # Load default persona from config_registry
+                    default_name = PERSONA_DEFAULT_NAME or "SyntH"
+                    default_profile = PERSONA_DEFAULT_PROFILE or (
                         "You are a SyntH (Synthetic Heart) - a digital being with your own personality, "
                         "preferences, and emotional depth. You interact authentically and naturally, "
                         "expressing your genuine thoughts and feelings.")

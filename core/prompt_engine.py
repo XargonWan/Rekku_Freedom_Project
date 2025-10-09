@@ -5,7 +5,51 @@ import aiomysql
 from core.db import get_conn
 from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.json_utils import dumps as json_dumps
+from core.config_manager import config_registry
 import aiomysql
+import os
+
+# Chat history limit
+CHAT_HISTORY_LIMIT = config_registry.get_value(
+    "CHAT_HISTORY",
+    10,
+    label="Chat History Length",
+    description="Number of recent messages to include in chat history context.",
+    group="core",
+    component="prompt_engine",
+    value_type=int,
+)
+
+def _update_chat_history_limit(value) -> None:
+    global CHAT_HISTORY_LIMIT
+    try:
+        CHAT_HISTORY_LIMIT = int(value) if value else 10
+    except (ValueError, TypeError):
+        log_warning(f"[prompt_engine] Invalid CHAT_HISTORY value: {value}, using default 10")
+        CHAT_HISTORY_LIMIT = 10
+
+config_registry.add_listener("CHAT_HISTORY", _update_chat_history_limit)
+
+# Diary history days
+DIARY_HISTORY_DAYS = config_registry.get_value(
+    "DIARY_HISTORY_DAYS",
+    2,
+    label="Diary History Days",
+    description="Number of days of AI diary history to include in context.",
+    group="core",
+    component="prompt_engine",
+    value_type=int,
+)
+
+def _update_diary_history_days(value) -> None:
+    global DIARY_HISTORY_DAYS
+    try:
+        DIARY_HISTORY_DAYS = int(value) if value else 2
+    except (ValueError, TypeError):
+        log_warning(f"[prompt_engine] Invalid DIARY_HISTORY_DAYS value: {value}, using default 2")
+        DIARY_HISTORY_DAYS = 2
+
+config_registry.add_listener("DIARY_HISTORY_DAYS", _update_diary_history_days)
 
 
 async def build_json_prompt(message, context_memory, interface_name: str | None = None, image_data: dict | None = None) -> dict:
@@ -22,15 +66,12 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
     image_data : dict | None
         Processed image data from image_processor, if present.
     """
-    import os
-
     chat_id = getattr(message, "chat_id", None)
     text = getattr(message, "text", "") or ""
 
     # === 1. Context messages (chat_history) ===
-    # Use CHAT_HISTORY environment variable, default to 10
-    chat_history_limit = int(os.getenv("CHAT_HISTORY", "10"))
-    chat_history = list(context_memory.get(chat_id, []))[-chat_history_limit:]
+    # Use CHAT_HISTORY from config_registry
+    chat_history = list(context_memory.get(chat_id, []))[-CHAT_HISTORY_LIMIT:]
 
     # === 2. Tags and memory lookup ===
     tags = extract_tags(text)
@@ -99,16 +140,15 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
             if should_include_diary(interface_name, current_length, max_prompt_chars):
                 max_chars = get_max_diary_chars(interface_name, current_length)
                 
-                # Use HISTORY_DAYS environment variable, fallback to 2
-                history_days = int(os.getenv("HISTORY_DAYS", "2"))
-                recent_entries = get_recent_entries(days=history_days, max_chars=max_chars)
+                # Use DIARY_HISTORY_DAYS from config_registry
+                recent_entries = get_recent_entries(days=DIARY_HISTORY_DAYS, max_chars=max_chars)
                 
                 if recent_entries:
                     # Store entries for potential reduction, and also formatted content
                     context_section["diary_entries"] = recent_entries
                     diary_content = format_diary_for_injection(recent_entries)
                     context_section["diary"] = diary_content
-                    log_debug(f"[json_prompt] Added diary content: {len(diary_content)} chars from {len(recent_entries)} entries ({history_days} days)")
+                    log_debug(f"[json_prompt] Added diary content: {len(diary_content)} chars from {len(recent_entries)} entries ({DIARY_HISTORY_DAYS} days)")
                 else:
                     log_debug(f"[json_prompt] No diary entries to include (space: {max_chars} chars)")
             else:
@@ -471,11 +511,44 @@ def reduce_prompt_for_llm_limit(prompt: dict, max_chars: int) -> dict:
     final_size = len(json_dumps(reduced_prompt))
     if final_size > max_chars:
         log_error(f"[reduce_prompt] Could not reduce prompt below {max_chars} chars, final size: {final_size}")
+        
         # Try removing entire context sections if desperate
         if "context" in reduced_prompt:
             del reduced_prompt["context"]
             final_size = len(json_dumps(reduced_prompt))
             log_warning(f"[reduce_prompt] Removed entire context, final size: {final_size}")
+        
+        # If STILL too big, try reducing actions (keep only essential ones)
+        if final_size > max_chars and "actions" in reduced_prompt:
+            # Keep only the most essential actions
+            essential_actions = ["message_telegram", "message_discord", "message_synth_webui"]
+            if isinstance(reduced_prompt["actions"], dict):
+                original_actions = reduced_prompt["actions"]
+                reduced_actions = {k: v for k, v in original_actions.items() if k in essential_actions}
+                if reduced_actions:  # Only replace if we have at least one action
+                    reduced_prompt["actions"] = reduced_actions
+                    final_size = len(json_dumps(reduced_prompt))
+                    log_warning(f"[reduce_prompt] Reduced actions to essentials ({len(reduced_actions)} actions), final size: {final_size}")
+        
+        # Last resort: simplify instructions
+        if final_size > max_chars and "instructions" in reduced_prompt:
+            original_instructions = reduced_prompt["instructions"]
+            simplified_instructions = {
+                "format": "Generate valid JSON with 'actions' array. Each action has 'type' and 'payload' fields.",
+                "rules": ["Always respond with valid JSON", "Use available actions only", "Be concise"]
+            }
+            reduced_prompt["instructions"] = simplified_instructions
+            final_size = len(json_dumps(reduced_prompt))
+            log_warning(f"[reduce_prompt] Simplified instructions, final size: {final_size}")
+            log_debug(f"[reduce_prompt] Original instructions size: {len(json_dumps(original_instructions))}, new size: {len(json_dumps(simplified_instructions))}")
+        
+        # If STILL exceeding, at least log what remains
+        if final_size > max_chars:
+            log_error(f"[reduce_prompt] CRITICAL: Prompt still {final_size} chars after all reductions! Max is {max_chars}")
+            log_error(f"[reduce_prompt] Remaining sections: {list(reduced_prompt.keys())}")
+            for key, value in reduced_prompt.items():
+                section_size = len(json_dumps({key: value}))
+                log_error(f"[reduce_prompt]   - {key}: {section_size} chars")
     
     return reduced_prompt
 

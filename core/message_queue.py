@@ -40,7 +40,7 @@ async def _delayed_put(item: dict, delay: float) -> None:
     await _queue.put((priority, item))
 
 
-async def enqueue(bot, message, context_memory, priority: bool = False, interface_id: str = None) -> None:
+async def enqueue(bot, message, context_memory, priority: bool = False, interface_id: str = None, skip_mention_check: bool = False) -> None:
     """Enqueue a message for serialized processing with rate limiting.
 
     Args:
@@ -49,48 +49,52 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
         context_memory: Message context
         priority: If True, message is added to front of queue (for events)
         interface_id: The interface identifier (e.g., 'webui', 'interface_name')
+        skip_mention_check: If True, skip is_message_for_bot check (for 1:1 interfaces like ollama, webui)
     """
     message_text = getattr(message, 'text', '')
     user_id = getattr(message.from_user, 'id', 'unknown') if message.from_user else 'unknown'
     chat_id = getattr(message, 'chat_id', 'unknown')
-    log_debug(f"[QUEUE] DEBUG: enqueue() called with interface_id='{interface_id}', message='{message_text}', user_id={user_id}, chat_id={chat_id}")
+    log_debug(f"[QUEUE] DEBUG: enqueue() called with interface_id='{interface_id}', skip_mention_check={skip_mention_check}, message='{message_text}', user_id={user_id}, chat_id={chat_id}")
     log_debug(f"[QUEUE] Processing message: '{message_text}' from user {user_id} in chat {chat_id}")
     
-    # Check if message is directed to bot
-    log_debug(f"[QUEUE] DEBUG: Checking if message is for bot - calling is_message_for_bot")
-    
-    human_count = getattr(message, "human_count", None)
-    if human_count is None and hasattr(message, "chat"):
-        human_count = getattr(message.chat, "human_count", None)
+    # Check if message is directed to bot (skip for 1:1 interfaces like ollama, webui)
+    if not skip_mention_check:
+        log_debug(f"[QUEUE] DEBUG: Checking if message is for bot - calling is_message_for_bot")
+        
+        human_count = getattr(message, "human_count", None)
+        if human_count is None and hasattr(message, "chat"):
+            human_count = getattr(message.chat, "human_count", None)
 
-    log_debug(f"[QUEUE] DEBUG: human_count={human_count}, message.chat.type={getattr(message.chat, 'type', 'unknown')}")
-    
-    # Get bot username for mention detection
-    bot_username = None
-    try:
-        if bot and hasattr(bot, 'get_me'):
-            bot_info = await bot.get_me()
-            bot_username = bot_info.username if bot_info else None
-            log_debug(f"[QUEUE] Bot username: {bot_username}")
-    except Exception as e:
-        log_debug(f"[QUEUE] Error getting bot username: {e}")
-    
-    directed, reason = await is_message_for_bot(
-        message, bot, bot_username=bot_username, human_count=human_count
-    )
-    log_debug(f"[QUEUE] DEBUG: is_message_for_bot returned directed={directed}, reason='{reason}'")
-    
-    if not directed:
-        log_debug(f"[QUEUE] DEBUG: Message not directed to bot - ignoring")
-        if reason == "missing_human_count":
-            log_debug("[QUEUE] DEBUG: Reason: missing_human_count")
-        elif reason == "multiple_humans":
-            log_debug("[QUEUE] DEBUG: Reason: multiple_humans")
-        else:
-            log_debug(f"[QUEUE] DEBUG: Reason: {reason or 'not directed to bot'}")
-        return
+        log_debug(f"[QUEUE] DEBUG: human_count={human_count}, message.chat.type={getattr(message.chat, 'type', 'unknown')}")
+        
+        # Get bot username for mention detection
+        bot_username = None
+        try:
+            if bot and hasattr(bot, 'get_me'):
+                bot_info = await bot.get_me()
+                bot_username = bot_info.username if bot_info else None
+                log_debug(f"[QUEUE] Bot username: {bot_username}")
+        except Exception as e:
+            log_debug(f"[QUEUE] Error getting bot username: {e}")
+        
+        directed, reason = await is_message_for_bot(
+            message, bot, bot_username=bot_username, human_count=human_count
+        )
+        log_debug(f"[QUEUE] DEBUG: is_message_for_bot returned directed={directed}, reason='{reason}'")
+        
+        if not directed:
+            log_debug(f"[QUEUE] DEBUG: Message not directed to bot - ignoring")
+            if reason == "missing_human_count":
+                log_debug("[QUEUE] DEBUG: Reason: missing_human_count")
+            elif reason == "multiple_humans":
+                log_debug("[QUEUE] DEBUG: Reason: multiple_humans")
+            else:
+                log_debug(f"[QUEUE] DEBUG: Reason: {reason or 'not directed to bot'}")
+            return
 
-    log_debug(f"[QUEUE] DEBUG: Message is directed to bot - continuing processing")
+        log_debug(f"[QUEUE] DEBUG: Message is directed to bot - continuing processing")
+    else:
+        log_debug(f"[QUEUE] DEBUG: skip_mention_check=True - bypassing is_message_for_bot check (1:1 interface)")
     
     # Check if user is blocked (but allow trainers)
     user_id = message.from_user.id if message.from_user else 0

@@ -27,17 +27,53 @@ from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.config_manager import config_registry
 
-# Result constants
 # Result constants
 ACTIONS_EXECUTED = 'ACTIONS_EXECUTED'
 FORWARD_AS_TEXT = 'FORWARD_AS_TEXT'
 BLOCKED = 'BLOCKED'
 LLM_FAILED = 'LLM_FAILED'
 
+# Register FAILED_MESSAGE_TEXT configuration
+FAILED_MESSAGE_TEXT = config_registry.get_value(
+    "FAILED_MESSAGE_TEXT",
+    "😵",
+    label="Failed Message Text",
+    description="Fallback message when LLM fails to respond or correct response.",
+    group="core",
+    component="core",
+)
+
+def _update_failed_message(value: str | None) -> None:
+    global FAILED_MESSAGE_TEXT
+    FAILED_MESSAGE_TEXT = value or "😵"
+
+config_registry.add_listener("FAILED_MESSAGE_TEXT", _update_failed_message)
+
+# Register RESPONSE_TIMEOUT configuration
+RESPONSE_TIMEOUT = config_registry.get_value(
+    "RESPONSE_TIMEOUT",
+    240,
+    label="Response Timeout",
+    description="Maximum time in seconds to wait for LLM responses before sending fallback message.",
+    value_type=int,
+    group="core",
+    component="core",
+)
+
+def _update_response_timeout(value) -> None:
+    global RESPONSE_TIMEOUT
+    try:
+        RESPONSE_TIMEOUT = int(value) if value is not None else 240
+    except (ValueError, TypeError):
+        RESPONSE_TIMEOUT = 240
+
+config_registry.add_listener("RESPONSE_TIMEOUT", _update_response_timeout)
+
 def get_failed_message_text() -> str:
     """Get the fallback message when LLM fails."""
-    return os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
+    return FAILED_MESSAGE_TEXT
 
 async def send_llm_fallback_message(bot, message: SimpleNamespace, failure_reason: str) -> str:
     """Send fallback message when LLM fails and log the failure reason."""

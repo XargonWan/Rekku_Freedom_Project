@@ -1,6 +1,5 @@
 # core/db.py
 
-import os
 from datetime import datetime, timezone, timedelta
 import calendar
 import asyncio
@@ -25,13 +24,61 @@ except Exception:  # pragma: no cover - executed when aiomysql missing
     )
 
 from core.logging_utils import log_debug, log_info, log_warning, log_error
+from core.config_manager import config_registry
 
 # Database connection parameters
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = int(os.getenv("DB_PORT", "3306"))
-DB_USER = os.getenv("DB_USER", "rekku")
-DB_PASS = os.getenv("DB_PASS", "rekku")
-DB_NAME = os.getenv("DB_NAME", "rekku")
+DB_HOST = config_registry.get_value(
+    "DB_HOST",
+    "localhost",
+    label="Database Host",
+    description="Host used to connect to the Rekku MariaDB instance.",
+    group="database",
+    component="core",
+    advanced=True,
+    tags=["bootstrap"],
+)
+DB_PORT = config_registry.get_value(
+    "DB_PORT",
+    3306,
+    label="Database Port",
+    description="Port used to connect to the Rekku MariaDB instance.",
+    value_type=int,
+    group="database",
+    component="core",
+    advanced=True,
+    tags=["bootstrap"],
+)
+DB_USER = config_registry.get_value(
+    "DB_USER",
+    "synth",
+    label="Database User",
+    description="Database username used by Synth.",
+    group="database",
+    component="core",
+    advanced=True,
+    tags=["bootstrap"],
+)
+DB_PASS = config_registry.get_value(
+    "DB_PASS",
+    "synth",
+    label="Database Password",
+    description="Database password used by the Synth.",
+    group="database",
+    component="core",
+    advanced=True,
+    sensitive=True,
+    tags=["bootstrap"],
+)
+DB_NAME = config_registry.get_value(
+    "DB_NAME",
+    "synth",
+    label="Database Name",
+    description="Database schema used by the Synth.",
+    group="database",
+    component="core",
+    advanced=True,
+    tags=["bootstrap"],
+)
 
 # Test di connessione con retry e logging dettagliato
 async def wait_for_db(max_attempts=10, delay=3):
@@ -156,6 +203,17 @@ async def init_db() -> None:
                 """
                 CREATE TABLE IF NOT EXISTS settings (
                     `setting_key` VARCHAR(255) PRIMARY KEY,
+                    `value` TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+            await cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS config (
+                    `config_key` VARCHAR(255) PRIMARY KEY,
                     `value` TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -621,5 +679,3 @@ async def execute_query(query: str, params: tuple = ()) -> list:
     except Exception as e:
         log_error(f"[execute_query] Error executing query: {query}, Error: {e}")
         raise
-
-

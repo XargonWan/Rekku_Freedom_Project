@@ -10,16 +10,33 @@ import os
 from typing import Optional
 from types import SimpleNamespace
 from core.logging_utils import log_debug, log_info, log_warning
+from core.config_manager import config_registry
+
+# Register REACT_WHEN_MENTIONED configuration
+REACT_WHEN_MENTIONED = config_registry.get_value(
+    "REACT_WHEN_MENTIONED",
+    "👀",
+    label="React When Mentioned",
+    description="Emoji to use as reaction when bot is mentioned. Leave empty to disable. ⚠️ Note: Some interfaces or servers/channels may not support all emojis as reactions.",
+    group="core",
+    component="core",
+)
+
+def _update_react_emoji(value: str | None) -> None:
+    global REACT_WHEN_MENTIONED
+    REACT_WHEN_MENTIONED = (value or "").strip()
+
+config_registry.add_listener("REACT_WHEN_MENTIONED", _update_react_emoji)
 
 
 def get_reaction_emoji() -> Optional[str]:
     """
-    Get the reaction emoji from REACT_WHEN_MENTIONED environment variable.
+    Get the reaction emoji from REACT_WHEN_MENTIONED configuration.
     
     Returns:
         Optional[str]: The emoji to use as reaction, or None if not configured
     """
-    emoji = os.getenv('REACT_WHEN_MENTIONED', '').strip()
+    emoji = REACT_WHEN_MENTIONED.strip() if REACT_WHEN_MENTIONED else ""
     if not emoji:
         return None
     return emoji

@@ -87,6 +87,17 @@ async def initialize_database():
         await init_db()
         log_info("[main] Database schema initialized")
         
+        # Persist bootstrap configurations to DB after initialization
+        log_debug("[main] Persisting bootstrap configurations...")
+        from core.config_manager import config_registry
+        await config_registry.persist_bootstrap_configs()
+        log_debug("[main] Bootstrap configurations persisted")
+        
+        # Load all other configurations from DB
+        log_debug("[main] Loading all configurations from DB...")
+        await config_registry.load_all_from_db()
+        log_debug("[main] All configurations loaded from DB")
+        
         # Blocklist table now handled by blocklist plugin
         # log_info("[main] Initializing blocklist table...")
         # await init_blocklist_table()

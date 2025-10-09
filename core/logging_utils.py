@@ -21,6 +21,59 @@ _LEVELS = {
     "ERROR": logging.ERROR,
 }
 
+# Global variables for logging configuration
+_LOGGING_LEVEL = "ERROR"
+_LOGGING_LOGCHAT_LEVEL = "ERROR"
+
+
+def _register_logging_config():
+    """Register logging configuration with config_registry.
+    
+    This is called lazily to avoid circular imports.
+    """
+    global _LOGGING_LEVEL, _LOGGING_LOGCHAT_LEVEL
+    
+    try:
+        from core.config_manager import config_registry
+        
+        def _update_logging_level(value: str | None) -> None:
+            global _LOGGING_LEVEL
+            _LOGGING_LEVEL = (value or "ERROR").upper()
+            # Re-setup logging with new level
+            if _logger:
+                _logger.setLevel(_LEVELS.get(_LOGGING_LEVEL, logging.ERROR))
+        
+        def _update_logchat_level(value: str | None) -> None:
+            global _LOGGING_LOGCHAT_LEVEL
+            _LOGGING_LOGCHAT_LEVEL = (value or "ERROR").upper()
+        
+        _LOGGING_LEVEL = config_registry.get_value(
+            "LOGGING_LEVEL",
+            "ERROR",
+            label="Logging Level",
+            description="Minimum log level to record: DEBUG, INFO, WARNING, ERROR",
+            group="logging",
+            component="core",
+            constraints={"choices": ["DEBUG", "INFO", "WARNING", "ERROR"]},
+            tags=["logs_only"],
+        ).upper()
+        config_registry.add_listener("LOGGING_LEVEL", _update_logging_level)
+        
+        _LOGGING_LOGCHAT_LEVEL = config_registry.get_value(
+            "LOGGING_LOGCHAT_LEVEL",
+            "ERROR",
+            label="LogChat Notification Level",
+            description="Send log notifications to LogChat (configure with /logchat command in your chat)",
+            group="logging",
+            component="core",
+            constraints={"choices": ["DEBUG", "INFO", "WARNING", "ERROR"]},
+            tags=["logs_only"],
+        ).upper()
+        config_registry.add_listener("LOGGING_LOGCHAT_LEVEL", _update_logchat_level)
+    except ImportError:
+        # If config_manager is not available yet, use defaults
+        pass
+
 
 def setup_logging() -> logging.Logger:
     """Initialize the logger once and return it."""
@@ -28,11 +81,14 @@ def setup_logging() -> logging.Logger:
     if _logger:
         return _logger
 
+    # Register config if not already done
+    if _LOGGING_LEVEL == "ERROR" and _LOGGING_LOGCHAT_LEVEL == "ERROR":
+        _register_logging_config()
+
     os.makedirs(_LOG_DIR, exist_ok=True)
 
-    level = os.getenv("LOGGING_LEVEL", "ERROR").upper()
     logger = logging.getLogger("rekku")
-    logger.setLevel(_LEVELS.get(level, logging.ERROR))
+    logger.setLevel(_LEVELS.get(_LOGGING_LEVEL, logging.ERROR))
     logger.propagate = False
 
     if not logger.handlers:
@@ -68,8 +124,7 @@ def _log(level: str, message: str, exc: Optional[Exception] = None) -> None:
         return
     
     # Check if this level should trigger notifications
-    logchat_level = os.getenv("LOGGING_LOGCHAT_LEVEL", "ERROR").upper()
-    logchat_threshold = _LEVELS.get(logchat_level, logging.ERROR)
+    logchat_threshold = _LEVELS.get(_LOGGING_LOGCHAT_LEVEL, logging.ERROR)
     current_level = _LEVELS.get(level, logging.INFO)
     
     if current_level >= logchat_threshold:

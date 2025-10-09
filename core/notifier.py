@@ -244,17 +244,17 @@ def _fallback_to_trainer(message: str) -> None:
 
 def notify_trainer(message: str) -> None:
     """Notify the trainer via selected interfaces."""
-    from core.config import NOTIFY_ERRORS_TO_INTERFACES, get_log_chat_id_sync, get_log_chat_interface_sync
+    from core.config import TRAINER_IDS, get_log_chat_id_sync, get_log_chat_interface_sync
     from core.core_initializer import INTERFACE_REGISTRY
 
     log_info(f"[notifier] notify_trainer() called with message: {message[:100]}...")
     log_info(f"[notifier] INTERFACE_REGISTRY keys: {list(INTERFACE_REGISTRY.keys())}")
-    log_info(f"[notifier] NOTIFY_ERRORS_TO_INTERFACES: {NOTIFY_ERRORS_TO_INTERFACES}")
+    log_info(f"[notifier] TRAINER_IDS: {TRAINER_IDS}")
 
-    # If NOTIFY_ERRORS_TO_INTERFACES is configured, use it
-    if NOTIFY_ERRORS_TO_INTERFACES:
-        interface_configs = NOTIFY_ERRORS_TO_INTERFACES.items()
-        log_info(f"[notifier] Using NOTIFY_ERRORS_TO_INTERFACES: {interface_configs}")
+    # If TRAINER_IDS is configured, use it
+    if TRAINER_IDS:
+        interface_configs = TRAINER_IDS.items()
+        log_info(f"[notifier] Using TRAINER_IDS: {interface_configs}")
     else:
         # Fallback: If LogChat is configured, use it
         log_chat_id = get_log_chat_id_sync()

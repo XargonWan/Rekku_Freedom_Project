@@ -7,14 +7,33 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.config import get_trainer_id
 from core.interfaces_registry import get_interface_registry
 from core.abstract_context import AbstractContext, AbstractUser, AbstractMessage
+from core.config_manager import config_registry
+
+# Register access control configuration
+RESTRICT_ACTIONS = config_registry.get_value(
+    "RESTRICT_ACTIONS",
+    "trainer_only",
+    label="Restrict Sensitive Content Actions",
+    description="Controls who can send images, audio, video, and other sensitive content to the LLM: 'off' (everyone), 'trainer_only' (only trainer), 'deny_all' (nobody including trainer)",
+    group="core",
+    component="core",
+    constraints={"choices": ["off", "trainer_only", "deny_all"]},
+)
 
 
 class ImageProcessor:
     """Core image processing system with access control."""
     
     def __init__(self):
-        self.restrict_mode = os.getenv("RESTRICT_ACTIONS", "on").lower()
+        self.restrict_mode = RESTRICT_ACTIONS.lower()
         log_info(f"[image_processor] Initialized with RESTRICT_ACTIONS={self.restrict_mode}")
+        
+        # Listen for configuration changes
+        def _update_restrict_mode(value: str | None) -> None:
+            self.restrict_mode = (value or "trainer_only").lower()
+            log_info(f"[image_processor] RESTRICT_ACTIONS updated to {self.restrict_mode}")
+        
+        config_registry.add_listener("RESTRICT_ACTIONS", _update_restrict_mode)
     
     def _check_access_permissions(self, user_id: Union[int, str], interface_name: str, has_trigger: bool) -> Tuple[bool, str]:
         """

@@ -146,16 +146,6 @@ async def is_message_for_bot(
                 log_debug(f"[mention] ✅ Alias found: '{alias}' - PRIORITY 4 - message is for bot")
                 return True, None
         log_debug(f"[mention] No aliases found in '{text_lower}'")
-        
-        # Priority 4.5: Check for persona manager triggers
-        try:
-            from core.persona_manager import get_persona_manager
-            persona_manager = get_persona_manager()
-            if persona_manager and persona_manager.check_triggers(message_text):
-                log_debug("[mention] ✅ Persona manager trigger found - PRIORITY 4.5 - message is for bot")
-                return True, None
-        except Exception as e:
-            log_debug(f"[mention] Error checking persona triggers: {e}")
     
     # Priority 5: Check for chat 1:1 using human count (fallback)
     if human_count is not None and human_count == 1:

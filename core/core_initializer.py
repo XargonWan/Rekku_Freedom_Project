@@ -68,7 +68,7 @@ class CoreInitializer:
             log_debug(f"[core_initializer] Starting with {len(self.loaded_plugins)} pre-registered plugins: {self.loaded_plugins}")
 
             # 0. Initialize registries
-            self._initialize_registries()
+            await self._initialize_registries()
 
             # 1. Load LLM engine
             await self._load_llm_engine(notify_fn)
@@ -195,7 +195,7 @@ class CoreInitializer:
             "initialization_completed": self.initialization_completed
         }
     
-    def _initialize_registries(self):
+    async def _initialize_registries(self):
         """Initialize the core registries."""
         try:
             # Initialize LLM registry
@@ -205,6 +205,20 @@ class CoreInitializer:
             
             # The interfaces registry is initialized by each interface when it starts
             log_debug("[core_initializer] Registries initialized successfully")
+            
+            # Flush env overrides to DB now that it should be ready
+            try:
+                from core.config_manager import config_registry
+                # MUST await flush before loading from DB, otherwise load will overwrite the flush
+                await config_registry.flush_env_overrides_to_db()
+                log_debug("[core_initializer] Env overrides flushed to database")
+                
+                # Also load all configurations from DB that may have been skipped during imports
+                await config_registry.load_all_from_db()
+                log_debug("[core_initializer] Loaded all configurations from database")
+            except Exception as flush_exc:
+                log_warning(f"[core_initializer] Failed to execute config operations: {flush_exc}")
+                
         except Exception as e:
             log_error(f"[core_initializer] Failed to initialize registries: {e}", e)
             self.startup_errors.append(f"Registry initialization failed: {e}")
@@ -365,11 +379,21 @@ class CoreInitializer:
                     self.startup_errors.append(f"Plugin {module_name}: {e}")
     
     def _discover_interfaces(self):
-        """Auto-discover and import all interface modules from interface directory."""
+        """Auto-discover and import all interface modules from interface directory and core webui."""
         import os
         import pkgutil
         import importlib
         
+        # First, load core webui (it's now a core component)
+        try:
+            log_debug("[core_initializer] Loading core WebUI component...")
+            importlib.import_module("core.webui")
+            log_debug("[core_initializer] Core WebUI loaded successfully")
+        except Exception as e:
+            log_warning(f"[core_initializer] Failed to import core WebUI: {e}")
+            self.startup_errors.append(f"Core WebUI: {e}")
+        
+        # Then discover other interfaces from interface/ directory
         try:
             import interface
             interface_path = os.path.dirname(interface.__file__)
@@ -396,11 +420,24 @@ class CoreInitializer:
     def register_interface(self, interface_name: str):
         """Register an active interface."""
         log_info(f"[core_initializer] 🔍 Attempting to register interface: {interface_name}")
+
+        interface_instance = INTERFACE_REGISTRY.get(interface_name)
+        enabled = True
+        disabled_reason = None
+        if interface_instance is not None:
+            enabled = getattr(interface_instance, "is_enabled", True)
+            disabled_reason = getattr(interface_instance, "disabled_reason", None)
+
+        if not enabled:
+            reason = disabled_reason or "awaiting configuration"
+            self.track_component(interface_name, "interface", ComponentStatus.SKIPPED, details=reason)
+            log_info(f"🔌 Interface registered but disabled: {interface_name} ({reason})")
+            return
+
         if interface_name not in self.active_interfaces:
             self.active_interfaces.append(interface_name)
             
             # Check if the interface exposes action schemas and log them
-            interface_instance = INTERFACE_REGISTRY.get(interface_name)
             actions = []
             
             if interface_instance and hasattr(interface_instance, 'get_supported_actions'):
@@ -967,14 +1004,20 @@ def register_interface(name: str, interface_obj: Any) -> None:
     # Log detailed information about the interface loading
     log_debug(f"[core_initializer] Loading interface: {name}")
 
-    # Automatically register supported actions
-    if hasattr(interface_obj, "get_supported_actions"):
+    is_enabled = True
+    if interface_obj is not None:
+        is_enabled = getattr(interface_obj, "is_enabled", True)
+
+    # Automatically register supported actions (only when enabled)
+    if is_enabled and hasattr(interface_obj, "get_supported_actions"):
         log_debug(f"[core_initializer] Interface '{name}' supports action registration")
         try:
             for act in interface_obj.get_supported_actions().keys():
                 register_action(act, interface_obj)
         except Exception as e:
             log_error(f"[core_initializer] Failed to register actions for interface {name}: {e}")
+    elif not is_enabled:
+        log_debug(f"[core_initializer] Skipping action registration for disabled interface '{name}'")
 
     # Record interface for startup summary
     core_initializer.register_interface(name)
@@ -1000,4 +1043,3 @@ def _schedule_rebuild_actions(core_init_instance):
         _action_rebuild_timer.cancel()
     _action_rebuild_timer = threading.Timer(_ACTION_REBUILD_DEBOUNCE_SEC, lambda: asyncio.run(core_init_instance._build_actions_block()))
     _action_rebuild_timer.start()
-
