@@ -22,6 +22,7 @@ Available Interfaces
 * ``reddit_interface`` – Asynchronous Reddit client for posts, comments, and DMs. Requires Reddit API credentials.
 * ``telegram_bot`` – Telegram bot interface with media support. Requires ``BOTFATHER_TOKEN`` and trainer ID.
 * ``telethon_userbot`` – Advanced Telegram userbot using Telethon. Requires ``API_ID``, ``API_HASH``, and session.
+* ``matrix_interface`` – Matrix chat bridge powered by ``matrix-nio``. Requires homeserver credentials and tokenizer (password or access token).
 * ``webui`` – FastAPI-based web interface for browser access. Configurable host/port.
 * ``ollama_compat_server`` – Ollama-compatible REST bridge that lets external clients talk to RFP as if it were an Ollama instance.
 * ``x_interface`` – Experimental X (Twitter) integration with timeline features. Requires ``X_USERNAME``.

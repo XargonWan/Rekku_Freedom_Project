@@ -32,7 +32,9 @@ getting started.
    plugins
    validation_system
    ai_diary_personal_memory
+   vrm_animations
    interfaces
+   matrix_interface
    contributing
    faq
 

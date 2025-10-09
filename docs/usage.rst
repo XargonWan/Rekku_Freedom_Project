@@ -28,7 +28,7 @@ Rekku automatically discovers and loads components at startup:
     - ``telegram_bot``: Telegram integration
     - ``discord_interface``: Discord bot support
     - ``reddit_interface``: Reddit posting and monitoring
-    - ``webui``: Browser-based interface
+    - ``webui``: Browser-based interface with VRM avatar animations
     - ``cli``: Command-line interface
 
 **Available Plugins**
@@ -81,3 +81,25 @@ Components are configured through environment variables in the ``.env`` file:
     - ``GEMINI_API_KEY``: Google Gemini access
 
 The modular architecture ensures that components only load when their required configuration is present, making the system highly flexible and secure.
+
+WebUI and VRM Avatars
+----------------------
+
+The WebUI interface provides a browser-based visual representation of Rekku using VRM avatar models. The system includes:
+
+**Visual Feedback**
+    - **Idle Animation**: Natural relaxed pose when not active
+    - **Talking Animation**: Synchronized with text generation (estimated duration)
+    - **Thinking Animation**: Visual indicator during message processing (placeholder)
+
+**3D Environment**
+    - Persistent 3D room with floor and grid
+    - Visible even without a VRM model loaded
+    - Professional lighting setup for optimal model presentation
+
+**Avatar Management**
+    - Upload custom VRM models via the WebUI
+    - Activate/deactivate models on the fly
+    - Automatic animation retargeting for compatible models
+
+For detailed information about the VRM animation system, see :doc:`vrm_animations`.
