@@ -4,7 +4,7 @@ This directory contains FBX animation files for the VRM avatar system.
 
 ## Available Animations
 
-### happy_idle.fbx
+### Happy Idle.fbx
 - **Purpose**: Default idle animation
 - **Duration**: Looping
 - **Use Case**: Displayed when the AI is not processing or speaking

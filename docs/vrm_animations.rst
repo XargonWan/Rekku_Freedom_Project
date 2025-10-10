@@ -13,7 +13,7 @@ Animation States
 Idle State
 ----------
 
-The idle animation (``happy_idle.fbx``) is the default state when the AI is not processing or speaking. This animation:
+The idle animation (``Happy Idle.fbx``) is the default state when the AI is not processing or speaking. This animation:
 
 - Replaces the default T-pose with a natural, relaxed stance
 - Loads automatically when a VRM model is loaded
@@ -23,7 +23,7 @@ The idle animation (``happy_idle.fbx``) is the default state when the AI is not 
 
 - Uses Mixamo FBX format converted to VRM-compatible animation tracks
 - Applied via Three.js AnimationMixer with crossfade transitions
-- Located at: ``res/synth_webui/animations/happy_idle.fbx``
+- Located at: ``res/synth_webui/animations/Happy Idle.fbx``
 
 Talking State
 -------------
@@ -216,7 +216,7 @@ File Locations
 Animation Assets
 ----------------
 
-- ``res/synth_webui/animations/happy_idle.fbx`` - Idle pose animation
+- ``res/synth_webui/animations/Happy Idle.fbx`` - Idle pose animation
 - ``res/synth_webui/animations/talking.fbx`` - Talking animation
 - ``res/synth_webui/js/mixamoVRMRigMap.js`` - Bone mapping definitions
 - ``res/synth_webui/js/loadMixamoAnimation.js`` - Animation loader utility
