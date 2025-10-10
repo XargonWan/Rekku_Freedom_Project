@@ -5,7 +5,7 @@ VRM Avatar Animations
 Overview
 ========
 
-The Rekku Freedom Project WebUI includes a sophisticated VRM avatar animation system that synchronizes visual feedback with the AI's internal states. The system supports multiple animation states and automatically transitions between them based on the AI's activity.
+The Synthetic Heart WebUI includes a sophisticated VRM avatar animation system that synchronizes visual feedback with the AI's internal states. The system supports multiple animation states and automatically transitions between them based on the AI's activity.
 
 Animation States
 ================

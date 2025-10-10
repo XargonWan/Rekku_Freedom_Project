@@ -1,12 +1,12 @@
-Rekku Freedom Project Documentation
+Synthetic Heart Documentation
 ===================================
 
-.. image:: res/RFP_logo.png
+.. image:: res/SyntH_logo.png
    :width: 600px
-   :alt: RFP Logo
+   :alt: SyntH Logo
 
 
-Welcome to the **Rekku Freedom Project** documentation. These pages are built
+Welcome to the **Synthetic Heart** documentation. These pages are built
 with Sphinx and hosted on **Read the Docs**. Every push to the repository
 triggers a new build of this wiki.
 
@@ -35,6 +35,8 @@ getting started.
    vrm_animations
    interfaces
    matrix_interface
+   config_management
+   dev_components
    contributing
    faq
 

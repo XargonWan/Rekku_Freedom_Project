@@ -58,7 +58,7 @@ async def generic_diary_command(abstract_context: AbstractContext, reply_fn: Opt
         if not entries:
             response = f"📔 No diary entries found in the last {days} days."
         else:
-            response = f"📔 **Rekku's Diary - Last {days} days ({len(entries)} entries)**\n\n"
+            response = f"📔 **synth's Diary - Last {days} days ({len(entries)} entries)**\n\n"
             response += format_diary_for_injection(entries)
             response += f"\n\n_Use `/diary <days>` to view a different time range._"
         

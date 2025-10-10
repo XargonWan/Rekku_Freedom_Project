@@ -72,7 +72,7 @@ load_dotenv()
 # Defer TelegramClient initialization if credentials are missing
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
-SESSION = os.getenv("SESSION", "rekku_userbot")
+SESSION = os.getenv("SESSION", "synth_userbot")
 
 say_sessions = {}
 context_memory = {}
@@ -186,7 +186,7 @@ async def help_command(event):
     context_status = "active ✅" if get_context_state() else "inactive ❌"
     llm_mode = "LLM managed centrally in initialize_core_components"
     help_text = (
-        f"🧞‍♀️ *Rekku – Available Commands*\n\n"
+        f"🧞‍♀️ *synth – Available Commands*\n\n"
         "*🧠 Context Mode*\n"
         f"`.context` – Toggle history in forwarded messages, currently *{context_status}*\n\n"
         "*✏️ .say Command*\n"
@@ -337,7 +337,7 @@ async def main():
     # Initialize core system with notify function
     await core_initializer.initialize_all(notify_fn=telegram_notify)
     
-    log_info("🧞‍♀️ Rekku Userbot (Telethon) is online.")
+    log_info("🧞‍♀️ synth Userbot (Telethon) is online.")
     
     # Register this interface with the core
     core_initializer.register_interface("telegram_userbot")

@@ -7,7 +7,7 @@ Quickstart
    :align: center
 
 
-This guide outlines the typical steps to run **Rekku Freedom Project** using Docker. Rekku is a modular AI system that automatically discovers and loads components (interfaces, plugins, and LLM engines) at startup.
+This guide outlines the typical steps to run **Synthetic Heart** using Docker. synth is a modular AI system that automatically discovers and loads components (interfaces, plugins, and LLM engines) at startup.
 
 #. Copy ``.env.example`` to ``.env`` and adjust values as needed. Important
    variables include ``BOTFATHER_TOKEN`` for Telegram, database credentials for
@@ -31,7 +31,7 @@ containers, press :kbd:`Ctrl+C` or run ``docker compose down``.
 Component Auto-Discovery
 ------------------------
 
-Rekku uses a zero-configuration approach where components are automatically discovered:
+synth uses a zero-configuration approach where components are automatically discovered:
 
 - **Interfaces**: Chat platforms like Telegram, Discord, Reddit
 - **Plugins**: Action providers like terminal access, weather, file operations

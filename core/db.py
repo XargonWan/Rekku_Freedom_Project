@@ -31,7 +31,7 @@ DB_HOST = config_registry.get_value(
     "DB_HOST",
     "localhost",
     label="Database Host",
-    description="Host used to connect to the Rekku MariaDB instance.",
+    description="Host used to connect to the synth MariaDB instance.",
     group="database",
     component="core",
     advanced=True,
@@ -41,7 +41,7 @@ DB_PORT = config_registry.get_value(
     "DB_PORT",
     3306,
     label="Database Port",
-    description="Port used to connect to the Rekku MariaDB instance.",
+    description="Port used to connect to the synth MariaDB instance.",
     value_type=int,
     group="database",
     component="core",
@@ -397,7 +397,7 @@ async def get_recent_responses(since_timestamp: str) -> list[dict]:
             await cur.execute(
                 """
                 SELECT * FROM memories
-                WHERE source = 'rekku' AND timestamp >= %s
+                WHERE source = 'synth' AND timestamp >= %s
                 ORDER BY timestamp DESC
                 """,
                 (since_timestamp,),
@@ -417,7 +417,7 @@ async def insert_scheduled_event(
     time: str | None,
     recurrence_type: str,
     description: str,
-    created_by: str = "rekku",
+    created_by: str = "synth",
 ) -> None:
     """Insert a new scheduled event using local time and store next_run in UTC."""
 

@@ -4,7 +4,7 @@ Event ID Flow Documentation
 Overview
 --------
 
-This document explains how ``event_id`` flows through the Rekku bot system, particularly for scheduled events and Telegram message handling.
+This document explains how ``event_id`` flows through the synth bot system, particularly for scheduled events and Telegram message handling.
 
 Problem & Solution
 ------------------

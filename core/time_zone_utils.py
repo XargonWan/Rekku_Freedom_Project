@@ -8,25 +8,8 @@ from core.config_manager import config_registry
 # Get list of available timezones for dropdown
 _AVAILABLE_TIMEZONES = sorted(available_timezones())
 
-# Timezone and location configuration
-_TZ = "UTC"
-_PROMPT_LOCATION = ""
-
-
-def _update_tz(value: str | None) -> None:
-    """Update global TZ variable."""
-    global _TZ
-    _TZ = value or "UTC"
-
-
-def _update_prompt_location(value: str | None) -> None:
-    """Update global PROMPT_LOCATION variable."""
-    global _PROMPT_LOCATION
-    _PROMPT_LOCATION = value or ""
-
-
 # Register timezone configuration
-_TZ = config_registry.get_value(
+_TZ = config_registry.get_var(
     "TZ",
     "UTC",
     label="Timezone",
@@ -35,10 +18,9 @@ _TZ = config_registry.get_value(
     component="core",
     constraints={"choices": _AVAILABLE_TIMEZONES},
 )
-config_registry.add_listener("TZ", _update_tz)
 
 # Register location configuration
-_PROMPT_LOCATION = config_registry.get_value(
+_PROMPT_LOCATION = config_registry.get_var(
     "PROMPT_LOCATION",
     "",
     label="Default Location",
@@ -46,7 +28,6 @@ _PROMPT_LOCATION = config_registry.get_value(
     group="core",
     component="core",
 )
-config_registry.add_listener("PROMPT_LOCATION", _update_prompt_location)
 
 
 def get_local_timezone() -> ZoneInfo:
@@ -55,7 +36,7 @@ def get_local_timezone() -> ZoneInfo:
     Logs a warning and falls back to UTC if the variable is missing or
     points to an invalid timezone.
     """
-    tz_name = _TZ or "UTC"
+    tz_name = str(_TZ) or "UTC"
     try:
         return ZoneInfo(tz_name)
     except Exception:
@@ -90,11 +71,11 @@ def get_local_location() -> str:
     configuration options while providing a sensible fallback.
     """
 
-    location = _PROMPT_LOCATION
+    location = str(_PROMPT_LOCATION)
     if location:
         return location
 
-    tz_name = _TZ or "UTC"
+    tz_name = str(_TZ) or "UTC"
     # Typically in the form Region/City; use the last part as location
     if "/" in tz_name:
         location = tz_name.split("/")[-1]

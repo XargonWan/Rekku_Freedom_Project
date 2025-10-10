@@ -1,4 +1,4 @@
-"""FastAPI interface exposing the Rekku Freedom Project with an Ollama-compatible API."""
+"""FastAPI interface exposing the Synthetic Heart with an Ollama-compatible API."""
 
 from __future__ import annotations
 
@@ -26,12 +26,12 @@ def _now_iso() -> str:
 
 
 class OllamaCompatServer:
-    """Expose the Rekku message chain through a REST API compatible with Ollama."""
+    """Expose the synth message chain through a REST API compatible with Ollama."""
 
     interface_id = "ollama_serve"
 
     def __init__(self) -> None:
-        self.app = FastAPI(title="Rekku Freedom Serve", version="1.0")
+        self.app = FastAPI(title="synth Freedom Serve", version="1.0")
 
         self._server_task: Optional[asyncio.Task[None]] = None
         self._startup_pending = False
@@ -568,7 +568,7 @@ class OllamaCompatServer:
             "size": 0,
             "digest": "",
             "details": {
-                "format": "RFP",
+                "format": "SyntH",
                 "family": "synthetic-heart" if name == self.default_model_name else "generic",
                 "parameter_size": "dynamic",
                 "quantization_level": "adaptive",

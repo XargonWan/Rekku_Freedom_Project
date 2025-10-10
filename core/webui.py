@@ -1,12 +1,12 @@
 """FastAPI-based web interface branded as the SyntH Web UI.
 
-This is a core component of RFP that provides a functional chat front-end
-integrating with the existing Rekku core infrastructure. It offers a refined
+This is a core component of SyntH that provides a functional chat front-end
+integrating with the existing synth core infrastructure. It offers a refined
 layout, VRM avatar management, and notification helpers so the Docker container
 can serve the application directly.
 
 Note: This was moved from interface/ to core/ as it's now considered an
-integral and inseparable part of the RFP system.
+integral and inseparable part of the SyntH system.
 """
 
 from __future__ import annotations
@@ -109,7 +109,7 @@ class SynthWebUIInterface:
             _AUTOSTART_ENV,
             True,
             label="Autostart Web UI",
-            description="Automatically start the Web UI background server when Rekku boots.",
+            description="Automatically start the Web UI background server when synth boots.",
             value_type=bool,
             group="core",
             component=INTERFACE_NAME,
@@ -185,20 +185,9 @@ class SynthWebUIInterface:
             component=INTERFACE_NAME,
             advanced=True,
         )
-        self.log_level = config_registry.get_value(
-            "WEBUI_LOG_LEVEL",
-            "info",
-            label="Web UI Log Level",
-            description="Uvicorn log level for the embedded Web UI server. Requires restart to take effect.",
-            group="logging",
-            component=INTERFACE_NAME,
-            constraints={"choices": ["critical", "error", "warning", "info", "debug", "trace"]},
-        )
         
-        def _update_log_level(value: str | None) -> None:
-            self.log_level = (value or "info").lower()
-
-        config_registry.add_listener("WEBUI_LOG_LEVEL", _update_log_level)
+        # Use system-wide LOG_LEVEL instead of separate WEBUI_LOG_LEVEL
+        self.log_level = "info"  # Default, will be overridden by uvicorn if LOG_LEVEL is set
         
         # Selkies (desktop) ports
         self.selkies_https_port = config_registry.get_value(
@@ -264,6 +253,14 @@ class SynthWebUIInterface:
             log_info(f"{LOG_PREFIX} Mounted /js to {js_dir}")
         else:
             log_warning(f"{LOG_PREFIX} JS directory not found: {js_dir}")
+        
+        # Mount animations directory for VRM animations
+        animations_dir = Path(__file__).resolve().parent.parent / "res" / "synth_webui" / "animations"
+        if animations_dir.exists():
+            self.app.mount("/animations", StaticFiles(directory=str(animations_dir)), name="synth-webui-animations")
+            log_info(f"{LOG_PREFIX} Mounted /animations to {animations_dir}")
+        else:
+            log_warning(f"{LOG_PREFIX} Animations directory not found: {animations_dir}")
 
         log_info(f"{LOG_PREFIX} ========== VRM DIRECTORY MOUNT ==========")
         log_info(f"{LOG_PREFIX} VRM directory path: {self.vrm_dir}")
@@ -309,6 +306,9 @@ class SynthWebUIInterface:
         self.app.post("/api/vrm/active")(self.set_active_vrm_endpoint)
         self.app.delete("/api/vrm/{model_name}")(self.delete_vrm_model)
         self.app.get("/api/components")(self.components_summary)
+        self.app.post("/api/components/reload")(self.reload_component)
+        self.app.post("/api/components/dev/toggle")(self.toggle_dev_components)
+        self.app.post("/api/system/restart")(self.restart_system)
         self.app.get("/api/config")(self.config_summary)
         self.app.post("/api/config")(self.update_config_entry)
         self.app.post("/api/components/llm")(self.set_llm_engine)
@@ -413,7 +413,8 @@ class SynthWebUIInterface:
                 if not text:
                     continue
                 await self._append_history(session_id, "user", text)
-                await self._handle_user_message(session_id, text)
+                # Process message in background to avoid blocking WebSocket
+                asyncio.create_task(self._handle_user_message(session_id, text))
         except WebSocketDisconnect:
             log_info(f"{LOG_PREFIX} Client disconnected: {session_id}")
         except Exception as exc:  # pragma: no cover - runtime issues
@@ -432,9 +433,9 @@ class SynthWebUIInterface:
             candidates.append(Path(log_override).expanduser())
         candidates.extend(
             [
-                Path("/app/logs/rfp.log"),
-                Path.cwd() / "logs" / "rfp.log",
-                Path.cwd() / "logs" / "dev" / "rfp.log",
+                Path("/app/logs/synth.log"),
+                Path.cwd() / "logs" / "synth.log",
+                Path.cwd() / "logs" / "dev" / "synth.log",
                 Path(_LOG_FILE),
             ]
         )
@@ -484,15 +485,22 @@ class SynthWebUIInterface:
                         continue
                     await websocket.send_text(line.rstrip())
         except Exception as exc:  # pragma: no cover - runtime issues
-            import traceback
-            log_error(f"{LOG_PREFIX} log stream error: {exc}")
-            log_error(f"{LOG_PREFIX} Exception type: {type(exc).__name__}")
-            log_error(f"{LOG_PREFIX} Traceback: {traceback.format_exc()}")
-            try:
-                # Try to send error to client
-                await websocket.send_text(f"--- log stream error: {exc} ---")
-            except Exception:
-                pass  # Websocket might be closed already
+            # WebSocket disconnections are normal (user closed browser, page reload, etc.)
+            from starlette.websockets import WebSocketDisconnect
+            if isinstance(exc, WebSocketDisconnect):
+                # Normal disconnect, don't log as error
+                pass
+            else:
+                # Actual error, log it
+                import traceback
+                log_error(f"{LOG_PREFIX} log stream error: {exc}")
+                log_error(f"{LOG_PREFIX} Exception type: {type(exc).__name__}")
+                log_error(f"{LOG_PREFIX} Traceback: {traceback.format_exc()}")
+                try:
+                    # Try to send error to client
+                    await websocket.send_text(f"--- log stream error: {exc} ---")
+                except Exception:
+                    pass  # Websocket might be closed already
         finally:
             try:
                 await websocket.close()
@@ -527,7 +535,7 @@ class SynthWebUIInterface:
         
         # Get the configured response timeout from message_chain
         from core.message_chain import RESPONSE_TIMEOUT
-        timeout_seconds = RESPONSE_TIMEOUT
+        timeout_seconds = int(RESPONSE_TIMEOUT)
         
         try:
             # Wait for response with timeout
@@ -539,10 +547,10 @@ class SynthWebUIInterface:
             )
         except asyncio.TimeoutError:
             log_error(f"{LOG_PREFIX} Message handling timed out after {timeout_seconds}s for session {session_id}")
-            response = get_failed_message_text()  # Use configured fallback message
+            response = str(get_failed_message_text())  # Use configured fallback message (convert ConfigVar to str)
         except Exception as exc:  # pragma: no cover - runtime issues
             log_error(f"{LOG_PREFIX} error handling message: {exc}")
-            response = get_failed_message_text()  # Use configured fallback message
+            response = str(get_failed_message_text())  # Use configured fallback message (convert ConfigVar to str)
 
         if response:
             await self.send_message(session_id, text=response)
@@ -590,8 +598,8 @@ class SynthWebUIInterface:
             log_warning(f"{LOG_PREFIX} no active websocket for session {chat_id}")
             return
 
-        await websocket.send_json({"type": "message", "sender": "rekku", "text": text})
-        await self._append_history(str(chat_id), "rekku", text)
+        await websocket.send_json({"type": "message", "sender": "synth", "text": text})
+        await self._append_history(str(chat_id), "synth", text)
 
     async def execute_action(self, action: dict, context: dict, bot, original_message):
         if action.get("type") == "message_synth_webui":
@@ -1395,7 +1403,7 @@ class SynthWebUIInterface:
             {
                 "name": "selkies_desktop",
                 "display_name": "Selkies Web Desktop",
-                "description": "Web-based VNC desktop environment for visual interaction with the RFP container. Provides full desktop access with Chrome browser.",
+                "description": "Web-based VNC desktop environment for visual interaction with the SyntH container. Provides full desktop access with Chrome browser.",
                 "actions": [],
                 "status": "success",
                 "details": f"Available at {selkies_protocol}://[host]:{selkies_port}",
@@ -1448,6 +1456,13 @@ class SynthWebUIInterface:
         except Exception as exc:
             log_warning(f"{LOG_PREFIX} unable to compile component summary: {exc}")
 
+        # Check if dev components are enabled
+        dev_components_enabled = False
+        try:
+            dev_components_enabled = core_initializer.are_dev_components_enabled()
+        except Exception as exc:
+            log_warning(f"{LOG_PREFIX} unable to check dev components status: {exc}")
+
         payload = {
             "llm": {
                 "active": active_llm,
@@ -1457,6 +1472,7 @@ class SynthWebUIInterface:
             "interfaces": interfaces_data,
             "plugins": plugins_data,
             "summary": component_summary,
+            "dev_components_enabled": dev_components_enabled,
         }
         return JSONResponse(payload)
 
@@ -1489,6 +1505,133 @@ class SynthWebUIInterface:
             raise HTTPException(status_code=500, detail=f"Failed to activate LLM '{name}'") from exc
 
         return JSONResponse({"status": "ok", "active": name})
+
+    async def reload_component(self, request: Request):
+        """Reload a specific component (interface or plugin)."""
+        try:
+            data = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+
+        component_type = str(data.get("type") or "").strip().lower()
+        component_name = str(data.get("name") or "").strip()
+
+        if not component_type or component_type not in ["interface", "plugin"]:
+            raise HTTPException(status_code=400, detail="Missing or invalid 'type'. Must be 'interface' or 'plugin'")
+        
+        if not component_name:
+            raise HTTPException(status_code=400, detail="Missing 'name'")
+
+        try:
+            from core.core_initializer import PLUGIN_REGISTRY, INTERFACE_REGISTRY
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} unable to import registries: {exc}")
+            raise HTTPException(status_code=500, detail="Unable to access component registries") from exc
+
+        try:
+            if component_type == "interface":
+                # Reload interface
+                interface_instance = INTERFACE_REGISTRY.get(component_name)
+                if not interface_instance:
+                    raise HTTPException(status_code=404, detail=f"Interface '{component_name}' not found")
+                
+                # Stop if running
+                if hasattr(interface_instance, 'stop'):
+                    log_info(f"{LOG_PREFIX} Stopping interface '{component_name}'...")
+                    try:
+                        await interface_instance.stop()
+                    except Exception as stop_exc:
+                        log_warning(f"{LOG_PREFIX} Error stopping interface '{component_name}': {stop_exc}")
+                
+                # Start again
+                if hasattr(interface_instance, 'start'):
+                    log_info(f"{LOG_PREFIX} Starting interface '{component_name}'...")
+                    await interface_instance.start()
+                else:
+                    log_warning(f"{LOG_PREFIX} Interface '{component_name}' has no start() method")
+                
+                log_info(f"{LOG_PREFIX} Interface '{component_name}' reloaded successfully")
+                return JSONResponse({"status": "ok", "message": f"Interface '{component_name}' reloaded successfully"})
+            
+            elif component_type == "plugin":
+                # Reload plugin
+                plugin_instance = PLUGIN_REGISTRY.get(component_name)
+                if not plugin_instance:
+                    raise HTTPException(status_code=404, detail=f"Plugin '{component_name}' not found")
+                
+                # Plugins typically don't need reload, but we can report success
+                log_info(f"{LOG_PREFIX} Plugin '{component_name}' noted for reload (plugins use ConfigVar auto-updates)")
+                return JSONResponse({"status": "ok", "message": f"Plugin '{component_name}' configuration updated"})
+        
+        except HTTPException:
+            raise
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} failed to reload {component_type} '{component_name}': {exc}")
+            raise HTTPException(status_code=500, detail=f"Failed to reload {component_type} '{component_name}': {str(exc)}") from exc
+
+    async def toggle_dev_components(self, request: Request):
+        """Enable or disable dev components discovery (runtime only, not persistent)."""
+        try:
+            data = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+        
+        enabled = data.get("enabled", False)
+        
+        try:
+            from core.core_initializer import core_initializer
+            import main
+            
+            # Set the flag in both core_initializer AND main.py (so it persists across restart)
+            core_initializer.enable_dev_components(enabled)
+            main.set_dev_components_enabled(enabled)
+            
+            status_msg = "enabled" if enabled else "disabled"
+            log_info(f"{LOG_PREFIX} Dev components {status_msg} globally (will persist across restarts)")
+            
+            # Note: This does NOT automatically reload components - user must restart
+            return JSONResponse({
+                "status": "ok",
+                "enabled": enabled,
+                "message": f"Dev components {status_msg}. Restart required to apply changes."
+            })
+        
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} Failed to toggle dev components: {exc}")
+            raise HTTPException(status_code=500, detail=f"Failed to toggle dev components: {str(exc)}") from exc
+
+    async def restart_system(self, request: Request):
+        """Restart the entire SyntH system by triggering the restart mechanism."""
+        try:
+            log_info(f"{LOG_PREFIX} System restart requested via API")
+            
+            # Send response before restarting
+            response = JSONResponse({
+                "status": "ok",
+                "message": "SyntH is restarting... This may take a few moments."
+            })
+            
+            # Schedule restart after response is sent
+            import asyncio
+            
+            async def do_restart():
+                await asyncio.sleep(1)  # Give time for response to be sent
+                log_info(f"{LOG_PREFIX} Triggering system restart...")
+                
+                # Import and call the restart function from main
+                try:
+                    import main
+                    main.request_restart()
+                except Exception as e:
+                    log_error(f"{LOG_PREFIX} Failed to trigger restart: {e}")
+            
+            asyncio.create_task(do_restart())
+            
+            return response
+        
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} Failed to restart system: {exc}")
+            raise HTTPException(status_code=500, detail=f"Failed to restart system: {str(exc)}") from exc
 
     def _ensure_background_server(self) -> None:
         """Launch the FastAPI app in a background thread if not already running."""
@@ -1570,7 +1713,7 @@ class SynthWebUIInterface:
             html.replace("%%BRAND_NAME%%", BRAND_NAME)
             .replace("%%LOGO_URL%%", logo)
             .replace("%%RESPONSE_TIMEOUT%%", str(RESPONSE_TIMEOUT))
-            .replace("%%FAILED_MESSAGE_TEXT%%", FAILED_MESSAGE_TEXT)
+            .replace("%%FAILED_MESSAGE_TEXT%%", str(FAILED_MESSAGE_TEXT))
         )
 
     def _render_logs(self) -> str:

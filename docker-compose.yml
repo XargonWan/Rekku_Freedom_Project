@@ -1,9 +1,9 @@
 services:
 
-  rfp:
-    image: xargonwan/rekku_freedom_project:${IMAGE_VERSION:-latest}
-    container_name: rfp
-    hostname: luna-workstation
+  synth:
+    image: xargonwan/synthetic_heart:${IMAGE_VERSION:-latest}
+    container_name: synth
+    hostname: synthetic-heart
     env_file:
       - .env
     ports:
@@ -13,8 +13,8 @@ services:
       - "${WEBUI_PORT:-8000}:${WEBUI_PORT:-8000}"
       - "${OLLAMA_PORT:-11434}:11434"
     volumes:
-      - rfp_data:/config
-      - rfp_res:/app/res
+      - synth_data:/config
+      - synth_res:/app/res
       - ./logs:/app/logs
       - .env:/app/.env:ro
     environment:
@@ -29,19 +29,19 @@ services:
       - ROOT_PASSWORD=${ROOT_PASSWORD:-"password"}
       - TZ=${TZ:-Asia/Tokyo}
       - SECURE_CONNECTION=${SECURE_CONNECTION:-1}
-      - DB_HOST=${DB_HOST:-rfp-db}
+      - DB_HOST=${DB_HOST:-synth-db}
       - CLI_SERVER_PORT=${CLI_SERVER_PORT:-5555}
     restart: unless-stopped
     stdin_open: true
     tty: true
     depends_on:
-      - rfp-db
+      - synth-db
     networks:
-      - rfp_network
+      - synth_network
 
-  rfp-db:
-    container_name: rfp-db
-    hostname: rfp-db
+  synth-db:
+    container_name: synth-db
+    hostname: synth-db
     image: mariadb:11
     env_file:
       - .env
@@ -49,47 +49,24 @@ services:
       - "${EXT_DB_PORT:-3306}:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:-root}
-      MYSQL_DATABASE: ${DB_NAME:-rekku}
-      MYSQL_USER: ${DB_USER:-rekku}
-      MYSQL_PASSWORD: ${DB_PASS:-rekku}
+      MYSQL_DATABASE: ${DB_NAME:-synth}
+      MYSQL_USER: ${DB_USER:-synth}
+      MYSQL_PASSWORD: ${DB_PASS:-synth}
     command: --bind-address=0.0.0.0
     volumes:
-      - rfp_db_data:/var/lib/mysql
+      - synth_db_data:/var/lib/mysql
     restart: unless-stopped
     networks:
-      - rfp_network
-
-  rfp-db-backup:
-    container_name: rfp-db-backup
-    image: tiredofit/db-backup
-    platform: ${PLATFORM_BACKUP:-linux/amd64}
-    env_file:
-      - .env
-    depends_on:
-      - rfp-db
-    environment:
-      DB_TYPE: mysql
-      DB_HOST: ${DB_HOST:-rfp-db}
-      DB_NAME: ${DB_NAME:-rekku}
-      DB_USER: ${DB_USER:-rekku}
-      DB_PASS: ${DB_PASS:-rekku}
-      DB_DUMP_FREQ: 60
-      DB_CLEANUP_TIME: 1440
-      CONTAINER_TIMEZONE: Asia/Tokyo
-      COMPRESSION: GZ
-      DB_DUMP_TARGET: /backup
-    volumes:
-      - ./backups:/backup
-    restart: unless-stopped
-    networks:
-      - rfp_network
+      - synth_network
 
 volumes:
-  rfp_db_data:
-  rfp_data:
-  rfp_res:
+  synth_db_data:
+  synth_data:
+  synth_res:
 
 networks:
-  rfp_network:
+  synth_network:
     driver: bridge
-    name: rfp_network
+    name: synth_network
+
+

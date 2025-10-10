@@ -75,7 +75,7 @@ class TerminalPlugin(AIPluginBase):
         """Send ``cmd`` to the shell and return its output."""
         await self._ensure_process()
 
-        sentinel = "__END__REKKU__"
+        sentinel = "__END__synth__"
         full_cmd = f"{cmd}; echo {sentinel}\n"
 
         try:

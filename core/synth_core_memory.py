@@ -7,7 +7,7 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 # === Memory logging setup ===
 os.makedirs("logs", exist_ok=True)  # Ensure log directory exists
 
-memory_logger = logging.getLogger("rekku.memory")
+memory_logger = logging.getLogger("synth.memory")
 if not memory_logger.handlers:
     memory_logger.setLevel(logging.INFO)
     handler = logging.FileHandler("logs/memoria.log", encoding="utf-8")
@@ -25,7 +25,7 @@ REMEMBER_KEYWORDS = []
 
 def should_remember(user_text: str, response_text: str) -> bool:
     """
-    Rekku autonomously evaluates whether the interaction is memorable.
+    synth autonomously evaluates whether the interaction is memorable.
     This decision is entirely internal and not visible to the user.
     """
     text = (user_text + " " + response_text).lower()
@@ -47,7 +47,7 @@ async def silently_record_memory(
     source: str = DEFAULT_SOURCE
 ):
     """
-    Rekku internally stores what it decided to remember.
+    synth internally stores what it decided to remember.
     No feedback is provided externally.
     """
 
@@ -57,7 +57,7 @@ async def silently_record_memory(
 
     await insert_memory(
         content=user_text,
-        author="rekku",
+        author="synth",
         source=source,
         tags=tags,
         scope=scope,
@@ -66,10 +66,10 @@ async def silently_record_memory(
         emotion_state=None
     )
 
-    log_info("[REKKU_CORE] 🧠 Memory saved autonomously.")
+    log_info("[synth_CORE] 🧠 Memory saved autonomously.")
 
     memory_logger.info(
-        f"[MEMORY] Saved by Rekku\n"
+        f"[MEMORY] Saved by synth\n"
         f"→ Input: {user_text}\n"
         f"→ Response: {response_text}\n"
         f"→ Tags: {tags} | Scope: {scope} | Source: {source}"
@@ -80,7 +80,7 @@ INJECTION_PRIORITY = 6  # Medium-low priority
 
 def register_injection_priority():
     """Register this component's injection priority."""
-    log_info(f"[rekku_core_memory] Registered injection priority: {INJECTION_PRIORITY}")
+    log_info(f"[synth_core_memory] Registered injection priority: {INJECTION_PRIORITY}")
     return INJECTION_PRIORITY
 
 # Register priority when module is loaded

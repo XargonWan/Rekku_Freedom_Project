@@ -3,8 +3,8 @@ import sys
 
 sys.path.insert(0, os.path.abspath('..'))
 
-project = 'Rekku Freedom Project'
-author = 'Rekku Dev Team'
+project = 'Synthetic Heart'
+author = 'synth Dev Team'
 release = '0.1'
 
 extensions = [

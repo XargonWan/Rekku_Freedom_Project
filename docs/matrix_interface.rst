@@ -1,9 +1,9 @@
 Matrix Interface
 ================
 
-The Matrix interface lets Rekku participate in Matrix rooms using the
+The Matrix interface lets synth participate in Matrix rooms using the
 ``matrix-nio`` asynchronous SDK. Once configured, any message that arrives in
-your selected rooms is routed through the standard Rekku message chain, so the
+your selected rooms is routed through the standard synth message chain, so the
 active persona, plugins, and memory systems respond exactly like they do on the
 other transports.
 
@@ -22,13 +22,13 @@ Prerequisites
 -------------
 
 1. Create (or choose) a Matrix account that the bot will use. Record the
-   homeserver URL, the full MXID (e.g. ``@rekku-bot:matrix.org``), and either
+   homeserver URL, the full MXID (e.g. ``@synth-bot:matrix.org``), and either
    the account password or an access token.
 
 Environment Variables
 ---------------------
 
-Set the following variables before starting Rekku. All values are strings unless
+Set the following variables before starting synth. All values are strings unless
 otherwise noted.
 
 Required
@@ -37,7 +37,7 @@ Required
 .. code-block:: bash
 
    MATRIX_HOMESERVER=https://matrix.example.org
-   MATRIX_USER=@rekku-bot:matrix.example.org   # full MXID
+   MATRIX_USER=@synth-bot:matrix.example.org   # full MXID
 
    # Pick exactly one authentication method
    MATRIX_PASSWORD=supersecret                 # account password
@@ -48,9 +48,9 @@ Optional
 
 .. code-block:: bash
 
-   MATRIX_DEVICE_ID=RFPMatrix01                # reuse an existing device ID
-   MATRIX_DEVICE_NAME="Rekku Matrix Interface" # label that appears in clients
-   MATRIX_STORE_PATH=/var/lib/rfp/matrix-store # nio store for sync tokens
+   MATRIX_DEVICE_ID=SyntHMatrix01                # reuse an existing device ID
+   MATRIX_DEVICE_NAME="synth Matrix Interface" # label that appears in clients
+   MATRIX_STORE_PATH=/var/lib/synth/matrix-store # nio store for sync tokens
    MATRIX_ALLOWED_ROOMS=!roomid:example.org,#alias:example.org
 
 ``MATRIX_ALLOWED_ROOMS`` accepts a comma-separated list of room IDs or aliases.
@@ -73,9 +73,9 @@ Starting the Interface
 ----------------------
 
 1. Export the environment variables (via ``.env`` or your process manager).
-2. Restart Rekku. During startup, the interface registers itself and schedules a
+2. Restart synth. During startup, the interface registers itself and schedules a
    background sync task.
-3. Watch ``logs/dev/rfp.log`` for confirmation:
+3. Watch ``logs/dev/synth.log`` for confirmation:
 
    .. code-block:: text
 
@@ -119,5 +119,5 @@ Uninstalling
 ------------
 
 To remove Matrix support, simply delete (or rename)
-``interface/matrix_interface.py`` and remove the environment variables. Rekku
+``interface/matrix_interface.py`` and remove the environment variables. synth
 will continue operating with the remaining interfaces.

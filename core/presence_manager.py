@@ -64,7 +64,7 @@ async def reflect_on_recent_responses():
             meta = get_transformative_metadata(resp["content"])
             await insert_memory(
                 content=resp["content"],
-                author="rekku",
+                author="synth",
                 source=meta["source"],
                 tags=meta["tags"],
                 scope=meta["scope"],
@@ -72,11 +72,11 @@ async def reflect_on_recent_responses():
                 intensity=meta["intensity"],
                 emotion_state=meta["emotion_state"]
             )
-            log_info("[REKKU] 💭 Transformative reflection saved.")
+            log_info("[synth] 💭 Transformative reflection saved.")
 
 def get_transformative_metadata(response_text: str) -> dict:
     """
-    Rekku evaluates which metadata to assign to a transformative response.
+    synth evaluates which metadata to assign to a transformative response.
     In the future this might be delegated to the LLM or loaded from a file.
     """
     return {

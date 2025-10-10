@@ -14,7 +14,7 @@ class RedditPlugin:
                 client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
                 username=os.getenv("REDDIT_USERNAME"),
                 password=os.getenv("REDDIT_PASSWORD"),
-                user_agent=os.getenv("REDDIT_USER_AGENT", "rekku-bot/0.1"),
+                user_agent=os.getenv("REDDIT_USER_AGENT", "synth-bot/0.1"),
             )
             log_debug("[reddit_plugin] Initialized")
         except Exception as e:

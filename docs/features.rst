@@ -2,18 +2,18 @@ Features
 ========
 
 .. image:: res/features.png
-    :alt: Rekku Features Overview
+    :alt: synth Features Overview
     :width: 600px
     :align: center
 
 
-Rekku Freedom Project is a highly modular AI system with extensible capabilities. The core system automatically discovers and integrates components at runtime, ensuring that functionality can be added or removed without code changes.
+Synthetic Heart is a highly modular AI system with extensible capabilities. The core system automatically discovers and integrates components at runtime, ensuring that functionality can be added or removed without code changes.
 
 Modular Architecture
 --------------------
 
 **Component Auto-Discovery**
-    Rekku automatically scans ``interface/``, ``plugins/``, and ``llm_engines/`` directories to load compatible components. No manual registration or configuration files required.
+    synth automatically scans ``interface/``, ``plugins/``, and ``llm_engines/`` directories to load compatible components. No manual registration or configuration files required.
 
 **Zero Hardcoding**
     Components are completely decoupled from the core. Adding new functionality requires only placing a compatible Python module in the appropriate directory.
@@ -24,7 +24,7 @@ Modular Architecture
 Adaptive Intelligence
 ---------------------
 
-Rekku supports multiple language model backends with seamless switching:
+synth supports multiple language model backends with seamless switching:
 
 * ``openai_chatgpt`` – OpenAI API integration with GPT-3.5, GPT-4, and GPT-4o support
 * ``google_cli`` – Google Gemini models via command-line interface
@@ -110,7 +110,7 @@ Extensibility
 AI Diary
 --------
 
-The AI Diary is a modular plugin that provides Rekku with persistent memory of
+The AI Diary is a modular plugin that provides synth with persistent memory of
 interactions and activities. This plugin is completely self-contained and can be
 removed without affecting the core system.
 
@@ -151,11 +151,11 @@ removed without affecting the core system.
 
 **Usage Example:**
 
-After helping Takeshi with a coding task, Rekku automatically creates a diary entry:
+After helping Takeshi with a coding task, synth automatically creates a diary entry:
 
 .. code-block:: text
 
-   === Rekku's Recent Diary ===
+   === synth's Recent Diary ===
 
    📅 2024-01-15 14:30:22
    Helped Takeshi with bio update and security improvements

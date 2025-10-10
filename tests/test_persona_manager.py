@@ -108,7 +108,7 @@ async def test_persona_manager():
         test_trigger_messages = [
             "I love programming and gaming",  # Should trigger if likes are enabled
             "Let's talk about artificial intelligence",  # Should trigger if interests are enabled
-            "Hey Rekku, how are you?",  # Should trigger if aliases are enabled
+            "Hey synth, how are you?",  # Should trigger if aliases are enabled
             "This is just a normal message",  # Should not trigger
         ]
         

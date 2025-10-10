@@ -1,6 +1,6 @@
-# Rekku Test Suite
+# synth Test Suite
 
-This directory contains the test suite for the Rekku Freedom Project. The tests are designed to run in CI/CD pipelines and locally for development.
+This directory contains the test suite for the Synthetic Heart. The tests are designed to run in CI/CD pipelines and locally for development.
 
 ## Test Categories
 

@@ -10,7 +10,7 @@ from core.abstract_context import AbstractContext, AbstractUser, AbstractMessage
 from core.config_manager import config_registry
 
 # Register access control configuration
-RESTRICT_ACTIONS = config_registry.get_value(
+RESTRICT_ACTIONS = config_registry.get_var(
     "RESTRICT_ACTIONS",
     "trainer_only",
     label="Restrict Sensitive Content Actions",
@@ -25,15 +25,11 @@ class ImageProcessor:
     """Core image processing system with access control."""
     
     def __init__(self):
-        self.restrict_mode = RESTRICT_ACTIONS.lower()
-        log_info(f"[image_processor] Initialized with RESTRICT_ACTIONS={self.restrict_mode}")
-        
-        # Listen for configuration changes
-        def _update_restrict_mode(value: str | None) -> None:
-            self.restrict_mode = (value or "trainer_only").lower()
-            log_info(f"[image_processor] RESTRICT_ACTIONS updated to {self.restrict_mode}")
-        
-        config_registry.add_listener("RESTRICT_ACTIONS", _update_restrict_mode)
+        log_info(f"[image_processor] Initialized with RESTRICT_ACTIONS={str(RESTRICT_ACTIONS).lower()}")
+    
+    def _get_restrict_mode(self) -> str:
+        """Get current restrict mode from ConfigVar."""
+        return str(RESTRICT_ACTIONS).lower()
     
     def _check_access_permissions(self, user_id: Union[int, str], interface_name: str, has_trigger: bool) -> Tuple[bool, str]:
         """
@@ -47,24 +43,25 @@ class ImageProcessor:
         Returns:
             Tuple of (allowed, reason)
         """
+        restrict_mode = self._get_restrict_mode()
         
         # Check for deprecated "deny_all" mode (same as "on")
-        if self.restrict_mode == "deny_all":
+        if restrict_mode == "deny_all":
             return False, "Image processing is completely disabled (RESTRICT_ACTIONS=deny_all)"
         
         # "on" mode: nobody can send images, not even the trainer
-        if self.restrict_mode == "on":
+        if restrict_mode == "on":
             return False, "Image processing is completely disabled (RESTRICT_ACTIONS=on)"
         
         if not has_trigger:
             return False, "Message does not contain bot trigger"
         
         # "off" mode: everyone can send images
-        if self.restrict_mode == "off":
+        if restrict_mode == "off":
             return True, "Image processing is open to all users (RESTRICT_ACTIONS=off)"
         
         # "trainer_only" mode: only trainers can send images
-        if self.restrict_mode == "trainer_only":
+        if restrict_mode == "trainer_only":
             # Check if user is trainer for this interface
             registry = get_interface_registry()
             is_trainer = registry.is_trainer(interface_name, user_id)
@@ -74,7 +71,7 @@ class ImageProcessor:
             
             return True, f"Access granted to trainer {user_id} for interface {interface_name}"
         
-        return False, f"Unknown RESTRICT_ACTIONS mode: {self.restrict_mode}"
+        return False, f"Unknown RESTRICT_ACTIONS mode: {restrict_mode}"
     
     async def should_process_image(self, context: AbstractContext, has_trigger: bool = False) -> Tuple[bool, str]:
         """

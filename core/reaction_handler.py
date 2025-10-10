@@ -13,7 +13,7 @@ from core.logging_utils import log_debug, log_info, log_warning
 from core.config_manager import config_registry
 
 # Register REACT_WHEN_MENTIONED configuration
-REACT_WHEN_MENTIONED = config_registry.get_value(
+REACT_WHEN_MENTIONED = config_registry.get_var(
     "REACT_WHEN_MENTIONED",
     "👀",
     label="React When Mentioned",
@@ -22,11 +22,6 @@ REACT_WHEN_MENTIONED = config_registry.get_value(
     component="core",
 )
 
-def _update_react_emoji(value: str | None) -> None:
-    global REACT_WHEN_MENTIONED
-    REACT_WHEN_MENTIONED = (value or "").strip()
-
-config_registry.add_listener("REACT_WHEN_MENTIONED", _update_react_emoji)
 
 
 def get_reaction_emoji() -> Optional[str]:

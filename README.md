@@ -1,22 +1,18 @@
-````markdown
-> [!NOTE]
-> This project will be made more generic and will soon be renamed into **SyntH - Synthetic Heart** allowing any user to easly create their own persona.
-> Contributons are welcome.
+<div align="center">
+   <div style="background: #222; border-radius: 12px; padding: 12px; width: 700px; height: 300px; display: flex; align-items: center; justify-content: center; margin: 0 auto;">
+      <img src="docs/res/synth_logo.png" alt="Synthetic Heart Logo" style="max-width: 100%; max-height: 100%; object-fit: contain;" />
+   </div>
+</div>
 
-> [!IMPORTANT]
-> **Recent Changes**: The SyntH Web UI has been moved from `interface/webui.py` to `core/webui.py` as it is now considered a core, integral component of RFP. Templates have been relocated to `core/webui_templates/`. This change reflects the Web UI's essential role in configuration management and system interaction.
-
-<img src="docs/res/RFP_logo.png" alt="RFP Logo" width="300"/>
-
-![Docker Pulls](https://img.shields.io/docker/pulls/xargonwan/rekku_freedom_project)
+![Docker Pulls](https://img.shields.io/docker/pulls/xargonwan/synthetic_heart)
 | Branch    | Build Status                                                                                                                                         | Docs Status                                                                                                                                      |
 |-----------|------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
-| `main`    | [![CI Status](https://img.shields.io/github/actions/workflow/status/XargonWan/Rekku_Freedom_Project/build-release.yml)](https://github.com/XargonWan/Rekku_Freedom_Project/actions)      | [![Docs Status](https://readthedocs.org/projects/rekku-freedom-project/badge/?version=latest)](https://rekku-freedom-project.readthedocs.io/en/latest/?badge=latest) |
-| `develop` | [![Develop CI Status](https://img.shields.io/github/actions/workflow/status/XargonWan/Rekku_Freedom_Project/build-release.yml?branch=develop)](https://github.com/XargonWan/Rekku_Freedom_Project/actions) | [![Docs Status](https://readthedocs.org/projects/rekku-freedom-project/badge/?version=latest)](https://rekku-freedom-project.readthedocs.io/en/latest/?badge=latest) |
+| `main`    | [![CI Status](https://img.shields.io/github/actions/workflow/status/XargonWan/Synthetic_Heart/build-release.yml)](https://github.com/XargonWan/Synthetic_Heart/actions)      | [![Docs Status](https://readthedocs.org/projects/synth-freedom-project/badge/?version=latest)](https://synth-freedom-project.readthedocs.io/en/latest/?badge=latest) |
+| `develop` | [![Develop CI Status](https://img.shields.io/github/actions/workflow/status/XargonWan/Synthetic_Heart/build-release.yml?branch=develop)](https://github.com/XargonWan/Synthetic_Heart/actions) | [![Docs Status](https://readthedocs.org/projects/synth-freedom-project/badge/?version=latest)](https://synth-freedom-project.readthedocs.io/en/latest/?badge=latest) |
 
-**Rekku Freedom Project** provides a modular stack for creating autonomous AI personas. Interfaces, language models and action plugins can be swapped at runtime.
+**Synthetic Heart**, stylized as SyntH, provides a modular stack for creating autonomous AI personas. Interfaces, language models and action plugins can be swapped at runtime.
 
-Built around a lightweight plugin system, RFP lets you combine different chat interfaces and LLM engines to craft persistent characters.  The project currently focuses on one persona, **Rekku**, but the architecture is designed to support multiple synthetic beings in the future.
+Built around a lightweight plugin system, SyntH lets you combine different chat interfaces and LLM engines to craft persistent characters.
 
 ### Features
 
@@ -25,17 +21,17 @@ Built around a lightweight plugin system, RFP lets you combine different chat in
 - **SyntH Web UI**: A production-ready web interface with VRM avatar support and real-time animations
 - **VRM Avatar System**: 3D animated avatars with idle, talking, and thinking states
 - Action plugins such as a persistent terminal and scheduled events
-- Optional context memory injection with `/context`
-- Ollama-compatible HTTP bridge so existing Ollama clients can talk to Rekku Freedom Project
+- Context memory injection with `/context`
+- Ollama-compatible HTTP bridge so existing Ollama clients can talk to Synthetic Heart
 - Docker deployment with automatic database backups
 
 > [!IMPORTANT]
-> **Core Web UI**: As of this version, the SyntH Web UI has been promoted from `interface/` to `core/` as it is now considered an integral and inseparable part of the RFP system. It provides essential functionality for configuration management, VRM avatar support, and real-time interaction.
+> **Core Web UI**: As of this version, the SyntH Web UI has been promoted from `interface/` to `core/` as it is now considered an integral and inseparable part of the SyntH system. It provides essential functionality for configuration management, VRM avatar support, and real-time interaction.
 
 
 ### Ollama Compatibility
 
-The project ships with an **Ollama-compatible interface** (`interface/ollama_compat_server.py`). It mirrors the standard Ollama HTTP endpoints (`/api/generate`, `/api/chat`, `/api/tags`) so any client that normally talks to a local Ollama daemon can connect to Rekku Freedom Project instead. Point your tools at `http://<rfp-host>:11434` (configurable via `OLLAMA_HOST` / `OLLAMA_PORT`) and they will stream responses generated by your active persona. Native Ollama engine support will arrive later, but the compatibility layer lets you reuse the existing ecosystem today.
+The project ships with an **Ollama-compatible interface** (`interface/ollama_compat_server.py`). It mirrors the standard Ollama HTTP endpoints (`/api/generate`, `/api/chat`, `/api/tags`) so any client that normally talks to a local Ollama daemon can connect to Synthetic Heart instead. Point your tools at `http://<synth-host>:11434` (configurable via `OLLAMA_HOST` / `OLLAMA_PORT`) and they will stream responses generated by your active persona. Native Ollama engine support will arrive later, but the compatibility layer lets you reuse the existing ecosystem today.
 
 ## Quickstart
 
@@ -46,10 +42,10 @@ The project ships with an **Ollama-compatible interface** (`interface/ollama_com
    ```
 3. If using the Selenium engine, open `http://<host>:5006` and log into ChatGPT.
 
-See the [documentation](https://rekku-freedom-project.readthedocs.io) for installation details, advanced features and contribution guidelines.
+See the [documentation](https://synth-freedom-project.readthedocs.io) for installation details, advanced features and contribution guidelines.
 
 ## Docker image repository
-You can browse and manage Docker images for this project on [Docker Hub](https://hub.docker.com/repository/docker/xargonwan/rekku_freedom_project).
+You can browse and manage Docker images for this project on [Docker Hub](https://hub.docker.com/repository/docker/xargonwan/synthetic_heart).
 
 ## Contributing
 

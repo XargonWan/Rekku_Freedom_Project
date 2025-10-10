@@ -5,7 +5,7 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 from core.abstract_context import AbstractContext
 from typing import Optional, Callable
 
-CONFIG_PATH = "config/rekku_config.json"
+CONFIG_PATH = "config/synth_config.json"
 
 # Injection priority for context information
 INJECTION_PRIORITY = 1  # Highest priority - context is essential

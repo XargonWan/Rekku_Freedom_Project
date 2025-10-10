@@ -91,7 +91,7 @@ async def help_command() -> str:
     llm_mode = await get_active_llm()
 
     help_text = (
-        "🧞‍♀️ *Rekku – Available Commands*\n\n"
+        "🧞‍♀️ *synth – Available Commands*\n\n"
         "*🧠 Context Mode*\n"
         f"`/context` – Enable/disable history in forwarded messages, currently *{context_status}*\n\n"
         "*✏️ /say Command*\n"
@@ -119,7 +119,7 @@ async def help_command() -> str:
     help_text += (
         "\n*📋 Misc*\n"
         "`/last_chats` – Last active chats\n"
-        "`/diary [days]` – View Rekku's diary entries (default: 7 days)\n"
+        "`/diary [days]` – View synth's diary entries (default: 7 days)\n"
         "`/purge_map [days]` – Purge old mappings\n"
         "`/clean_chat_link <chat_id>` – Remove the link between a chat and conversation.\n"
         "`/logchat` – Set the current chat as the log chat\n"
@@ -149,7 +149,7 @@ async def diary_command(days: str = "7") -> str:
         if not entries:
             return f"📔 No diary entries found in the last {num_days} days."
         else:
-            response = f"📔 **Rekku's Diary - Last {num_days} days ({len(entries)} entries)**\n\n"
+            response = f"📔 **synth's Diary - Last {num_days} days ({len(entries)} entries)**\n\n"
             response += format_diary_for_injection(entries)
             response += f"\n\n_Use `/diary <days>` to view a different time range._"
             return response

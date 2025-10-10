@@ -7,7 +7,7 @@ echo "🧹 Cleaning Chromium processes and lock files..."
 
 # Determine configuration directories
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-ALT_CONFIG_HOME="/home/rekku/.config"
+ALT_CONFIG_HOME="/home/synth/.config"
 
 # Terminate all Chromium processes
 echo "🔪 Terminating Chromium processes..."
@@ -36,11 +36,11 @@ rm -f "$ALT_CONFIG_HOME"/chromium*/lockfile 2>/dev/null || true
 rm -rf /tmp/undetected_chromedriver 2>/dev/null || true
 
 # Remove ONLY temporary profile directories (those with timestamp suffix)
-# This preserves the main persistent profile "chromium-rfp" but removes temporary ones
+# This preserves the main persistent profile "chromium-synth" but removes temporary ones
 rm -rf "$CONFIG_HOME"/chromium-[0-9]* 2>/dev/null || true
 rm -rf "$ALT_CONFIG_HOME"/chromium-[0-9]* 2>/dev/null || true
 
-# Note: We specifically preserve "$CONFIG_HOME/chromium-rfp" (the persistent profile)
+# Note: We specifically preserve "$CONFIG_HOME/chromium-synth" (the persistent profile)
 # This keeps ChatGPT login sessions and other site data intact
 
 # Remove Chromium temporary files and crash reports (safe to remove)

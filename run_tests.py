@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test runner for the Rekku project.
+"""Test runner for the synth project.
 
 Supports both unittest and pytest frameworks for maximum compatibility.
 Produces JUnit XML output for GitHub Actions CI/CD.

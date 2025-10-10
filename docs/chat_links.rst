@@ -1,7 +1,7 @@
 Chat Link Resolution
 ====================
 
-Rekku maintains a central **ChatLinkStore** that records the relationship
+synth maintains a central **ChatLinkStore** that records the relationship
 between chat identifiers and human‑readable names. Each entry stores:
 
 * ``interface`` – originating interface (e.g. ``telegram``, ``discord``)

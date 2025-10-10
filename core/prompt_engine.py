@@ -1,6 +1,6 @@
 # core/prompt_engine.py
 
-from core.rekku_tagging import extract_tags, expand_tags
+from core.synth_tagging import extract_tags, expand_tags
 import aiomysql
 from core.db import get_conn
 from core.logging_utils import log_debug, log_info, log_warning, log_error
@@ -10,7 +10,7 @@ import aiomysql
 import os
 
 # Chat history limit
-CHAT_HISTORY_LIMIT = config_registry.get_value(
+CHAT_HISTORY_LIMIT = config_registry.get_var(
     "CHAT_HISTORY",
     10,
     label="Chat History Length",
@@ -20,18 +20,8 @@ CHAT_HISTORY_LIMIT = config_registry.get_value(
     value_type=int,
 )
 
-def _update_chat_history_limit(value) -> None:
-    global CHAT_HISTORY_LIMIT
-    try:
-        CHAT_HISTORY_LIMIT = int(value) if value else 10
-    except (ValueError, TypeError):
-        log_warning(f"[prompt_engine] Invalid CHAT_HISTORY value: {value}, using default 10")
-        CHAT_HISTORY_LIMIT = 10
-
-config_registry.add_listener("CHAT_HISTORY", _update_chat_history_limit)
-
 # Diary history days
-DIARY_HISTORY_DAYS = config_registry.get_value(
+DIARY_HISTORY_DAYS = config_registry.get_var(
     "DIARY_HISTORY_DAYS",
     2,
     label="Diary History Days",
@@ -40,16 +30,6 @@ DIARY_HISTORY_DAYS = config_registry.get_value(
     component="prompt_engine",
     value_type=int,
 )
-
-def _update_diary_history_days(value) -> None:
-    global DIARY_HISTORY_DAYS
-    try:
-        DIARY_HISTORY_DAYS = int(value) if value else 2
-    except (ValueError, TypeError):
-        log_warning(f"[prompt_engine] Invalid DIARY_HISTORY_DAYS value: {value}, using default 2")
-        DIARY_HISTORY_DAYS = 2
-
-config_registry.add_listener("DIARY_HISTORY_DAYS", _update_diary_history_days)
 
 
 async def build_json_prompt(message, context_memory, interface_name: str | None = None, image_data: dict | None = None) -> dict:

@@ -7,12 +7,12 @@ Usage Overview
    :align: center
 
 
-Rekku operates as a modular AI persona with multiple LLM backends. You can
+synth operates as a modular AI persona with multiple LLM backends. You can
 switch engines on the fly using the ``/llm`` command in your preferred chat
 platform. Supported modes include ``manual``, ``openai_chatgpt`` and
 ``selenium_chatgpt``.
 
-Message forwarding is automatic when Rekku is mentioned or receives a private
+Message forwarding is automatic when synth is mentioned or receives a private
 message. The ``event`` plugin stores reminders in the configured database and
 delivers them when due.
 
@@ -22,7 +22,7 @@ messages are injected into the prompt sent to the active LLM.
 Component Management
 --------------------
 
-Rekku automatically discovers and loads components at startup:
+synth automatically discovers and loads components at startup:
 
 **Available Interfaces**
     - ``telegram_bot``: Telegram integration
@@ -85,7 +85,7 @@ The modular architecture ensures that components only load when their required c
 WebUI and VRM Avatars
 ----------------------
 
-The WebUI interface provides a browser-based visual representation of Rekku using VRM avatar models. The system includes:
+The WebUI interface provides a browser-based visual representation of synth using VRM avatar models. The system includes:
 
 **Visual Feedback**
     - **Idle Animation**: Natural relaxed pose when not active

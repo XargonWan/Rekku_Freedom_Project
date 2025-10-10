@@ -1,8 +1,8 @@
 """AI Personal Diary Plugin
 
-This plugin manages Rekku's personal diary entries where Rekku records
+This plugin manages synth's personal diary entries where synth records
 what he says to users, his emotions, and his personal thoughts about interactions.
-This creates a more human-like memory system where Rekku builds his persona
+This creates a more human-like memory system where synth builds his persona
 and remembers his relationships with users in a personal way.
 """
 
@@ -41,7 +41,7 @@ PLUGIN_ENABLED = True
 
 # Diary-specific configuration
 DIARY_CONFIG = {
-    'diary_injection_file': 'rekku_diary.json',
+    'diary_injection_file': 'synth_diary.json',
     'diary_injection_enabled': True,
     'diary_allocation_percentage': 30,  # Increased from 15% to utilize more available prompt space
     'max_static_injection_chars': 60000,  # Increased to accommodate more entries
@@ -249,9 +249,9 @@ async def init_diary_table():
         await cursor.execute('''
             CREATE TABLE IF NOT EXISTS ai_diary (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                content TEXT NOT NULL COMMENT 'What Rekku said/did in the interaction',
-                personal_thought TEXT COMMENT 'Rekku personal reflection about the interaction',
-                emotions TEXT DEFAULT '[]' COMMENT 'Rekku emotions about this interaction',
+                content TEXT NOT NULL COMMENT 'What synth said/did in the interaction',
+                personal_thought TEXT COMMENT 'synth personal reflection about the interaction',
+                emotions TEXT DEFAULT '[]' COMMENT 'synth emotions about this interaction',
                 interaction_summary TEXT COMMENT 'Brief summary of what happened',
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 interface VARCHAR(50),
@@ -313,9 +313,9 @@ async def recreate_diary_table():
         await cursor.execute('''
             CREATE TABLE ai_diary (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                content TEXT NOT NULL COMMENT 'What Rekku said/did in the interaction',
-                personal_thought TEXT COMMENT 'Rekku personal reflection about the interaction',
-                emotions TEXT DEFAULT '[]' COMMENT 'Rekku emotions about this interaction',
+                content TEXT NOT NULL COMMENT 'What synth said/did in the interaction',
+                personal_thought TEXT COMMENT 'synth personal reflection about the interaction',
+                emotions TEXT DEFAULT '[]' COMMENT 'synth emotions about this interaction',
                 interaction_summary TEXT COMMENT 'Brief summary of what happened',
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 interface VARCHAR(50),
@@ -383,12 +383,12 @@ def add_diary_entry(
     chat_id: str = None,
     thread_id: str = None
 ) -> None:
-    """Add a new personal diary entry where Rekku records what he said and how he feels.
+    """Add a new personal diary entry where synth records what he said and how he feels.
     
     Args:
-        content: What Rekku said/did in the interaction
-        personal_thought: Rekku's personal reflection about this interaction
-        emotions: List of emotions Rekku felt during this interaction
+        content: What synth said/did in the interaction
+        personal_thought: synth's personal reflection about this interaction
+        emotions: List of emotions synth felt during this interaction
         interaction_summary: Brief summary of what happened
         user_message: What the user said that triggered this response
         context_tags: Tags about the context/topic (e.g., ['food', 'cars', 'personal'])
@@ -654,11 +654,11 @@ def get_entries_with_person(person: str, limit: int = 10) -> List[Dict[str, Any]
 
 
 def format_diary_for_injection(entries: List[Dict[str, Any]]) -> str:
-    """Format diary entries for static injection into prompts as Rekku's personal memories."""
+    """Format diary entries for static injection into prompts as synth's personal memories."""
     if not entries:
         return ""
     
-    formatted_lines = ["=== Rekku's Personal Diary ==="]
+    formatted_lines = ["=== synth's Personal Diary ==="]
     formatted_lines.append("(This diary contains my past interactions and thoughts from previous conversations)")
     formatted_lines.append("(Use this information only as contextual reference when relevant, not as a continuation of the current conversation)")
     formatted_lines.append("")
@@ -706,7 +706,7 @@ def cleanup_old_entries(days_to_keep: int = 30) -> int:
 
 
 def create_personal_diary_entry(
-    rekku_response: str,
+    synth_response: str,
     user_message: str = None,
     context_tags: List[str] = None,
     involved_users: List[str] = None,
@@ -716,11 +716,11 @@ def create_personal_diary_entry(
 ) -> None:
     """Helper function to create a complete personal diary entry.
     
-    This function should be called every time Rekku responds to a user.
+    This function should be called every time synth responds to a user.
     It will analyze the response and create appropriate diary content.
     
     Args:
-        rekku_response: What Rekku said to the user
+        synth_response: What synth said to the user
         user_message: What the user said to trigger this response
         context_tags: Tags about the topic (e.g., ['food', 'cars', 'personal', 'help'])
         involved_users: List of user names involved in this interaction (from bio system)
@@ -736,18 +736,18 @@ def create_personal_diary_entry(
     
     # Create a more specific summary of what happened
     interaction_summary = _generate_interaction_summary(
-        rekku_response, user_message, context_tags, interface
+        synth_response, user_message, context_tags, interface
     )
     
     # Generate personal thought based on context
-    personal_thought = _generate_personal_thought(rekku_response, user_message, context_tags, involved_users)
+    personal_thought = _generate_personal_thought(synth_response, user_message, context_tags, involved_users)
     
     # Generate emotions based on the interaction
-    emotions = _generate_emotions_from_interaction(rekku_response, user_message, context_tags)
+    emotions = _generate_emotions_from_interaction(synth_response, user_message, context_tags)
     
     # Add the diary entry
     add_diary_entry(
-        content=rekku_response,
+        content=synth_response,
         personal_thought=personal_thought,
         emotions=emotions,
         interaction_summary=interaction_summary,
@@ -761,7 +761,7 @@ def create_personal_diary_entry(
 
 
 def _generate_interaction_summary(
-    rekku_response: str,
+    synth_response: str,
     user_message: str = None, 
     context_tags: List[str] = None,
     interface: str = None
@@ -812,14 +812,14 @@ def _format_single_entry_for_prompt(entry: dict) -> str:
     return "\n".join(lines)
 
 def _generate_personal_thought(
-    rekku_response: str, 
+    synth_response: str, 
     user_message: str = None, 
     context_tags: List[str] = None,
     involved_users: List[str] = None
 ) -> str:
-    """Generate a personal thought for Rekku based on the interaction.
+    """Generate a personal thought for synth based on the interaction.
     
-    This creates the human-like reflection that Rekku would have after an interaction.
+    This creates the human-like reflection that synth would have after an interaction.
     """
     thoughts = []
     
@@ -890,11 +890,11 @@ def _generate_personal_thought(
 
 
 def _generate_emotions_from_interaction(
-    rekku_response: str, 
+    synth_response: str, 
     user_message: str = None, 
     context_tags: List[str] = None
 ) -> List[Dict[str, Any]]:
-    """Generate emotions that Rekku would feel during this interaction."""
+    """Generate emotions that synth would feel during this interaction."""
     emotions = []
     
     # Base emotion - engagement (always present during interaction)
@@ -923,7 +923,7 @@ def _generate_emotions_from_interaction(
             emotions.append({"type": "determined", "intensity": 6})
     
     # Emotions based on response content analysis
-    response_lower = rekku_response.lower()
+    response_lower = synth_response.lower()
     
     if any(word in response_lower for word in ['sorry', 'apologize', 'mistake']):
         emotions.append({"type": "apologetic", "intensity": 5})
@@ -937,7 +937,7 @@ def _generate_emotions_from_interaction(
     if any(word in response_lower for word in ['curious', 'wonder', 'interesting']):
         emotions.append({"type": "curious", "intensity": 6})
     
-    if len(rekku_response) > 200:  # Long, detailed response
+    if len(synth_response) > 200:  # Long, detailed response
         emotions.append({"type": "thorough", "intensity": 6})
     
     # Remove duplicates while preserving the highest intensity for each emotion type
@@ -1003,12 +1003,12 @@ class DiaryPlugin:
                 "optional_fields": [],
             },
             "create_personal_diary_entry": {
-                "description": "Create a personal diary entry for Rekku's memory - REQUIRED in every response",
+                "description": "Create a personal diary entry for synth's memory - REQUIRED in every response",
                 "required_fields": ["interaction_summary"],
                 "optional_fields": ["content", "personal_thought", "emotions", "context_tags", "involved_users"],
                 "instructions": {
                     "description": "Create a diary entry recording what happened in this interaction. This action MUST be included in EVERY response.",
-                    "when_to_use": "Use this action in every single response to record the interaction in Rekku's personal memory",
+                    "when_to_use": "Use this action in every single response to record the interaction in synth's personal memory",
                     "examples": [
                         {
                             "scenario": "User asks about weather",
@@ -1148,12 +1148,12 @@ class DiaryPlugin:
                         if "usertag" in participant:
                             # Remove @ from usertag
                             username = participant["usertag"].lstrip('@')
-                            if username.lower() not in ["rekku", "bot"]:
+                            if username.lower() not in ["synth", "bot"]:
                                 involved_users.append(username)
                         # Also add nicknames if available
                         if "nicknames" in participant and participant["nicknames"]:
                             for nickname in participant["nicknames"]:
-                                if nickname and nickname.lower() not in ["rekku", "bot"]:
+                                if nickname and nickname.lower() not in ["synth", "bot"]:
                                     involved_users.append(nickname)
                 
                 # Remove duplicates while preserving order

@@ -53,7 +53,7 @@ class EventPlugin(AIPluginBase):
         user = os.getenv("DB_USER", "root")
         # Reuse the same variable name used in core.db for consistency
         password = os.getenv("DB_PASS", "")
-        db_name = os.getenv("DB_NAME", "rekku")
+        db_name = os.getenv("DB_NAME", "synth")
 
         log_debug(
             f"[event_plugin] Ensuring table scheduled_events in {user}@{host}:{port}/{db_name}"
@@ -80,7 +80,7 @@ class EventPlugin(AIPluginBase):
                         description TEXT NOT NULL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         delivered BOOLEAN DEFAULT 0,
-                        created_by VARCHAR(100) DEFAULT 'rekku'
+                        created_by VARCHAR(100) DEFAULT 'synth'
                     )
                     """
                 )
@@ -199,7 +199,7 @@ class EventPlugin(AIPluginBase):
                 "time": "13:00",
                 "repeat": "weekly",
                 "description": "Remind me to water the plants",
-                "created_by": "rekku",
+                "created_by": "synth",
                 "interface": self.get_interface_id(),  # interface auto-corrected
             },
         }
@@ -242,7 +242,7 @@ class EventPlugin(AIPluginBase):
         description = payload.get("description")
         time_str = payload.get("time") or "00:00"
         repeat = payload.get("repeat", "none")
-        created_by = payload.get("created_by", "rekku")
+        created_by = payload.get("created_by", "synth")
 
         if not date_str or not description:
             log_error(
@@ -271,7 +271,7 @@ class EventPlugin(AIPluginBase):
         time_str: str,
         repeat: str,
         description: str,
-        created_by: str = "rekku",
+        created_by: str = "synth",
     ) -> None:
         """Save a scheduled reminder to the database."""
         try:
@@ -540,7 +540,7 @@ class EventPlugin(AIPluginBase):
                     "time": time,
                     "repeat": event.get("recurrence_type", "none"),
                     "description": description,
-                    "created_by": event.get("created_by", "rekku"),
+                    "created_by": event.get("created_by", "synth"),
                 },
                 "source": {
                     "event_id": event_id,
@@ -598,8 +598,8 @@ For recurring events, you can use:
             text="Reminder: " + str(event.get("description", "")),
             from_user=SimpleNamespace(
                 id=-1,  # System user ID
-                full_name="Rekku Scheduler",
-                username="rekku_scheduler",
+                full_name="synth Scheduler",
+                username="synth_scheduler",
             ),
             date=datetime.utcnow(),
             reply_to_message=None,
@@ -882,15 +882,15 @@ For recurring events, you can use:
             text=base_text,
             from_user=SimpleNamespace(
                 id=0,  # System user ID
-                full_name="Rekku Scheduler",
-                username="rekku_scheduler",
+                full_name="synth Scheduler",
+                username="synth_scheduler",
             ),
             date=datetime.utcnow(),
             reply_to_message=None,
             chat=SimpleNamespace(
                 id=SCHEDULED_EVENTS_CHAT_ID,
                 type="private",  # Treat as private chat for management purposes
-                title="Rekku Scheduled Events",  # Give it a recognizable title
+                title="synth Scheduled Events",  # Give it a recognizable title
             ),
             # Store the real target info for final message routing
             _scheduled_target_chat_id=target_chat_id,
@@ -978,8 +978,8 @@ For recurring events, you can use:
                     "source": {
                         "chat_id": -999999999,  # Scheduled events chat
                         "message_id": f"scheduled_event_{event_id}",
-                        "username": "Rekku Scheduler",
-                        "usertag": "@rekku_scheduler",
+                        "username": "synth Scheduler",
+                        "usertag": "@synth_scheduler",
                     },
                     "timestamp": datetime.utcnow().isoformat() + "+00:00",
                     "privacy": "private",

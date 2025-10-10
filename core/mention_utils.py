@@ -1,8 +1,8 @@
-# Hardcoded fallback aliases for Rekku
-REKKU_ALIASES = ["synth", "synthetic heart"]
+# Hardcoded fallback aliases for synth
+synth_ALIASES = ["synth", "synthetic heart"]
 
 # Pre-compute a lower-case version for faster checks
-REKKU_ALIASES_LOWER = [alias.lower() for alias in REKKU_ALIASES]
+synth_ALIASES_LOWER = [alias.lower() for alias in synth_ALIASES]
 
 
 def get_current_aliases() -> list[str]:
@@ -16,7 +16,7 @@ def get_current_aliases() -> list[str]:
     except Exception as e:
         log_debug(f"[mention] Error getting current persona aliases: {e}")
     # Fallback to hardcoded aliases
-    return REKKU_ALIASES
+    return synth_ALIASES
 
 
 from core.logging_utils import log_debug
@@ -38,8 +38,8 @@ async def get_bot_username(bot):
         return None
 
 
-def is_rekku_mentioned(text: str) -> bool:
-    """Return ``True`` if ``text`` contains any alias for Rekku."""
+def is_synth_mentioned(text: str) -> bool:
+    """Return ``True`` if ``text`` contains any alias for synth."""
     if not text:
         return False
     lowered = text.lower()
@@ -47,7 +47,7 @@ def is_rekku_mentioned(text: str) -> bool:
     aliases_lower = [alias.lower() for alias in aliases]
     for alias in aliases_lower:
         if alias in lowered:
-            log_debug(f"[mention] Rekku alias matched: '{alias}'")
+            log_debug(f"[mention] synth alias matched: '{alias}'")
             return True
     return False
 
@@ -71,7 +71,7 @@ async def is_message_for_bot(
     Check if a message is directed to the bot considering:
     - Explicit @mention of the bot
     - Reply to a message from the bot
-    - Mention of Rekku aliases in the text
+    - Mention of synth aliases in the text
     - Private messages (always considered directed to bot)
     
     Args:
@@ -127,16 +127,16 @@ async def is_message_for_bot(
     
     # Priority 3: Check for @mention/tag (explicit mentions)
     if message_text and "@" in message_text:
-        # Check for @rekku mention
-        if "@rekku" in message_text.lower():
-            log_debug("[mention] ✅ Explicit @rekku mention found - PRIORITY 3 - message is for bot")
+        # Check for @synth mention
+        if "@synth" in message_text.lower():
+            log_debug("[mention] ✅ Explicit @synth mention found - PRIORITY 3 - message is for bot")
             return True, None
         # Check for bot username if provided
         if bot_username and f"@{bot_username}" in message_text:
             log_debug(f"[mention] ✅ Explicit @mention found: @{bot_username} - PRIORITY 3 - message is for bot")
             return True, None
     
-    # Priority 4: Check for Rekku aliases in message text (activation words)
+    # Priority 4: Check for synth aliases in message text (activation words)
     if message_text:
         text_lower = message_text.lower()
         log_debug(f"[mention] Checking aliases in text: '{text_lower}'")

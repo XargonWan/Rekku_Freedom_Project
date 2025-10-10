@@ -26,7 +26,7 @@ writes dumps to ``./backups/``.
 Modular Architecture
 --------------------
 
-Rekku Freedom Project follows a modular architecture where components are automatically discovered and loaded:
+Synthetic Heart follows a modular architecture where components are automatically discovered and loaded:
 
 **Core System**
     Handles message processing, action execution, and component orchestration.

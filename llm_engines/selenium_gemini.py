@@ -954,45 +954,72 @@ def wait_for_gemini_idle(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
         return False
 
 
+def _has_visible_stop_button(driver) -> bool:
+    """Return True when Gemini renders a visible stop button."""
+    selectors = [
+        "button.send-button.stop",
+        "button[data-testid='stop-button']",
+        "button[aria-label='Stop']",
+    ]
+    for selector in selectors:
+        try:
+            candidates = driver.find_elements(By.CSS_SELECTOR, selector)
+        except Exception:
+            continue
+        for candidate in candidates:
+            try:
+                if not candidate.is_displayed():
+                    continue
+                disabled_attr = candidate.get_attribute("disabled")
+                if disabled_attr and disabled_attr.lower() not in ("false", "0"):
+                    continue
+                aria_disabled = candidate.get_attribute("aria-disabled")
+                if aria_disabled and aria_disabled.lower() not in ("false", "0", ""):
+                    continue
+                return True
+            except StaleElementReferenceException:
+                continue
+            except WebDriverException:
+                continue
+    return False
+
+
 def wait_for_response_completion(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
     """Wait until the current response finishes streaming."""
     start_time = time.time()
     end_time = start_time + timeout
 
     try:
-        driver.find_element(By.CSS_SELECTOR, "button.send-button.stop")
-        log_debug(
-            f"[selenium] Stop button found, waiting for response to complete with timeout {timeout} seconds"
-        )
-        try:
-            driver.command_executor.set_timeout(timeout)
-        except Exception as e:
-            log_warning(f"[selenium] Could not apply command timeout: {e}")
-    except NoSuchElementException:
-        log_debug("[selenium] No stop button found, assuming idle")
+        driver.command_executor.set_timeout(timeout)
+    except Exception as e:
+        log_warning(f"[selenium] Could not apply command timeout: {e}")
+
+    if not _has_visible_stop_button(driver):
+        log_debug("[selenium] No visible stop button found, assuming idle")
         return True
+
+    log_debug(
+        f"[selenium] Visible stop button found, waiting up to {timeout} seconds for completion"
+    )
 
     last_report = 0
     while time.time() < end_time:
         try:
-            driver.find_element(By.CSS_SELECTOR, "button.send-button.stop")
-            elapsed = int(time.time() - start_time)
-            if elapsed // 10 > last_report // 10:
+            if not _has_visible_stop_button(driver):
+                elapsed = int(time.time() - start_time)
                 log_debug(
-                    f"[selenium] {elapsed} seconds passed, stop button still present"
+                    f"[selenium] Stop button disappeared after {elapsed} seconds, response completed"
                 )
-                last_report = elapsed
-            time.sleep(1)
-            continue
-        except NoSuchElementException:
-            elapsed = int(time.time() - start_time)
-            log_debug(
-                f"[selenium] Stop button disappeared after {elapsed} seconds, response completed"
-            )
-            return True
+                return True
         except (ReadTimeoutError, WebDriverException) as e:
             log_warning(f"[selenium] Polling error while waiting for completion: {e}")
-            time.sleep(1)
+        time.sleep(0.5)
+        elapsed = int(time.time() - start_time)
+        if elapsed // 10 > last_report // 10:
+            log_debug(
+                f"[selenium] {elapsed} seconds passed, stop button still visible"
+            )
+            last_report = elapsed
 
     log_warning("[selenium] Timeout waiting for response completion")
     return False
@@ -1505,7 +1532,7 @@ class SeleniumGeminiPlugin(AIPluginBase):
         set_notifier(self._notify_fn)
 
         # Unique identifier for this instance to isolate Chromium resources
-        self.instance_id = os.getenv("RFP_INSTANCE_ID", str(os.getpid()))
+        self.instance_id = os.getenv("SyntH_INSTANCE_ID", str(os.getpid()))
         self.profile_dir: Optional[str] = None
 
     def cleanup(self):
@@ -1916,7 +1943,7 @@ class SeleniumGeminiPlugin(AIPluginBase):
                 "XDG_CONFIG_HOME",
                 os.path.join(os.path.expanduser("~"), ".config"),
             )
-            profile_dir = os.path.join(config_home, "chromium-rfp")
+            profile_dir = os.path.join(config_home, "chromium-synth")
             self.profile_dir = profile_dir
 
             chromium_binary = self._locate_chromium_binary()
@@ -2332,7 +2359,7 @@ GEMINI-SPECIFIC INSTRUCTIONS:
         # Download image if present
         if image_info:
             log_info(f"[selenium] Processing message with image: {image_info.get('type', 'unknown')}")
-            temp_dir = tempfile.mkdtemp(prefix="rekku_images_")
+            temp_dir = tempfile.mkdtemp(prefix="synth_images_")
             
             try:
                 # Handle different image sources

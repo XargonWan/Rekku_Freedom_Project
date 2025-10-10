@@ -34,6 +34,74 @@ from core.logging_utils import log_debug, log_info, log_warning, log_error
 ValueType = Union[type, Callable[[str], Any]]
 
 
+class ConfigVar:
+    """
+    A smart config variable that automatically updates when config changes.
+    
+    This class wraps a config key and always returns the current value from
+    the registry. No need to manually add listeners or update global variables.
+    
+    Usage:
+        TOKEN = ConfigVar("MY_TOKEN")
+        
+        # Later, use it like a normal variable:
+        if TOKEN:  # Calls __bool__
+            do_something(str(TOKEN))  # Calls __str__
+    """
+    
+    def __init__(self, key: str, registry: Optional['ConfigRegistry'] = None):
+        self._key = key
+        self._registry = registry  # Will be set after registry is created
+    
+    def _get_value(self) -> Any:
+        """Get current value from registry."""
+        if self._registry is None:
+            # Lazy import to avoid circular dependency
+            from core.config_manager import config_registry
+            self._registry = config_registry
+        return self._registry.get_value(self._key, "")
+    
+    def __str__(self) -> str:
+        return str(self._get_value())
+    
+    def __repr__(self) -> str:
+        return f"ConfigVar({self._key!r}={self._get_value()!r})"
+    
+    def __bool__(self) -> bool:
+        """Allow using in if statements: if TOKEN: ..."""
+        value = self._get_value()
+        return bool(value) if value is not None else False
+    
+    def __int__(self) -> int:
+        """Allow int() conversion: timeout = int(TIMEOUT_VAR)"""
+        return int(self._get_value())
+    
+    def __float__(self) -> float:
+        """Allow float() conversion"""
+        return float(self._get_value())
+    
+    def __neg__(self):
+        """Allow unary minus: -CONFIG_VAR"""
+        return -self._get_value()
+    
+    def __pos__(self):
+        """Allow unary plus: +CONFIG_VAR"""
+        return +self._get_value()
+    
+    def __eq__(self, other) -> bool:
+        return self._get_value() == other
+    
+    def __or__(self, other) -> Any:
+        """Support fallback syntax: TOKEN1 or TOKEN2"""
+        value = self._get_value()
+        return value if value else other
+    
+    @property
+    def value(self) -> Any:
+        """Explicit property to get the value."""
+        return self._get_value()
+
+
 @dataclass
 class ConfigDefinition:
     key: str
@@ -100,6 +168,53 @@ class ConfigRegistry:
             self._load_definition_sync(definition)
         return definition.value
 
+    def get_var(
+        self,
+        key: str,
+        default: Any,
+        *,
+        label: Optional[str] = None,
+        description: str = "",
+        value_type: ValueType = str,
+        group: str = "core",
+        component: str = "core",
+        advanced: bool = False,
+        sensitive: bool = False,
+        tags: Optional[Iterable[str]] = None,
+        constraints: Optional[Dict[str, Any]] = None,
+    ) -> ConfigVar:
+        """
+        Return a ConfigVar that auto-updates when the config changes.
+        
+        This is the recommended way for interfaces and plugins to access config
+        values. The returned ConfigVar automatically reflects database changes
+        without requiring manual listeners.
+        
+        Example:
+            TOKEN = config_registry.get_var("MY_TOKEN", "", label="My Token", ...)
+            
+            # Later, the value is always current:
+            if TOKEN:  # Automatically checks latest value
+                bot = Bot(token=str(TOKEN))
+        """
+        # First register the config (same as get_value)
+        self._register_definition(
+            key,
+            default,
+            label=label,
+            description=description,
+            value_type=value_type,
+            group=group,
+            component=component,
+            advanced=advanced,
+            sensitive=sensitive,
+            tags=tags,
+            constraints=constraints,
+        )
+        
+        # Return a ConfigVar that will always fetch the latest value
+        return ConfigVar(key, registry=self)
+
     async def set_value(self, key: str, new_value: Any) -> None:
         """Persist a new value for ``key`` and notify listeners."""
 
@@ -140,11 +255,19 @@ class ConfigRegistry:
         This should be called once the database is ready during startup.
         """
         if not self._pending_env_persists:
+            log_debug("[config] No env overrides to flush")
             return
         
         log_info(f"[config] Flushing {len(self._pending_env_persists)} env override(s) to database")
         for key, value in list(self._pending_env_persists.items()):
             try:
+                # Check if value in DB is different
+                old_value = await self._load_from_db(key)
+                if old_value != value:
+                    log_info(f"[config] Updating '{key}' in DB: '{old_value}' → '{value}'")
+                else:
+                    log_debug(f"[config] '{key}' already has correct value in DB: '{value}'")
+                
                 await self._persist_to_db(key, value)
                 log_debug(f"[config] ✓ Persisted env override '{key}' to DB")
             except Exception as exc:
@@ -224,6 +347,10 @@ class ConfigRegistry:
 
     def _load_definition_sync(self, definition: ConfigDefinition) -> None:
         """Synchronously ensure ``definition`` is loaded."""
+
+        # Reset env_override flag at each load - it should only be True if ENV exists NOW
+        definition.env_override = False
+        definition.env_value = None
 
         env_value = os.getenv(definition.key)
         if env_value is not None:
@@ -420,18 +547,32 @@ class ConfigRegistry:
         DB value is loaded instead of using defaults.
         """
         loaded_count = 0
+        skipped_count = 0
         for definition in self._definitions.values():
             # Skip bootstrap configs (already loaded from env)
             if "bootstrap" in definition.tags:
+                log_debug(f"[config] Skipping '{definition.key}': bootstrap tag")
+                skipped_count += 1
                 continue
             
             # Skip if already loaded from environment
             if definition.env_override:
+                log_debug(f"[config] Skipping '{definition.key}': env_override=True")
+                skipped_count += 1
                 continue
                 
-            # Skip if already properly loaded from DB (has raw_value)
+            # Skip if already properly loaded from DB during sync phase
+            # BUT allow reload if it only has default value (to handle ENV removal case)
             if definition.loaded and definition.raw_value is not None and definition.raw_value != "":
-                continue
+                # Check if this is actually a default value that needs DB reload
+                default_raw = self._serialize_value(definition, definition.default)
+                if definition.raw_value != default_raw:
+                    # Has a real value from DB, skip
+                    log_debug(f"[config] Skipping '{definition.key}': already has DB value (not default)")
+                    skipped_count += 1
+                    continue
+                # Has default value, try to load from DB in case it was skipped during async init
+                log_debug(f"[config] '{definition.key}' has default value, will try DB reload")
             
             try:
                 raw_value = await self._load_from_db(definition.key)
@@ -453,8 +594,29 @@ class ConfigRegistry:
             except Exception as exc:
                 log_warning(f"[config] Failed to load '{definition.key}' from DB: {exc}")
         
-        if loaded_count > 0:
-            log_info(f"[config] ✓ Loaded {loaded_count} configuration(s) from database")
+        log_info(f"[config] ✓ load_all_from_db completed: loaded={loaded_count}, skipped={skipped_count}, total={len(self._definitions)}")
+
+    def notify_all_listeners(self) -> None:
+        """
+        Notify all registered listeners with current config values.
+        
+        This is called after load_all_from_db() to ensure all components
+        receive updated values from the database, not just the defaults
+        that were loaded during module import.
+        """
+        notified_count = 0
+        for definition in self._definitions.values():
+            if definition.listeners:
+                for listener in definition.listeners:
+                    try:
+                        listener(definition.value)
+                        notified_count += 1
+                        log_debug(f"[config] Notified listener for '{definition.key}' with value: {definition.value}")
+                    except Exception as exc:
+                        log_warning(f"[config] Failed to notify listener for '{definition.key}': {exc}")
+        
+        if notified_count > 0:
+            log_info(f"[config] ✓ Notified {notified_count} listener(s) with updated config values")
 
 
 config_registry = ConfigRegistry()

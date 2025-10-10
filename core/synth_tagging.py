@@ -1,4 +1,4 @@
-# core/rekku_tagging.py
+# core/synth_tagging.py
 
 """Tagging utilities.
 
@@ -28,5 +28,5 @@ def expand_tags(tags: List[str]) -> List[str]:
     available. The full implementation will expand tags based on stored
     relationships in the future.
     """
-    log_debug("[rekku_tagging] expand_tags is not implemented yet (placeholder)")
+    log_debug("[synth_tagging] expand_tags is not implemented yet (placeholder)")
     return tags

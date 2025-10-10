@@ -1,7 +1,7 @@
 LLM Engines
 ===========
 
-The Rekku Freedom Project supports multiple language model backends through a modular engine system. Engines are automatically discovered and can be switched at runtime using the ``/llm`` command. This design ensures that LLM implementations are completely decoupled from the core system.
+The Synthetic Heart supports multiple language model backends through a modular engine system. Engines are automatically discovered and can be switched at runtime using the ``/llm`` command. This design ensures that LLM implementations are completely decoupled from the core system.
 
 Engine Architecture
 -------------------
@@ -74,7 +74,7 @@ Setup Steps:
 1. Start the system with ``docker compose up``
 2. Access ``http://<host>:5006`` in your browser
 3. Complete ChatGPT login and captcha verification
-4. Rekku can then interact with ChatGPT in real-time
+4. synth can then interact with ChatGPT in real-time
 
 Engine Registration and Discovery
 ---------------------------------

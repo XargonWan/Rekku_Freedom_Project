@@ -34,7 +34,7 @@ class ComponentInfo:
 
 
 class CoreInitializer:
-    """Centralizes the initialization of all Rekku components."""
+    """Centralizes the initialization of all synth components."""
     
     def __init__(self):
         self.loaded_plugins = []
@@ -50,10 +50,22 @@ class CoreInitializer:
         # Component tracking system
         self.components: Dict[str, ComponentInfo] = {}
         self.initialization_completed = False
+        
+        # Runtime flag for dev components (NOT persistent, resets on restart)
+        self._enable_dev_components = False
+    
+    def enable_dev_components(self, enabled: bool = True):
+        """Enable or disable dev components discovery. NOT persistent across restarts."""
+        self._enable_dev_components = enabled
+        log_info(f"[core_initializer] Dev components {'enabled' if enabled else 'disabled'} (runtime only)")
+    
+    def are_dev_components_enabled(self) -> bool:
+        """Check if dev components are currently enabled."""
+        return self._enable_dev_components
     
     async def initialize_all(self, notify_fn=None):
-        """Initialize all Rekku components in the correct order."""
-        log_info("🚀 Initializing Rekku core components...")
+        """Initialize all synth components in the correct order."""
+        log_info("🚀 Initializing synth core components...")
         
         # Set flag to prevent plugin auto-registration from triggering refreshes
         self._initial_initialization = True
@@ -112,6 +124,20 @@ class CoreInitializer:
             except Exception as e:
                 log_error(f"[core_initializer] Error in _discover_interfaces: {e}")
                 self.startup_errors.append(f"Interface discovery failed: {e}")
+
+            # 5. NOW load all configurations from DB (after all components have registered their variables)
+            log_info("[core_initializer] Loading all configurations from database...")
+            try:
+                from core.config_manager import config_registry
+                await config_registry.load_all_from_db()
+                log_info("[core_initializer] ✅ All configurations loaded from database")
+                
+                # Notify all listeners so components can update their global variables
+                log_info("[core_initializer] Notifying all config listeners...")
+                config_registry.notify_all_listeners()
+                log_info("[core_initializer] ✅ All config listeners notified")
+            except Exception as load_exc:
+                log_warning(f"[core_initializer] Failed to load configurations from DB: {load_exc}")
 
             # Note: Startup summary will be displayed by main.py after all interfaces are started
             log_info("[core_initializer] Core initialization completed successfully")
@@ -209,15 +235,14 @@ class CoreInitializer:
             # Flush env overrides to DB now that it should be ready
             try:
                 from core.config_manager import config_registry
-                # MUST await flush before loading from DB, otherwise load will overwrite the flush
+                # Flush ENV overrides to DB immediately
                 await config_registry.flush_env_overrides_to_db()
                 log_debug("[core_initializer] Env overrides flushed to database")
                 
-                # Also load all configurations from DB that may have been skipped during imports
-                await config_registry.load_all_from_db()
-                log_debug("[core_initializer] Loaded all configurations from database")
+                # NOTE: load_all_from_db() will be called AFTER all components have registered their variables
+                # This ensures variables from plugins, persona_manager, and interfaces are also loaded from DB
             except Exception as flush_exc:
-                log_warning(f"[core_initializer] Failed to execute config operations: {flush_exc}")
+                log_warning(f"[core_initializer] Failed to flush env overrides: {flush_exc}")
                 
         except Exception as e:
             log_error(f"[core_initializer] Failed to initialize registries: {e}", e)
@@ -274,6 +299,11 @@ class CoreInitializer:
 
         root_dir = Path(__file__).parent.parent
         search_dirs = ["plugins", "llm_engines", "interface"]
+        
+        # If dev components are enabled, also scan dev directories
+        if self._enable_dev_components:
+            search_dirs.extend(["plugins_dev", "llm_engines_dev", "interface_dev"])
+            log_info("[core_initializer] 🔧 Dev components enabled: scanning plugins_dev/ and llm_engines_dev/")
 
         for base in search_dirs:
             base_path = root_dir / base
@@ -393,29 +423,37 @@ class CoreInitializer:
             log_warning(f"[core_initializer] Failed to import core WebUI: {e}")
             self.startup_errors.append(f"Core WebUI: {e}")
         
-        # Then discover other interfaces from interface/ directory
-        try:
-            import interface
-            interface_path = os.path.dirname(interface.__file__)
-            
-            log_debug(f"[core_initializer] Scanning interface directory: {interface_path}")
-            
-            # Auto-discover all modules in interface package
-            for importer, module_name, is_pkg in pkgutil.iter_modules([interface_path]):
-                if not is_pkg and not module_name.startswith('_'):
-                    module_path = f"interface.{module_name}"
-                    try:
-                        log_debug(f"[core_initializer] Importing interface module: {module_name}")
-                        importlib.import_module(module_path)
-                        log_debug(f"[core_initializer] Successfully imported: {module_name}")
-                    except Exception as e:
-                        log_warning(f"[core_initializer] Failed to import interface {module_name}: {e}")
-            
-            log_debug("[core_initializer] Interface auto-discovery complete")
-            
-        except Exception as e:
-            log_error(f"[core_initializer] Error during interface discovery: {e}")
-            self.startup_errors.append(f"Interface discovery failed: {e}")
+        # Discover interfaces from interface/ directory
+        directories_to_scan = ["interface"]
+        
+        # If dev components are enabled, also scan interface_dev/
+        if self._enable_dev_components:
+            directories_to_scan.append("interface_dev")
+            log_info("[core_initializer] 🔧 Dev components enabled: scanning interface_dev/")
+        
+        for dir_name in directories_to_scan:
+            try:
+                module = importlib.import_module(dir_name)
+                module_path = os.path.dirname(module.__file__)
+                
+                log_debug(f"[core_initializer] Scanning {dir_name} directory: {module_path}")
+                
+                # Auto-discover all modules in package
+                for importer, module_name, is_pkg in pkgutil.iter_modules([module_path]):
+                    if not is_pkg and not module_name.startswith('_'):
+                        full_module_path = f"{dir_name}.{module_name}"
+                        try:
+                            log_debug(f"[core_initializer] Importing interface module: {module_name} from {dir_name}")
+                            importlib.import_module(full_module_path)
+                            log_debug(f"[core_initializer] Successfully imported: {module_name}")
+                        except Exception as e:
+                            log_warning(f"[core_initializer] Failed to import interface {module_name}: {e}")
+                
+                log_debug(f"[core_initializer] {dir_name} auto-discovery complete")
+                
+            except Exception as e:
+                log_error(f"[core_initializer] Error during {dir_name} discovery: {e}")
+                self.startup_errors.append(f"{dir_name} discovery failed: {e}")
     
     def register_interface(self, interface_name: str):
         """Register an active interface."""
@@ -680,14 +718,14 @@ class CoreInitializer:
         log_debug("[core_initializer] System resume obtained successfully")
         
         log_info("=" * 80)
-        log_info("🚀 REKKU FREEDOM PROJECT (RFP) - SYSTEM ONLINE")
+        log_info("🚀 synth FREEDOM PROJECT (SyntH) - SYSTEM ONLINE")
         log_info("=" * 80)
 
         # --- System Status ---
         if resume["initialization_completed"]:
-            log_info("✅ RFP initialization completed successfully!")
+            log_info("✅ SyntH initialization completed successfully!")
         else:
-            log_info("⚠️  RFP initialization in progress...")
+            log_info("⚠️  SyntH initialization in progress...")
         
         # --- Component Summary ---
         log_info(f"📊 COMPONENT STATUS SUMMARY:")

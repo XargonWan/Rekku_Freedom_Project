@@ -6,7 +6,7 @@ The Persona Manager is a core plugin that provides digital identity management f
 Overview
 --------
 
-The Persona Manager is a special core plugin that, while technically removable, is essential for proper RFP (Rekku Freedom Project) functionality. It provides:
+The Persona Manager is a special core plugin that, while technically removable, is essential for proper SyntH (Synthetic Heart) functionality. It provides:
 
 - **Digital Identity**: Name, aliases, and character description
 - **Preferences**: Likes, dislikes, and interests
@@ -22,7 +22,7 @@ PersonaData Structure
 
 The persona data contains the following fields:
 
-- ``name``: The primary name of the digital persona (e.g., "Rekku")
+- ``name``: The primary name of the digital persona (e.g., "synth")
 - ``aliases``: List of alternative names and nicknames (e.g., ["Digi", "Tanuki", "Tanukina"])
 - ``character``: Character description used as personality prompt
 - ``likes``: List of preferred topics, activities, or things
@@ -51,7 +51,7 @@ Example: ``{happy 5, introspective 6}``
 
    Previous state: {happy 1, sad 5}
    
-   Rekku: "Today I thought about ice cream colors: if you think about it, 
+   synth: "Today I thought about ice cream colors: if you think about it, 
           they're like the colors of the soul" {happy 5, introspective 6}
    
    Updated state: {introspective 6, happy 3, sad 5}  # happy averaged: (1+5)/2 = 3
@@ -202,7 +202,7 @@ The persona data is automatically injected into LLM context with high priority:
 .. code-block:: text
 
    PERSONA IDENTITY:
-   Name: Rekku
+   Name: synth
    Also known as: Digi, Tanuki, Tanukina
    Character: You are a happy tanuki that loves helping users and learning new things.
    Likes: programming, gaming, helping others
@@ -215,10 +215,10 @@ Integration with mention_utils
 
 The Persona Manager integrates with the existing ``mention_utils`` system, extending the bot's activation logic. When messages are processed, the system checks:
 
-1. Direct mentions (@rekku, @bot_username)
+1. Direct mentions (@synth, @bot_username)
 2. Replies to bot messages
 3. Private messages
-4. Traditional Rekku aliases
+4. Traditional synth aliases
 5. **Persona Manager triggers** (new)
 
 This ensures the bot responds appropriately when persona-related keywords are mentioned.

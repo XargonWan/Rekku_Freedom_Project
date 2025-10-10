@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-log() { echo "[rekku.sh] $*"; }
+log() { echo "[synth.sh] $*"; }
 
 log "Launcher invoked: $*"
 

@@ -46,37 +46,30 @@ def _parse_trainer_ids(raw_value: str) -> dict[str, int]:
     return mapping
 
 
-# Parse trainer IDs for all interfaces
-TRAINER_IDS: dict[str, int] = {}
-
-
-def _update_trainer_ids(raw_value: str | None) -> None:
-    TRAINER_IDS.clear()
-    TRAINER_IDS.update(_parse_trainer_ids(raw_value or ""))
-
-
-# Register configuration entries for trainer mappings
-_update_trainer_ids(
-    config_registry.get_value(
-        "TRAINER_IDS",
-        "",
-        label="Trainer IDs",
-        description="Comma separated mapping of interface trainer IDs. Example: telegram_bot:123456,discord_interface:654321",
-        group="core",
-        component="core",
-        tags=["key_value_list"],
-    )
+# Trainer IDs configuration
+_TRAINER_IDS_RAW = config_registry.get_var(
+    "TRAINER_IDS",
+    "",
+    label="Trainer IDs",
+    description="Comma separated mapping of interface trainer IDs. Example: telegram_bot:123456,discord_interface:654321",
+    group="core",
+    component="core",
+    tags=["key_value_list"],
 )
-config_registry.add_listener("TRAINER_IDS", _update_trainer_ids)
+
+
+def get_trainer_ids() -> dict[str, int]:
+    """Parse and return current trainer IDs mapping."""
+    return _parse_trainer_ids(str(_TRAINER_IDS_RAW))
 
 
 def get_trainer_id(interface_name: str) -> int | None:
     """Return the trainer ID for the given interface."""
-    return TRAINER_IDS.get(interface_name)
+    return get_trainer_ids().get(interface_name)
     return None
 
 # LLM Configuration
-LLM_MODE = config_registry.get_value(
+LLM_MODE = config_registry.get_var(
     "LLM_MODE",
     "manual",
     label="LLM Mode",
@@ -85,14 +78,6 @@ LLM_MODE = config_registry.get_value(
     component="core",
     tags=["bootstrap"],  # Hidden from UI - LLM is managed via Components tab
 )
-
-
-def _update_llm_mode(value: str | None) -> None:
-    global LLM_MODE
-    LLM_MODE = value or "manual"
-
-
-config_registry.add_listener("LLM_MODE", _update_llm_mode)
 
 # === Persistent LLM mode ===
 

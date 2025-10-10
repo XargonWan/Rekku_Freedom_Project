@@ -1,7 +1,7 @@
 Commands
 ========
 
-Rekku exposes a unified backend for slash commands that can be used from any
+synth exposes a unified backend for slash commands that can be used from any
 interface (e.g. Telegram, Discord).
 
 General

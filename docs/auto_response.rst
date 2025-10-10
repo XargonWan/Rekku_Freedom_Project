@@ -147,7 +147,7 @@ Terminal Command
 
 .. code-block:: text
 
-    User: "rekku fammi df -h"
+    User: "synth fammi df -h"
     LLM: Generates bash action: {"type": "bash", "payload": {"command": "df -h"}}
     Terminal: Executes "df -h", gets output
     Auto-Response: Sends output + context to LLM

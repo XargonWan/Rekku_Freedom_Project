@@ -43,7 +43,7 @@ class RedditInterface:
         self.reddit = asyncpraw.Reddit(
             client_id=client_id,
             client_secret=client_secret,
-            user_agent=os.getenv("REDDIT_USER_AGENT", "rekku-agent"),
+            user_agent=os.getenv("REDDIT_USER_AGENT", "synth-agent"),
             username=os.getenv("REDDIT_USERNAME"),
             password=os.getenv("REDDIT_PASSWORD"),
             refresh_token=token,

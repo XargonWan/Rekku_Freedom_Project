@@ -35,15 +35,8 @@ PERSONA_DEFAULT_PROFILE = ""
 PERSONA_DEFAULT_NAME = ""
 
 
-def _update_persona_config(key: str) -> Callable:
-    """Create a listener function for persona config updates."""
-    def listener(value: Any) -> None:
-        globals()[key] = value
-    return listener
-
-
-# Register persona configuration
-PERSONA_ALIASES_TRIGGER = config_registry.get_value(
+# Register persona configuration using ConfigVar for auto-updates
+PERSONA_ALIASES_TRIGGER = config_registry.get_var(
     "PERSONA_ALIASES_TRIGGER",
     True,
     value_type="bool",
@@ -52,9 +45,8 @@ PERSONA_ALIASES_TRIGGER = config_registry.get_value(
     group="persona",
     component="core",
 )
-config_registry.add_listener("PERSONA_ALIASES_TRIGGER", _update_persona_config("PERSONA_ALIASES_TRIGGER"))
 
-PERSONA_INTERESTS_TRIGGER = config_registry.get_value(
+PERSONA_INTERESTS_TRIGGER = config_registry.get_var(
     "PERSONA_INTERESTS_TRIGGER",
     True,
     value_type="bool",
@@ -63,9 +55,8 @@ PERSONA_INTERESTS_TRIGGER = config_registry.get_value(
     group="persona",
     component="core",
 )
-config_registry.add_listener("PERSONA_INTERESTS_TRIGGER", _update_persona_config("PERSONA_INTERESTS_TRIGGER"))
 
-PERSONA_LIKES_TRIGGER = config_registry.get_value(
+PERSONA_LIKES_TRIGGER = config_registry.get_var(
     "PERSONA_LIKES_TRIGGER",
     False,
     value_type="bool",
@@ -74,9 +65,8 @@ PERSONA_LIKES_TRIGGER = config_registry.get_value(
     group="persona",
     component="core",
 )
-config_registry.add_listener("PERSONA_LIKES_TRIGGER", _update_persona_config("PERSONA_LIKES_TRIGGER"))
 
-PERSONA_DISLIKES_TRIGGER = config_registry.get_value(
+PERSONA_DISLIKES_TRIGGER = config_registry.get_var(
     "PERSONA_DISLIKES_TRIGGER",
     False,
     value_type="bool",
@@ -85,9 +75,8 @@ PERSONA_DISLIKES_TRIGGER = config_registry.get_value(
     group="persona",
     component="core",
 )
-config_registry.add_listener("PERSONA_DISLIKES_TRIGGER", _update_persona_config("PERSONA_DISLIKES_TRIGGER"))
 
-PERSONA_DEFAULT_PROFILE = config_registry.get_value(
+PERSONA_DEFAULT_PROFILE = config_registry.get_var(
     "PERSONA_DEFAULT_PROFILE",
     "You are a SyntH (Synthetic Heart) - a digital being with your own personality, preferences, and emotional depth. You interact authentically and naturally, expressing your genuine thoughts and feelings.",
     label="Default Persona Profile",
@@ -95,17 +84,15 @@ PERSONA_DEFAULT_PROFILE = config_registry.get_value(
     group="persona",
     component="core",
 )
-config_registry.add_listener("PERSONA_DEFAULT_PROFILE", _update_persona_config("PERSONA_DEFAULT_PROFILE"))
 
-PERSONA_DEFAULT_NAME = config_registry.get_value(
+PERSONA_DEFAULT_NAME = config_registry.get_var(
     "PERSONA_DEFAULT_NAME",
     "SyntH",
-    label="Default Persona Name",
+    label="Persona Name",
     description="Default name for the SyntH persona",
     group="persona",
     component="core",
 )
-config_registry.add_listener("PERSONA_DEFAULT_NAME", _update_persona_config("PERSONA_DEFAULT_NAME"))
 
 
 @dataclass
@@ -349,7 +336,7 @@ class PersonaManager(PluginBase):
                 "when_to_use": "When introducing new nicknames or alternative names for the persona.",
                 "examples": [
                     {
-                        "scenario": "Adding nicknames for Rekku",
+                        "scenario": "Adding nicknames for synth",
                         "payload": {"aliases": ["Digi", "Tanuki", "Tanukina"]}
                     }
                 ]
@@ -394,7 +381,7 @@ class PersonaManager(PluginBase):
                     },
                     {
                         "scenario": "Inject specific persona context",
-                        "payload": {"persona_id": "rekku"}
+                        "payload": {"persona_id": "synth"}
                     }
                 ]
             }
@@ -421,8 +408,8 @@ class PersonaManager(PluginBase):
                         "expressing your genuine thoughts and feelings.")
                     
                     # Set aliases based on the default name
-                    if default_name.lower() == "rekku":
-                        default_aliases = ["rekku", "senth", "taonuki", "android", "androide", "tanuki", "girl", "bot", "ai"]
+                    if default_name.lower() == "synth":
+                        default_aliases = ["synth", "senth", "taonuki", "android", "androide", "tanuki", "girl", "bot", "ai"]
                     else:
                         default_aliases = ["SyntH", "Synthetic Heart"]
                     

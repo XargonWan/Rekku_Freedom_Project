@@ -6,10 +6,10 @@ ARG GITVERSION_TAG
 ARG BUILD_DATE
 ARG VERSION
 
-LABEL build_version="Rekku Freedom Project version:- ${VERSION} Build-date:- ${BUILD_DATE}"
+LABEL build_version="Synthetic Heart version:- ${VERSION} Build-date:- ${BUILD_DATE}"
 LABEL maintainer="xargonwan"
 
-ENV TITLE="Rekku Freedom Project"
+ENV TITLE="Synthetic Heart"
 ENV PIXELFLUX_USE_XSHM=0 \
     PIXELFLUX_DISABLE_XSHM=1 \
     PIXELFLUX_NO_XSHM=1 \
@@ -60,26 +60,26 @@ RUN ARCH="${TARGETARCH}" && \
     chromium --version
 
 # Prepare chrome profile folder
-RUN mkdir -p '/config/.config/chromium-rfp' && \
+RUN mkdir -p '/config/.config/chromium-synth' && \
     chown -R abc:abc /config && \
     chmod -R 775 /config
 
 # Set Chromium as default browser with profile
 RUN mkdir -p /usr/local/share/applications && \
-    echo '[Desktop Entry]' > /usr/local/share/applications/chromium-rfp.desktop && \
-    echo 'Version=1.0' >> /usr/local/share/applications/chromium-rfp.desktop && \
-    echo 'Name=Chromium RFP' >> /usr/local/share/applications/chromium-rfp.desktop && \
-    echo 'Comment=Chromium browser for Rekku Freedom Project' >> /usr/local/share/applications/chromium-rfp.desktop && \
-    echo 'Exec=/usr/bin/chromium --no-sandbox --user-data-dir=/config/.config/chromium-rfp %U' >> /usr/local/share/applications/chromium-rfp.desktop && \
-    echo 'Terminal=false' >> /usr/local/share/applications/chromium-rfp.desktop && \
-    echo 'Type=Application' >> /usr/local/share/applications/chromium-rfp.desktop && \
-    echo 'Categories=Network;WebBrowser;' >> /usr/local/share/applications/chromium-rfp.desktop && \
-    echo 'MimeType=text/html;text/xml;application/xhtml+xml;application/xml;x-scheme-handler/http;x-scheme-handler/https;' >> /usr/local/share/applications/chromium-rfp.desktop && \
-    chmod 644 /usr/local/share/applications/chromium-rfp.desktop && \
+    echo '[Desktop Entry]' > /usr/local/share/applications/chromium-synth.desktop && \
+    echo 'Version=1.0' >> /usr/local/share/applications/chromium-synth.desktop && \
+    echo 'Name=Chromium SyntH' >> /usr/local/share/applications/chromium-synth.desktop && \
+    echo 'Comment=Chromium browser for Synthetic Heart' >> /usr/local/share/applications/chromium-synth.desktop && \
+    echo 'Exec=/usr/bin/chromium --no-sandbox --user-data-dir=/config/.config/chromium-synth %U' >> /usr/local/share/applications/chromium-synth.desktop && \
+    echo 'Terminal=false' >> /usr/local/share/applications/chromium-synth.desktop && \
+    echo 'Type=Application' >> /usr/local/share/applications/chromium-synth.desktop && \
+    echo 'Categories=Network;WebBrowser;' >> /usr/local/share/applications/chromium-synth.desktop && \
+    echo 'MimeType=text/html;text/xml;application/xhtml+xml;application/xml;x-scheme-handler/http;x-scheme-handler/https;' >> /usr/local/share/applications/chromium-synth.desktop && \
+    chmod 644 /usr/local/share/applications/chromium-synth.desktop && \
     mkdir -p /config/.local/share/applications && \
-    cp /usr/local/share/applications/chromium-rfp.desktop /config/.local/share/applications/ && \
+    cp /usr/local/share/applications/chromium-synth.desktop /config/.local/share/applications/ && \
     chown -R abc:abc /config/.local && \
-    su - abc -c 'xdg-settings set default-web-browser chromium-rfp.desktop'
+    su - abc -c 'xdg-settings set default-web-browser chromium-synth.desktop'
 
 # Install XFCE4 desktop environment
 RUN apt-get update && \
@@ -111,8 +111,8 @@ RUN python3 -m venv /app/venv && \
 
 # Copy essential scripts
 COPY automation_tools/cleanup_chrome.sh /usr/local/bin/cleanup_chrome.sh
-COPY automation_tools/container_rekku.sh /app/rekku.sh
-RUN chmod +x /usr/local/bin/cleanup_chrome.sh /app/rekku.sh
+COPY automation_tools/container_synth.sh /app/synth.sh
+RUN chmod +x /usr/local/bin/cleanup_chrome.sh /app/synth.sh
 
 # Copy project code last to leverage layer caching
 COPY . /app
@@ -124,23 +124,23 @@ ENV GITVERSION_TAG=$GITVERSION_TAG
 RUN echo "$GITVERSION_TAG" > /app/version.txt && \
     echo "Building with tag: $GITVERSION_TAG"
 
-# Create S6 service for Rekku
-COPY webtop/s6-services/rekku /etc/s6-overlay/s6-rc.d/rekku
-RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
+# Create S6 service for synth
+COPY webtop/s6-services/synth /etc/s6-overlay/s6-rc.d/synth
+RUN chmod +x /etc/s6-overlay/s6-rc.d/synth/run && \
     mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
-    echo rekku > /etc/s6-overlay/s6-rc.d/user/contents.d/rekku && \
-    chown -R abc:abc /etc/s6-overlay/s6-rc.d/rekku
+    echo synth > /etc/s6-overlay/s6-rc.d/user/contents.d/synth && \
+    chown -R abc:abc /etc/s6-overlay/s6-rc.d/synth
 
 # Set XFCE as default session for Selkies
 RUN echo xfce4-session > /config/desktop-session
 
-# Copy S6 Rekku service
-COPY webtop/s6-services/rekku /etc/s6-overlay/s6-rc.d/rekku
-RUN chmod +x /etc/s6-overlay/s6-rc.d/rekku/run && \
-    echo 'longrun' > /etc/s6-overlay/s6-rc.d/rekku/type && \
+# Copy S6 synth service
+COPY webtop/s6-services/synth /etc/s6-overlay/s6-rc.d/synth
+RUN chmod +x /etc/s6-overlay/s6-rc.d/synth/run && \
+    echo 'longrun' > /etc/s6-overlay/s6-rc.d/synth/type && \
     mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d && \
-    echo rekku > /etc/s6-overlay/s6-rc.d/user/contents.d/rekku && \
-    chown -R abc:abc /etc/s6-overlay/s6-rc.d/rekku
+    echo synth > /etc/s6-overlay/s6-rc.d/user/contents.d/synth && \
+    chown -R abc:abc /etc/s6-overlay/s6-rc.d/synth
 
 # Copy S6 Websockify service for Selkies
 COPY webtop/s6-services/websockify /etc/s6-overlay/s6-rc.d/websockify

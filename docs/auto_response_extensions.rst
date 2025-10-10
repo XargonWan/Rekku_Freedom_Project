@@ -183,4 +183,4 @@ Future Enhancements
 - **Event Plugin**: More sophisticated event-triggered actions and notifications
 - **Additional Interfaces**: Discord, Matrix, or other platforms using the same pattern
 
-The auto-response system provides a solid foundation for expanding Rekku's autonomous capabilities across multiple platforms while maintaining consistent AI-enhanced interactions.
+The auto-response system provides a solid foundation for expanding synth's autonomous capabilities across multiple platforms while maintaining consistent AI-enhanced interactions.

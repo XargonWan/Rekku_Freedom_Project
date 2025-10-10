@@ -463,7 +463,7 @@ INTERFACE_CLASS = DiscordInterface
 
 # Instantiate and register the interface at import time so the core
 # initializer can discover it during startup.
-DISCORD_BOT_TOKEN = config_registry.get_value(
+DISCORD_BOT_TOKEN = config_registry.get_var(
     "DISCORD_BOT_TOKEN",
     "",
     label="Discord Bot Token",
@@ -475,18 +475,17 @@ DISCORD_BOT_TOKEN = config_registry.get_value(
 
 discord_interface = None
 
-if DISCORD_BOT_TOKEN:
-    discord_interface = DiscordInterface(DISCORD_BOT_TOKEN)
-else:
-    log_warning("[discord_interface] DISCORD_BOT_TOKEN not configured - Discord interface disabled")
+
+def get_discord_token() -> str:
+    """Get the Discord bot token as a string."""
+    return str(DISCORD_BOT_TOKEN) if DISCORD_BOT_TOKEN else ""
 
 
-def _handle_token_update(value: str | None) -> None:
-    token = (value or "").strip()
-    if not token:
-        log_warning("[discord_interface] Discord token cleared – interface requires restart to disable cleanly")
-        return
-    log_info("[discord_interface] Discord token updated. Restart Rekku to apply the new configuration.")
+# Auto-register Discord interface at import time
+# This ensures the interface is ALWAYS registered, even if disabled
+log_info("[discord_interface] Creating Discord interface instance...")
+discord_interface = DiscordInterface(get_discord_token())
+log_info("[discord_interface] Discord interface instance created and registered")
 
 
-config_registry.add_listener("DISCORD_BOT_TOKEN", _handle_token_update)
+

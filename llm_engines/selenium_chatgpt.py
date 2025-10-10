@@ -1551,7 +1551,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         set_notifier(self._notify_fn)
 
         # Unique identifier for this instance to isolate Chromium resources
-        self.instance_id = os.getenv("RFP_INSTANCE_ID", str(os.getpid()))
+        self.instance_id = os.getenv("SyntH_INSTANCE_ID", str(os.getpid()))
         self.profile_dir: Optional[str] = None
 
     def cleanup(self):
@@ -1962,7 +1962,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 "XDG_CONFIG_HOME",
                 os.path.join(os.path.expanduser("~"), ".config"),
             )
-            profile_dir = os.path.join(config_home, "chromium-rfp")
+            profile_dir = os.path.join(config_home, "chromium-synth")
             self.profile_dir = profile_dir
 
             chromium_binary = self._locate_chromium_binary()
@@ -2362,7 +2362,7 @@ class SeleniumChatGPTPlugin(AIPluginBase):
         # Download image if present
         if image_info:
             log_info(f"[selenium] Processing message with image: {image_info.get('type', 'unknown')}")
-            temp_dir = tempfile.mkdtemp(prefix="rekku_images_")
+            temp_dir = tempfile.mkdtemp(prefix="synth_images_")
             
             try:
                 # Handle different image sources

@@ -14,7 +14,7 @@ class TestCommandRegistry(unittest.TestCase):
     async def test_help_command_registered(self):
         self.assertIn("help", list_commands())
         text = await execute_command("help")
-        self.assertIn("Rekku – Available Commands", text)
+        self.assertIn("synth – Available Commands", text)
         self.assertIn("/context", text)
 
     async def test_unknown_command_returns_none(self):

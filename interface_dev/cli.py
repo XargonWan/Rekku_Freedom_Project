@@ -71,7 +71,7 @@ class CLIInterface(PluginBase):
         # Here you can handle the response logic
         log_info(f"[cli] Message: {msg.get('text')}")
         # Simulate a response
-        print(f"Rekku: {msg.get('text')}")
+        print(f"synth: {msg.get('text')}")
 
     def on_cli_exec(self, msg):
         command = msg.get("command")

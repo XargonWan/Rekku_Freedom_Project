@@ -196,7 +196,7 @@
             align-self: flex-end;
             background: rgba(255, 255, 255, 0.08);
         }
-        .bubble.rekku {
+        .bubble.synth {
             align-self: flex-start;
             background: linear-gradient(135deg, #ff6bd6, #7289da);
             color: #fff;
@@ -941,6 +941,65 @@
         .toast.error {
             background: rgba(239, 68, 68, 0.95);
         }
+
+        /* Reload Prompt Dialog */
+        .reload-prompt {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10001;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+        .reload-prompt.show {
+            opacity: 1;
+            pointer-events: all;
+        }
+        .reload-prompt-content {
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+            max-width: 500px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            text-align: center;
+            animation: slideInScale 0.3s ease;
+        }
+        @keyframes slideInScale {
+            from {
+                transform: translateY(-20px) scale(0.95);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0) scale(1);
+                opacity: 1;
+            }
+        }
+        .reload-prompt-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        .reload-prompt-message {
+            font-size: 1.1rem;
+            margin-bottom: 1.5rem;
+            color: var(--text);
+            line-height: 1.5;
+        }
+        .reload-prompt-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+        .reload-prompt-actions .pill {
+            min-width: 120px;
+        }
     </style>
 </head>
 <body>
@@ -1008,7 +1067,16 @@
                         <label><input type="checkbox" class="log-filter" data-level="error" checked /> Error</label>
                         <label><input type="checkbox" class="log-filter" data-level="other" checked /> Other</label>
                         <label style="margin-left: 1rem;">
-                            Web UI Log Level:
+                            System Log Level:
+                            <select id="logging-level" style="margin-left: 0.5rem; padding: 0.25rem 0.5rem;">
+                                <option value="DEBUG">DEBUG</option>
+                                <option value="INFO">INFO</option>
+                                <option value="WARNING">WARNING</option>
+                                <option value="ERROR" selected>ERROR</option>
+                            </select>
+                        </label>
+                        <label style="margin-left: 1rem;">
+                            Web UI Server Log Level:
                             <select id="webui-log-level" style="margin-left: 0.5rem; padding: 0.25rem 0.5rem;">
                                 <option value="debug">DEBUG</option>
                                 <option value="info" selected>INFO</option>
@@ -1075,26 +1143,41 @@
             </div>
         </section>
         <section class="tab-panel" id="tab-components" data-tab="components" role="tabpanel">
-            <div class="settings-grid">
-                <article class="card">
-                    <h2>LLM Engines</h2>
-                    <div id="components-llm">
-                        <div class="meta" id="components-llm-summary">Loading…</div>
-                        <div class="components-list" id="components-llm-list"></div>
-                    </div>
-                </article>
-                <article class="card">
-                    <h2>Interfaces</h2>
-                    <div class="components-list" id="components-interfaces-list">
-                        <div class="meta">Loading…</div>
-                    </div>
-                </article>
-                <article class="card">
-                    <h2>Plugins</h2>
-                    <div class="components-list" id="components-plugins-list">
-                        <div class="meta">Loading…</div>
-                    </div>
-                </article>
+            <div class="settings-grid" style="flex-direction: column;">
+            
+            <article class="card">
+                <h2>LLM Engines</h2>
+                <div id="components-llm">
+                <div class="meta" id="components-llm-summary">Loading…</div>
+                <div class="components-list" id="components-llm-list"></div>
+                </div>
+            </article>
+            <article class="card">
+                <h2>Interfaces</h2>
+                <div class="components-list" id="components-interfaces-list">
+                <div class="meta">Loading…</div>
+                </div>
+            </article>
+            <article class="card">
+                <h2>Plugins</h2>
+                <div class="components-list" id="components-plugins-list">
+                <div class="meta">Loading…</div>
+                </div>
+            </article>
+            
+            <!-- Dev Components Toggle (at bottom) -->
+            <article class="card" style="background: var(--background); border: 2px solid #ffc107; border-radius: 8px;">
+                <h2 style="color: #ffc107;">🔧 Development Components</h2>
+                <div style="display: flex; align-items: center; gap: 15px; margin-top: 10px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="dev-components-toggle" style="width: 20px; height: 20px; cursor: pointer;">
+                        <span style="font-weight: 500;">Enable development components (interface_dev, plugins_dev, llm_engines_dev)</span>
+                    </label>
+                </div>
+                <div class="meta" style="margin-top: 10px;">
+                    ⚠️ <strong>Warning:</strong> This setting is not persistent and will reset to OFF when SyntH restarts. SyntH will restart automatically after toggling.
+                </div>
+            </article>
             </div>
         </section>
         <section class="tab-panel" id="tab-about" data-tab="about" role="tabpanel">
@@ -1110,8 +1193,8 @@
                 <article class="card">
                     <h2>Resources</h2>
                     <ul class="links">
-                        <li><a href="https://github.com/XargonWan/Rekku_Freedom_Project/tree/develop" target="_blank" rel="noreferrer">Project repository</a></li>
-                        <li><a href="https://rekku-freedom-project.readthedocs.io/en/latest/" target="_blank" rel="noreferrer">Documentation</a></li>
+                        <li><a href="https://github.com/XargonWan/Synthetic_Heart/tree/develop" target="_blank" rel="noreferrer">Project repository</a></li>
+                        <li><a href="https://synth-freedom-project.readthedocs.io/en/latest/" target="_blank" rel="noreferrer">Documentation</a></li>
                         <li><a href="https://discord.gg/" target="_blank" rel="noreferrer">Community (coming soon)</a></li>
                     </ul>
                 </article>
@@ -1224,6 +1307,95 @@
                 toast.classList.remove('show');
                 setTimeout(() => toast.remove(), 300);
             }, duration);
+        }
+
+        // Track disabled inputs for re-enabling after reload
+        const pendingReloadInputs = new Map();
+
+        function showReloadPrompt(componentName, message, inputElement = null) {
+            // Remove any existing reload prompt
+            const existingPrompt = document.querySelector('.reload-prompt');
+            if (existingPrompt) {
+                existingPrompt.remove();
+            }
+
+            // Store the input element that was disabled
+            if (inputElement) {
+                pendingReloadInputs.set(componentName, inputElement);
+            }
+
+            // Determine component type from name
+            let componentType = 'interface'; // default
+            if (componentName.includes('_plugin') || componentName.endsWith('Plugin')) {
+                componentType = 'plugin';
+            }
+
+            // Create reload prompt dialog
+            const prompt = document.createElement('div');
+            prompt.className = 'reload-prompt';
+            prompt.innerHTML = `
+                <div class="reload-prompt-content">
+                    <div class="reload-prompt-icon">⚠️</div>
+                    <div class="reload-prompt-message">${message}</div>
+                    <div class="reload-prompt-actions">
+                        <button class="pill" id="reload-prompt-reload">🔄 Reload Now</button>
+                        <button class="pill secondary" id="reload-prompt-later">Later</button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(prompt);
+
+            // Show with animation
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    prompt.classList.add('show');
+                });
+            });
+
+            // Handle Reload button
+            const reloadBtn = document.getElementById('reload-prompt-reload');
+            reloadBtn.addEventListener('click', async () => {
+                prompt.remove();
+                await reloadComponent(componentType, componentName, componentName, null);
+                // Re-enable the input after reload
+                const inputToReEnable = pendingReloadInputs.get(componentName);
+                if (inputToReEnable && !inputToReEnable.disabled) {
+                    // Input might already be re-enabled, skip
+                } else if (inputToReEnable) {
+                    inputToReEnable.disabled = false;
+                }
+                pendingReloadInputs.delete(componentName);
+            });
+
+            // Handle Later button
+            const laterBtn = document.getElementById('reload-prompt-later');
+            laterBtn.addEventListener('click', () => {
+                prompt.classList.remove('show');
+                setTimeout(() => prompt.remove(), 300);
+                // Re-enable the input even if user clicks "Later"
+                const inputToReEnable = pendingReloadInputs.get(componentName);
+                if (inputToReEnable) {
+                    inputToReEnable.disabled = false;
+                }
+                pendingReloadInputs.delete(componentName);
+            });
+
+            // Auto-dismiss after 15 seconds
+            setTimeout(() => {
+                if (document.body.contains(prompt)) {
+                    prompt.classList.remove('show');
+                    setTimeout(() => {
+                        prompt.remove();
+                        // Re-enable the input on auto-dismiss
+                        const inputToReEnable = pendingReloadInputs.get(componentName);
+                        if (inputToReEnable) {
+                            inputToReEnable.disabled = false;
+                        }
+                        pendingReloadInputs.delete(componentName);
+                    }, 300);
+                }
+            }, 15000);
         }
 
         function setInterfaceOptionsFromComponents(interfaces) {
@@ -1520,9 +1692,44 @@
             }
         }
 
+        async function reloadComponent(type, name, displayName, trigger) {
+            if (!type || !name) return;
+            const label = displayName || name;
+            if (trigger) {
+                trigger.disabled = true;
+                trigger.textContent = '⏳ Reloading...';
+            }
+            setStatusMessage(`Reloading ${type} ${label}…`, 'info');
+            try {
+                const res = await fetch('/api/components/reload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type, name }),
+                });
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}));
+                    throw new Error(errorData.detail || `HTTP ${res.status}`);
+                }
+                const payload = await res.json();
+                setStatusMessage(payload.message || `${type} ${label} reloaded successfully`, 'success');
+                
+                // Refresh components list
+                componentsLoaded = false;
+                await refreshComponents(true);
+            } catch (error) {
+                console.error(`[synth_webui] Unable to reload ${type} ${name}`, error);
+                setStatusMessage(`Failed to reload ${type} ${label}: ${error.message}`, 'error');
+            } finally {
+                if (trigger) {
+                    trigger.disabled = false;
+                    trigger.textContent = '🔄 Reload';
+                }
+            }
+        }
+
         function renderComponentGroup(container, items, emptyLabel, options = {}) {
             if (!container) return;
-            const { emphasiseActive = false } = options;
+            const { emphasiseActive = false, componentType = null } = options;
             container.innerHTML = '';
             if (!Array.isArray(items) || !items.length) {
                 const empty = document.createElement('div');
@@ -1532,9 +1739,14 @@
                 return;
             }
 
-            const createFlag = (label, secondary = false) => {
+            const createFlag = (label, secondary = false, isDev = false) => {
                 const flag = document.createElement('span');
-                flag.className = secondary ? 'component-flag component-flag-secondary' : 'component-flag';
+                if (isDev) {
+                    flag.className = 'component-flag component-flag-dev';
+                    flag.style.cssText = 'background: #ffc107; color: #000; font-weight: 600;';
+                } else {
+                    flag.className = secondary ? 'component-flag component-flag-secondary' : 'component-flag';
+                }
                 flag.textContent = label;
                 return flag;
             };
@@ -1555,6 +1767,12 @@
                 const displayName = item?.display_name || item?.name || 'Unnamed';
                 nameSpan.textContent = displayName;
                 summaryMain.appendChild(nameSpan);
+
+                // Check if this is a dev component
+                const isDevComponent = item?.name && item.name.includes('_dev');
+                if (isDevComponent) {
+                    summaryMain.appendChild(createFlag('⚠️ in development', false, true));
+                }
 
                 const status = (item?.status || '').toString().toLowerCase();
                 if (status && status !== 'unknown') {
@@ -1588,6 +1806,21 @@
                         switchLLM(item.name, btn, displayName);
                     });
                     summaryActions.appendChild(btn);
+                }
+
+                // Add Reload button for interfaces and plugins
+                if (componentType && (componentType === 'interface' || componentType === 'plugin') && item?.name) {
+                    const reloadBtn = document.createElement('button');
+                    reloadBtn.className = 'pill secondary';
+                    reloadBtn.type = 'button';
+                    reloadBtn.textContent = '🔄 Reload';
+                    reloadBtn.title = `Reload ${componentType} ${displayName}`;
+                    reloadBtn.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        reloadComponent(componentType, item.name, displayName, reloadBtn);
+                    });
+                    summaryActions.appendChild(reloadBtn);
                 }
 
                 if (summaryActions.childElementCount) {
@@ -1741,8 +1974,14 @@
             renderLLM(data.llm || {});
             const interfaces = Array.isArray(data.interfaces) ? data.interfaces : [];
             setInterfaceOptionsFromComponents(interfaces);
-            renderComponentGroup(componentsInterfacesList, interfaces, 'interfaces', { openFirst: false });
-            renderComponentGroup(componentsPluginsList, data.plugins || [], 'plugins', { openFirst: false });
+            renderComponentGroup(componentsInterfacesList, interfaces, 'interfaces', { openFirst: false, componentType: 'interface' });
+            renderComponentGroup(componentsPluginsList, data.plugins || [], 'plugins', { openFirst: false, componentType: 'plugin' });
+            
+            // Update dev components toggle state
+            const devToggle = document.getElementById('dev-components-toggle');
+            if (devToggle) {
+                devToggle.checked = data.dev_components_enabled || false;
+            }
         }
 
         async function refreshComponents(force = false) {
@@ -2236,6 +2475,47 @@
                 if (item.default !== undefined && item.default !== null) {
                     input.placeholder = String(item.default);
                 }
+                
+                // Add toggle visibility button for sensitive fields
+                if (item.sensitive) {
+                    const toggleBtn = document.createElement('button');
+                    toggleBtn.type = 'button';
+                    toggleBtn.className = 'password-toggle-btn';
+                    toggleBtn.innerHTML = '👁️';
+                    toggleBtn.style.cssText = 'position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 1.2rem; opacity: 0.6; transition: opacity 0.2s;';
+                    toggleBtn.setAttribute('aria-label', 'Toggle password visibility');
+                    
+                    toggleBtn.addEventListener('mouseenter', () => {
+                        toggleBtn.style.opacity = '1';
+                    });
+                    toggleBtn.addEventListener('mouseleave', () => {
+                        toggleBtn.style.opacity = '0.6';
+                    });
+                    
+                    toggleBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (input.type === 'password') {
+                            input.type = 'text';
+                            toggleBtn.innerHTML = '🙈';
+                        } else {
+                            input.type = 'password';
+                            toggleBtn.innerHTML = '👁️';
+                        }
+                    });
+                    
+                    // Make inputWrapper position relative for absolute positioning of button
+                    inputWrapper.style.position = 'relative';
+                    // Add padding to input to avoid text overlapping with button
+                    input.style.paddingRight = '2.5rem';
+                    
+                    // Append toggle button after input is added to wrapper
+                    setTimeout(() => {
+                        if (inputWrapper.contains(input)) {
+                            inputWrapper.appendChild(toggleBtn);
+                        }
+                    }, 0);
+                }
             }
 
             input.dataset.key = item.key;
@@ -2383,12 +2663,16 @@
                 item.value = value;
                 
                 // Check if component reload is required
-                if (result.requires_reload) {
-                    showToast(`⚠️ ${result.message || 'Configuration updated. Component reload required.'}`, false, 8000);
-                    console.warn(`[synth_webui] Component '${result.component}' requires reload after config change`);
+                if (result.requires_reload && result.component) {
+                    const message = result.message || `Configuration updated. Component '${result.component}' should be reloaded.`;
+                    showReloadPrompt(result.component, message, input);
                 } else {
                     // Show success toast
                     showToast('Settings saved');
+                    // Re-enable input immediately if no reload required
+                    if (!item.env_override) {
+                        input.disabled = originalDisabled;
+                    }
                 }
                 
                 // No need to refresh entire config, just update this item
@@ -2403,13 +2687,15 @@
                 } else {
                     input.value = item.value !== undefined && item.value !== null ? String(item.value) : '';
                 }
-            } finally {
+                
+                // Re-enable on error
                 if (!item.env_override) {
                     input.disabled = originalDisabled;
                 } else {
                     input.disabled = true;
                 }
             }
+            // Note: Don't re-enable in finally block - it's handled by showReloadPrompt or in success path
         }
 
         function renderConfig(data) {
@@ -2423,7 +2709,8 @@
             // Filter out items tagged with "logs_only" (should only appear in Logs tab)
             const filteredItems = items.filter(item => {
                 if (!item || typeof item !== 'object') return false;
-                if (item.key === 'LOGGING_LOGCHAT_LEVEL') {
+                // Hide logging-related settings from Settings tab (they're in Logs tab)
+                if (item.key === 'LOGGING_LEVEL' || item.key === 'LOGGING_LOGCHAT_LEVEL' || item.key === 'WEBUI_LOG_LEVEL') {
                     return false;
                 }
                 const tags = item.tags || [];
@@ -2601,6 +2888,52 @@
             });
         }
 
+        // Logging Level dropdown handler
+        const loggingLevelSelect = document.getElementById('logging-level');
+        if (loggingLevelSelect) {
+            // Load current value from config
+            fetch('/api/config')
+                .then(res => res.json())
+                .then(data => {
+                    const loggingLevel = data.items.find(item => item.key === 'LOGGING_LEVEL');
+                    if (loggingLevel && loggingLevel.value) {
+                        loggingLevelSelect.value = loggingLevel.value.toUpperCase();
+                    }
+                })
+                .catch(err => console.error('[synth_webui] Failed to load LOGGING_LEVEL:', err));
+            
+            // Save when changed
+            loggingLevelSelect.addEventListener('change', async (event) => {
+                const newLevel = String(event.target.value || '').toUpperCase();
+                event.target.value = newLevel;
+                console.log('[synth_webui] Changing LOGGING_LEVEL to:', newLevel);
+                
+                const originalDisabled = loggingLevelSelect.disabled;
+                loggingLevelSelect.disabled = true;
+                
+                try {
+                    const res = await fetch('/api/config', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ key: 'LOGGING_LEVEL', value: newLevel })
+                    });
+                    
+                    if (res.ok) {
+                        console.log('[synth_webui] ✓ LOGGING_LEVEL updated successfully');
+                        showToast('Settings saved');
+                    } else {
+                        console.error('[synth_webui] Failed to update LOGGING_LEVEL:', res.status);
+                        showToast('Failed to update logging level', true);
+                    }
+                } catch (error) {
+                    console.error('[synth_webui] Error updating LOGGING_LEVEL:', error);
+                    showToast('Error updating logging level', true);
+                } finally {
+                    loggingLevelSelect.disabled = originalDisabled;
+                }
+            });
+        }
+
         // LogChat Notification Level dropdown handler
         const logchatLevelSelect = document.getElementById('logchat-level');
         if (logchatLevelSelect) {
@@ -2691,7 +3024,7 @@
                 const parsed = JSON.parse(stored);
                 if (!Array.isArray(parsed)) return;
                 historyBuffer = parsed.slice(-HISTORY_LIMIT);
-                historyBuffer.forEach(({ sender, text }) => addMessage(sender || 'rekku', text || '', false));
+                historyBuffer.forEach(({ sender, text }) => addMessage(sender || 'synth', text || '', false));
             } catch (error) {
                 console.debug('[synth_webui] Unable to restore history', error);
             }
@@ -2813,12 +3146,12 @@
 
         function addMessage(sender, text, persist = true) {
             const bubble = document.createElement('div');
-            bubble.className = 'bubble ' + (sender === 'rekku' ? 'rekku' : 'user');
+            bubble.className = 'bubble ' + (sender === 'synth' ? 'synth' : 'user');
             bubble.textContent = text;
             messages.appendChild(bubble);
             messages.scrollTop = messages.scrollHeight;
 
-            if (sender === 'rekku') {
+            if (sender === 'synth') {
                 handleIncoming(text);
             }
 
@@ -2835,7 +3168,7 @@
             if (typingIndicator) return; // Avoid duplicates
             
             typingIndicator = document.createElement('div');
-            typingIndicator.className = 'bubble rekku typing-indicator';
+            typingIndicator.className = 'bubble synth typing-indicator';
             typingIndicator.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
             messages.appendChild(typingIndicator);
             messages.scrollTop = messages.scrollHeight;
@@ -2854,7 +3187,7 @@
                 removeTypingIndicator();
                 // Fetch FAILED_MESSAGE_TEXT from server config (default to "😵")
                 const failedMessage = window.FAILED_MESSAGE_TEXT || "😵";
-                addMessage('rekku', failedMessage);
+                addMessage('synth', failedMessage);
                 showToast('Response timeout - LLM did not respond in time', true);
             }, timeoutMs);
         }
@@ -2892,7 +3225,7 @@
                 }
                 if (data.type === 'message') {
                     removeTypingIndicator(); // Remove typing indicator before showing actual message
-                    const sender = data.sender || 'rekku';
+                    const sender = data.sender || 'synth';
                     addMessage(sender, data.text || '');
                 }
             });
@@ -2928,6 +3261,57 @@
                 form.dispatchEvent(new Event('submit'));
             }
         });
+
+        // Dev components toggle
+        const devToggle = document.getElementById('dev-components-toggle');
+        if (devToggle) {
+            devToggle.addEventListener('change', async (event) => {
+                const enabled = event.target.checked;
+                try {
+                    // Toggle dev components
+                    const res = await fetch('/api/components/dev/toggle', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ enabled })
+                    });
+                    
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    const data = await res.json();
+                    
+                    const statusMsg = enabled 
+                        ? '⚠️ Dev components enabled. SyntH is restarting...' 
+                        : 'Dev components disabled. SyntH is restarting...';
+                    
+                    setStatusMessage(statusMsg, 'success');
+                    
+                    // Wait a moment then trigger restart
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    
+                    // Trigger system restart
+                    const restartRes = await fetch('/api/system/restart', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    
+                    if (!restartRes.ok) {
+                        throw new Error('Restart failed: HTTP ' + restartRes.status);
+                    }
+                    
+                    setStatusMessage('🔄 SyntH is restarting... The page will reload automatically.', 'info');
+                    
+                    // Wait for restart and reload page
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 3000);
+                    
+                } catch (error) {
+                    console.error('[synth_webui] Failed to toggle dev components or restart', error);
+                    setStatusMessage('Failed to toggle dev components: ' + error.message, 'error');
+                    // Revert checkbox state
+                    event.target.checked = !enabled;
+                }
+            });
+        }
 
         window.addEventListener('beforeunload', () => {
             try { if (ws) ws.close(); } catch (_) {}
@@ -2985,7 +3369,26 @@
 
             const controls = new OrbitControls(camera, canvas);
             controls.enableDamping = true;
-            controls.enablePan = false;
+            controls.dampingFactor = 0.05;
+            
+            // Enable pan (Middle Mouse Button or Shift + Left Click)
+            controls.enablePan = true;
+            controls.panSpeed = 0.8;
+            controls.screenSpacePanning = true; // Pan in screen space (more intuitive)
+            
+            // Mouse button configuration (inverted middle/right)
+            controls.mouseButtons = {
+                LEFT: THREE.MOUSE.ROTATE,      // Left click: rotate
+                RIGHT: THREE.MOUSE.PAN,        // Right click: pan
+                MIDDLE: THREE.MOUSE.DOLLY      // Middle click: zoom
+            };
+            
+            // Enable zoom with mouse wheel
+            controls.enableZoom = true;
+            controls.zoomSpeed = 1.0;
+            controls.minDistance = 0.5;  // Minimum zoom distance
+            controls.maxDistance = 10;   // Maximum zoom distance
+            
             controls.target.set(0, 1.2, 0);
             controls.update();
 
@@ -3161,6 +3564,14 @@
                     currentVRM = vrm;
                     currentModel = name;
                     console.log('[synth_webui] currentVRM set:', currentVRM);
+                    
+                    // Configure VRM LookAt to face the camera
+                    if (vrm.lookAt) {
+                        vrm.lookAt.target = camera; // Use camera object, not camera.position
+                        console.log('[synth_webui] ✓ VRM LookAt configured to track camera');
+                    } else {
+                        console.log('[synth_webui] ⚠️ VRM LookAt not available');
+                    }
                     console.log('[synth_webui] currentModel set:', currentModel);
                     
                     // Initialize animation mixer
@@ -3195,14 +3606,14 @@
             // Animation loading function
             async function loadDefaultAnimations(vrm) {
                 try {
-                    console.log('[synth_webui] Loading idle animation (happy_idle.fbx)...');
-                    const idleClip = await loadMixamoAnimation('/static/animations/happy_idle.fbx', vrm);
+                    console.log('[synth_webui] Loading idle animation (Happy Idle.fbx)...');
+                    const idleClip = await loadMixamoAnimation('/animations/Happy Idle.fbx', vrm);
                     idleAction = currentMixer.clipAction(idleClip);
                     idleAction.play();
                     console.log('[synth_webui] ✓ Idle animation loaded and playing');
                     
                     console.log('[synth_webui] Loading talking animation (talking.fbx)...');
-                    const talkingClip = await loadMixamoAnimation('/static/animations/talking.fbx', vrm);
+                    const talkingClip = await loadMixamoAnimation('/animations/talking.fbx', vrm);
                     talkingAction = currentMixer.clipAction(talkingClip);
                     talkingAction.setLoop(THREE.LoopRepeat);
                     console.log('[synth_webui] ✓ Talking animation loaded');
@@ -3268,7 +3679,13 @@
             function render() {
                 requestAnimationFrame(render);
                 const delta = clock.getDelta();
-                if (currentVRM) currentVRM.update(delta);
+                if (currentVRM) {
+                    // Update VRM lookAt to face the camera
+                    if (currentVRM.lookAt) {
+                        currentVRM.lookAt.target = camera; // Use camera object, not camera.position
+                    }
+                    currentVRM.update(delta);
+                }
                 if (currentMixer) currentMixer.update(delta);
                 controls.update();
                 resizeRenderer();

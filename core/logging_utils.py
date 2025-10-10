@@ -12,7 +12,7 @@ _logger: Optional[logging.Logger] = None
 # so running the tests does not attempt to write to restricted locations.
 _DEFAULT_LOG_DIR = os.path.join(os.getcwd(), "logs")
 _LOG_DIR = os.getenv("LOG_DIR", _DEFAULT_LOG_DIR)
-_LOG_FILE = os.path.join(_LOG_DIR, "rfp.log")
+_LOG_FILE = os.path.join(_LOG_DIR, "synth.log")
 _LEVELS = {
     "DEBUG": logging.DEBUG,
     "INFO": logging.INFO,
@@ -87,7 +87,7 @@ def setup_logging() -> logging.Logger:
 
     os.makedirs(_LOG_DIR, exist_ok=True)
 
-    logger = logging.getLogger("rekku")
+    logger = logging.getLogger("synth")
     logger.setLevel(_LEVELS.get(_LOGGING_LEVEL, logging.ERROR))
     logger.propagate = False
 

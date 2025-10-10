@@ -121,7 +121,7 @@ class SeleniumElevenLabsPlugin:
 
         def _run() -> Tuple[str, str]:
             options = uc.ChromeOptions()
-            if os.getenv("REKKU_SELENIUM_HEADLESS", "1") == "1":
+            if os.getenv("synth_SELENIUM_HEADLESS", "1") == "1":
                 options.add_argument("--headless=new")
             prefs = {
                 "download.default_directory": download_dir,

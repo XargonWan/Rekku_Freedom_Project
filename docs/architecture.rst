@@ -2,12 +2,12 @@ Architecture Overview
 =====================
 
 .. image:: res/architecture.png
-    :alt: Rekku Architecture Diagram
+    :alt: synth Architecture Diagram
     :width: 600px
     :align: center
 
 
-The Rekku Freedom Project is a highly modular AI persona system designed for extensibility and flexibility. The architecture separates concerns into distinct layers, allowing independent development and swapping of components without modifying the core system.
+The Synthetic Heart is a highly modular AI persona system designed for extensibility and flexibility. The architecture separates concerns into distinct layers, allowing independent development and swapping of components without modifying the core system.
 
 Core Principles
 ---------------
@@ -50,7 +50,7 @@ System Components
     - Supports both text and multimodal interactions
 
 ``plugins``
-    Action providers that extend Rekku's capabilities (terminal access, weather, file operations, etc.). Each plugin:
+    Action providers that extend synth's capabilities (terminal access, weather, file operations, etc.). Each plugin:
     
     - Implements action schemas with required/optional fields
     - Provides prompt instructions for LLM integration

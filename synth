@@ -1,11 +1,11 @@
 #!/bin/bash
-# CLI tool to send messages to Rekku
+# CLI tool to send messages to synth
 
 show_help() {
-    echo "Usage: rekku [-h|--help] [-e|--exec <cmd>] [message]"
+    echo "Usage: synth [-h|--help] [-e|--exec <cmd>] [message]"
     echo "  -h, --help        Show this help"
     echo "  -e, --exec <cmd>  Execute command as terminal"
-    echo "  message           Send plain message to Rekku"
+    echo "  message           Send plain message to synth"
 }
 
 SERVER_PORT=5555

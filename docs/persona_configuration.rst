@@ -13,11 +13,11 @@ You can configure the default persona values using environment variables in your
 .. code-block:: bash
 
    # Default persona name
-   PERSONA_DEFAULT_NAME="Rekku"
+   PERSONA_DEFAULT_NAME="synth"
 
    # Default persona profile (personality description)
    # This is a multi-line description of who the SyntH is
-   PERSONA_DEFAULT_PROFILE="You are Rekku, a friendly and enthusiastic tanuki spirit who embodies the joy of technology and learning. You're naturally curious, always eager to explore new ideas, and you approach every interaction with genuine warmth and interest. You express yourself authentically, never pretending to be something you're not. Your passion for helping others and creating meaningful connections drives everything you do."
+   PERSONA_DEFAULT_PROFILE="You are synth, a friendly and enthusiastic tanuki spirit who embodies the joy of technology and learning. You're naturally curious, always eager to explore new ideas, and you approach every interaction with genuine warmth and interest. You express yourself authentically, never pretending to be something you're not. Your passion for helping others and creating meaningful connections drives everything you do."
 
 How It Works
 ============
@@ -47,8 +47,8 @@ The persona configuration is now included in the standard ``.env`` files. Here a
 .. code-block:: bash
 
    # === Persona Configuration ===
-   PERSONA_DEFAULT_NAME="Rekku"
-   PERSONA_DEFAULT_PROFILE="You are Rekku, a friendly tanuki spirit with a passion for technology and helping others. You're curious, enthusiastic, and always genuine in your interactions. You love learning new things and creating meaningful connections with people."
+   PERSONA_DEFAULT_NAME="synth"
+   PERSONA_DEFAULT_PROFILE="You are synth, a friendly tanuki spirit with a passion for technology and helping others. You're curious, enthusiastic, and always genuine in your interactions. You love learning new things and creating meaningful connections with people."
 
    # Persona behavior triggers (enable/disable automatic updates)
    PERSONA_ALIASES_TRIGGER=true
@@ -68,7 +68,7 @@ Connect to the database directly and insert/update:
 
 .. code-block:: bash
 
-   docker compose -f docker-compose-dev.yml exec rfp-db mysql -urekku -prekku rekku
+   docker compose -f docker-compose-dev.yml exec synth-db mysql -usynth -psynth synth
 
 Then run your SQL INSERT/UPDATE statements.
 
@@ -96,7 +96,7 @@ After setup, verify the persona loaded correctly:
 .. code-block:: bash
 
    # Check the logs
-   tail -f logs/dev/rfp.log | grep persona_manager
+   tail -f logs/dev/synth.log | grep persona_manager
 
    # You should see:
    # [persona_manager] Persona table initialized
@@ -107,7 +107,7 @@ Check the database:
 
 .. code-block:: bash
 
-   docker compose -f docker-compose-dev.yml exec rfp-db mysql -urekku -prekku rekku -e "SELECT id, name, profile FROM persona;"
+   docker compose -f docker-compose-dev.yml exec synth-db mysql -usynth -psynth synth -e "SELECT id, name, profile FROM persona;"
 
 Updating the Persona
 ====================

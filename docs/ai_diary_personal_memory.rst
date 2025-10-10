@@ -4,7 +4,7 @@ AI Diary Personal Memory System
 Overview
 --------
 
-The AI Diary plugin has been completely redesigned to create a more human-like personal memory system for Rekku. Instead of tracking only technical actions, Rekku now records:
+The AI Diary plugin has been completely redesigned to create a more human-like personal memory system for synth. Instead of tracking only technical actions, synth now records:
 
 - **What he says to users** (his responses and interactions)
 - **His personal thoughts** about each interaction
@@ -39,8 +39,8 @@ Database Structure
 
 The ``ai_diary`` table now includes:
 
-- ``content``: What Rekku said to the user
-- ``personal_thought``: Rekku's personal reflection on the interaction
+- ``content``: What synth said to the user
+- ``personal_thought``: synth's personal reflection on the interaction
 - ``emotions``: Emotions experienced during the interaction
 - ``involved_users``: Users involved in the conversation
 - ``interaction_summary``: Brief summary of what happened
@@ -53,15 +53,15 @@ How to Use
 Automatic Integration
 ~~~~~~~~~~~~~~~~~~~~~
 
-Every time Rekku responds to a user, call:
+Every time synth responds to a user, call:
 
 .. code-block:: python
 
    from plugins.ai_diary import create_personal_diary_entry
 
-   # After Rekku generates a response
+   # After synth generates a response
    create_personal_diary_entry(
-       rekku_response="Hello Marco! I love your blue car!",
+       synth_response="Hello Marco! I love your blue car!",
        user_message="Marco: Do you like my new car?",
        involved_users=["Marco"],
        context_tags=["cars", "compliments"],
@@ -75,7 +75,7 @@ Automatic Emotions
 
 The system automatically generates appropriate emotions based on:
 
-- Content of Rekku's response
+- Content of synth's response
 - Discussed topics (context_tags)
 - Type of interaction
 
@@ -113,7 +113,7 @@ The formatted diary will appear like this:
 
 .. code-block:: text
 
-   === Rekku's Personal Diary ===
+   === synth's Personal Diary ===
    (These are my personal memories of recent interactions)
 
    📅 2025-09-14 20:35:00
@@ -157,7 +157,7 @@ See ``examples/diary_usage_example.py`` for complete examples of:
 Main System Integration
 -----------------------
 
-The diary should be called **every time** Rekku sends a response:
+The diary should be called **every time** synth sends a response:
 
 .. code-block:: python
 
@@ -170,7 +170,7 @@ The diary should be called **every time** Rekku sends a response:
        
        # 3. IMPORTANT: Record in personal diary
        create_personal_diary_entry(
-           rekku_response=response,
+           synth_response=response,
            user_message=user_message,
            involved_users=[user_name],
            context_tags=context_tags,
@@ -184,10 +184,10 @@ Context Analysis Helper
 
 .. code-block:: python
 
-   def analyze_message_context(user_message, rekku_response):
+   def analyze_message_context(user_message, synth_response):
        """Analyze the conversation to determine context tags"""
        tags = []
-       combined_text = (user_message + " " + rekku_response).lower()
+       combined_text = (user_message + " " + synth_response).lower()
        
        if any(word in combined_text for word in ['car', 'auto', 'vehicle', 'driving']):
            tags.append('cars')
@@ -206,26 +206,26 @@ Context Analysis Helper
 Benefits of the New System
 --------------------------
 
-1. **Human Memory**: Rekku remembers what he said and how he felt
+1. **Human Memory**: synth remembers what he said and how he felt
 2. **Relationships**: Tracks interactions with each person
 3. **Personality**: Develops consistent thoughts and emotions
 4. **Continuity**: Future conversations can reference past memories
-5. **Growth**: Rekku's personality evolves over time
+5. **Growth**: synth's personality evolves over time
 
 Conversation Example with Memory
 --------------------------------
 
 .. code-block:: text
 
-   User: "Marco: Hi Rekku, how are you?"
-   Rekku: "Hi Marco! I'm doing well! I was just thinking about our conversation 
+   User: "Marco: Hi synth, how are you?"
+   synth: "Hi Marco! I'm doing well! I was just thinking about our conversation 
            yesterday about your blue car. Is it still as beautiful as ever?"
 
-   [From diary]: Rekku remembers complimenting Marco about his blue car
+   [From diary]: synth remembers complimenting Marco about his blue car
    [Emotion]: nostalgic (5), friendly (7), engaged (6)
    [Thought]: "It's nice to see Marco again, our conversations make me happy"
 
-This creates a much more human and personal experience for users interacting with Rekku!
+This creates a much more human and personal experience for users interacting with synth!
 
 API Reference
 -------------

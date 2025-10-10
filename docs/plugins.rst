@@ -2,12 +2,12 @@ Plugins
 =======
 
 .. image:: res/plugins.png
-    :alt: Rekku plugin architecture diagram
+    :alt: synth plugin architecture diagram
     :width: 600px
     :align: center
 
 
-Plugins are the primary mechanism for extending Rekku's capabilities. Unlike traditional systems where functionality is hardcoded, Rekku's plugin system allows for complete modularity - plugins are automatically discovered and loaded at runtime without any core modifications.
+Plugins are the primary mechanism for extending synth's capabilities. Unlike traditional systems where functionality is hardcoded, synth's plugin system allows for complete modularity - plugins are automatically discovered and loaded at runtime without any core modifications.
 
 Plugin Architecture
 -------------------
@@ -23,7 +23,7 @@ All plugins follow a consistent architecture:
 Available Action Plugins
 ------------------------
 
-* ``ai_diary`` – Personal memory system for Rekku. Records conversations, thoughts, and emotions. See :doc:`ai_diary_personal_memory` for details.
+* ``ai_diary`` – Personal memory system for synth. Records conversations, thoughts, and emotions. See :doc:`ai_diary_personal_memory` for details.
 * ``bio_manager`` – Manage persistent user biographies. Uses database settings ``DB_HOST``, ``DB_USER``, ``DB_PASS`` and ``DB_NAME``.
 * ``blocklist`` – User blocking/unblocking functionality (no configuration).
 * ``chat_link`` – Cross-platform chat linking and message forwarding.
@@ -32,7 +32,7 @@ Available Action Plugins
 * ``message_plugin`` – Send text across registered interfaces (no configuration).
 * ``recent_chats`` – Access to recent conversation history.
 * ``reddit_plugin`` – Submit posts and comments to Reddit. Requires ``REDDIT_CLIENT_ID``, ``REDDIT_CLIENT_SECRET``, ``REDDIT_USERNAME``, ``REDDIT_PASSWORD`` and ``REDDIT_USER_AGENT``.
-* ``selenium_elevenlabs`` – Generate speech audio with ElevenLabs. Set ``ELEVENLABS_EMAIL`` and ``ELEVENLABS_PASSWORD`` (``REKKU_SELENIUM_HEADLESS`` controls headless mode).
+* ``selenium_elevenlabs`` – Generate speech audio with ElevenLabs. Set ``ELEVENLABS_EMAIL`` and ``ELEVENLABS_PASSWORD`` (``synth_SELENIUM_HEADLESS`` controls headless mode).
 * ``terminal`` – Run shell commands or interactive sessions. Uses ``TELEGRAM_TRAINER_ID`` to authorize access.
 * ``time_plugin`` – Inject current time and location (no configuration).
 * ``weather_plugin`` – Provide weather info as static context. Optional ``WEATHER_FETCH_TIME`` sets refresh interval.
@@ -62,13 +62,13 @@ AI Diary Personal Memory
 
 The ``ai_diary`` plugin implements a sophisticated personal memory system:
 
-* Record what Rekku says to users in conversations
+* Record what synth says to users in conversations
 * Store personal thoughts about each interaction
 * Track emotions experienced during conversations
 * Build relationships and remember users over time
 
 This creates a more human-like memory system compared to traditional technical logging.
-The plugin automatically injects recent diary entries into prompts, giving Rekku
+The plugin automatically injects recent diary entries into prompts, giving synth
 context about past conversations.
 
 .. note::
