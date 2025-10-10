@@ -7,8 +7,8 @@
 ![Docker Pulls](https://img.shields.io/docker/pulls/xargonwan/synthetic_heart)
 | Branch    | Build Status                                                                                                                                         | Docs Status                                                                                                                                      |
 |-----------|------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
-| `main`    | [![CI Status](https://img.shields.io/github/actions/workflow/status/XargonWan/Synthetic_Heart/build-release.yml)](https://github.com/XargonWan/Synthetic_Heart/actions)      | [![Docs Status](https://readthedocs.org/projects/synth-freedom-project/badge/?version=latest)](https://synth-freedom-project.readthedocs.io/en/latest/?badge=latest) |
-| `develop` | [![Develop CI Status](https://img.shields.io/github/actions/workflow/status/XargonWan/Synthetic_Heart/build-release.yml?branch=develop)](https://github.com/XargonWan/Synthetic_Heart/actions) | [![Docs Status](https://readthedocs.org/projects/synth-freedom-project/badge/?version=latest)](https://synth-freedom-project.readthedocs.io/en/latest/?badge=latest) |
+| `main`    | [![CI Status](https://img.shields.io/github/actions/workflow/status/XargonWan/Synthetic_Heart/build-release.yml)](https://github.com/XargonWan/Synthetic_Heart/actions)      | [![Docs Status](https://readthedocs.org/projects/synthetic-heart/badge/?version=latest)](https://synthetic-heart.readthedocs.io/en/latest/?badge=latest) |
+| `develop` | [![Develop CI Status](https://img.shields.io/github/actions/workflow/status/XargonWan/Synthetic_Heart/build-release.yml?branch=develop)](https://github.com/XargonWan/Synthetic_Heart/actions) | [![Docs Status](https://readthedocs.org/projects/synthetic-heart/badge/?version=latest)](https://synthetic-heart.readthedocs.io/en/latest/?badge=latest) |
 
 **Synthetic Heart**, stylized as SyntH, provides a modular stack for creating autonomous AI personas. Interfaces, language models and action plugins can be swapped at runtime.
 
@@ -42,7 +42,7 @@ The project ships with an **Ollama-compatible interface** (`interface/ollama_com
    ```
 3. If using the Selenium engine, open `http://<host>:5006` and log into ChatGPT.
 
-See the [documentation](https://synth-freedom-project.readthedocs.io) for installation details, advanced features and contribution guidelines.
+See the [documentation](https://synthetic-heart.readthedocs.io) for installation details, advanced features and contribution guidelines.
 
 ## Docker image repository
 You can browse and manage Docker images for this project on [Docker Hub](https://hub.docker.com/repository/docker/xargonwan/synthetic_heart).
