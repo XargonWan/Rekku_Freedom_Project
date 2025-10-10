@@ -835,42 +835,13 @@ async def plugin_startup_callback(application):
 async def start_bot():
     log_info("[telegram_bot] start_bot() function called")
     
-    # Force load configuration from DB (ConfigVar might be using default during async context)
-    try:
-        from core.config_manager import config_registry
-        token = config_registry.get_value("BOTFATHER_TOKEN", default="")
-        if not token:
-            token = config_registry.get_value("TELEGRAM_TOKEN", default="")
-        token = str(token).strip() if token else ""
-        log_debug(f"[telegram_bot] Loaded token from DB: {'present' if token else 'empty'}")
-    except Exception as e:
-        log_error(f"[telegram_bot] Failed to load token from DB: {e}")
-        token = get_telegram_token()  # Fallback to ConfigVar
-    
-    if not token:
-        log_warning("[telegram_bot] BOTFATHER_TOKEN not configured - disabling Telegram interface")
-        _telegram_interface._disable("BOTFATHER_TOKEN not configured")
+    if not get_telegram_token():
+        log_warning("[telegram_bot] BOTFATHER_TOKEN not configured - skipping Telegram bot startup")
         return
     
-    # Force load trainer ID from DB
-    try:
-        from core.config_manager import config_registry
-        trainer_id = config_registry.get_value("TELEGRAM_TRAINER_ID", default="")
-        if trainer_id:
-            trainer_id = int(str(trainer_id).strip())
-        else:
-            trainer_id = None
-        log_debug(f"[telegram_bot] Loaded trainer_id from DB: {trainer_id}")
-    except Exception as e:
-        log_error(f"[telegram_bot] Failed to load trainer_id from DB: {e}")
-        trainer_id = TELEGRAM_TRAINER_ID  # Fallback to ConfigVar
-    
-    if not trainer_id:
-        log_warning("[telegram_bot] TELEGRAM_TRAINER_ID not configured - disabling Telegram interface")
-        _telegram_interface._disable("TRAINER_IDS not configured for telegram_bot")
+    if not get_trainer_id('telegram_bot'):
+        log_warning("[telegram_bot] TELEGRAM_TRAINER_ID not configured - skipping Telegram bot startup")
         return
-    
-    log_info(f"[telegram_bot] ✅ Configuration validated - Token: {token[:10]}... Trainer ID: {trainer_id}")
     
     # Log system state at startup and initialize with Telegram notify function
     try:
@@ -882,9 +853,9 @@ async def start_bot():
         
         # Register this interface in the registry
         _interface_registry.register_interface('telegram_bot', None)  # We don't have the bot instance yet
-        if trainer_id:
-            _interface_registry.set_trainer_id('telegram_bot', trainer_id)
-            log_info(f"[telegram_bot] Registered telegram_bot interface with trainer ID {trainer_id}")
+        if get_trainer_id('telegram_bot'):
+            _interface_registry.set_trainer_id('telegram_bot', get_trainer_id('telegram_bot'))
+            log_info(f"[telegram_bot] Registered telegram_bot interface with trainer ID {get_trainer_id('telegram_bot')}")
         
     except Exception as e:
         log_error(f"[telegram_bot] Error in core initialization: {repr(e)}")
@@ -899,7 +870,7 @@ async def start_bot():
         # pool_timeout: time to wait for connection from pool
         app = (
             ApplicationBuilder()
-            .token(token)
+            .token(get_telegram_token())
             .post_init(plugin_startup_callback)
             .connect_timeout(30.0)  # Increased from default ~5s to 30s
             .read_timeout(30.0)     # Increased from default ~5s to 30s
@@ -959,14 +930,9 @@ async def start_bot():
 
         # Register interface instance for plugins. This automatically exposes
         # its actions to the core initializer.
-        # Update the existing interface instance instead of creating a new one
-        _telegram_interface.bot = app.bot
-        _telegram_interface.bot_token = token
-        _telegram_interface.trainer_id = trainer_id
-        _telegram_interface.is_enabled = True
-        _telegram_interface.disabled_reason = None
-        register_interface("telegram_bot", _telegram_interface)
-        log_debug("[telegram_bot] Interface instance updated and registered")
+        telegram_interface = TelegramInterface(app.bot)
+        register_interface("telegram_bot", telegram_interface)
+        log_debug("[telegram_bot] Interface instance registered")
 
         # Rebuild action schemas (summary will be shown later by main initialization)
         from core.core_initializer import core_initializer
@@ -996,16 +962,9 @@ async def start_bot():
 class TelegramInterface:
     """Interface wrapper providing a standard send_message method for Telegram."""
 
-    def __init__(self, bot: Bot = None, bot_token: str = None, trainer_id: int = None):
-        """Store the python-telegram-bot ``Bot`` instance and check configuration."""
+    def __init__(self, bot: Bot = None):
+        """Store the python-telegram-bot ``Bot`` instance."""
         self.bot = bot
-        self.bot_token = bot_token
-        self.trainer_id = trainer_id
-        self.is_enabled = True  # Start enabled, will be disabled in start_bot() if config is missing
-        self.disabled_reason = None
-        
-        # NOTE: We DON'T check bot_token or trainer_id here because config may not be loaded yet
-        # The check will be done in start_bot() after DB values are loaded
         
         # Register resolver to fetch chat/thread names automatically
         async def _resolver(chat_id, thread_id, bot_instance=None):
@@ -1044,24 +1003,10 @@ class TelegramInterface:
 
         ChatLinkStore.set_name_resolver("telegram", _resolver)
 
-        # ALWAYS register this interface, even if disabled
+        # Register this interface instance
         from core.core_initializer import register_interface
         register_interface("telegram_bot", self)
-        _interface_registry.register_interface("telegram_bot", self)
-        if self.trainer_id is not None:
-            _interface_registry.set_trainer_id("telegram_bot", self.trainer_id)
-        
-        if self.is_enabled:
-            log_info("[telegram_bot] Telegram interface registered and enabled")
-        else:
-            reason = self.disabled_reason or "missing configuration"
-            log_warning(f"[telegram_bot] Interface loaded in disabled state: {reason}")
     
-    def _disable(self, reason: str) -> None:
-        """Mark interface as disabled with a reason."""
-        self.is_enabled = False
-        self.disabled_reason = reason
-
     @staticmethod
     def get_interface_id() -> str:
         """Return the unique identifier for this interface."""
@@ -1503,37 +1448,36 @@ class TelegramInterface:
         await self._verify_delivery(sent_message, payload, original_message)
 
 
-# Auto-register Telegram interface at import time
-# This ensures the interface is ALWAYS registered, even if disabled
-from core.config import get_trainer_id
+# Auto-start Telegram bot at import time if configured
+# This ensures the interface is available when the core initializer runs
+# Evaluate ConfigVar objects to get actual string values for conditional check
+_botfather_token_value = str(get_telegram_token()).strip() if get_telegram_token() else ""
+_telegram_trainer_id_value = get_trainer_id('telegram_bot')
 
-TELEGRAM_TRAINER_ID = get_trainer_id('telegram_bot')
-
-# Create interface instance (will register itself)
-_telegram_interface = TelegramInterface(
-    bot=None,  # Will be set when bot starts
-    bot_token=BOTFATHER_TOKEN,
-    trainer_id=TELEGRAM_TRAINER_ID
-)
-
-# Schedule the bot to start when an event loop becomes available
-log_info("[telegram_bot] Scheduling Telegram bot startup...")
-
-def _schedule_telegram_startup():
-    """Schedule Telegram bot startup in the event loop."""
+if _botfather_token_value and _telegram_trainer_id_value:
+    log_info("[telegram_bot] BOTFATHER_TOKEN and TELEGRAM_TRAINER_ID configured - scheduling Telegram bot startup")
+    
+    # Schedule the bot to start when an event loop becomes available
+    def _schedule_telegram_startup():
+        """Schedule Telegram bot startup in the event loop."""
+        try:
+            import asyncio
+            loop = asyncio.get_running_loop()
+            loop.create_task(start_bot())
+            log_info("[telegram_bot] Telegram bot startup task scheduled")
+        except RuntimeError:
+            # No event loop yet - will be handled by the main application
+            log_debug("[telegram_bot] No event loop running, bot will start when application initializes")
+    
+    # Try to schedule immediately
     try:
-        import asyncio
-        loop = asyncio.get_running_loop()
-        loop.create_task(start_bot())
-        log_info("[telegram_bot] Telegram bot startup task scheduled")
-    except RuntimeError:
-        # No event loop yet - will be handled by the main application
-        log_debug("[telegram_bot] No event loop running, bot will start when application initializes")
-
-# Try to schedule immediately
-try:
-    _schedule_telegram_startup()
-except Exception as e:
-    log_debug(f"[telegram_bot] Could not schedule startup immediately: {e}")
-    # This is expected during import - the main app will handle it
+        _schedule_telegram_startup()
+    except Exception as e:
+        log_debug(f"[telegram_bot] Could not schedule startup immediately: {e}")
+        # This is expected during import - the main app will handle it
+else:
+    if not _botfather_token_value:
+        log_debug("[telegram_bot] BOTFATHER_TOKEN not configured - Telegram interface disabled")
+    if not _telegram_trainer_id_value:
+        log_debug("[telegram_bot] TELEGRAM_TRAINER_ID not configured - Telegram interface disabled")
 
