@@ -1,9 +1,13 @@
 Synthetic Heart Documentation
 ===================================
 
-.. image:: res/SyntH_logo.png
-   :width: 600px
-   :alt: SyntH Logo
+.. raw:: html
+
+   <div align="center">
+      <div style="background: #222; border-radius: 12px; padding: 12px; width: 700px; height: 300px; display: flex; align-items: center; justify-content: center; margin: 0 auto;">
+         <img src="res/SyntH_logo.png" alt="Synthetic Heart Logo" style="max-width: 100%; max-height: 100%; object-fit: contain;" />
+      </div>
+   </div>
 
 
 Welcome to the **Synthetic Heart** documentation. These pages are built
