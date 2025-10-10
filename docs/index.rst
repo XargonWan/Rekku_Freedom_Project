@@ -41,6 +41,7 @@ getting started.
    matrix_interface
    config_management
    dev_components
+   component_development_guide
    contributing
    faq
 
