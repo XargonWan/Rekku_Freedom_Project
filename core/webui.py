@@ -186,9 +186,15 @@ class SynthWebUIInterface:
             advanced=True,
         )
         
-        # Use system-wide LOG_LEVEL instead of separate WEBUI_LOG_LEVEL
-        self.log_level = "info"  # Default, will be overridden by uvicorn if LOG_LEVEL is set
+        # Use system-wide LOG_LEVEL
+        from core.logging_utils import _LOGGING_LEVEL
+        self.log_level = _LOGGING_LEVEL.lower()  # Follow global logging level
         
+        def _update_log_level(value: str | None) -> None:
+            self.log_level = (value or "error").lower()
+        
+        config_registry.add_listener("LOGGING_LEVEL", _update_log_level)
+
         # Selkies (desktop) ports
         self.selkies_https_port = config_registry.get_value(
             "SELKIES_HTTPS_PORT",
@@ -1285,6 +1291,17 @@ class SynthWebUIInterface:
                     "status": status_value,
                     "details": getattr(info, "details", "") or "",
                     "error": getattr(info, "error", "") or "",
+                }
+            
+            # Check if it's an interface and if it's disabled
+            from core.core_initializer import INTERFACE_REGISTRY
+            interface = INTERFACE_REGISTRY.get(name)
+            if interface and hasattr(interface, 'is_enabled') and not interface.is_enabled:
+                reason = getattr(interface, 'disabled_reason', 'Disabled')
+                return {
+                    "status": "disabled",
+                    "details": reason,
+                    "error": "",
                 }
         except Exception as exc:  # pragma: no cover - defensive
             log_debug(f"{LOG_PREFIX} meta lookup failed for {name}: {exc}")

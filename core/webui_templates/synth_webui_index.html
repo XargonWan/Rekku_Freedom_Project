@@ -1076,16 +1076,6 @@
                             </select>
                         </label>
                         <label style="margin-left: 1rem;">
-                            Web UI Server Log Level:
-                            <select id="webui-log-level" style="margin-left: 0.5rem; padding: 0.25rem 0.5rem;">
-                                <option value="debug">DEBUG</option>
-                                <option value="info" selected>INFO</option>
-                                <option value="warning">WARNING</option>
-                                <option value="error">ERROR</option>
-                                <option value="critical">CRITICAL</option>
-                            </select>
-                        </label>
-                        <label style="margin-left: 1rem;">
                             LogChat Notification Level:
                             <select id="logchat-level" style="margin-left: 0.5rem; padding: 0.25rem 0.5rem;">
                                 <option value="DEBUG">DEBUG</option>
@@ -2710,7 +2700,7 @@
             const filteredItems = items.filter(item => {
                 if (!item || typeof item !== 'object') return false;
                 // Hide logging-related settings from Settings tab (they're in Logs tab)
-                if (item.key === 'LOGGING_LEVEL' || item.key === 'LOGGING_LOGCHAT_LEVEL' || item.key === 'WEBUI_LOG_LEVEL') {
+                if (item.key === 'LOGGING_LEVEL' || item.key === 'LOGGING_LOGCHAT_LEVEL') {
                     return false;
                 }
                 const tags = item.tags || [];
@@ -2842,51 +2832,6 @@
                 }
             }
         });
-
-        // WebUI Log Level dropdown handler
-        const webuiLogLevelSelect = document.getElementById('webui-log-level');
-        if (webuiLogLevelSelect) {
-            // Load current value from config
-            fetch('/api/config')
-                .then(res => res.json())
-                .then(data => {
-                    const webuiLogLevel = data.items.find(item => item.key === 'WEBUI_LOG_LEVEL');
-                    if (webuiLogLevel && webuiLogLevel.value) {
-                        webuiLogLevelSelect.value = webuiLogLevel.value.toLowerCase();
-                    }
-                })
-                .catch(err => console.error('[synth_webui] Failed to load WEBUI_LOG_LEVEL:', err));
-            
-            // Save when changed
-            webuiLogLevelSelect.addEventListener('change', async (event) => {
-                const newLevel = event.target.value;
-                console.log('[synth_webui] Changing WEBUI_LOG_LEVEL to:', newLevel);
-                
-                const originalDisabled = webuiLogLevelSelect.disabled;
-                webuiLogLevelSelect.disabled = true;
-                
-                try {
-                    const res = await fetch('/api/config', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ key: 'WEBUI_LOG_LEVEL', value: newLevel })
-                    });
-                    
-                    if (res.ok) {
-                        console.log('[synth_webui] ✓ WEBUI_LOG_LEVEL updated successfully');
-                        showToast('Settings saved');
-                    } else {
-                        console.error('[synth_webui] Failed to update WEBUI_LOG_LEVEL:', res.status);
-                        showToast('Failed to update log level', true);
-                    }
-                } catch (error) {
-                    console.error('[synth_webui] Error updating WEBUI_LOG_LEVEL:', error);
-                    showToast('Error updating log level', true);
-                } finally {
-                    webuiLogLevelSelect.disabled = originalDisabled;
-                }
-            });
-        }
 
         // Logging Level dropdown handler
         const loggingLevelSelect = document.getElementById('logging-level');
