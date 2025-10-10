@@ -2341,7 +2341,10 @@ GEMINI-SPECIFIC INSTRUCTIONS:
 - Don't be afraid to be a bit playful or sarcastic in a friendly way
 - Remember your persona: you're not just an AI assistant - be human-like in your communication
 """
-            prompt["instructions"] += gemini_instructions
+            if isinstance(prompt["instructions"], str):
+                prompt["instructions"] += gemini_instructions
+            else:
+                log_warning(f"[selenium] prompt['instructions'] is not a string, type: {type(prompt['instructions'])}, skipping Gemini instructions addition")
             log_debug("[selenium] Added Gemini-specific chatty instructions")
 
         # Check if prompt contains image data
