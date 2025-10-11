@@ -35,7 +35,10 @@ RUN apt-get update && \
       lsb-release ca-certificates \
       htop net-tools iputils-ping \
       ffmpeg mariadb-client libmariadb3 libmariadb-dev && \
-    update-ca-certificates && \
+    # Force update of CA certificates bundle
+    update-ca-certificates --fresh && \
+    # Ensure Python can find certificates
+    python3 -m pip install --upgrade certifi && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install gemini-cli
