@@ -42,6 +42,8 @@ getting started.
    config_management
    dev_components
    component_development_guide
+   component_pattern
+   two_phase_init_implementation
    contributing
    faq
 
