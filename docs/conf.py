@@ -4,7 +4,7 @@ import sys
 sys.path.insert(0, os.path.abspath('..'))
 
 project = 'Synthetic Heart'
-author = 'synth Dev Team'
+author = 'Xargon'
 release = '0.1'
 
 extensions = [
