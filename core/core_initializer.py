@@ -138,6 +138,11 @@ class CoreInitializer:
                 log_info("[core_initializer] ✅ All config listeners notified")
             except Exception as load_exc:
                 log_warning(f"[core_initializer] Failed to load configurations from DB: {load_exc}")
+            
+            # 6. Initialize interface instances now that config is loaded
+            log_info("[core_initializer] Initializing interface instances...")
+            self._initialize_interface_instances()
+            log_info("[core_initializer] ✅ Interface instances initialized")
 
             # Note: Startup summary will be displayed by main.py after all interfaces are started
             log_info("[core_initializer] Core initialization completed successfully")
@@ -147,6 +152,9 @@ class CoreInitializer:
             log_debug("[core_initializer] Set _initial_initialization=False - auto-refresh now allowed")
             self.initialization_completed = True
             log_info("[core_initializer] ✅ All core components initialized successfully")
+            
+            # Start all registered interfaces
+            await self._start_interfaces()
             
             # Display summary at the end of initialization
             self._display_startup_summary()
@@ -161,6 +169,33 @@ class CoreInitializer:
             # Display summary even if initialization failed
             self.display_startup_summary()
             return False
+    
+    async def _start_interfaces(self):
+        """Start all registered interfaces that have a start method."""
+        import asyncio
+        log_info("[core_initializer] Starting registered interfaces...")
+        log_debug(f"[core_initializer] Interfaces in registry: {list(INTERFACE_REGISTRY.keys())}")
+        started_count = 0
+        
+        for interface_name, interface_instance in INTERFACE_REGISTRY.items():
+            has_start = hasattr(interface_instance, 'start')
+            is_callable = callable(getattr(interface_instance, 'start', None))
+            log_debug(f"[core_initializer] Interface {interface_name}: has_start={has_start}, is_callable={is_callable}")
+            
+            if has_start and is_callable:
+                try:
+                    log_debug(f"[core_initializer] Starting interface: {interface_name} as background task")
+                    # Start interface as background task to avoid blocking
+                    task = asyncio.create_task(interface_instance.start())
+                    task.set_name(f"interface_{interface_name}")
+                    started_count += 1
+                    log_debug(f"[core_initializer] Successfully queued interface: {interface_name}")
+                except Exception as e:
+                    log_error(f"[core_initializer] Failed to start interface {interface_name}: {e}")
+                    self.startup_errors.append(f"Interface {interface_name} start failed: {e}")
+            else:
+                log_debug(f"[core_initializer] Interface {interface_name} has no start method")
+        log_info(f"[core_initializer] Started {started_count} interfaces as background tasks")
     
     def track_component(self, name: str, component_type: str, status: ComponentStatus = ComponentStatus.LOADING, 
                        actions: List[str] = None, error: str = "", details: str = ""):
@@ -408,6 +443,21 @@ class CoreInitializer:
                     )
                     self.startup_errors.append(f"Plugin {module_name}: {e}")
     
+    def _initialize_persona_manager(self):
+        """Initialize the core persona manager."""
+        try:
+            import importlib
+            importlib.import_module("core.persona_manager")
+            log_debug("[core_initializer] Persona manager initialized")
+        except Exception as e:
+            log_error(f"[core_initializer] Failed to initialize persona manager: {e}")
+            self.startup_errors.append(f"Persona manager: {e}")
+    
+    def _ensure_core_actions(self):
+        """Ensure core actions are loaded."""
+        # Core actions like chat_link are loaded automatically when imported
+        log_debug("[core_initializer] Core actions check completed")
+    
     def _discover_interfaces(self):
         """Auto-discover and import all interface modules from interface directory and core webui."""
         import os
@@ -454,6 +504,39 @@ class CoreInitializer:
             except Exception as e:
                 log_error(f"[core_initializer] Error during {dir_name} discovery: {e}")
                 self.startup_errors.append(f"{dir_name} discovery failed: {e}")
+    
+    def _initialize_interface_instances(self):
+        """Initialize interface instances after config has been loaded from DB.
+        
+        This calls the initialize_interface() function on each interface module
+        that exposes it. This allows interfaces to create their instances with
+        the correct configuration values loaded from the database.
+        """
+        import importlib
+        import sys
+        
+        # Get all loaded interface modules
+        interface_modules = [name for name in sys.modules.keys() 
+                           if name.startswith('interface.') or name.startswith('interface_dev.')]
+        
+        log_debug(f"[core_initializer] Found {len(interface_modules)} interface modules to initialize")
+        
+        for module_name in interface_modules:
+            try:
+                module = sys.modules[module_name]
+                
+                # Check if module has initialize_interface function
+                if hasattr(module, 'initialize_interface'):
+                    log_debug(f"[core_initializer] Calling initialize_interface() for {module_name}")
+                    init_func = getattr(module, 'initialize_interface')
+                    init_func()
+                    log_debug(f"[core_initializer] Successfully initialized {module_name}")
+                else:
+                    log_debug(f"[core_initializer] Module {module_name} has no initialize_interface function")
+                    
+            except Exception as e:
+                log_warning(f"[core_initializer] Failed to initialize interface {module_name}: {e}")
+                self.startup_errors.append(f"Interface initialization {module_name}: {e}")
     
     def register_interface(self, interface_name: str):
         """Register an active interface."""
