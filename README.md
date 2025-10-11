@@ -40,7 +40,11 @@ The project ships with an **Ollama-compatible interface** (`interface/ollama_com
    ```bash
    docker compose up
    ```
-3. If using the Selenium engine, open `http://<host>:5006` and log into ChatGPT.
+3. If using the Selenium engine with ChatGPT or Gemini, open `http://<host>:5006` and log into ChatGPT or Gemini, you migt want to send a message to the bot that will open the broswer for you if unusre.
+From there you can login.
+
+> [!WARNING]
+> Gemini web at the moment of writing got an issue that logs you out every now and then.
 
 See the [documentation](https://synthetic-heart.readthedocs.io) for installation details, advanced features and contribution guidelines.
 
