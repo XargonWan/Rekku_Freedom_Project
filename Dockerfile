@@ -35,6 +35,7 @@ RUN apt-get update && \
       lsb-release ca-certificates \
       htop net-tools iputils-ping \
       ffmpeg mariadb-client libmariadb3 libmariadb-dev && \
+    update-ca-certificates && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install gemini-cli
