@@ -32,56 +32,50 @@ class DiscordInterface:
         self.is_enabled = True
         self.disabled_reason = None
         
-        # Check if interface should be disabled
-        if not self.bot_token:
-            self._disable("DISCORD_BOT_TOKEN not configured")
-            self.client = None
-        else:
-            # Register custom validation with the new validation system
-            self._register_custom_validation()
-            
-            intents = None
-            if discord is not None:  # pragma: no branch
-                intents = discord.Intents.default()
-                intents.message_content = True
-                self.client = discord.Client(intents=intents)
+        # Register custom validation with the new validation system
+        self._register_custom_validation()
+        
+        self.client = None
+        if discord is not None:  # pragma: no branch
+            intents = discord.Intents.default()
+            intents.message_content = True
+            self.client = discord.Client(intents=intents)
 
-                @self.client.event
-                async def on_ready():
-                    log_info(f"[discord_interface] Discord client ready as {self.client.user}")
+            @self.client.event
+            async def on_ready():
+                log_info(f"[discord_interface] Discord client ready as {self.client.user}")
 
-                @self.client.event
-                async def on_message(message):
-                    log_debug(f"[discord_interface] Raw message received: {message.content} from {message.author}")
-                    await self._process_message(message)
+            @self.client.event
+            async def on_message(message):
+                log_debug(f"[discord_interface] Raw message received: {message.content} from {message.author}")
+                await self._process_message(message)
 
-                async def _resolver(guild_id, channel_id, bot_instance=None):
-                    b = bot_instance or self.client
-                    guild_name = None
-                    channel_name = None
-                    try:
-                        if b:
-                            channel = b.get_channel(int(channel_id))
-                            if channel is None:
-                                channel = await b.fetch_channel(int(channel_id))
-                            if channel:
-                                channel_name = getattr(channel, "name", None)
-                                guild = getattr(channel, "guild", None)
-                                if guild is None and guild_id is not None:
-                                    try:
-                                        guild = b.get_guild(int(guild_id)) or await b.fetch_guild(int(guild_id))
-                                    except Exception as e:  # pragma: no cover
-                                        log_warning(f"[discord_interface] guild name lookup failed: {e}")
-                                if guild:
-                                    guild_name = getattr(guild, "name", None)
-                    except Exception as e:  # pragma: no cover
-                        log_warning(f"[discord_interface] name lookup failed: {e}")
-                    return {"chat_name": guild_name, "message_thread_name": channel_name}
+            async def _resolver(guild_id, channel_id, bot_instance=None):
+                b = bot_instance or self.client
+                guild_name = None
+                channel_name = None
+                try:
+                    if b:
+                        channel = b.get_channel(int(channel_id))
+                        if channel is None:
+                            channel = await b.fetch_channel(int(channel_id))
+                        if channel:
+                            channel_name = getattr(channel, "name", None)
+                            guild = getattr(channel, "guild", None)
+                            if guild is None and guild_id is not None:
+                                try:
+                                    guild = b.get_guild(int(guild_id)) or await b.fetch_guild(int(guild_id))
+                                except Exception as e:  # pragma: no cover
+                                    log_warning(f"[discord_interface] guild name lookup failed: {e}")
+                            if guild:
+                                guild_name = getattr(guild, "name", None)
+                except Exception as e:  # pragma: no cover
+                    log_warning(f"[discord_interface] name lookup failed: {e}")
+                return {"chat_name": guild_name, "message_thread_name": channel_name}
 
-                ChatLinkStore.set_name_resolver("discord", _resolver)
-            else:  # pragma: no cover - library not available
-                self._disable("discord.py library not installed")
-                self.client = None
+            ChatLinkStore.set_name_resolver("discord", _resolver)
+        else:  # pragma: no cover - library not available
+            self._disable("discord.py library not installed")
 
         # ALWAYS register, even if disabled
         register_interface("discord_bot", self)
@@ -94,10 +88,6 @@ class DiscordInterface:
                 asyncio.get_event_loop().create_task(message_queue.run())
             except Exception:
                 pass
-
-            # Launch Discord client so it can receive messages
-            if self.client and self.bot_token:
-                asyncio.create_task(self._start_discord_client())
         else:
             reason = self.disabled_reason or "missing configuration"
             log_warning(f"[discord_interface] Interface loaded in disabled state: {reason}")
@@ -106,6 +96,22 @@ class DiscordInterface:
         """Mark interface as disabled with a reason."""
         self.is_enabled = False
         self.disabled_reason = reason
+
+    async def start(self):
+        """Start the Discord interface."""
+        log_info("[discord_interface] Starting Discord interface...")
+        
+        # Update token from config (may have been loaded from DB after __init__)
+        self.bot_token = get_discord_token()
+        
+        if not self.bot_token:
+            self._disable("DISCORD_BOT_TOKEN not configured")
+            log_warning("[discord_interface] Discord interface disabled: no token configured")
+            return
+        
+        # Start the Discord client
+        await self._start_discord_client()
+        log_info("[discord_interface] Discord interface started successfully")
 
     async def _start_discord_client(self):
         """Start the Discord client with proper error handling."""
