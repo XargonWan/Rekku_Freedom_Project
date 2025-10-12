@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from core import plugin_instance, rate_limit, recent_chats
 from core.logging_utils import log_debug, log_error, log_warning, log_info
 from core.mention_utils import is_message_for_bot
+from core.reaction_handler import react_when_mentioned, get_reaction_emoji
 from core.interfaces_registry import get_interface_registry
 from plugins.blocklist import is_user_blocked
 from plugins.chat_link import ChatLinkStore
@@ -40,7 +41,7 @@ async def _delayed_put(item: dict, delay: float) -> None:
     await _queue.put((priority, item))
 
 
-async def enqueue(bot, message, context_memory, priority: bool = False, interface_id: str = None, skip_mention_check: bool = False) -> None:
+async def enqueue(bot, message, context_memory, priority: bool = False, interface_id: str = None, skip_mention_check: bool = False, original_message=None) -> None:
     """Enqueue a message for serialized processing with rate limiting.
 
     Args:
@@ -50,6 +51,7 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
         priority: If True, message is added to front of queue (for events)
         interface_id: The interface identifier (e.g., 'webui', 'interface_name')
         skip_mention_check: If True, skip is_message_for_bot check (for 1:1 interfaces like ollama, webui)
+        original_message: The original message object from the interface (for reactions)
     """
     message_text = getattr(message, 'text', '')
     user_id = getattr(message.from_user, 'id', 'unknown') if message.from_user else 'unknown'
@@ -93,6 +95,19 @@ async def enqueue(bot, message, context_memory, priority: bool = False, interfac
             return
 
         log_debug(f"[QUEUE] DEBUG: Message is directed to bot - continuing processing")
+        
+        # Add reaction if configured (REACT_WHEN_MENTIONED)
+        emoji = get_reaction_emoji()
+        if emoji:
+            registry = get_interface_registry()
+            interface = registry.get_interface(interface_id)
+            if interface:
+                log_debug(f"[QUEUE] Adding reaction '{emoji}' via interface {interface_id}")
+                await react_when_mentioned(interface, original_message or message, emoji)
+            else:
+                log_warning(f"[QUEUE] No interface found for {interface_id}")
+        else:
+            log_debug("[QUEUE] No reaction emoji configured")
     else:
         log_debug(f"[QUEUE] DEBUG: skip_mention_check=True - bypassing is_message_for_bot check (1:1 interface)")
     

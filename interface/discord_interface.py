@@ -377,7 +377,7 @@ class DiscordInterface:
             )
 
             try:
-                await message_queue.enqueue(self.client, wrapped, context_memory, interface_id="discord_bot")
+                await message_queue.enqueue(self.client, wrapped, context_memory, interface_id="discord_bot", original_message=message)
             except Exception as e:  # pragma: no cover - queue errors
                 log_error(f"[discord_interface] message_queue enqueue failed: {e}")
 
@@ -395,6 +395,24 @@ class DiscordInterface:
             text = payload.get("text")
             if text and target is not None:
                 await self.send_message(target, text)
+
+    async def add_reaction(self, message, emoji: str) -> bool:
+        """Add a reaction to a message.
+        
+        Args:
+            message: The Discord message object
+            emoji: The emoji to use as reaction
+            
+        Returns:
+            bool: True if reaction was added successfully
+        """
+        try:
+            await message.add_reaction(emoji)
+            log_info(f"[discord_interface] Successfully added reaction '{emoji}' to Discord message")
+            return True
+        except Exception as e:
+            log_warning(f"[discord_interface] Failed to add reaction '{emoji}': {e}")
+            return False
 
     async def handle_command(self, command_name: str, *args, **kwargs):
         """Process a slash command via the shared backend."""

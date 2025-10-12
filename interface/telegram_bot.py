@@ -24,7 +24,6 @@ from core import say_proxy, message_queue
 from core.context import context_command
 from core import recent_chats  # For command functions only, not for tracking
 from core.mention_utils import is_message_for_bot
-from core.reaction_handler import react_when_mentioned
 from collections import deque
 import json
 from core.logging_utils import log_debug, log_info, log_warning, log_error
@@ -492,12 +491,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     log_debug(f"[telegram_bot] DEBUG: Message is directed to bot - continuing processing")
     
-    # Add reaction if configured (REACT_WHEN_MENTIONED)
-    try:
-        await react_when_mentioned(context.bot, message)
-    except Exception as e:
-        log_warning(f"[telegram_bot] Failed to add reaction: {e}")
-    
     log_debug(f"[telegram_bot] Message from {user_id} ({message.chat.type}): {text}")
 
     # === PRIORITY 3: Trainer reply to forwarded message ===
@@ -532,7 +525,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_debug(f"Calling message_queue.enqueue...")
         log_debug(f"Parameters: bot={type(context.bot)}, message={type(message)}, context_memory={type(context_memory)}, interface_id='telegram_bot'")
         
-        await message_queue.enqueue(context.bot, message, context_memory, interface_id="telegram_bot")
+        await message_queue.enqueue(context.bot, message, context_memory, interface_id="telegram_bot", original_message=message)
         
         log_debug(f"Message successfully enqueued - processing should continue in queue")
         
@@ -1535,6 +1528,49 @@ class TelegramInterface:
                         pass
                 return
         await self._verify_delivery(sent_message, payload, original_message)
+
+    async def add_reaction(self, message, emoji: str) -> bool:
+        """Add a reaction to a message.
+        
+        Args:
+            message: The Telegram message object
+            emoji: The emoji to use as reaction
+            
+        Returns:
+            bool: True if reaction was added successfully
+        """
+        try:
+            if not self.bot:
+                log_warning("[telegram_interface] Bot instance is None, cannot add reaction")
+                return False
+            
+            chat_id = getattr(message, 'chat_id', None) or getattr(message.chat, 'id', None)
+            message_id = getattr(message, 'message_id', None)
+            
+            if not chat_id or not message_id:
+                log_warning("[telegram_interface] Cannot add reaction: missing chat_id or message_id")
+                return False
+            
+            log_debug(f"[telegram_interface] Adding reaction '{emoji}' to chat_id={chat_id}, message_id={message_id}")
+            
+            # Check if method exists
+            if not hasattr(self.bot, 'set_message_reaction'):
+                log_warning("[telegram_interface] set_message_reaction method not available in this version of python-telegram-bot")
+                return False
+            
+            await self.bot.set_message_reaction(
+                chat_id=chat_id,
+                message_id=message_id,
+                reaction=emoji,
+                is_big=False
+            )
+            log_info(f"[telegram_interface] Successfully added reaction '{emoji}' to message {message_id}")
+            return True
+        except Exception as e:
+            log_warning(f"[telegram_interface] Failed to add reaction '{emoji}': {e}")
+            import traceback
+            log_debug(f"[telegram_interface] Traceback: {traceback.format_exc()}")
+            return False
 
 
 # Declare telegram_interface as None initially - will be created after config load

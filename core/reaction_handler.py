@@ -31,66 +31,42 @@ def get_reaction_emoji() -> Optional[str]:
     Returns:
         Optional[str]: The emoji to use as reaction, or None if not configured
     """
-    emoji = REACT_WHEN_MENTIONED.strip() if REACT_WHEN_MENTIONED else ""
+    emoji = str(REACT_WHEN_MENTIONED).strip() if REACT_WHEN_MENTIONED else ""
     if not emoji:
         return None
     return emoji
 
 
-async def react_when_mentioned(bot, message: SimpleNamespace) -> bool:
+async def react_when_mentioned(interface, message, emoji: str) -> bool:
     """
-    Add a reaction to a message if REACT_WHEN_MENTIONED is configured.
+    Add a reaction to a message using the interface's add_reaction method.
     
     This function should be called when is_message_for_bot returns True.
-    It reads the REACT_WHEN_MENTIONED environment variable and, if set,
-    adds that emoji as a reaction to the triggering message.
+    It calls the interface's add_reaction method with the provided emoji.
     
     Args:
-        bot: The bot instance from the interface
+        interface: The interface instance that supports add_reaction
         message: The message object that triggered the bot
+        emoji: The emoji to use as reaction
         
     Returns:
         bool: True if reaction was added successfully, False otherwise
     """
-    # Get the configured emoji
-    emoji = get_reaction_emoji()
-    
     if not emoji:
-        log_debug("[reaction] REACT_WHEN_MENTIONED not configured, skipping reaction")
+        log_debug("[reaction] No emoji configured, skipping reaction")
         return False
     
-    log_debug(f"[reaction] Attempting to add reaction '{emoji}' to message")
+    log_debug(f"[reaction] Attempting to add reaction '{emoji}' to message via interface {type(interface).__name__}")
     
-    # Try to determine the interface type and add reaction accordingly
     try:
-        # Check if it's a Telegram bot
-        if hasattr(bot, 'set_message_reaction'):
-            # Telegram interface
-            chat_id = getattr(message, 'chat_id', None) or getattr(message.chat, 'id', None)
-            message_id = getattr(message, 'message_id', None)
-            
-            if not chat_id or not message_id:
-                log_warning("[reaction] Cannot add reaction: missing chat_id or message_id")
-                return False
-            
-            log_debug(f"[reaction] Adding Telegram reaction '{emoji}' to chat_id={chat_id}, message_id={message_id}")
-            await bot.set_message_reaction(
-                chat_id=chat_id,
-                message_id=message_id,
-                reaction=emoji,
-                is_big=False
-            )
-            log_info(f"[reaction] Successfully added reaction '{emoji}' to message {message_id}")
-            return True
-            
-        # Add support for other interfaces here as needed
-        # elif hasattr(bot, 'add_reaction'):  # Discord example
-        #     ...
-        
+        if hasattr(interface, 'add_reaction'):
+            success = await interface.add_reaction(message, emoji)
+            if success:
+                log_info(f"[reaction] Successfully added reaction '{emoji}' via interface")
+            return success
         else:
-            log_warning(f"[reaction] Interface does not support reactions: {type(bot).__name__}")
+            log_warning(f"[reaction] Interface {type(interface).__name__} does not support add_reaction")
             return False
-            
     except Exception as e:
         log_warning(f"[reaction] Failed to add reaction '{emoji}': {e}")
         return False
