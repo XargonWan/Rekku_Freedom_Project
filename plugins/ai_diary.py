@@ -294,6 +294,25 @@ async def init_diary_table():
                 next_check DATETIME
             )
         ''')
+
+        # Archive table for archived diary entries
+        await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ai_diary_archive (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                content TEXT NOT NULL COMMENT 'What synth said/did in the interaction',
+                personal_thought TEXT COMMENT 'synth personal reflection about the interaction',
+                emotions TEXT DEFAULT '[]' COMMENT 'synth emotions about this interaction',
+                interaction_summary TEXT COMMENT 'Brief summary of what happened',
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                interface VARCHAR(50),
+                chat_id VARCHAR(255),
+                thread_id VARCHAR(255),
+                user_message TEXT COMMENT 'What the user said that triggered this response',
+                context_tags TEXT DEFAULT '[]' COMMENT 'Tags about the context/topic',
+                INDEX idx_timestamp (timestamp),
+                INDEX idx_interface_chat (interface, chat_id)
+            )
+        ''')
         
         await conn.commit()
         log_info("[ai_diary] AI diary tables initialized")
@@ -1202,6 +1221,166 @@ class DiaryPlugin:
         else:
             log_warning(f"[ai_diary] Unknown action type: {action_type}")
             return {"success": False, "error": f"Unknown action type: {action_type}"}
+
+
+def archive_diary_entries(entry_ids: List[int]) -> Dict[str, Any]:
+    """Move diary entries from ai_diary to ai_diary_archive by their IDs."""
+    if not PLUGIN_ENABLED:
+        return {"success": False, "error": "Plugin disabled"}
+    
+    if not entry_ids:
+        return {"success": False, "error": "No entry IDs provided"}
+    
+    try:
+        # First, get the entries to archive
+        placeholders = ','.join(['%s'] * len(entry_ids))
+        entries = _run(_fetchall(
+            f"SELECT * FROM ai_diary WHERE id IN ({placeholders})",
+            tuple(entry_ids)
+        ))
+        
+        if not entries:
+            return {"success": False, "error": "No entries found with provided IDs"}
+        
+        # Insert into archive table
+        for entry in entries:
+            _run(_execute(
+                """
+                INSERT INTO ai_diary_archive 
+                (id, content, personal_thought, emotions, interaction_summary, timestamp, 
+                 interface, chat_id, thread_id, user_message, context_tags)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (entry['id'], entry['content'], entry['personal_thought'], entry['emotions'],
+                 entry['interaction_summary'], entry['timestamp'], entry['interface'],
+                 entry['chat_id'], entry['thread_id'], entry['user_message'], entry['context_tags'])
+            ))
+        
+        # Delete from main table
+        _run(_execute(
+            f"DELETE FROM ai_diary WHERE id IN ({placeholders})",
+            tuple(entry_ids)
+        ))
+        
+        log_info(f"[ai_diary] Archived {len(entries)} diary entries")
+        return {"success": True, "archived_count": len(entries)}
+        
+    except Exception as e:
+        log_error(f"[ai_diary] Failed to archive diary entries: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def unarchive_diary_entries(entry_ids: List[int]) -> Dict[str, Any]:
+    """Move diary entries from ai_diary_archive back to ai_diary by their IDs."""
+    if not PLUGIN_ENABLED:
+        return {"success": False, "error": "Plugin disabled"}
+    
+    if not entry_ids:
+        return {"success": False, "error": "No entry IDs provided"}
+    
+    try:
+        # First, get the entries to unarchive
+        placeholders = ','.join(['%s'] * len(entry_ids))
+        entries = _run(_fetchall(
+            f"SELECT * FROM ai_diary_archive WHERE id IN ({placeholders})",
+            tuple(entry_ids)
+        ))
+        
+        if not entries:
+            return {"success": False, "error": "No archived entries found with provided IDs"}
+        
+        # Insert back into main table
+        for entry in entries:
+            _run(_execute(
+                """
+                INSERT INTO ai_diary 
+                (id, content, personal_thought, emotions, interaction_summary, timestamp, 
+                 interface, chat_id, thread_id, user_message, context_tags)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (entry['id'], entry['content'], entry['personal_thought'], entry['emotions'],
+                 entry['interaction_summary'], entry['timestamp'], entry['interface'],
+                 entry['chat_id'], entry['thread_id'], entry['user_message'], entry['context_tags'])
+            ))
+        
+        # Delete from archive table
+        _run(_execute(
+            f"DELETE FROM ai_diary_archive WHERE id IN ({placeholders})",
+            tuple(entry_ids)
+        ))
+        
+        log_info(f"[ai_diary] Unarchived {len(entries)} diary entries")
+        return {"success": True, "unarchived_count": len(entries)}
+        
+    except Exception as e:
+        log_error(f"[ai_diary] Failed to unarchive diary entries: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def delete_archived_entries(entry_ids: List[int]) -> Dict[str, Any]:
+    """Permanently delete diary entries from ai_diary_archive."""
+    if not PLUGIN_ENABLED:
+        return {"success": False, "error": "Plugin disabled"}
+    
+    if not entry_ids:
+        return {"success": False, "error": "No entry IDs provided"}
+    
+    try:
+        placeholders = ','.join(['%s'] * len(entry_ids))
+        result = _run(_execute(
+            f"DELETE FROM ai_diary_archive WHERE id IN ({placeholders})",
+            tuple(entry_ids)
+        ))
+        
+        deleted_count = result.rowcount if hasattr(result, 'rowcount') else len(entry_ids)
+        log_info(f"[ai_diary] Deleted {deleted_count} archived diary entries")
+        return {"success": True, "deleted_count": deleted_count}
+        
+    except Exception as e:
+        log_error(f"[ai_diary] Failed to delete archived diary entries: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def get_all_diary_entries(include_archived: bool = False) -> List[Dict[str, Any]]:
+    """Get all diary entries, optionally including archived ones."""
+    if not PLUGIN_ENABLED:
+        return []
+    
+    try:
+        entries = _run(_fetchall(
+            """
+            SELECT id, content, personal_thought, timestamp, context_tags, 
+                   emotions, interface, chat_id, thread_id, interaction_summary, user_message,
+                   FALSE as archived
+            FROM ai_diary
+            ORDER BY timestamp DESC
+            """
+        ))
+        
+        if include_archived:
+            archived_entries = _run(_fetchall(
+                """
+                SELECT id, content, personal_thought, timestamp, context_tags, 
+                       emotions, interface, chat_id, thread_id, interaction_summary, user_message,
+                       TRUE as archived
+                FROM ai_diary_archive
+                ORDER BY timestamp DESC
+                """
+            ))
+            entries.extend(archived_entries)
+        
+        # Convert JSON fields back to objects
+        for entry in entries:
+            entry['context_tags'] = json.loads(entry.get('context_tags', '[]'))
+            entry['emotions'] = json.loads(entry.get('emotions', '[]'))
+            entry['timestamp'] = entry['timestamp'].isoformat() if entry['timestamp'] else None
+        
+        return entries
+        
+    except Exception as e:
+        log_error(f"[ai_diary] Failed to get all diary entries: {e}")
+        return []
+
 
 # Instantiate the plugin to register it
 PLUGIN_CLASS = DiaryPlugin

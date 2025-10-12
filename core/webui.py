@@ -304,6 +304,7 @@ class SynthWebUIInterface:
         self.app.get("/health")(self.health)
         self.app.get("/stats")(self.stats)
         self.app.get("/logs")(self.logs_page)
+        self.app.get("/diary")(self.diary_page)
         self.app.websocket("/ws")(self.websocket_endpoint)
         self.app.websocket("/logs")(self.logs_ws_endpoint)
         self.app.get("/api/vrm")(self.list_vrm_models)
@@ -320,12 +321,16 @@ class SynthWebUIInterface:
         self.app.post("/api/components/llm")(self.set_llm_engine)
         self.app.get("/api/logchat/info")(self.get_logchat_info)
         self.app.get("/api/diary")(self.diary_summary)
+        self.app.post("/api/diary/archive")(self.archive_diary_entries)
+        self.app.post("/api/diary/unarchive")(self.unarchive_diary_entries)
+        self.app.delete("/api/diary/archive")(self.delete_archived_entries)
         self.app.get("/api/selkies")(self.get_selkies_config)
 
         register_interface(INTERFACE_NAME, self)
         log_info(f"{LOG_PREFIX} Interface registered")
         if self.autostart:
-            self._ensure_background_server()
+            log_info(f"{LOG_PREFIX} Autostart enabled - will start server when event loop is available")
+            # Don't start server here - it will be started by the main application
         else:
             log_info(f"{LOG_PREFIX} Autostart disabled - {BRAND_NAME} will not start automatically")
 
@@ -394,6 +399,10 @@ class SynthWebUIInterface:
 
     async def logs_page(self):
         html = self._render_logs()
+        return HTMLResponse(content=html)
+
+    async def diary_page(self):
+        html = self._render_diary()
         return HTMLResponse(content=html)
 
     # ------------------------------------------------------------------
@@ -815,9 +824,10 @@ class SynthWebUIInterface:
             max_chars = _bounded_int(max_chars_param, default=20000, minimum=1000, maximum=200000)
         else:
             max_chars = 20000
+        include_archived = params.get("include_archived", "false").lower() == "true"
 
         persona_snapshot = await self._fetch_persona_snapshot()
-        diary_payload = self._fetch_diary_entries(days=days, limit=limit, max_chars=max_chars)
+        diary_payload = self._fetch_diary_entries(days=days, limit=limit, max_chars=max_chars, include_archived=include_archived)
 
         if not persona_snapshot.get("created_at") and diary_payload.get("earliest_timestamp"):
             persona_snapshot["created_at"] = diary_payload["earliest_timestamp"]
@@ -832,6 +842,7 @@ class SynthWebUIInterface:
                 "days": days,
                 "limit": limit,
                 "max_chars": max_chars,
+                "include_archived": include_archived,
                 "earliest_timestamp": diary_payload["earliest_timestamp"],
                 "latest_timestamp": diary_payload["latest_timestamp"],
                 "error": diary_payload.get("error"),
@@ -935,7 +946,7 @@ class SynthWebUIInterface:
         )
         return snapshot
 
-    def _fetch_diary_entries(self, *, days: int, limit: int, max_chars: int) -> Dict[str, Any]:
+    def _fetch_diary_entries(self, *, days: int, limit: int, max_chars: int, include_archived: bool = False) -> Dict[str, Any]:
         """Retrieve diary entries via the AI diary plugin when available."""
         payload: Dict[str, Any] = {
             "available": False,
@@ -961,7 +972,10 @@ class SynthWebUIInterface:
             return payload
 
         try:
-            entries = ai_diary.get_recent_entries(days=days, max_chars=max_chars) or []
+            if include_archived:
+                entries = ai_diary.get_all_diary_entries(include_archived=True) or []
+            else:
+                entries = ai_diary.get_recent_entries(days=days, max_chars=max_chars) or []
         except Exception as exc:
             log_error(f"{LOG_PREFIX} Failed to fetch diary entries: {exc}")
             payload["error"] = str(exc)
@@ -978,6 +992,69 @@ class SynthWebUIInterface:
             payload["latest_timestamp"] = max(timestamps)
 
         return payload
+
+    async def archive_diary_entries(self, request: Request):
+        """Archive selected diary entries."""
+        try:
+            payload = await request.json()
+            entry_ids = payload.get("entry_ids", [])
+            
+            if not entry_ids:
+                raise HTTPException(status_code=400, detail="No entry IDs provided")
+            
+            from plugins import ai_diary
+            result = ai_diary.archive_diary_entries(entry_ids)
+            
+            if result.get("success"):
+                return JSONResponse({"success": True, "archived_count": result.get("archived_count", 0)})
+            else:
+                raise HTTPException(status_code=500, detail=result.get("error", "Archive failed"))
+                
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} Failed to archive diary entries: {exc}")
+            raise HTTPException(status_code=500, detail=str(exc))
+
+    async def unarchive_diary_entries(self, request: Request):
+        """Unarchive selected diary entries."""
+        try:
+            payload = await request.json()
+            entry_ids = payload.get("entry_ids", [])
+            
+            if not entry_ids:
+                raise HTTPException(status_code=400, detail="No entry IDs provided")
+            
+            from plugins import ai_diary
+            result = ai_diary.unarchive_diary_entries(entry_ids)
+            
+            if result.get("success"):
+                return JSONResponse({"success": True, "unarchived_count": result.get("unarchived_count", 0)})
+            else:
+                raise HTTPException(status_code=500, detail=result.get("error", "Unarchive failed"))
+                
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} Failed to unarchive diary entries: {exc}")
+            raise HTTPException(status_code=500, detail=str(exc))
+
+    async def delete_archived_entries(self, request: Request):
+        """Delete archived diary entries permanently."""
+        try:
+            payload = await request.json()
+            entry_ids = payload.get("entry_ids", [])
+            
+            if not entry_ids:
+                raise HTTPException(status_code=400, detail="No entry IDs provided")
+            
+            from plugins import ai_diary
+            result = ai_diary.delete_archived_entries(entry_ids)
+            
+            if result.get("success"):
+                return JSONResponse({"success": True, "deleted_count": result.get("deleted_count", 0)})
+            else:
+                raise HTTPException(status_code=500, detail=result.get("error", "Delete failed"))
+                
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} Failed to delete archived diary entries: {exc}")
+            raise HTTPException(status_code=500, detail=str(exc))
 
     async def update_config_entry(self, request: Request):
         try:
@@ -1650,29 +1727,14 @@ class SynthWebUIInterface:
             log_error(f"{LOG_PREFIX} Failed to restart system: {exc}")
             raise HTTPException(status_code=500, detail=f"Failed to restart system: {str(exc)}") from exc
 
-    def _ensure_background_server(self) -> None:
-        """Launch the FastAPI app in a background thread if not already running."""
-        with self._server_lock:
-            if self._server_thread and self._server_thread.is_alive():
-                return
-
-            def _runner() -> None:
-                loop = asyncio.new_event_loop()
-                try:
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(self._run_server())
-                except Exception as exc:  # pragma: no cover - runtime issues
-                    log_error(f"{LOG_PREFIX} Failed to start uvicorn server: {exc}")
-                finally:
-                    loop.close()
-
-            log_info(f"{LOG_PREFIX} Starting {BRAND_NAME} server on http://{self.host}:{self.port}")
-            self._server_thread = threading.Thread(
-                target=_runner,
-                name="synth-webui-uvicorn",
-                daemon=True,
-            )
-            self._server_thread.start()
+    def start_server_async(self) -> None:
+        """Start the web server as an asyncio task. Call this from the main event loop."""
+        if not hasattr(self, '_server_task') or (hasattr(self, '_server_task') and (self._server_task is None or self._server_task.done())):
+            log_info(f"{LOG_PREFIX} Starting {BRAND_NAME} server as asyncio task on http://{self.host}:{self.port}")
+            import asyncio
+            self._server_task = asyncio.create_task(self._run_server())
+        else:
+            log_info(f"{LOG_PREFIX} Server task already running")
 
     async def _run_server(self) -> None:
         """Create and run the uvicorn server."""
@@ -1817,10 +1879,231 @@ class SynthWebUIInterface:
 """
         return template.replace('{brand_name}', BRAND_NAME)
 
+    def _render_diary(self) -> str:
+        template = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{brand_name} Diary</title>
+    <style>
+        body {{ background: #101017; color: #e0ffe0; font-family: monospace; margin: 0; padding: 1rem; }}
+        .diary-container {{ 
+            background: #1b1b28; 
+            border-radius: 12px; 
+            padding: 1.5rem; 
+            max-width: 1200px; 
+            margin: 0 auto; 
+        }}
+        .diary-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }}
+        .diary-controls {{ display: flex; gap: 1rem; align-items: center; }}
+        .diary-controls input, .diary-controls select {{ padding: 0.5rem; border-radius: 6px; border: 1px solid #444; background: #2a2a3a; color: #e0ffe0; }}
+        .diary-controls button {{ padding: 0.5rem 1rem; border-radius: 6px; border: 1px solid #444; background: #2a2a3a; color: #e0ffe0; cursor: pointer; }}
+        .diary-controls button:hover {{ background: #3a3a4a; }}
+        .diary-entries {{ max-height: 70vh; overflow-y: auto; }}
+        .diary-date-group {{ margin-bottom: 1rem; border: 1px solid #444; border-radius: 8px; }}
+        .diary-date-header {{ background: #2a2a3a; padding: 0.75rem; cursor: pointer; display: flex; justify-content: space-between; }}
+        .diary-date-content {{ padding: 0; }}
+        .diary-entry {{ padding: 1rem; border-bottom: 1px solid #333; display: flex; gap: 1rem; }}
+        .diary-entry:last-child {{ border-bottom: none; }}
+        .diary-entry-checkbox {{ display: none; }}
+        .diary-entry-content {{ flex: 1; }}
+        .diary-entry-meta {{ font-size: 0.85rem; color: #aaa; margin-bottom: 0.5rem; }}
+        .diary-entry-text {{ line-height: 1.5; white-space: pre-wrap; }}
+        .loading {{ text-align: center; padding: 2rem; color: #aaa; }}
+        .error {{ color: #ff6b6b; padding: 1rem; background: rgba(255, 107, 107, 0.1); border-radius: 6px; }}
+    </style>
+</head>
+<body>
+    <div class="diary-container">
+        <div class="diary-header">
+            <h2>AI Diary</h2>
+            <div class="diary-controls">
+                <input type="text" id="diary-search" placeholder="Search diary entries..." />
+                <label><input type="checkbox" id="show-archived" /> Show archived</label>
+                <label><input type="checkbox" id="group-by-date" checked /> Group by date</label>
+                <button id="edit-mode-btn">Edit</button>
+                <button id="archive-btn" style="display: none;">Archive Selected</button>
+                <button id="unarchive-btn" style="display: none;">Unarchive Selected</button>
+                <button id="delete-btn" style="display: none; background: #ff4757;">Delete Selected</button>
+            </div>
+        </div>
+        <div id="diary-entries" class="diary-entries">
+            <div class="loading">Loading diary entries...</div>
+        </div>
+    </div>
+    <script>
+        let diaryEntries = [];
+        let editMode = false;
+        let selectedEntries = new Set();
 
-# Expose class and instance for dynamic discovery
-INTERFACE_CLASS = SynthWebUIInterface
-synth_webui_interface = SynthWebUIInterface()
+        async function loadDiaryEntries() {{
+            try {{
+                const showArchived = document.getElementById('show-archived').checked;
+                const response = await fetch(`/api/diary?days=365&limit=1000&include_archived=${{showArchived}}`);
+                const data = await response.json();
+                
+                if (data.diary && data.diary.entries) {{
+                    diaryEntries = data.diary.entries;
+                    renderDiaryEntries();
+                }} else {{
+                    document.getElementById('diary-entries').innerHTML = '<div class="error">Failed to load diary entries</div>';
+                }}
+            }} catch (error) {{
+                console.error('Error loading diary entries:', error);
+                document.getElementById('diary-entries').innerHTML = '<div class="error">Error loading diary entries</div>';
+            }}
+        }}
+
+        function renderDiaryEntries() {{
+            const container = document.getElementById('diary-entries');
+            const searchTerm = document.getElementById('diary-search').value.toLowerCase();
+            const groupByDate = document.getElementById('group-by-date').checked;
+            
+            let filteredEntries = diaryEntries.filter(entry => {{
+                const text = (entry.content + ' ' + (entry.personal_thought || '') + ' ' + (entry.interaction_summary || '')).toLowerCase();
+                return text.includes(searchTerm);
+            }});
+            
+            if (!groupByDate) {{
+                const html = filteredEntries.map(entry => renderDiaryEntry(entry)).join('');
+                container.innerHTML = html || '<div class="loading">No entries found</div>';
+                return;
+            }}
+            
+            // Group by date
+            const groups = {{}};
+            filteredEntries.forEach(entry => {{
+                const date = new Date(entry.timestamp).toDateString();
+                if (!groups[date]) groups[date] = [];
+                groups[date].push(entry);
+            }});
+            
+            const html = Object.keys(groups).sort((a, b) => new Date(b) - new Date(a)).map(date => {{
+                const entries = groups[date];
+                return `
+                    <div class="diary-date-group">
+                        <div class="diary-date-header" onclick="toggleDateGroup(this)">
+                            <span>${{date}}</span>
+                            <span>(${entries.length} entries)</span>
+                        </div>
+                        <div class="diary-date-content">
+                            ${{entries.map(entry => renderDiaryEntry(entry)).join('')}}
+                        </div>
+                    </div>
+                `;
+            }}).join('');
+            
+            container.innerHTML = html || '<div class="loading">No entries found</div>';
+        }}
+
+        function renderDiaryEntry(entry) {{
+            const isArchived = entry.archived || false;
+            const timestamp = new Date(entry.timestamp).toLocaleString();
+            return `
+                <div class="diary-entry ${{isArchived ? 'archived' : ''}}" data-id="${{entry.id}}">
+                    <input type="checkbox" class="diary-entry-checkbox" data-id="${{entry.id}}" onchange="toggleEntrySelection(${entry.id})" />
+                    <div class="diary-entry-content">
+                        <div class="diary-entry-meta">
+                            ${{timestamp}} - ${{entry.interface || 'unknown'}} ${{isArchived ? '(Archived)' : ''}}
+                        </div>
+                        <div class="diary-entry-text">${{entry.content || ''}}</div>
+                        ${{entry.personal_thought ? `<div class="diary-entry-text"><strong>Thoughts:</strong> ${{entry.personal_thought}}</div>` : ''}}
+                        ${{entry.interaction_summary ? `<div class="diary-entry-text"><strong>Summary:</strong> ${{entry.interaction_summary}}</div>` : ''}}
+                    </div>
+                </div>
+            `;
+        }}
+
+        function toggleDateGroup(header) {{
+            const content = header.nextElementSibling;
+            content.style.display = content.style.display === 'none' ? 'block' : 'none';
+        }}
+
+        function toggleEntrySelection(entryId) {{
+            if (selectedEntries.has(entryId)) {{
+                selectedEntries.delete(entryId);
+            }} else {{
+                selectedEntries.add(entryId);
+            }}
+            updateActionButtons();
+        }}
+
+        function updateActionButtons() {{
+            const hasSelection = selectedEntries.size > 0;
+            document.getElementById('archive-btn').style.display = hasSelection ? 'inline-block' : 'none';
+            document.getElementById('unarchive-btn').style.display = hasSelection ? 'inline-block' : 'none';
+            document.getElementById('delete-btn').style.display = hasSelection ? 'inline-block' : 'none';
+        }}
+
+        async function archiveSelected() {{
+            if (!confirm('Archive selected entries?')) return;
+            await performAction('archive');
+        }}
+
+        async function unarchiveSelected() {{
+            await performAction('unarchive');
+        }}
+
+        async function deleteSelected() {{
+            if (!confirm('Permanently delete selected archived entries? This cannot be undone!')) return;
+            await performAction('delete');
+        }}
+
+        async function performAction(action) {{
+            try {{
+                const response = await fetch(`/api/diary/${{action}}`, {{
+                    method: action === 'delete' ? 'DELETE' : 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ entry_ids: Array.from(selectedEntries) }})
+                }});
+                
+                if (response.ok) {{
+                    selectedEntries.clear();
+                    updateActionButtons();
+                    loadDiaryEntries();
+                }} else {{
+                    alert('Action failed');
+                }}
+            }} catch (error) {{
+                console.error('Action error:', error);
+                alert('Action failed');
+            }}
+        }}
+
+        // Event listeners
+        document.getElementById('diary-search').addEventListener('input', renderDiaryEntries);
+        document.getElementById('show-archived').addEventListener('change', loadDiaryEntries);
+        document.getElementById('group-by-date').addEventListener('change', renderDiaryEntries);
+        
+        document.getElementById('edit-mode-btn').addEventListener('click', () => {{
+            editMode = !editMode;
+            document.querySelectorAll('.diary-entry-checkbox').forEach(cb => {{
+                cb.style.display = editMode ? 'block' : 'none';
+            }});
+            document.getElementById('edit-mode-btn').textContent = editMode ? 'Done' : 'Edit';
+            if (!editMode) {{
+                selectedEntries.clear();
+                updateActionButtons();
+            }}
+        }});
+        
+        document.getElementById('archive-btn').addEventListener('click', archiveSelected);
+        document.getElementById('unarchive-btn').addEventListener('click', unarchiveSelected);
+        document.getElementById('delete-btn').addEventListener('click', deleteSelected);
+
+        // Initial load
+        loadDiaryEntries();
+    </script>
+</body>
+</html>
+"""
+        return template.replace('{brand_name}', BRAND_NAME)
+
+    # ------------------------------------------------------------------
+    # WebSocket logic
+    # ------------------------------------------------------------------
 
 
 async def start_server() -> None:

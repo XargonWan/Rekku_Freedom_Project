@@ -200,6 +200,17 @@ if __name__ == "__main__":
                 await core_initializer.initialize_all()
                 log_info("[main] Core components initialized successfully")
                 
+                # Start webui server if available
+                try:
+                    from core.core_initializer import INTERFACE_REGISTRY
+                    if 'synth_webui' in INTERFACE_REGISTRY:
+                        webui_interface = INTERFACE_REGISTRY['synth_webui']
+                        if hasattr(webui_interface, 'start_server_async'):
+                            webui_interface.start_server_async()
+                            log_info("[main] WebUI server started")
+                except Exception as e:
+                    log_warning(f"[main] Could not start webui server: {e}")
+                
                 # Start message queue consumer
                 from core import message_queue
                 asyncio.create_task(message_queue.run())

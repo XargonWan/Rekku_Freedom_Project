@@ -684,6 +684,112 @@
         .component-summary-actions button.pill {
             padding: 0.35rem 0.9rem;
         }
+        .diary-container {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            padding: clamp(1.2rem, 2vw, 1.8rem);
+            box-shadow: 0 24px 45px -42px rgba(0, 0, 0, 0.85);
+            height: calc(100vh - 220px);
+            max-height: calc(100vh - 220px);
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            overflow: hidden;
+        }
+        .diary-header {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .diary-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.8rem;
+            align-items: center;
+            font-size: 0.9rem;
+        }
+        .diary-controls button {
+            border: 1px solid var(--border);
+            background: var(--surface-alt);
+            color: var(--text);
+            border-radius: 14px;
+            padding: 0.6rem 1.1rem;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        .diary-controls button:hover {
+            background: var(--accent-soft);
+        }
+        .diary-controls label {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            cursor: pointer;
+        }
+        .diary-entries {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            padding: 0.5rem;
+        }
+        .diary-date-group {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+        .diary-date-header {
+            background: var(--surface-alt);
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-weight: 600;
+        }
+        .diary-date-header:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+        .diary-date-content {
+            padding: 0;
+        }
+        .diary-entry {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+        }
+        .diary-entry:last-child {
+            border-bottom: none;
+        }
+        .diary-entry-checkbox {
+            margin-top: 0.2rem;
+            display: none;
+        }
+        .diary-entry-content {
+            flex: 1;
+        }
+        .diary-entry-meta {
+            font-size: 0.85rem;
+            color: var(--text-soft);
+            margin-bottom: 0.5rem;
+        }
+        .diary-entry-text {
+            line-height: 1.5;
+            white-space: pre-wrap;
+        }
+        .diary-entry.archived {
+            opacity: 0.7;
+            background: rgba(255, 107, 214, 0.05);
+        }
         .settings-grid {
             display: flex;
             flex-wrap: wrap;
@@ -1015,6 +1121,9 @@
             <button class="nav-btn active" data-tab="home" aria-controls="tab-home" aria-pressed="true">
                 <span class="icon" aria-hidden="true">🏠</span><span>Home</span>
             </button>
+            <button class="nav-btn" data-tab="diary" aria-controls="tab-diary" aria-pressed="false">
+                <span class="icon" aria-hidden="true">📓</span><span>Diary</span>
+            </button>
             <button class="nav-btn" data-tab="logs" aria-controls="tab-logs" aria-pressed="false">
                 <span class="icon" aria-hidden="true">📜</span><span>Logs</span>
             </button>
@@ -1088,6 +1197,25 @@
                     </div>
                 </div>
                 <div id="log-output"><div class="log-line level-info">Open the Logs tab to begin streaming…</div></div>
+            </div>
+        </section>
+        <section class="tab-panel" id="tab-diary" data-tab="diary" role="tabpanel">
+            <div class="diary-container">
+                <div class="diary-header">
+                    <h2>AI Diary</h2>
+                    <div class="diary-controls">
+                        <input type="text" id="diary-search" placeholder="Search diary entries..." style="padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit; min-width: 250px;" />
+                        <label style="margin-left: 1rem;"><input type="checkbox" id="show-archived" /> Show archived entries</label>
+                        <label style="margin-left: 1rem;"><input type="checkbox" id="group-by-date" checked /> Group by date</label>
+                        <button id="edit-mode-btn" type="button" style="margin-left: 1rem; padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit;">Edit</button>
+                        <button id="archive-btn" type="button" style="margin-left: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit; display: none;">Archive Selected</button>
+                        <button id="unarchive-btn" type="button" style="margin-left: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit; display: none;">Unarchive Selected</button>
+                        <button id="delete-btn" type="button" style="margin-left: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--error); color: var(--error); display: none;">Delete Selected</button>
+                    </div>
+                </div>
+                <div id="diary-entries" class="diary-entries">
+                    <div class="loading">Loading diary entries...</div>
+                </div>
             </div>
         </section>
         <section class="tab-panel" id="tab-settings" data-tab="settings" role="tabpanel">
@@ -3917,6 +4045,222 @@
 
             refreshModels().catch((error) => console.error(error));
             refreshConfig().catch((error) => console.error(error));
+
+            // Diary functionality
+            let diaryEntries = [];
+            let selectedEntries = new Set();
+
+            function loadDiaryEntries() {
+                const showArchived = document.getElementById('show-archived').checked;
+                const searchTerm = document.getElementById('diary-search').value.toLowerCase();
+                
+                fetch('/api/diary' + (showArchived ? '?archived=1' : ''))
+                    .then(response => response.json())
+                    .then(data => {
+                        diaryEntries = data.entries || [];
+                        renderDiaryEntries();
+                    })
+                    .catch(error => {
+                        console.error('Error loading diary entries:', error);
+                        document.getElementById('diary-entries').innerHTML = '<div class="error">Failed to load diary entries</div>';
+                    });
+            }
+
+            function renderDiaryEntries() {
+                const container = document.getElementById('diary-entries');
+                const groupByDate = document.getElementById('group-by-date').checked;
+                const searchTerm = document.getElementById('diary-search').value.toLowerCase();
+                
+                let filteredEntries = diaryEntries.filter(entry => {
+                    const content = (entry.content + ' ' + entry.personal_thought + ' ' + entry.emotions).toLowerCase();
+                    return content.includes(searchTerm);
+                });
+                
+                if (groupByDate) {
+                    const grouped = {};
+                    filteredEntries.forEach(entry => {
+                        const date = new Date(entry.timestamp).toDateString();
+                        if (!grouped[date]) grouped[date] = [];
+                        grouped[date].push(entry);
+                    });
+                    
+                    let html = '';
+                    Object.keys(grouped).sort((a, b) => new Date(b) - new Date(a)).forEach(date => {
+                        html += `
+                            <div class="diary-date-group">
+                                <div class="diary-date-header" onclick="toggleDateGroup(this)">
+                                    <span>${date}</span>
+                                    <span class="toggle-icon">▼</span>
+                                </div>
+                                <div class="diary-date-content">
+                                    ${grouped[date].map(entry => renderDiaryEntry(entry)).join('')}
+                                </div>
+                            </div>
+                        `;
+                    });
+                    container.innerHTML = html || '<div class="empty">No diary entries found</div>';
+                } else {
+                    container.innerHTML = filteredEntries.map(entry => renderDiaryEntry(entry)).join('') || '<div class="empty">No diary entries found</div>';
+                }
+            }
+
+            function renderDiaryEntry(entry) {
+                const isArchived = entry.archived || false;
+                const isSelected = selectedEntries.has(entry.id);
+                return `
+                    <div class="diary-entry ${isArchived ? 'archived' : ''}" data-id="${entry.id}">
+                        <input type="checkbox" class="diary-entry-checkbox" ${isSelected ? 'checked' : ''} onchange="toggleEntrySelection(${entry.id})" style="display: ${document.getElementById('edit-mode-btn').textContent === 'Done' ? 'inline' : 'none'};">
+                        <div class="diary-entry-content">
+                            <div class="diary-entry-text">${escapeHtml(entry.content || '')}</div>
+                            ${entry.personal_thought ? `<div class="diary-entry-meta"><strong>Personal thought:</strong> ${escapeHtml(entry.personal_thought)}</div>` : ''}
+                            ${entry.emotions ? `<div class="diary-entry-meta"><strong>Emotions:</strong> ${escapeHtml(entry.emotions)}</div>` : ''}
+                            <div class="diary-entry-meta">
+                                <span>${new Date(entry.timestamp).toLocaleString()}</span>
+                                ${entry.interface ? `<span>• ${entry.interface}</span>` : ''}
+                                ${entry.chat_id ? `<span>• Chat ${entry.chat_id}</span>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function toggleDateGroup(header) {
+                const content = header.nextElementSibling;
+                const icon = header.querySelector('.toggle-icon');
+                if (content.style.display === 'none') {
+                    content.style.display = 'block';
+                    icon.textContent = '▼';
+                } else {
+                    content.style.display = 'none';
+                    icon.textContent = '▶';
+                }
+            }
+
+            function toggleEntrySelection(id) {
+                if (selectedEntries.has(id)) {
+                    selectedEntries.delete(id);
+                } else {
+                    selectedEntries.add(id);
+                }
+                updateActionButtons();
+            }
+
+            function updateActionButtons() {
+                const hasSelection = selectedEntries.size > 0;
+                const showArchived = document.getElementById('show-archived').checked;
+                
+                document.getElementById('archive-btn').style.display = hasSelection && !showArchived ? 'inline-block' : 'none';
+                document.getElementById('unarchive-btn').style.display = hasSelection && showArchived ? 'inline-block' : 'none';
+                document.getElementById('delete-btn').style.display = hasSelection && showArchived ? 'inline-block' : 'none';
+            }
+
+            function escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            // Event listeners for diary functionality
+            document.getElementById('diary-search').addEventListener('input', renderDiaryEntries);
+            document.getElementById('show-archived').addEventListener('change', loadDiaryEntries);
+            document.getElementById('group-by-date').addEventListener('change', renderDiaryEntries);
+            
+            document.getElementById('edit-mode-btn').addEventListener('click', function() {
+                const isEditMode = this.textContent === 'Edit';
+                this.textContent = isEditMode ? 'Done' : 'Edit';
+                
+                const checkboxes = document.querySelectorAll('.diary-entry-checkbox');
+                checkboxes.forEach(cb => {
+                    cb.style.display = isEditMode ? 'inline' : 'none';
+                    if (!isEditMode) cb.checked = false;
+                });
+                
+                if (!isEditMode) {
+                    selectedEntries.clear();
+                    updateActionButtons();
+                }
+            });
+
+            document.getElementById('archive-btn').addEventListener('click', function() {
+                if (selectedEntries.size === 0) return;
+                
+                fetch('/api/diary/archive', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: Array.from(selectedEntries) })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        selectedEntries.clear();
+                        loadDiaryEntries();
+                        updateActionButtons();
+                    } else {
+                        alert('Failed to archive entries');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error archiving entries:', error);
+                    alert('Failed to archive entries');
+                });
+            });
+
+            document.getElementById('unarchive-btn').addEventListener('click', function() {
+                if (selectedEntries.size === 0) return;
+                
+                fetch('/api/diary/unarchive', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: Array.from(selectedEntries) })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        selectedEntries.clear();
+                        loadDiaryEntries();
+                        updateActionButtons();
+                    } else {
+                        alert('Failed to unarchive entries');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error unarchiving entries:', error);
+                    alert('Failed to unarchive entries');
+                });
+            });
+
+            document.getElementById('delete-btn').addEventListener('click', function() {
+                if (selectedEntries.size === 0) return;
+                
+                if (!confirm(`Are you sure you want to delete ${selectedEntries.size} archived entries? This action cannot be undone.`)) {
+                    return;
+                }
+                
+                fetch('/api/diary/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: Array.from(selectedEntries) })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        selectedEntries.clear();
+                        loadDiaryEntries();
+                        updateActionButtons();
+                    } else {
+                        alert('Failed to delete entries');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error deleting entries:', error);
+                    alert('Failed to delete entries');
+                });
+            });
+
+            // Load diary entries when diary tab becomes active
+            document.querySelector('[data-tab="diary"]').addEventListener('click', function() {
+                setTimeout(loadDiaryEntries, 100); // Small delay to ensure tab is visible
+            });
         }
     </script>
 </body>
