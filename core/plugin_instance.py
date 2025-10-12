@@ -24,6 +24,32 @@ async def load_plugin(name: str, notify_fn=None):
         current_plugin_name = plugin.__class__.__module__.split(".")[-1]
         if current_plugin_name != name:
             log_debug(f"[plugin] 🔄 Changing plugin from {current_plugin_name} to {name}")
+            # Wait for any ongoing response to complete before cleanup
+            if hasattr(plugin, '_worker_task') and plugin._worker_task and not plugin._worker_task.done():
+                log_debug(f"[plugin] ⏳ Waiting for ongoing response to complete in {current_plugin_name}")
+                try:
+                    await plugin._worker_task
+                    log_debug(f"[plugin] ✅ Ongoing response completed in {current_plugin_name}")
+                except Exception as e:
+                    log_warning(f"[plugin] ⚠️ Error waiting for response completion: {e}")
+            # Cleanup the previous plugin before loading the new one
+            if hasattr(plugin, 'cleanup'):
+                try:
+                    plugin.cleanup()
+                    log_debug(f"[plugin] ✅ Previous plugin {current_plugin_name} cleaned up")
+                except Exception as e:
+                    log_error(f"[plugin] ❌ Error cleaning up previous plugin {current_plugin_name}: {e}")
+            elif hasattr(plugin, 'stop'):
+                try:
+                    if asyncio.iscoroutinefunction(plugin.stop):
+                        await plugin.stop()
+                    else:
+                        plugin.stop()
+                    log_debug(f"[plugin] ✅ Previous plugin {current_plugin_name} stopped")
+                except Exception as e:
+                    log_error(f"[plugin] ❌ Error stopping previous plugin {current_plugin_name}: {e}")
+            # Clear the global plugin reference
+            plugin = None
         else:
             # 🔁 Even if it's the same plugin, update notify_fn if provided
             if notify_fn and hasattr(plugin, "set_notify_fn"):
