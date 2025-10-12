@@ -1196,7 +1196,7 @@ def _open_new_chat(driver) -> None:
     for attempt in range(1, max_retries + 1):
         try:
             log_debug(f"[selenium] Attempt {attempt}/{max_retries} to navigate to ChatGPT home")
-            driver.get("https://x.com")
+            driver.get("https://grok.com")
             _close_announcements(driver)
             log_debug("[selenium] Successfully navigated to ChatGPT home")
             return
@@ -1212,7 +1212,7 @@ def _open_new_chat(driver) -> None:
 def is_chat_archived(driver, chat_id: str) -> bool:
     """Check if a ChatGPT chat is archived."""
     try:
-        chat_url = f"https://x.com/chat/{chat_id}"
+        chat_url = f"https://grok.com/chat/{chat_id}"
         driver.get(chat_url)
         WebDriverWait(driver, 5).until(
             EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'This conversation is archived')]"))
@@ -2270,13 +2270,13 @@ class SeleniumGrokPlugin(AIPluginBase):
             current_url = ""
         log_debug(f"[selenium] [STEP] Checking login state at {current_url}")
 
-        if not current_url.startswith("https://x.com") and not current_url.startswith("https://chatgpt.com"):
+        if not current_url.startswith("https://grok.com") and not current_url.startswith("https://chatgpt.com"):
             try:
-                self.driver.get("https://x.com")
+                self.driver.get("https://grok.com")
                 current_url = self.driver.current_url
             except Exception as e:
                 log_warning(f"[selenium] Failed to navigate to ChatGPT home: {e}")
-            if not current_url.startswith(("https://x.com", "https://chatgpt.com")):
+            if not current_url.startswith(("https://grok.com", "https://chatgpt.com")):
                 _notify_gui("🔐 Login or challenge detected. Open UI")
                 return False
 
@@ -2477,7 +2477,7 @@ class SeleniumGrokPlugin(AIPluginBase):
                         recent_chats.clear_chat_path(message.chat_id)
                     _open_new_chat(driver)
             else:
-                chat_url = f"https://x.com/c/{chat_id}"
+                chat_url = f"https://grok.com/c/{chat_id}"
                 try:
                     driver.get(chat_url)
                     WebDriverWait(driver, 120).until(
@@ -2509,7 +2509,7 @@ class SeleniumGrokPlugin(AIPluginBase):
 
             if not chat_id:
                 try:
-                    driver.get("https://x.com")
+                    driver.get("https://grok.com")
                     WebDriverWait(driver, 180).until(
                         EC.presence_of_element_located((By.TAG_NAME, "textarea"))
                     )
