@@ -759,6 +759,8 @@
         }
         .diary-date-content {
             padding: 0;
+            max-height: 400px;
+            overflow-y: auto;
         }
         .diary-entry {
             padding: 0.75rem;
@@ -1231,7 +1233,7 @@
                         </div>
                         
                         <button id="edit-mode-btn" type="button" style="margin-left: 1rem; padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit;">Edit</button>
-                        <button id="archive-btn" type="button" style="margin-left: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit; display: none;">Archive Selected</button>
+                        <button id="archive-btn" type="button" style="margin-left: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 6px; border: 2px solid #ffc107; background: rgba(12, 12, 20, 0.58); color: #ffc107; display: none;">Archive Selected</button>
                         <button id="unarchive-btn" type="button" style="margin-left: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit; display: none;">Unarchive Selected</button>
                         <button id="delete-btn" type="button" style="margin-left: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--error); color: var(--error); display: none;">Delete Selected</button>
                     </div>
@@ -1392,6 +1394,9 @@
         const NOTIFY_KEY = 'synth-webui-notify';
         const HISTORY_KEY = 'synth-webui-history';
         const TAB_KEY = 'synth-webui-active-tab';
+        const CHAT_MESSAGES_KEY = 'synth-webui-chat-messages';
+        const TYPING_INDICATOR_KEY = 'synth-webui-typing-indicator';
+        const VRM_MODEL_KEY = 'synth-webui-vrm-model';
         const HISTORY_LIMIT = 200;
         const LOG_BUFFER_LIMIT = 2000;
         const IS_SECURE = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -1670,10 +1675,66 @@
             currentEmojiTarget = null;
         }
 
+        // Chat state persistence functions
+        function saveChatState() {
+            const chatMessages = document.getElementById('chat-messages');
+            if (chatMessages) {
+                localStorage.setItem(CHAT_MESSAGES_KEY, chatMessages.innerHTML);
+            }
+            
+            // Save typing indicator state
+            const typingIndicator = document.querySelector('.typing-indicator');
+            localStorage.setItem(TYPING_INDICATOR_KEY, typingIndicator ? 'true' : 'false');
+            
+            // Save VRM model state - we need to get the active model from the server data
+            // For now, save currentModel name and we'll restore by refreshing models
+            if (currentModel) {
+                localStorage.setItem(VRM_MODEL_KEY, currentModel);
+            } else {
+                localStorage.removeItem(VRM_MODEL_KEY);
+            }
+        }
+
+        function restoreChatState() {
+            try {
+                // Restore chat messages
+                const chatMessages = document.getElementById('chat-messages');
+                const savedMessages = localStorage.getItem(CHAT_MESSAGES_KEY);
+                if (chatMessages && savedMessages) {
+                    chatMessages.innerHTML = savedMessages;
+                }
+                
+                // Restore typing indicator
+                const savedTyping = localStorage.getItem(TYPING_INDICATOR_KEY);
+                if (savedTyping === 'true') {
+                    // Re-add typing indicator if it was active
+                    const existingIndicator = document.querySelector('.typing-indicator');
+                    if (!existingIndicator && typeof addTypingIndicator === 'function') {
+                        addTypingIndicator();
+                    }
+                }
+                
+                // Note: VRM model should already be loaded, no need to refresh
+                console.log('[synth_webui] Chat state restored (VRM should persist)');
+            } catch (error) {
+                console.error('[synth_webui] Error in restoreChatState:', error);
+            }
+        }
+
         function activateTab(tab, force = false) {
             if (!tab) return;
             const currentPanelActive = document.querySelector(`.tab-panel.active[data-tab="${tab}"]`) !== null;
             if (!force && activeTab === tab && currentPanelActive) return;
+            
+            // Save chat state when leaving home tab
+            if (activeTab === 'home' && tab !== 'home') {
+                try {
+                    saveChatState();
+                } catch (error) {
+                    console.error('[synth_webui] Failed to save chat state:', error);
+                }
+            }
+            
             activeTab = tab;
             localStorage.setItem(TAB_KEY, tab);
             navButtons.forEach((btn) => {
@@ -1684,6 +1745,16 @@
             tabPanels.forEach((panel) => {
                 panel.classList.toggle('active', panel.dataset.tab === tab);
             });
+            
+            // Restore chat state when entering home tab (after all other operations)
+            if (tab === 'home') {
+                try {
+                    restoreChatState();
+                } catch (error) {
+                    console.error('[synth_webui] Failed to restore chat state:', error);
+                }
+            }
+            
             if (tab === 'logs') {
                 openLogStream();
             } else {
@@ -3359,6 +3430,14 @@
             if (!text || !ws || ws.readyState !== WebSocket.OPEN) {
                 return;
             }
+            
+            // Save current chat state before sending message (in case of page refresh)
+            try {
+                saveChatState();
+            } catch (error) {
+                console.error('[synth_webui] Failed to save chat state before sending:', error);
+            }
+            
             addMessage('user', text);
             addTypingIndicator(); // Show typing indicator immediately after sending
             ws.send(JSON.stringify({ text }));
@@ -4083,6 +4162,15 @@
             refreshModels().catch((error) => console.error(error));
             refreshConfig().catch((error) => console.error(error));
 
+            // Restore chat state on page load if we're on home tab
+            if (activeTab === 'home') {
+                try {
+                    restoreChatState();
+                } catch (error) {
+                    console.error('[synth_webui] Failed to restore chat state on load:', error);
+                }
+            }
+
             // Diary functionality
             let diaryEntries = [];
             let selectedEntries = new Set();
@@ -4315,8 +4403,8 @@
                 
                 if (!isEditMode) {
                     selectedEntries.clear();
-                    updateActionButtons();
                 }
+                updateActionButtons();
             });
 
             document.getElementById('archive-btn').addEventListener('click', function() {
