@@ -818,16 +818,20 @@ class SynthWebUIInterface:
             return max(minimum, min(maximum, parsed))
 
         days = _bounded_int(params.get("days"), default=14, minimum=1, maximum=365)
-        limit = _bounded_int(params.get("limit"), default=40, minimum=1, maximum=200)
+        limit = _bounded_int(params.get("limit"), default=100, minimum=1, maximum=1000)
         max_chars_param = params.get("max_chars")
         if max_chars_param is not None:
             max_chars = _bounded_int(max_chars_param, default=20000, minimum=1000, maximum=200000)
         else:
             max_chars = 20000
         include_archived = params.get("include_archived", "false").lower() == "true"
+        
+        # Pagination parameters
+        page = _bounded_int(params.get("page"), default=1, minimum=1, maximum=1000)
+        per_page = _bounded_int(params.get("per_page"), default=10, minimum=1, maximum=1000)
 
         persona_snapshot = await self._fetch_persona_snapshot()
-        diary_payload = self._fetch_diary_entries(days=days, limit=limit, max_chars=max_chars, include_archived=include_archived)
+        diary_payload = await self._fetch_diary_entries(days=days, limit=limit, max_chars=max_chars, include_archived=include_archived, page=page, per_page=per_page)
 
         if not persona_snapshot.get("created_at") and diary_payload.get("earliest_timestamp"):
             persona_snapshot["created_at"] = diary_payload["earliest_timestamp"]
@@ -839,6 +843,10 @@ class SynthWebUIInterface:
                 "plugin_enabled": diary_payload["plugin_enabled"],
                 "entries": diary_payload["entries"],
                 "count": diary_payload["count"],
+                "total_count": diary_payload["total_count"],
+                "page": page,
+                "per_page": per_page,
+                "total_pages": diary_payload["total_pages"],
                 "days": days,
                 "limit": limit,
                 "max_chars": max_chars,
@@ -946,13 +954,15 @@ class SynthWebUIInterface:
         )
         return snapshot
 
-    def _fetch_diary_entries(self, *, days: int, limit: int, max_chars: int, include_archived: bool = False) -> Dict[str, Any]:
+    async def _fetch_diary_entries(self, *, days: int, limit: int, max_chars: int, include_archived: bool = False, page: int = 1, per_page: int = 10) -> Dict[str, Any]:
         """Retrieve diary entries via the AI diary plugin when available."""
         payload: Dict[str, Any] = {
             "available": False,
             "plugin_enabled": False,
             "entries": [],
             "count": 0,
+            "total_count": 0,
+            "total_pages": 0,
             "earliest_timestamp": None,
             "latest_timestamp": None,
         }
@@ -972,24 +982,103 @@ class SynthWebUIInterface:
             return payload
 
         try:
-            if include_archived:
-                entries = ai_diary.get_all_diary_entries(include_archived=True) or []
+            # Get total count first
+            from core.db import get_conn
+            
+            conn = await get_conn()
+            try:
+                async with conn.cursor() as cur:
+                    if include_archived:
+                        await cur.execute("SELECT COUNT(*) FROM ai_diary")
+                        diary_count = (await cur.fetchone())[0]
+                        await cur.execute("SELECT COUNT(*) FROM ai_diary_archive")
+                        archive_count = (await cur.fetchone())[0]
+                        total_count = diary_count + archive_count
+                    else:
+                        await cur.execute("SELECT COUNT(*) FROM ai_diary")
+                        result = await cur.fetchone()
+                        total_count = result[0] if result else 0
+            finally:
+                conn.close()
+            
+            payload["total_count"] = total_count
+            payload["total_pages"] = (total_count + per_page - 1) // per_page if per_page != 'unlimited' else 1
+            
+            # Calculate offset
+            if per_page == 'unlimited':
+                offset = 0
+                limit = total_count
             else:
-                entries = ai_diary.get_recent_entries(days=days, max_chars=max_chars) or []
+                offset = (page - 1) * per_page
+                limit = per_page
+            
+            # Fetch paginated entries
+            conn = await get_conn()
+            try:
+                async with conn.cursor() as cur:
+                    if include_archived:
+                        # Get entries from both tables, ordered by timestamp DESC
+                        await cur.execute("""
+                            (SELECT id, content, personal_thought, timestamp, context_tags, involved_users, 
+                                   emotions, interface, chat_id, thread_id, interaction_summary, user_message,
+                                   FALSE as archived
+                            FROM ai_diary)
+                            UNION ALL
+                            (SELECT id, content, personal_thought, timestamp, context_tags, involved_users, 
+                                   emotions, interface, chat_id, thread_id, interaction_summary, user_message,
+                                   TRUE as archived
+                            FROM ai_diary_archive)
+                            ORDER BY timestamp DESC
+                            LIMIT %s OFFSET %s
+                        """, (limit, offset))
+                    else:
+                        await cur.execute("""
+                            SELECT id, content, personal_thought, timestamp, context_tags, involved_users, 
+                                   emotions, interface, chat_id, thread_id, interaction_summary, user_message,
+                                   FALSE as archived
+                            FROM ai_diary
+                            ORDER BY timestamp DESC
+                            LIMIT %s OFFSET %s
+                        """, (limit, offset))
+                    
+                    rows = await cur.fetchall()
+            finally:
+                conn.close()
+            
+            # Convert rows to entries format
+            entries = []
+            for row in rows:
+                entry = {
+                    'id': row[0],
+                    'content': row[1],
+                    'personal_thought': row[2],
+                    'timestamp': row[3].isoformat() if row[3] else None,
+                    'context_tags': json.loads(row[4] or '[]'),
+                    'involved_users': json.loads(row[5] or '[]'),
+                    'emotions': json.loads(row[6] or '[]'),
+                    'interface': row[7],
+                    'chat_id': row[8],
+                    'thread_id': row[9],
+                    'interaction_summary': row[10],
+                    'user_message': row[11],
+                    'archived': row[12]
+                }
+                entries.append(entry)
+            
+            payload["entries"] = entries
+            payload["count"] = len(entries)
+            payload["available"] = plugin_enabled and bool(total_count)
+            
+            # Calculate timestamps from current page (not all entries)
+            timestamps = [entry.get("timestamp") for entry in entries if entry.get("timestamp")]
+            if timestamps:
+                payload["earliest_timestamp"] = min(timestamps)
+                payload["latest_timestamp"] = max(timestamps)
+                
         except Exception as exc:
             log_error(f"{LOG_PREFIX} Failed to fetch diary entries: {exc}")
             payload["error"] = str(exc)
             return payload
-
-        trimmed = entries[:limit] if limit else entries
-        payload["entries"] = trimmed
-        payload["count"] = len(trimmed)
-        payload["available"] = plugin_enabled and bool(trimmed)
-
-        timestamps = [entry.get("timestamp") for entry in entries if entry.get("timestamp")]
-        if timestamps:
-            payload["earliest_timestamp"] = min(timestamps)
-            payload["latest_timestamp"] = max(timestamps)
 
         return payload
 
@@ -1767,6 +1856,14 @@ class SynthWebUIInterface:
         if self._server_thread and self._server_thread.is_alive():
             self._server_thread.join(timeout=2)
 
+    async def start(self) -> None:
+        """Start the web UI interface if autostart is enabled."""
+        if self.autostart:
+            log_info(f"{LOG_PREFIX} Autostart enabled, starting {BRAND_NAME} server")
+            self.start_server_async()
+        else:
+            log_info(f"{LOG_PREFIX} Autostart disabled, skipping server start")
+
     # ------------------------------------------------------------------
     # HTML template
     # ------------------------------------------------------------------
@@ -2116,3 +2213,54 @@ async def start_server() -> None:
     # the coroutine alive so ``uvicorn`` keeps running until interrupted.
     event = asyncio.Event()
     await event.wait()
+
+
+# Global interface instance - created during initialize_interface()
+synth_webui_interface = None
+
+
+def initialize_interface():
+    """Initialize the WebUI interface after config has been loaded from DB.
+    
+    This function is called by the core initializer after all configurations
+    have been loaded from the database. This ensures that config_registry.get_var()
+    returns the correct values from the DB.
+    
+    Can also be called to reload the interface when configuration changes.
+    """
+    global synth_webui_interface
+    
+    # If interface already exists, clean it up first
+    if synth_webui_interface is not None:
+        log_info(f"{LOG_PREFIX} Reloading interface with updated configuration...")
+        shutdown_interface()
+    
+    log_info(f"{LOG_PREFIX} Creating {BRAND_NAME} interface instance...")
+    synth_webui_interface = SynthWebUIInterface()
+    # Interface is already registered in __init__, no need to register again
+    log_info(f"{LOG_PREFIX} {BRAND_NAME} interface instance created")
+    
+    return synth_webui_interface
+
+
+def shutdown_interface():
+    """Shutdown and cleanup the WebUI interface.
+    
+    Called before reload or shutdown to properly cleanup resources.
+    """
+    global synth_webui_interface
+    
+    if synth_webui_interface is None:
+        log_debug(f"{LOG_PREFIX} No interface to shutdown")
+        return
+    
+    log_info(f"{LOG_PREFIX} Shutting down {BRAND_NAME} interface...")
+    
+    try:
+        # Stop the server if it's running
+        synth_webui_interface.cleanup()
+        log_info(f"{LOG_PREFIX} {BRAND_NAME} interface shutdown completed")
+    except Exception as e:
+        log_error(f"{LOG_PREFIX} Error during interface shutdown: {e}")
+    
+    synth_webui_interface = None

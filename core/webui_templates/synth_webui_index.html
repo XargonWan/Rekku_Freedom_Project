@@ -761,30 +761,36 @@
             padding: 0;
         }
         .diary-entry {
-            padding: 1rem;
+            padding: 0.75rem;
             border-bottom: 1px solid var(--border);
             display: flex;
-            gap: 1rem;
+            gap: 0.75rem;
             align-items: flex-start;
+            margin-bottom: 0.5rem;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.02);
         }
         .diary-entry:last-child {
             border-bottom: none;
+            margin-bottom: 0;
         }
         .diary-entry-checkbox {
-            margin-top: 0.2rem;
+            margin-top: 0.1rem;
             display: none;
         }
         .diary-entry-content {
             flex: 1;
         }
         .diary-entry-meta {
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             color: var(--text-soft);
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.25rem;
+            margin-top: 0.25rem;
         }
         .diary-entry-text {
-            line-height: 1.5;
+            line-height: 1.4;
             white-space: pre-wrap;
+            margin-bottom: 0.5rem;
         }
         .diary-entry.archived {
             opacity: 0.7;
@@ -1207,6 +1213,23 @@
                         <input type="text" id="diary-search" placeholder="Search diary entries..." style="padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit; min-width: 250px;" />
                         <label style="margin-left: 1rem;"><input type="checkbox" id="show-archived" /> Show archived entries</label>
                         <label style="margin-left: 1rem;"><input type="checkbox" id="group-by-date" checked /> Group by date</label>
+                        
+                        <div style="margin-left: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <label for="entries-per-page">Entries per page:</label>
+                            <select id="entries-per-page" style="padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit;">
+                                <option value="10">10</option>
+                                <option value="20">20</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="unlimited">Unlimited</option>
+                            </select>
+                        </div>
+                        
+                        <div style="margin-left: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <label for="date-filter">Go to date:</label>
+                            <input type="date" id="date-filter" style="padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit;" />
+                        </div>
+                        
                         <button id="edit-mode-btn" type="button" style="margin-left: 1rem; padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit;">Edit</button>
                         <button id="archive-btn" type="button" style="margin-left: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit; display: none;">Archive Selected</button>
                         <button id="unarchive-btn" type="button" style="margin-left: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit; display: none;">Unarchive Selected</button>
@@ -1215,6 +1238,20 @@
                 </div>
                 <div id="diary-entries" class="diary-entries">
                     <div class="loading">Loading diary entries...</div>
+                </div>
+                
+                <!-- Pagination Controls -->
+                <div class="diary-pagination" id="diary-pagination" style="display: none; margin-top: 1rem; padding: 1rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div class="pagination-info" id="pagination-info">
+                            Showing 0-0 of 0 entries
+                        </div>
+                        <div class="pagination-controls" style="display: flex; align-items: center; gap: 0.5rem;">
+                            <button id="prev-page" type="button" style="padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit;">← Previous</button>
+                            <span id="current-page-display">Page 1</span>
+                            <button id="next-page" type="button" style="padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid var(--border); background: rgba(12, 12, 20, 0.58); color: inherit;">Next →</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -4050,14 +4087,43 @@
             let diaryEntries = [];
             let selectedEntries = new Set();
 
-            function loadDiaryEntries() {
+            let currentPage = 1;
+            let currentPerPage = 10;
+            let totalPages = 1;
+            let totalEntries = 0;
+            
+            function loadDiaryEntries(page = 1, perPage = currentPerPage) {
                 const showArchived = document.getElementById('show-archived').checked;
                 const searchTerm = document.getElementById('diary-search').value.toLowerCase();
                 
-                fetch('/api/diary' + (showArchived ? '?archived=1' : ''))
+                currentPage = page;
+                currentPerPage = perPage;
+                
+                let url = '/api/diary?';
+                const params = [];
+                
+                if (showArchived) params.push('include_archived=true');
+                
+                // If there's a search term, load more entries to search through
+                const effectivePerPage = searchTerm ? Math.max(perPage === 'unlimited' ? 1000 : perPage * 5, 100) : perPage;
+                
+                if (effectivePerPage !== 'unlimited') {
+                    params.push(`page=${page}`);
+                    params.push(`per_page=${effectivePerPage}`);
+                } else {
+                    params.push('limit=1000'); // High limit for unlimited
+                }
+                
+                url += params.join('&');
+                
+                fetch(url)
                     .then(response => response.json())
                     .then(data => {
-                        diaryEntries = data.entries || [];
+                        diaryEntries = data.diary?.entries || [];
+                        totalEntries = data.diary?.total_count || 0;
+                        totalPages = data.diary?.total_pages || 1;
+                        
+                        updatePaginationControls();
                         renderDiaryEntries();
                     })
                     .catch(error => {
@@ -4072,13 +4138,31 @@
                 const searchTerm = document.getElementById('diary-search').value.toLowerCase();
                 
                 let filteredEntries = diaryEntries.filter(entry => {
-                    const content = (entry.content + ' ' + entry.personal_thought + ' ' + entry.emotions).toLowerCase();
+                    if (!searchTerm) return true;
+                    const content = (entry.content + ' ' + entry.personal_thought + ' ' + entry.emotions.map(e => e.type).join(' ') + ' ' + (entry.interaction_summary || '') + ' ' + entry.involved_users.join(' ')).toLowerCase();
                     return content.includes(searchTerm);
                 });
                 
+                // Apply client-side pagination only when searching (since we load more entries)
+                let displayEntries = filteredEntries;
+                if (searchTerm && currentPerPage !== 'unlimited') {
+                    const startIdx = (currentPage - 1) * currentPerPage;
+                    const endIdx = startIdx + currentPerPage;
+                    displayEntries = filteredEntries.slice(startIdx, endIdx);
+                    
+                    // Update pagination info for search results
+                    totalEntries = filteredEntries.length;
+                    totalPages = Math.ceil(totalEntries / currentPerPage);
+                }
+                
+                if (displayEntries.length === 0) {
+                    container.innerHTML = searchTerm ? '<div class="meta">No entries found matching your search.</div>' : '<div class="loading">No diary entries found.</div>';
+                    return;
+                }
+                
                 if (groupByDate) {
                     const grouped = {};
-                    filteredEntries.forEach(entry => {
+                    displayEntries.forEach(entry => {
                         const date = new Date(entry.timestamp).toDateString();
                         if (!grouped[date]) grouped[date] = [];
                         grouped[date].push(entry);
@@ -4098,35 +4182,81 @@
                             </div>
                         `;
                     });
-                    container.innerHTML = html || '<div class="empty">No diary entries found</div>';
+                    container.innerHTML = html;
                 } else {
-                    container.innerHTML = filteredEntries.map(entry => renderDiaryEntry(entry)).join('') || '<div class="empty">No diary entries found</div>';
+                    container.innerHTML = displayEntries.map(entry => renderDiaryEntry(entry)).join('');
                 }
+                
+                updatePaginationControls();
             }
 
             function renderDiaryEntry(entry) {
                 const isArchived = entry.archived || false;
                 const isSelected = selectedEntries.has(entry.id);
+                
+                // Format emotions array
+                let emotionsText = '';
+                if (entry.emotions && Array.isArray(entry.emotions)) {
+                    emotionsText = entry.emotions.map(e => `${e.type} (${e.intensity})`).join(', ');
+                }
+                
+                // Format involved users
+                let usersText = '';
+                if (entry.involved_users && Array.isArray(entry.involved_users) && entry.involved_users.length > 0) {
+                    usersText = entry.involved_users.join(', ');
+                }
+                
                 return `
                     <div class="diary-entry ${isArchived ? 'archived' : ''}" data-id="${entry.id}">
                         <input type="checkbox" class="diary-entry-checkbox" ${isSelected ? 'checked' : ''} onchange="toggleEntrySelection(${entry.id})" style="display: ${document.getElementById('edit-mode-btn').textContent === 'Done' ? 'inline' : 'none'};">
                         <div class="diary-entry-content">
                             <div class="diary-entry-text">${escapeHtml(entry.content || '')}</div>
                             ${entry.personal_thought ? `<div class="diary-entry-meta"><strong>Personal thought:</strong> ${escapeHtml(entry.personal_thought)}</div>` : ''}
-                            ${entry.emotions ? `<div class="diary-entry-meta"><strong>Emotions:</strong> ${escapeHtml(entry.emotions)}</div>` : ''}
+                            ${emotionsText ? `<div class="diary-entry-meta"><strong>Emotions:</strong> ${escapeHtml(emotionsText)}</div>` : ''}
+                            ${entry.interaction_summary ? `<div class="diary-entry-meta"><strong>Interaction:</strong> ${escapeHtml(entry.interaction_summary)}</div>` : ''}
+                            ${usersText ? `<div class="diary-entry-meta"><strong>Involved users:</strong> ${escapeHtml(usersText)}</div>` : ''}
                             <div class="diary-entry-meta">
                                 <span>${new Date(entry.timestamp).toLocaleString()}</span>
                                 ${entry.interface ? `<span>• ${entry.interface}</span>` : ''}
                                 ${entry.chat_id ? `<span>• Chat ${entry.chat_id}</span>` : ''}
+                                ${entry.id ? `<span>• ID: ${entry.id}</span>` : ''}
                             </div>
                         </div>
                     </div>
                 `;
             }
 
+            function updatePaginationControls() {
+                const paginationDiv = document.getElementById('diary-pagination');
+                const infoDiv = document.getElementById('pagination-info');
+                const currentPageDisplay = document.getElementById('current-page-display');
+                const prevBtn = document.getElementById('prev-page');
+                const nextBtn = document.getElementById('next-page');
+                
+                if (currentPerPage === 'unlimited' || totalPages <= 1) {
+                    paginationDiv.style.display = 'none';
+                    return;
+                }
+                
+                paginationDiv.style.display = 'block';
+                
+                const startEntry = (currentPage - 1) * currentPerPage + 1;
+                const endEntry = Math.min(currentPage * currentPerPage, totalEntries);
+                
+                infoDiv.textContent = `Showing ${startEntry}-${endEntry} of ${totalEntries} entries`;
+                currentPageDisplay.textContent = `Page ${currentPage} of ${totalPages}`;
+                
+                prevBtn.disabled = currentPage <= 1;
+                nextBtn.disabled = currentPage >= totalPages;
+            }
+            
+            function goToPage(page) {
+                if (page >= 1 && page <= totalPages) {
+                    loadDiaryEntries(page, currentPerPage);
+                }
+            }
+
             function toggleDateGroup(header) {
-                const content = header.nextElementSibling;
-                const icon = header.querySelector('.toggle-icon');
                 if (content.style.display === 'none') {
                     content.style.display = 'block';
                     icon.textContent = '▼';
@@ -4161,7 +4291,15 @@
             }
 
             // Event listeners for diary functionality
-            document.getElementById('diary-search').addEventListener('input', renderDiaryEntries);
+            // Search functionality - reload entries when search changes
+            let searchTimeout;
+            document.getElementById('diary-search').addEventListener('input', function() {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    currentPage = 1; // Reset to first page when searching
+                    loadDiaryEntries(1, currentPerPage);
+                }, 300); // Debounce search
+            });
             document.getElementById('show-archived').addEventListener('change', loadDiaryEntries);
             document.getElementById('group-by-date').addEventListener('change', renderDiaryEntries);
             
@@ -4260,6 +4398,53 @@
             // Load diary entries when diary tab becomes active
             document.querySelector('[data-tab="diary"]').addEventListener('click', function() {
                 setTimeout(loadDiaryEntries, 100); // Small delay to ensure tab is visible
+            });
+            
+            // Pagination controls
+            document.getElementById('entries-per-page').addEventListener('change', function() {
+                const newPerPage = this.value;
+                currentPerPage = newPerPage;
+                loadDiaryEntries(1, newPerPage); // Reset to page 1 when changing per-page
+            });
+            
+            document.getElementById('prev-page').addEventListener('click', function() {
+                if (currentPage > 1) {
+                    goToPage(currentPage - 1);
+                }
+            });
+            
+            document.getElementById('next-page').addEventListener('click', function() {
+                if (currentPage < totalPages) {
+                    goToPage(currentPage + 1);
+                }
+            });
+            
+            // Date filter
+            document.getElementById('date-filter').addEventListener('change', function() {
+                const selectedDate = this.value;
+                if (selectedDate) {
+                    // Find the page that contains entries from the selected date
+                    // This is a simplified implementation - in a real app you'd want to query the API for this
+                    const targetDate = new Date(selectedDate);
+                    
+                    // For now, we'll just reload and let the user navigate
+                    // A more sophisticated implementation would calculate the correct page
+                    loadDiaryEntries(1, currentPerPage);
+                    
+                    // Scroll to entries from the selected date
+                    setTimeout(() => {
+                        const dateHeaders = document.querySelectorAll('.diary-date-header');
+                        for (const header of dateHeaders) {
+                            const headerDate = new Date(header.textContent.trim());
+                            if (headerDate.toDateString() === targetDate.toDateString()) {
+                                header.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                // Expand the date group
+                                toggleDateGroup(header);
+                                break;
+                            }
+                        }
+                    }, 500);
+                }
             });
         }
     </script>

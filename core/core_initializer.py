@@ -517,7 +517,7 @@ class CoreInitializer:
         
         # Get all loaded interface modules
         interface_modules = [name for name in sys.modules.keys() 
-                           if name.startswith('interface.') or name.startswith('interface_dev.')]
+                           if name.startswith('interface.') or name.startswith('interface_dev.') or name == 'core.webui']
         
         log_debug(f"[core_initializer] Found {len(interface_modules)} interface modules to initialize")
         
