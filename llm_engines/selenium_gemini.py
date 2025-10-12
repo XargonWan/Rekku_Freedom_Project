@@ -2271,51 +2271,17 @@ class SeleniumGeminiPlugin(AIPluginBase):
         # Send system messages through the interface_to_llm entry so they follow
         # the interface-origin path (no corrector middleware run).
         try:
-            from core.transport_layer import interface_to_llm
+            from core.transport_layer import llm_to_interface
         except Exception:
-            interface_to_llm = None
+            llm_to_interface = None
 
-        module_name = getattr(bot.__class__, "__module__", "")
-        log_debug(f"[selenium] _send_error_message: bot module={module_name}, bot class={bot.__class__.__name__}")
         try:
-            if interface_to_llm is None:
+            if llm_to_interface is None:
                 # Fallback: call directly if transport wrapper unavailable
-                if module_name.startswith("telegram"):
-                    await safe_send(bot, **send_params)
-                elif "discord" in module_name.lower() or bot.__class__.__name__ == "Client":
-                    # For Discord, we need to find the interface instance
-                    # The bot here is actually the discord.Client, not the DiscordInterface
-                    # We need to use the transport layer instead
-                    from core.transport_layer import universal_send
-                    await universal_send(
-                        target=send_params["chat_id"],
-                        text=send_params["text"],
-                        interface="discord",
-                        reply_to_message_id=send_params.get("reply_to_message_id"),
-                        thread_id=send_params.get("thread_id")
-                    )
-                else:
-                    await bot.send_message(**send_params)
+                await bot.send_message(**send_params)
             else:
-                if module_name.startswith("telegram"):
-                    # safe_send expects (bot, chat_id, text, ...)
-                    await interface_to_llm(safe_send, bot, send_params.get("chat_id"), text=send_params.get("text"), reply_to_message_id=send_params.get("reply_to_message_id"), thread_id=send_params.get("thread_id"))
-                elif "discord" in module_name.lower() or bot.__class__.__name__ == "Client":
-                    # For Discord, use universal_send through interface_to_llm (system message)
-                    from core.transport_layer import universal_send
-                    await interface_to_llm(
-                        universal_send,
-                        target=send_params["chat_id"],
-                        text=send_params["text"],
-                        interface="discord",
-                        reply_to_message_id=send_params.get("reply_to_message_id"),
-                        thread_id=send_params.get("thread_id")
-                    )
-                else:
-                    # Extract text parameter separately to avoid conflicts with interface_to_llm (system message)
-                    text_param = send_params.get("text")
-                    other_params = {k: v for k, v in send_params.items() if k != "text"}
-                    await interface_to_llm(bot.send_message, text=text_param, **other_params)
+                # Use uniform llm_to_interface for all interfaces
+                await llm_to_interface(bot.send_message, **send_params)
         except Exception as e:
             # Preserve previous logging behavior
             log_warning(f"[selenium][STEP] error response forwarding failed: {e}")
@@ -2586,85 +2552,27 @@ GEMINI-SPECIFIC INSTRUCTIONS:
                     log_error(f"[selenium] Sending fallback message: '{fallback_text}'")
                     response_text = fallback_text
 
-                # Detect interface type for dispatch
-                module_name = getattr(bot.__class__, "__module__", "")
-                if module_name.startswith("telegram"):
-                    # Only forward non-empty LLM responses to Telegram transport (LLM -> interface)
-                    if response_text and response_text.strip():
-                        await llm_to_interface(
-                            safe_send,
-                            bot,
-                            message.chat_id,
-                            text=response_text,
-                            reply_to_message_id=getattr(message, "message_id", None),
-                            thread_id=thread_id,
-                            event_id=getattr(message, "event_id", None),
-                            interface='telegram',
-                        )
-                    else:
-                        # Send fallback message when LLM fails to generate response
-                        fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
-                        log_error(f"[selenium] LLM FAILURE - Chat: {message.chat_id}, Reason: Empty response from Gemini")
-                        log_error(f"[selenium] Sending fallback message: '{fallback_text}'")
-                        await llm_to_interface(
-                            safe_send,
-                            bot,
-                            message.chat_id,
-                            text=fallback_text,
-                            reply_to_message_id=getattr(message, "message_id", None),
-                            thread_id=thread_id,
-                            event_id=getattr(message, "event_id", None),
-                            interface='telegram',
-                        )
+                # Send response through llm_to_interface
+                if response_text and response_text.strip():
+                    await llm_to_interface(
+                        bot.send_message,
+                        chat_id=message.chat_id,
+                        text=response_text,
+                        reply_to_message_id=getattr(message, "message_id", None),
+                        thread_id=thread_id,
+                    )
                 else:
-                    # Non-Telegram interfaces expect a payload dict
-                    if response_text and response_text.strip():
-                        # Forward model output through centralized llm_to_interface (LLM -> interface)
-                        # For Discord, use universal_send
-                        if interface_name == "discord_bot" or "discord" in interface_name.lower():
-                            from core.transport_layer import universal_send
-                            await llm_to_interface(
-                                universal_send,
-                                target=message.chat_id,
-                                text=response_text,
-                                interface="discord",
-                                thread_id=thread_id,
-                            )
-                        else:
-                            # For other interfaces, use universal_send as fallback
-                            from core.transport_layer import universal_send
-                            await llm_to_interface(
-                                universal_send,
-                                target=message.chat_id,
-                                text=response_text,
-                                interface=interface_name,
-                                thread_id=thread_id,
-                            )
-                    else:
-                        # Send fallback message when LLM fails to generate response  
-                        fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
-                        log_error(f"[selenium] LLM FAILURE - Chat: {message.chat_id}, Interface: {interface_name}, Reason: Empty response from Gemini")
-                        log_error(f"[selenium] Sending fallback message: '{fallback_text}'")
-                        # For Discord, use universal_send
-                        if interface_name == "discord_bot" or "discord" in interface_name.lower():
-                            from core.transport_layer import universal_send
-                            await llm_to_interface(
-                                universal_send,
-                                target=message.chat_id,
-                                text=fallback_text,
-                                interface="discord",
-                                thread_id=thread_id,
-                            )
-                        else:
-                            # For other interfaces, use universal_send as fallback
-                            from core.transport_layer import universal_send
-                            await llm_to_interface(
-                                universal_send,
-                                target=message.chat_id,
-                                text=fallback_text,
-                                interface=interface_name,
-                                thread_id=thread_id,
-                            )
+                    # Send fallback message when LLM fails to generate response
+                    fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
+                    log_error(f"[selenium] LLM FAILURE - Chat: {message.chat_id}, Reason: Empty response from Gemini")
+                    log_error(f"[selenium] Sending fallback message: '{fallback_text}'")
+                    await llm_to_interface(
+                        bot.send_message,
+                        chat_id=message.chat_id,
+                        text=fallback_text,
+                        reply_to_message_id=getattr(message, "message_id", None),
+                        thread_id=thread_id,
+                    )
 
                 log_debug(
                     f"[selenium][STEP] response forwarded to {message.chat_id}"
@@ -2682,29 +2590,13 @@ GEMINI-SPECIFIC INSTRUCTIONS:
                         log_error(f"[selenium] LLM FAILURE - Chat: {message.chat_id}, Reason: All {max_attempts} attempts failed with exception")
                         log_error(f"[selenium] Sending final fallback message: '{fallback_text}'")
                         
-                        interface_name = "telegram" if getattr(bot.__class__, "__module__", "").startswith("telegram") else "generic"
-                        thread_id = getattr(message, "thread_id", None)
-                        
-                        if interface_name == "telegram":
-                            await llm_to_interface(
-                                safe_send,
-                                bot,
-                                message.chat_id,
-                                text=fallback_text,
-                                reply_to_message_id=getattr(message, "message_id", None),
-                                thread_id=thread_id,
-                                event_id=getattr(message, "event_id", None),
-                                interface='telegram',
-                            )
-                        else:
-                            from core.transport_layer import universal_send
-                            await llm_to_interface(
-                                universal_send,
-                                target=message.chat_id,
-                                text=fallback_text,
-                                interface=interface_name,
-                                thread_id=thread_id,
-                            )
+                        await llm_to_interface(
+                            bot.send_message,
+                            chat_id=message.chat_id,
+                            text=fallback_text,
+                            reply_to_message_id=getattr(message, "message_id", None),
+                            thread_id=thread_id,
+                        )
                     except Exception as fallback_error:
                         log_error(f"[selenium] CRITICAL: Even fallback message failed: {repr(fallback_error)}")
                     break  # Max attempts reached, exit
