@@ -1539,7 +1539,9 @@ class TelegramInterface:
         Returns:
             bool: True if reaction was added successfully
         """
+        log_debug(f"[telegram_interface] add_reaction called with emoji '{emoji}' for message {getattr(message, 'message_id', 'unknown')}")
         try:
+            log_debug(f"[telegram_interface] self.bot is None: {self.bot is None}")
             if not self.bot:
                 log_warning("[telegram_interface] Bot instance is None, cannot add reaction")
                 return False
@@ -1567,7 +1569,7 @@ class TelegramInterface:
             log_info(f"[telegram_interface] Successfully added reaction '{emoji}' to message {message_id}")
             return True
         except Exception as e:
-            log_warning(f"[telegram_interface] Failed to add reaction '{emoji}': {e}")
+            log_warning(f"[telegram_interface] Failed to add reaction '{emoji}': {e} - chat_id={chat_id}, message_id={message_id}, type={type(e).__name__}")
             import traceback
             log_debug(f"[telegram_interface] Traceback: {traceback.format_exc()}")
             return False

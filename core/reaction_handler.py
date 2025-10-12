@@ -31,7 +31,10 @@ def get_reaction_emoji() -> Optional[str]:
     Returns:
         Optional[str]: The emoji to use as reaction, or None if not configured
     """
-    emoji = str(REACT_WHEN_MENTIONED).strip() if REACT_WHEN_MENTIONED else ""
+    raw = REACT_WHEN_MENTIONED
+    log_debug(f"[reaction] REACT_WHEN_MENTIONED raw: '{raw}' (type: {type(raw)})")
+    emoji = str(raw).strip() if raw else ""
+    log_debug(f"[reaction] Processed emoji: '{emoji}'")
     if not emoji:
         return None
     return emoji
@@ -52,6 +55,7 @@ async def react_when_mentioned(interface, message, emoji: str) -> bool:
     Returns:
         bool: True if reaction was added successfully, False otherwise
     """
+    log_debug(f"[reaction] react_when_mentioned called with emoji '{emoji}', interface={type(interface).__name__}, message_id={getattr(message, 'message_id', 'unknown')}")
     if not emoji:
         log_debug("[reaction] No emoji configured, skipping reaction")
         return False
