@@ -1729,10 +1729,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         interface=self._get_interface_name(bot)
                     )
                     
-                    # Process the prompt in ChatGPT
+                    # Process the prompt in ChatGPT with timeout
                     previous_text = get_previous_response(str(message.chat_id))
-                    response_text = process_prompt_in_chat(
-                        self.driver, chat_id, prompt_text, previous_text
+                    import asyncio
+                    timeout_seconds = 300  # 5 minutes timeout
+                    response_text = await asyncio.wait_for(
+                        asyncio.get_event_loop().run_in_executor(
+                            None,
+                            lambda: process_prompt_in_chat(self.driver, chat_id, prompt_text, previous_text)
+                        ),
+                        timeout=timeout_seconds
                     )
                     
                     if response_text:
@@ -1780,10 +1786,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                         interface=self._get_interface_name(bot)
                     )
                     
-                    # Process the prompt in ChatGPT
+                    # Process the prompt in ChatGPT with timeout
                     previous_text = get_previous_response(str(message.chat_id))
-                    response_text = process_prompt_in_chat(
-                        self.driver, chat_id, prompt_text, previous_text
+                    import asyncio
+                    timeout_seconds = 300  # 5 minutes timeout
+                    response_text = await asyncio.wait_for(
+                        asyncio.get_event_loop().run_in_executor(
+                            None,
+                            lambda: process_prompt_in_chat(self.driver, chat_id, prompt_text, previous_text)
+                        ),
+                        timeout=timeout_seconds
                     )
                     
                     if response_text:
@@ -2489,14 +2501,30 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 # Critical section: process prompt with robust error handling
                 response_text = None
                 try:
+                    import asyncio
+                    # Add timeout to prevent blocking the entire system
+                    timeout_seconds = 300  # 5 minutes timeout
+                    
                     if chat_id:
                         previous = get_previous_response(message.chat_id)
-                        response_text = process_prompt_in_chat(driver, chat_id, prompt_text, previous, temp_image_path)
+                        response_text = await asyncio.wait_for(
+                            asyncio.get_event_loop().run_in_executor(
+                                None, 
+                                lambda: process_prompt_in_chat(driver, chat_id, prompt_text, previous, temp_image_path)
+                            ),
+                            timeout=timeout_seconds
+                        )
                         if response_text:
                             update_previous_response(message.chat_id, response_text)
                     else:
                         previous = get_previous_response(message.chat_id)
-                        response_text = process_prompt_in_chat(driver, None, prompt_text, previous, temp_image_path)
+                        response_text = await asyncio.wait_for(
+                            asyncio.get_event_loop().run_in_executor(
+                                None,
+                                lambda: process_prompt_in_chat(driver, None, prompt_text, previous, temp_image_path)
+                            ),
+                            timeout=timeout_seconds
+                        )
                         if response_text:
                             update_previous_response(message.chat_id, response_text)
                             new_chat_id = _extract_chat_id(driver.current_url)
@@ -2519,6 +2547,11 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                             else:
                                 log_warning("[selenium][WARN] Failed to extract chat ID from URL")
                 
+                except asyncio.TimeoutError:
+                    log_error(f"[selenium] TIMEOUT: process_prompt_in_chat took longer than {timeout_seconds} seconds")
+                    _notify_gui("\u23f3 ChatGPT request timed out. Try again")
+                    await self._send_error_message(bot, message)
+                    return
                 except Exception as prompt_error:
                     # Critical error in process_prompt_in_chat
                     log_error(f"[selenium] CRITICAL ERROR in process_prompt_in_chat: {repr(prompt_error)}")
@@ -2531,7 +2564,16 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     global queue_paused
                     queue_paused = True
                     _open_new_chat(driver)
-                    response_text = process_prompt_in_chat(driver, None, prompt_text, "", temp_image_path)
+                    # Process prompt in new chat with timeout
+                    import asyncio
+                    timeout_seconds = 300  # 5 minutes timeout
+                    response_text = await asyncio.wait_for(
+                        asyncio.get_event_loop().run_in_executor(
+                            None,
+                            lambda: process_prompt_in_chat(driver, None, prompt_text, "", temp_image_path)
+                        ),
+                        timeout=timeout_seconds
+                    )
                     new_chat_id = _extract_chat_id(driver.current_url)
                     if new_chat_id:
                         await chat_link_store.store_chatgpt_link(
