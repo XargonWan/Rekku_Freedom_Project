@@ -1252,17 +1252,36 @@ def process_prompt_in_chat(
         log_warning(f"[selenium] Failed to click prefer-response button: {e}")
 
     try:
-        textarea = WebDriverWait(driver, 10).until(
+        log_debug("[selenium] Looking for textarea with primary selector...")
+        textarea = WebDriverWait(driver, 20).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble"))
         )
+        log_debug("[selenium] Found textarea with primary selector")
     except TimeoutException:
         log_warning("[selenium] Primary textarea selector failed, trying fallback")
         try:
-            textarea = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "div.ql-editor.ql-blank.textarea.new-input-ui"))
+            log_debug("[selenium] Looking for textarea with fallback selector...")
+            textarea = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "div.ql-editor"))
             )
+            log_debug("[selenium] Found textarea with fallback selector")
         except TimeoutException:
             log_error("[selenium][ERROR] prompt textarea not found with any selector")
+            # Debug: print available elements
+            try:
+                all_textareas = driver.find_elements(By.TAG_NAME, "rich-textarea")
+                log_debug(f"[selenium] Found {len(all_textareas)} rich-textarea elements")
+                for i, ta in enumerate(all_textareas[:3]):  # First 3
+                    classes = ta.get_attribute("class") or ""
+                    log_debug(f"[selenium] rich-textarea {i}: classes='{classes}'")
+                
+                all_ql_editors = driver.find_elements(By.CSS_SELECTOR, "div.ql-editor")
+                log_debug(f"[selenium] Found {len(all_ql_editors)} div.ql-editor elements")
+                for i, qle in enumerate(all_ql_editors[:3]):  # First 3
+                    classes = qle.get_attribute("class") or ""
+                    log_debug(f"[selenium] div.ql-editor {i}: classes='{classes}'")
+            except Exception as debug_e:
+                log_error(f"[selenium] Error during debug: {debug_e}")
             return None
 
     start = time.time()
