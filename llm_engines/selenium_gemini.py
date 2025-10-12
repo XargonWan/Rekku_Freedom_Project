@@ -368,7 +368,7 @@ def _paste_image_to_gemini(driver, image_path: str) -> bool:
     try:
         # Find the input area
         textarea = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea"))
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble"))
         )
 
         # Click on the textarea to focus it
@@ -464,7 +464,7 @@ def _paste_image_to_gemini(driver, image_path: str) -> bool:
                     }}
 
                     // Alternative: try to paste into textarea as data URL
-                    var textarea = document.querySelector('rich-textarea.text-input-field_textarea');
+                    var textarea = document.querySelector('rich-textarea.text-input-field_textarea.ql-container.ql-bubble');
                     if (textarea) {{
                         textarea.focus();
                         // Insert image marker (Gemini might handle this)
@@ -676,7 +676,7 @@ def paste_and_send(textarea, prompt_text: str) -> None:
                 time.sleep(0.1)  # Brief pause after clear
             except StaleElementReferenceException:
                 log_warning("[selenium] Textarea stale, attempting to re-locate")
-                textarea = driver.find_element(By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea")
+                textarea = driver.find_element(By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble")
                 textarea.clear()
                 time.sleep(0.1)
             
@@ -729,7 +729,7 @@ def paste_and_send(textarea, prompt_text: str) -> None:
         except StaleElementReferenceException as e:
             log_warning(f"[selenium] Stale element on send_keys attempt {attempt}: {e}")
             try:
-                textarea = driver.find_element(By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea")
+                textarea = driver.find_element(By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble")
             except NoSuchElementException:
                 log_error("[selenium] Could not re-locate textarea element")
                 break
@@ -945,7 +945,7 @@ def wait_for_gemini_idle(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
 
     try:
         WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea"))
+            EC.presence_of_element_located((By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble"))
         )
         log_debug("[selenium] Textarea found, Gemini is ready for input")
         return True
@@ -1036,7 +1036,7 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
             # Re-find textarea element in case it became stale
             try:
                 textarea = WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea"))
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble"))
                 )
             except (TimeoutException, StaleElementReferenceException) as e:
                 log_warning(f"[selenium] Could not find textarea on attempt {attempt}: {e}")
@@ -1253,11 +1253,17 @@ def process_prompt_in_chat(
 
     try:
         textarea = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea"))
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble"))
         )
     except TimeoutException:
-        log_error("[selenium][ERROR] prompt textarea not found")
-        return None
+        log_warning("[selenium] Primary textarea selector failed, trying fallback")
+        try:
+            textarea = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "div.ql-editor.ql-blank.textarea.new-input-ui"))
+            )
+        except TimeoutException:
+            log_error("[selenium][ERROR] prompt textarea not found with any selector")
+            return None
 
     start = time.time()
     attempt = 0
