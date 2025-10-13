@@ -1565,6 +1565,24 @@ class SeleniumGrokPlugin(AIPluginBase):
         self.instance_id = os.getenv("SyntH_INSTANCE_ID", str(os.getpid()))
         self.profile_dir: Optional[str] = None
 
+    def get_interface_limits(self):
+        """Get the limits and capabilities for Selenium Grok interface.
+        
+        Returns model-specific character limits based on the current model.
+        """
+        # Get current model and its specific limit
+        model_name = GROK_MODEL or SELENIUM_CONFIG.get("default_model", "gpt-4o")
+        max_chars = get_model_char_limit(model_name)
+        
+        log_info(f"[selenium_grok] Interface limits for model '{model_name}': max_prompt_chars={max_chars}, supports_images={SELENIUM_CONFIG['supports_images']}")
+        return {
+            "max_prompt_chars": max_chars,
+            "max_response_chars": SELENIUM_CONFIG["max_response_chars"],
+            "supports_images": SELENIUM_CONFIG["supports_images"],
+            "supports_functions": SELENIUM_CONFIG["supports_functions"],
+            "model_name": model_name
+        }
+
     def cleanup(self):
         """Clean up resources when the plugin is stopped."""
         log_debug("[selenium] Starting cleanup...")

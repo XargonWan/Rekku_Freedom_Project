@@ -2730,4 +2730,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 await interface_to_llm(bot.send_message, chat_id=chat_id, text=result)
 
 
+    def get_interface_limits(self):
+        """Get the limits and capabilities for Selenium ChatGPT interface.
+        
+        Returns model-specific character limits based on the current model.
+        """
+        return get_interface_limits()
+
+
 PLUGIN_CLASS = SeleniumChatGPTPlugin
