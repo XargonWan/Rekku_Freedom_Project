@@ -37,6 +37,7 @@ getting started.
    validation_system
    ai_diary_personal_memory
    vrm_animations
+   animation_system
    interfaces
    matrix_interface
    config_management

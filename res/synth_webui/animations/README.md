@@ -2,52 +2,185 @@
 
 This directory contains FBX animation files for the VRM avatar system.
 
+## Animation System
+
+The SyntH animation system automatically manages avatar animations throughout the message processing lifecycle. The system is centrally managed by the `AnimationHandler` in `core/animation_handler.py` and coordinates with the WebUI frontend.
+
+### Animation States
+
+The system defines four logical animation states:
+
+- **Idle**: Default state when no activity is occurring (files: `Idle.fbx`, `Idle2.fbx`, `Happy Idle.fbx`)
+- **Think**: Triggered when a message is received (files: `Thinking.fbx`)
+- **Write**: Triggered when the LLM starts generating a response (files: `Texting While Standing.fbx`, `Texting.fbx`)
+- **Talk**: Can be triggered for speech output (files: `talking.fbx`)
+
+When multiple files are specified for a state, one is randomly selected each time the animation plays.
+
+### Automatic Animation Flow
+
+1. User sends message → **Think** animation plays (looping)
+2. LLM starts responding → **Write** animation plays (looping)
+3. Response complete → **Idle** animation plays (looping)
+
+No manual intervention is required - animations are automatically triggered by the backend.
+
+For more information, see the [Animation System Documentation](../../docs/animation_system.rst).
+
 ## Available Animations
 
-### Happy Idle.fbx
-- **Purpose**: Default idle animation
+### Idle Animations
+
+#### Idle.fbx
+- **Purpose**: Basic idle animation
 - **Duration**: Looping
-- **Use Case**: Displayed when the AI is not processing or speaking
+- **Use Case**: Default idle state
 - **Source**: Mixamo animation library
 - **Bones**: Full humanoid rig
 
-### talking.fbx
+#### Idle2.fbx
+- **Purpose**: Alternate idle animation
+- **Duration**: Looping
+- **Use Case**: Randomly selected idle state for variety
+- **Source**: Mixamo animation library
+- **Bones**: Full humanoid rig
+
+#### Happy Idle.fbx
+- **Purpose**: Cheerful idle animation
+- **Duration**: Looping
+- **Use Case**: Positive/upbeat idle state
+- **Source**: Mixamo animation library
+- **Bones**: Full humanoid rig
+
+### Processing Animations
+
+#### Thinking.fbx
+- **Purpose**: Contemplative thinking animation
+- **Duration**: Looping
+- **Use Case**: Played when processing incoming messages
+- **Source**: Mixamo animation library
+- **Bones**: Full humanoid rig with emphasis on head/upper body
+
+### Response Generation Animations
+
+#### Texting While Standing.fbx
+- **Purpose**: Standing typing animation
+- **Duration**: Looping
+- **Use Case**: Randomly selected when generating responses
+- **Source**: Mixamo animation library
+- **Bones**: Full humanoid rig with emphasis on arms/hands
+
+#### Texting.fbx
+- **Purpose**: Seated/casual typing animation
+- **Duration**: Looping
+- **Use Case**: Randomly selected when generating responses
+- **Source**: Mixamo animation library
+- **Bones**: Full humanoid rig with emphasis on arms/hands
+
+### Communication Animations
+
+#### talking.fbx
 - **Purpose**: Speaking animation
-- **Duration**: Looping (auto-stopped based on text length)
-- **Use Case**: Played when the AI generates text responses
+- **Duration**: Looping
+- **Use Case**: Played when the AI vocalizes or speaks
 - **Source**: Mixamo animation library
 - **Bones**: Full humanoid rig with emphasis on head/chest movement
 
+### Emotion Animations
+
+#### Angry.fbx
+- **Purpose**: Angry/frustrated emotion
+- **Duration**: One-shot or short loop
+- **Use Case**: Reserved for future emotional response system
+- **Source**: Mixamo animation library
+- **Bones**: Full humanoid rig
+
+### Movement Animations
+
+#### Texting And Walking.fbx
+- **Purpose**: Walking while typing
+- **Duration**: Looping
+- **Use Case**: Reserved for future multi-tasking animations
+- **Source**: Mixamo animation library
+- **Bones**: Full humanoid rig with lower body movement
+
 ## Adding New Animations
 
-To add a new animation:
+To add a new animation to the system:
 
-1. **Export from Mixamo**:
-   - Go to https://www.mixamo.com
-   - Select your desired animation
-   - Download in FBX format (.fbx)
-   - Use "Without Skin" option for better compatibility
+### 1. Export from Mixamo
 
-2. **Place in Directory**:
-   ```bash
-   cp your_animation.fbx res/synth_webui/animations/
-   ```
+- Go to https://www.mixamo.com
+- Select your desired animation
+- Download in FBX format (.fbx)
+- Use "Without Skin" option for better compatibility
 
-3. **Update WebUI Code**:
-   Edit `core/webui_templates/synth_webui_index.html`:
-   ```javascript
-   // In loadDefaultAnimations function
-   const newClip = await loadMixamoAnimation(
-       '/static/animations/your_animation.fbx', 
-       vrm
-   );
-   newAction = currentMixer.clipAction(newClip);
-   ```
+### 2. Place in Directory
 
-4. **Test**:
-   - Reload the WebUI
-   - Upload a VRM model
-   - Check browser console for loading errors
+```bash
+cp your_animation.fbx res/synth_webui/animations/
+```
+
+### 3. Update Backend Mapping
+
+Edit `core/animation_handler.py` and update the `ANIMATION_MAP`:
+
+```python
+ANIMATION_MAP: Dict[AnimationState, List[str]] = {
+    AnimationState.THINK: ["Thinking.fbx"],
+    AnimationState.WRITE: ["Texting While Standing.fbx", "Texting.fbx"],
+    AnimationState.TALK: ["talking.fbx"],
+    AnimationState.IDLE: ["Idle.fbx", "Idle2.fbx", "Happy Idle.fbx", "your_animation.fbx"],  # Add here
+}
+```
+
+To add a completely new state, update the `AnimationState` enum:
+
+```python
+class AnimationState(Enum):
+    IDLE = "idle"
+    THINK = "think"
+    WRITE = "write"
+    TALK = "talk"
+    CUSTOM = "custom"  # New state
+```
+
+### 4. Update Frontend Mapping
+
+Edit `core/webui_templates/synth_webui_index.html` and update `animationMappings`:
+
+```javascript
+const animationMappings = {
+    think: ['Thinking.fbx'],
+    write: ['Texting While Standing.fbx', 'Texting.fbx'],
+    talk: ['talking.fbx'],
+    idle: ['Idle.fbx', 'Idle2.fbx', 'Happy Idle.fbx', 'your_animation.fbx'],  // Add here
+    custom: ['your_animation.fbx']  // Or add new state
+};
+```
+
+### 5. Trigger from Code (Optional)
+
+If you want to manually trigger the new animation from a component:
+
+```python
+from core.animation_handler import get_animation_handler, AnimationState
+
+handler = get_animation_handler()
+await handler.transition_to(
+    AnimationState.CUSTOM,  # Your new state
+    session_id="session_id",
+    context_id="my_context"
+)
+```
+
+### 6. Test
+
+- Restart SyntH
+- Open the WebUI
+- Upload a VRM model
+- Send a message or trigger your custom animation
+- Check browser console for loading errors
 
 ## Animation Requirements
 

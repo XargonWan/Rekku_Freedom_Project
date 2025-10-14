@@ -3582,19 +3582,20 @@
                     refreshStats(true);
                     return;
                 }
+                if (data.type === 'animation') {
+                    // Handle animation command from backend
+                    if (animationHandler && data.state) {
+                        console.log('[synth_webui] Received animation command:', data.state, data.animation);
+                        animationHandler.startAction(data.state);
+                    }
+                    return;
+                }
                 if (data.type === 'message') {
                     removeTypingIndicator(); // Remove typing indicator before showing actual message
                     const sender = data.sender || 'synth';
                     addMessage(sender, data.text || '');
-                    if (isWaitingForFirstResponse && animationHandler) {
-                        animationHandler.startAction('write');
-                        isWaitingForFirstResponse = false;
-                    }
-                    // Return to idle after message completes
-                    if (idleTimeout) clearTimeout(idleTimeout);
-                    idleTimeout = setTimeout(() => {
-                        if (animationHandler) animationHandler.startAction('idle');
-                    }, 2000);
+                    // Animation state managed by backend
+                    isWaitingForFirstResponse = false;
                 }
             });
 
@@ -3631,7 +3632,7 @@
             
             addMessage('user', text);
             addTypingIndicator(); // Show typing indicator immediately after sending
-            if (animationHandler) animationHandler.startAction('think');
+            // Animation will be triggered by backend via WebSocket
             isWaitingForFirstResponse = true;
             console.log('[synth_webui] Sending message via WebSocket:', text);
             ws.send(JSON.stringify({ text }));

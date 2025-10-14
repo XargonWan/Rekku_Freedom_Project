@@ -40,6 +40,7 @@ from core.logging_utils import _LOG_FILE, log_debug, log_error, log_info, log_wa
 from core.config_manager import config_registry
 from core.message_chain import get_failed_message_text, RESPONSE_TIMEOUT, FAILED_MESSAGE_TEXT
 import core.plugin_instance as plugin_instance
+from core.animation_handler import get_animation_handler
 import mimetypes
 
 
@@ -331,6 +332,12 @@ class SynthWebUIInterface:
 
         register_interface(INTERFACE_NAME, self)
         log_info(f"{LOG_PREFIX} Interface registered")
+        
+        # Initialize animation handler
+        self.animation_handler = get_animation_handler()
+        self.animation_handler.set_webui(self)
+        log_info(f"{LOG_PREFIX} Animation handler initialized")
+        
         if self.autostart:
             log_info(f"{LOG_PREFIX} Autostart enabled - will start server when event loop is available")
             # Don't start server here - it will be started by the main application

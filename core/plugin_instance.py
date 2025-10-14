@@ -12,6 +12,7 @@ from core.json_utils import dumps as json_dumps, sanitize_for_json
 from core.image_processor import get_image_processor, process_image_message
 from core.abstract_context import AbstractContext, AbstractUser, AbstractMessage
 from core.mention_utils import is_message_for_bot
+from core.animation_handler import get_animation_handler, AnimationState
 
 # Plugin managed centrally in initialize_core_components
 plugin = None
@@ -126,6 +127,12 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt, interf
             log_error(f"[plugin_instance] Fallback plugin loading failed: {fallback_e}")
             raise ValueError("No LLM plugin loaded and fallback failed")
 
+    # Get animation handler for global animation control
+    animation_handler = get_animation_handler()
+    
+    # Generate unique context ID for this message processing
+    message_context_id = f"msg_{getattr(message, 'chat_id', 'unknown')}_{getattr(message, 'message_id', 'unknown')}"
+
     if message is None and isinstance(context_memory_or_prompt, dict):
         prompt = context_memory_or_prompt
         message = SimpleNamespace(
@@ -139,6 +146,16 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt, interf
         )
         log_debug("[plugin_instance] Handling pre-built event prompt")
     else:
+        # Start THINK animation when message is received (global, affects all WebUI sessions)
+        try:
+            await animation_handler.transition_to(
+                AnimationState.THINK,
+                broadcast=True,
+                context_id=message_context_id
+            )
+        except Exception as anim_exc:
+            log_warning(f"[plugin_instance] Failed to trigger THINK animation: {anim_exc}")
+        
         # If this is a structured 'event' system prompt, enqueue it into the
         # central message queue with high priority so it is processed ASAP.
         try:
@@ -248,6 +265,16 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt, interf
         if plugin is None:
             log_error("[plugin_instance] No LLM plugin loaded, cannot process message")
             raise ValueError("No LLM plugin loaded")
+        
+        # Transition to WRITE animation when LLM starts processing (global, affects all WebUI sessions)
+        try:
+            await animation_handler.transition_to(
+                AnimationState.WRITE,
+                broadcast=True,
+                context_id=message_context_id
+            )
+        except Exception as anim_exc:
+            log_warning(f"[plugin_instance] Failed to trigger WRITE animation: {anim_exc}")
             
         result = await plugin.handle_incoming_message(bot, message, prompt)
         # Log that plugin finished processing
@@ -255,9 +282,21 @@ async def handle_incoming_message(bot, message, context_memory_or_prompt, interf
             log_info(f"[flow] <- LLM plugin: completed for chat_id={getattr(message, 'chat_id', None)} result_type={type(result)}")
         except Exception:
             log_info(f"[flow] <- LLM plugin: completed for chat_id={getattr(message, 'chat_id', None)}")
+        
+        # Stop animation context when processing is complete
+        try:
+            await animation_handler.stop_animation(message_context_id, broadcast=True)
+        except Exception as anim_exc:
+            log_warning(f"[plugin_instance] Failed to stop animation: {anim_exc}")
+            
         return result
     except Exception as e:
         log_error(f"[plugin_instance] LLM plugin raised an exception: {e}")
+        # Stop animation context on error too
+        try:
+            await animation_handler.stop_animation(message_context_id, broadcast=True)
+        except Exception as anim_exc:
+            log_warning(f"[plugin_instance] Failed to stop animation on error: {anim_exc}")
         raise
 
 
