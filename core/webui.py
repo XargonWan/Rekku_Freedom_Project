@@ -326,6 +326,9 @@ class SynthWebUIInterface:
         self.app.delete("/api/diary/archive")(self.delete_archived_entries)
         self.app.get("/api/selkies")(self.get_selkies_config)
 
+        # Template sections route for modular loading
+        self.app.get("/templates/{section}.html")(self.serve_template_section)
+
         register_interface(INTERFACE_NAME, self)
         log_info(f"{LOG_PREFIX} Interface registered")
         if self.autostart:
@@ -382,9 +385,51 @@ class SynthWebUIInterface:
     # ------------------------------------------------------------------
     # HTTP Handlers
     # ------------------------------------------------------------------
+    def _render_index(self) -> str:
+        """Render the main web UI page from template."""
+        try:
+            # Read the template file - use synth_webui_index.html for the complete UI
+            template_path = Path(__file__).parent / "webui_templates" / "synth_webui_index.html"
+            with open(template_path, 'r', encoding='utf-8') as f:
+                template = f.read()
+            
+            # Get replacement values
+            from core.message_chain import RESPONSE_TIMEOUT, get_failed_message_text
+            
+            replacements = {
+                '%%BRAND_NAME%%': BRAND_NAME,
+                '%%LOGO_URL%%': '/static/synth_logo.png',  # Default logo path
+                '%%RESPONSE_TIMEOUT%%': str(int(RESPONSE_TIMEOUT)),
+                '%%FAILED_MESSAGE_TEXT%%': str(get_failed_message_text()),
+                # Expose WEB_DEBUG flag to the template (default false)
+                '%%WEB_DEBUG%%': '1' if os.getenv('WEB_DEBUG', '0') in ('1', 'true', 'True') else '0',
+            }
+            
+            # Apply replacements
+            for placeholder, value in replacements.items():
+                template = template.replace(placeholder, value)
+            
+            return template
+            
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} Failed to render index template: {exc}")
+            # Fallback to a simple error page
+            return f"""
+<!DOCTYPE html>
+<html>
+<head><title>Error</title></head>
+<body>
+<h1>SyntH Web UI Error</h1>
+<p>Failed to load the web interface: {exc}</p>
+</body>
+</html>
+"""
+
     async def index(self):
+        log_info(f"{LOG_PREFIX} Index route called")
         try:
             html = self._render_index()
+            log_info(f"{LOG_PREFIX} Rendered HTML length: {len(html)}")
         except Exception as exc:
             log_error(f"{LOG_PREFIX} failed to render index: {exc}")
             raise HTTPException(status_code=500, detail="Unable to render SyntH Web UI") from exc
@@ -404,6 +449,38 @@ class SynthWebUIInterface:
     async def diary_page(self):
         html = self._render_diary()
         return HTMLResponse(content=html)
+
+    async def serve_template_section(self, section: str):
+        """Serve modular template sections for dynamic loading."""
+        try:
+            # Validate section name to prevent path traversal
+            allowed_sections = {'home', 'logs', 'diary', 'config', 'components', 'about', 'navbar'}
+            if section not in allowed_sections:
+                raise HTTPException(status_code=404, detail="Template section not found")
+
+            # Load template section
+            template_path = Path(__file__).parent / "webui_templates" / "sections" / f"{section}.html"
+            if not template_path.exists():
+                raise HTTPException(status_code=404, detail="Template section not found")
+
+            with open(template_path, 'r', encoding='utf-8') as f:
+                template = f.read()
+
+            # Apply basic replacements
+            replacements = {
+                '%%BRAND_NAME%%': BRAND_NAME,
+            }
+
+            for key, value in replacements.items():
+                template = template.replace(key, str(value))
+
+            return HTMLResponse(content=template)
+
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="Template section not found")
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} Failed to serve template section {section}: {exc}")
+            raise HTTPException(status_code=500, detail="Unable to load template section")
 
     # ------------------------------------------------------------------
     # WebSocket logic
@@ -1769,6 +1846,7 @@ class SynthWebUIInterface:
             core_initializer.enable_dev_components(enabled)
             main.set_dev_components_enabled(enabled)
             
+                       
             status_msg = "enabled" if enabled else "disabled"
             log_info(f"{LOG_PREFIX} Dev components {status_msg} globally (will persist across restarts)")
             
@@ -1829,21 +1907,29 @@ class SynthWebUIInterface:
         """Create and run the uvicorn server."""
         import uvicorn
 
-        config = uvicorn.Config(
-            self.app,
-            host=self.host,
-            port=self.port,
-            log_level=self.log_level or "info",
-            lifespan="off",
-        )
-        server = uvicorn.Server(config)
-        with self._server_lock:
-            self._server = server
         try:
+            log_info(f"{LOG_PREFIX} Creating Uvicorn config for http://{self.host}:{self.port}")
+            config = uvicorn.Config(
+                self.app,
+                host=self.host,
+                port=self.port,
+                log_level=self.log_level or "info",
+                lifespan="off",
+            )
+            server = uvicorn.Server(config)
+            with self._server_lock:
+                self._server = server
+            log_info(f"{LOG_PREFIX} Starting Uvicorn server...")
             await server.serve()
+            log_info(f"{LOG_PREFIX} Uvicorn server stopped normally")
+        except Exception as exc:
+            log_error(f"{LOG_PREFIX} Error in _run_server: {exc}")
+            import traceback
+            log_error(f"{LOG_PREFIX} Traceback: {traceback.format_exc()}")
         finally:
             with self._server_lock:
                 self._server = None
+            log_info(f"{LOG_PREFIX} _run_server cleanup completed")
 
     def cleanup(self) -> None:
         with self._server_lock:
@@ -1867,31 +1953,6 @@ class SynthWebUIInterface:
     # ------------------------------------------------------------------
     # HTML template
     # ------------------------------------------------------------------
-    def _render_index(self) -> str:
-        logo = "/static/synth_logo.png"
-        template_path = Path(__file__).resolve().parent / "webui_templates" / "synth_webui_index.html"
-        try:
-            html = template_path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            log_error(f"{LOG_PREFIX} template not found: {template_path}")
-            return (
-                f"<html><body><h1>{BRAND_NAME}</h1>"
-                "<p>Template not available.</p></body></html>"
-            )
-        except Exception as exc:  # pragma: no cover - runtime issues
-            log_error(f"{LOG_PREFIX} unable to read template: {exc}")
-            return (
-                f"<html><body><h1>{BRAND_NAME}</h1>"
-                "<p>Failed to render UI.</p></body></html>"
-            )
-
-        return (
-            html.replace("%%BRAND_NAME%%", BRAND_NAME)
-            .replace("%%LOGO_URL%%", logo)
-            .replace("%%RESPONSE_TIMEOUT%%", str(RESPONSE_TIMEOUT))
-            .replace("%%FAILED_MESSAGE_TEXT%%", str(FAILED_MESSAGE_TEXT))
-        )
-
     def _render_logs(self) -> str:
         template = """
 <!DOCTYPE html>

@@ -1,0 +1,263 @@
+        <section class="tab-panel" id="tab-about" data-tab="about" role="tabpanel">
+            <div class="about-content">
+                <div class="about-hero">
+                    <div class="brand-large">
+                        <img src="/static/synth-logo.png" alt="SyntH Logo" onerror="this.style.display='none'" />
+                        <div class="brand-text-large">
+                            <h1>%%BRAND_NAME%%</h1>
+                            <span>Digital Companion</span>
+                        </div>
+                    </div>
+                    <p class="hero-description">
+                        An advanced AI-powered digital companion with VRM avatar integration,
+                        real-time chat capabilities, and comprehensive system monitoring.
+                    </p>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">⏱️</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="stats-uptime">--</div>
+                            <div class="stat-label">Uptime</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">👥</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="stats-sessions">--</div>
+                            <div class="stat-label">Active Sessions</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🔧</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="stats-components">--</div>
+                            <div class="stat-label">Components</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">💬</div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="stats-messages">--</div>
+                            <div class="stat-label">Messages Today</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="about-sections">
+                    <div class="about-section">
+                        <h3>System Information</h3>
+                        <dl class="info-list">
+                            <div><dt>Version</dt><dd id="system-version">Loading...</dd></div>
+                            <div><dt>Python</dt><dd id="system-python">Loading...</dd></div>
+                            <div><dt>Platform</dt><dd id="system-platform">Loading...</dd></div>
+                            <div><dt>Database</dt><dd id="system-database">Loading...</dd></div>
+                        </dl>
+                    </div>
+
+                    <div class="about-section">
+                        <h3>Features</h3>
+                        <ul class="features-list">
+                            <li><span class="feature-icon">🎭</span> VRM Avatar Integration</li>
+                            <li><span class="feature-icon">💬</span> Real-time Chat Interface</li>
+                            <li><span class="feature-icon">📋</span> Live System Logging</li>
+                            <li><span class="feature-icon">📖</span> AI Memory Diary</li>
+                            <li><span class="feature-icon">⚙️</span> Dynamic Configuration</li>
+                            <li><span class="feature-icon">🔧</span> Component Management</li>
+                            <li><span class="feature-icon">🌐</span> Multi-Interface Support</li>
+                            <li><span class="feature-icon">🎨</span> Modern Dark UI</li>
+                        </ul>
+                    </div>
+
+                    <div class="about-section">
+                        <h3>Credits</h3>
+                        <div class="credits-content">
+                            <p>SyntH is built with modern web technologies and AI frameworks.</p>
+                            <p>Special thanks to the open-source community for the amazing tools and libraries that make this possible.</p>
+                            <div class="tech-stack">
+                                <span class="tech-badge">FastAPI</span>
+                                <span class="tech-badge">Three.js</span>
+                                <span class="tech-badge">VRM</span>
+                                <span class="tech-badge">WebSockets</span>
+                                <span class="tech-badge">Docker</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <style>
+            .about-content {
+                flex: 1;
+                overflow-y: auto;
+                padding: 2rem min(4vw, 2.4rem);
+                max-width: 1200px;
+                margin: 0 auto;
+            }
+            .about-hero {
+                text-align: center;
+                margin-bottom: 3rem;
+                padding: 2rem;
+                background: var(--surface);
+                border-radius: 16px;
+                border: 1px solid var(--border);
+            }
+            .brand-large {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 1rem;
+                margin-bottom: 1.5rem;
+            }
+            .brand-large img {
+                width: 80px;
+                height: 80px;
+                border-radius: 16px;
+                box-shadow: 0 16px 30px -22px rgba(114, 137, 218, 0.9);
+            }
+            .brand-text-large h1 {
+                margin: 0;
+                font-size: 2.5rem;
+                letter-spacing: 0.08em;
+                background: linear-gradient(135deg, var(--accent), #7289da);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }
+            .brand-text-large span {
+                display: block;
+                font-size: 1.1rem;
+                color: var(--text-soft);
+                letter-spacing: 0.08em;
+            }
+            .hero-description {
+                font-size: 1.1rem;
+                color: var(--text-soft);
+                line-height: 1.6;
+                max-width: 600px;
+                margin: 0 auto;
+            }
+            .stats-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 1rem;
+                margin-bottom: 3rem;
+            }
+            .stat-card {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 1.5rem;
+                display: flex;
+                align-items: center;
+                gap: 1rem;
+                transition: all 0.2s ease;
+            }
+            .stat-card:hover {
+                border-color: var(--border-strong);
+                box-shadow: 0 8px 25px -15px rgba(0, 0, 0, 0.5);
+                transform: translateY(-2px);
+            }
+            .stat-icon {
+                font-size: 2rem;
+                flex-shrink: 0;
+            }
+            .stat-content {
+                flex: 1;
+            }
+            .stat-value {
+                font-size: 1.5rem;
+                font-weight: 700;
+                color: var(--accent);
+                margin-bottom: 0.25rem;
+            }
+            .stat-label {
+                font-size: 0.9rem;
+                color: var(--text-soft);
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+            }
+            .about-sections {
+                display: flex;
+                flex-direction: column;
+                gap: 2rem;
+            }
+            .about-section {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 1.5rem;
+            }
+            .about-section h3 {
+                margin: 0 0 1rem 0;
+                font-size: 1.3rem;
+                font-weight: 600;
+                color: var(--accent);
+            }
+            .info-list {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 1rem;
+            }
+            .info-list div {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 0.5rem 0;
+                border-bottom: 1px solid var(--border);
+            }
+            .info-list dt {
+                font-weight: 500;
+                color: var(--text-soft);
+            }
+            .info-list dd {
+                font-weight: 600;
+                color: var(--text);
+                text-align: right;
+            }
+            .features-list {
+                list-style: none;
+                padding: 0;
+                margin: 0;
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 0.75rem;
+            }
+            .features-list li {
+                display: flex;
+                align-items: center;
+                gap: 0.75rem;
+                padding: 0.75rem;
+                background: var(--surface-alt);
+                border-radius: 8px;
+                border: 1px solid var(--border);
+            }
+            .feature-icon {
+                font-size: 1.2rem;
+                flex-shrink: 0;
+            }
+            .credits-content {
+                color: var(--text-soft);
+                line-height: 1.6;
+            }
+            .credits-content p {
+                margin: 0 0 1rem 0;
+            }
+            .tech-stack {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+                margin-top: 1rem;
+            }
+            .tech-badge {
+                padding: 0.25rem 0.75rem;
+                background: var(--surface-alt);
+                border: 1px solid var(--border);
+                border-radius: 999px;
+                font-size: 0.8rem;
+                font-weight: 500;
+                color: var(--text);
+            }
+        </style>

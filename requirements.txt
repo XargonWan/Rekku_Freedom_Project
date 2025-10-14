@@ -7,7 +7,7 @@ undetected-chromedriver>=3.5.5
 webdriver-manager
 setuptools
 pytz
-fastapi
+fastapi==0.103.2
 uvicorn[standard]
 aiomysql
 asyncpraw

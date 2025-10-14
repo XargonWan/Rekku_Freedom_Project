@@ -125,21 +125,31 @@
         }
         main {
             flex: 1;
-            display: block;
+            display: flex;
             width: 100%;
+            min-height: 0;
         }
         .tab-panel {
             display: none;
+            width: 100%;
             height: 100%;
+            min-height: calc(100vh - 120px);
+            padding: clamp(1rem, 2vw, 2rem);
         }
         .tab-panel.active {
             display: flex;
             flex-direction: column;
         }
+        /* Home tab should not have padding as it contains full-screen VRM viewer */
+        #tab-home {
+            padding: 0;
+        }
         .home-stage {
-            height: calc(100vh - 80px); /* Adjust based on header height */
+            width: 100%;
+            height: 100%;
             display: flex;
             flex-direction: column;
+            min-height: calc(100vh - 120px);
         }
         .home-content {
             flex: 1;
@@ -150,7 +160,8 @@
             position: absolute;
             bottom: 1rem;
             left: 1rem;
-            width: 400px;
+            right: 1rem;
+            width: auto;
             height: 60vh;
             max-height: 500px;
             display: flex;
@@ -161,10 +172,18 @@
             border: none;
             border-radius: 22px;
             box-shadow: 0 24px 45px -38px rgba(0, 0, 0, 0.9);
-            transition: transform 0.3s ease, opacity 0.3s ease;
+            transition: transform 0.3s ease, opacity 0.3s ease, width 0.3s ease, right 0.3s ease;
             padding-top: 4rem;
             overflow: hidden;
             z-index: 50;
+        }
+        /* On mobile, chat is compact by default */
+        @media (max-width: 768px) {
+            #chat {
+                width: 90%;
+                max-width: 400px;
+                right: auto;
+            }
         }
         #chat.hidden {
             display: none;
@@ -288,7 +307,8 @@
             box-shadow: 0 18px 30px -18px rgba(255, 107, 214, 0.85);
         }
         .home-vrm {
-            position: relative;
+            position: absolute;
+            inset: 0;
             width: 100%;
             height: 100%;
             overflow: hidden;
@@ -349,8 +369,8 @@
             border-radius: 22px;
             padding: clamp(1.2rem, 2vw, 1.8rem);
             box-shadow: 0 24px 45px -42px rgba(0, 0, 0, 0.85);
-            height: calc(100vh - 220px);
-            max-height: calc(100vh - 220px);
+            flex: 1;
+            min-height: 0;
             display: flex;
             flex-direction: column;
             gap: 1rem;
@@ -686,8 +706,8 @@
             border-radius: 22px;
             padding: clamp(1.2rem, 2vw, 1.8rem);
             box-shadow: 0 24px 45px -42px rgba(0, 0, 0, 0.85);
-            height: calc(100vh - 220px);
-            max-height: calc(100vh - 220px);
+            flex: 1;
+            min-height: 0;
             display: flex;
             flex-direction: column;
             gap: 1rem;
@@ -799,6 +819,8 @@
             flex-wrap: wrap;
             gap: clamp(1rem, 2vw, 1.6rem);
             align-items: stretch;
+            width: 100%;
+            overflow-y: auto;
         }
         .settings-grid > .card {
             flex: 1 1 auto;
@@ -1457,6 +1479,10 @@
         
         const navButtons = document.querySelectorAll('.nav-btn');
         const tabPanels = document.querySelectorAll('.tab-panel');
+        
+        console.log('[synth_webui] navButtons found:', navButtons.length);
+        console.log('[synth_webui] tabPanels found:', tabPanels.length);
+        
         const statusLabel = document.getElementById('status-label');
         const statusIndicator = document.querySelector('.connection-status .indicator');
         const messages = document.getElementById('messages');
@@ -1814,6 +1840,7 @@
         }
 
         function activateTab(tab, force = false) {
+            console.log('[synth_webui] activateTab called with tab:', tab, 'force:', force);
             if (!tab) return;
             const currentPanelActive = document.querySelector(`.tab-panel.active[data-tab="${tab}"]`) !== null;
             if (!force && activeTab === tab && currentPanelActive) return;
@@ -1845,6 +1872,12 @@
                 } catch (error) {
                     console.error('[synth_webui] Failed to restore chat state:', error);
                 }
+                // Trigger VRM canvas resize when home tab becomes active
+                setTimeout(() => {
+                    if (window.resizeVRMRenderer) {
+                        window.resizeVRMRenderer();
+                    }
+                }, 100);
             }
             
             if (tab === 'logs') {
@@ -1861,8 +1894,12 @@
         }
 
         navButtons.forEach((btn) => {
-            btn.addEventListener('click', () => activateTab(btn.dataset.tab));
+            btn.addEventListener('click', () => {
+                console.log('[synth_webui] Tab button clicked:', btn.dataset.tab);
+                activateTab(btn.dataset.tab);
+            });
         });
+        console.log('[synth_webui] Event listeners added to', navButtons.length, 'buttons');
 
         function detectLogLevel(line) {
             const match = line.match(/\[(TRACE|DEBUG|INFO|WARN|WARNING|ERR|ERROR|CRITICAL)\]/i);
@@ -3866,6 +3903,7 @@
                 }
             }
             window.addEventListener('resize', resizeRenderer);
+            window.resizeVRMRenderer = resizeRenderer; // Expose globally for tab switching
             resizeRenderer();
 
             function clearVRM() {
@@ -4126,7 +4164,9 @@
                 startTalking,
                 stopTalking
             };
+            window.animationHandler = animationHandler;
             console.log('[synth_webui] Animation functions exposed globally via window.VRMAnimations');
+            console.log('[synth_webui] animationHandler exposed globally');
 
             function renderList(data) {
                 if (!listEl) return;
