@@ -160,8 +160,8 @@
             position: absolute;
             bottom: 1rem;
             left: 1rem;
-            right: 1rem;
-            width: auto;
+            right: auto;
+            width: 20%;
             height: 60vh;
             max-height: 500px;
             display: flex;
@@ -180,9 +180,11 @@
         /* On mobile, chat is compact by default */
         @media (max-width: 768px) {
             #chat {
-                width: 90%;
-                max-width: 400px;
+                width: 30%;
+                max-width: 200px;
                 right: auto;
+                height: 40vh;
+                max-height: 250px;
             }
         }
         #chat.hidden {
@@ -1218,8 +1220,18 @@
                 border-radius: 12px;
             }
             #chat.expanded {
-                height: 70vh;
-                max-height: 400px;
+                width: 80%;
+                max-width: none;
+                height: 80vh;
+                max-height: 600px;
+            }
+        }
+        /* Desktop expanded chat */
+        @media (min-width: 769px) {
+            #chat.expanded {
+                width: calc(100% - 2rem);
+                height: 75vh;
+                max-height: 700px;
             }
         }
         @media (min-width: 769px) {
@@ -3180,23 +3192,23 @@
         });
 
         // Chat toggle button handler
-        let chatState = 0; // 0: mostra normale, 1: ingrandisci, 2: hide
+        let chatState = 0; // 0: default (desktop left, mobile compact), 1: expanded, 2: hidden
         chatToggleBtn?.addEventListener('click', () => {
             chatState = (chatState + 1) % 3;
             if (chatPanel) {
                 switch (chatState) {
-                    case 0: // Mostra normale
+                    case 0: // Default: desktop left visible, mobile compact
                         chatPanel.classList.remove('hidden', 'expanded');
-                        chatToggleBtn.setAttribute('aria-label', 'Expand chat');
-                        chatToggleBtn.setAttribute('title', 'Expand Chat');
+                        chatToggleBtn.setAttribute('aria-label', 'Espandi chat');
+                        chatToggleBtn.setAttribute('title', 'Espandi Chat');
                         break;
-                    case 1: // Ingrandisci
+                    case 1: // Expanded: desktop full width + height, mobile 4/5 screen
                         chatPanel.classList.remove('hidden');
                         chatPanel.classList.add('expanded');
                         chatToggleBtn.setAttribute('aria-label', 'Nascondi chat');
                         chatToggleBtn.setAttribute('title', 'Nascondi Chat');
                         break;
-                    case 2: // Hide
+                    case 2: // Hidden
                         chatPanel.classList.add('hidden');
                         chatPanel.classList.remove('expanded');
                         chatToggleBtn.setAttribute('aria-label', 'Mostra chat');
