@@ -407,13 +407,40 @@ async def _download_telegram_image(bot, file_id: str, temp_dir: str) -> Optional
         return None
 
 
+def _locate_prompt_area(driver, timeout: int = 10):
+    """Try multiple strategies to locate the ChatGPT prompt area.
+
+    This function first attempts to find the element with ID 'prompt-textarea'
+    (the standard ChatGPT textarea). If that fails it will try a fallback
+    for contenteditable ProseMirror-style divs that some UIs use. Returns a
+    WebElement or raises the original exception.
+    """
+    try:
+        if timeout and timeout > 0:
+            return WebDriverWait(driver, timeout).until(
+                EC.element_to_be_clickable((By.ID, "prompt-textarea"))
+            )
+        # no wait requested: try direct find
+        return driver.find_element(By.ID, "prompt-textarea")
+    except Exception as primary_exc:
+        # fallback: look for a contenteditable ProseMirror div with the same id
+        try:
+            xpath = "//div[@contenteditable='true' and @id='prompt-textarea']"
+            if timeout and timeout > 0:
+                return WebDriverWait(driver, timeout).until(
+                    EC.presence_of_element_located((By.XPATH, xpath))
+                )
+            return driver.find_element(By.XPATH, xpath)
+        except Exception:
+            # re-raise the original exception to preserve caller behavior
+            raise primary_exc
+
+
 def _paste_image_to_chatgpt(driver, image_path: str) -> bool:
     """Paste an image to ChatGPT input using JavaScript injection (Docker-compatible)."""
     try:
-        # Find the input area
-        textarea = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.ID, "prompt-textarea"))
-        )
+        # Find the input area (supports textarea or contenteditable fallback)
+        textarea = _locate_prompt_area(driver, timeout=10)
 
         # Click on the textarea to focus it
         textarea.click()
@@ -714,7 +741,7 @@ def paste_and_send(textarea, prompt_text: str) -> None:
                 time.sleep(0.1)  # Brief pause after clear
             except StaleElementReferenceException:
                 log_warning("[selenium] Textarea stale, attempting to re-locate")
-                textarea = driver.find_element(By.ID, "prompt-textarea")
+                textarea = _locate_prompt_area(driver, timeout=0)
                 textarea.clear()
                 time.sleep(0.1)
             
@@ -767,7 +794,7 @@ def paste_and_send(textarea, prompt_text: str) -> None:
         except StaleElementReferenceException as e:
             log_warning(f"[selenium] Stale element on send_keys attempt {attempt}: {e}")
             try:
-                textarea = driver.find_element(By.ID, "prompt-textarea")
+                textarea = _locate_prompt_area(driver, timeout=0)
             except NoSuchElementException:
                 log_error("[selenium] Could not re-locate textarea element")
                 break
@@ -971,9 +998,7 @@ def wait_for_chatgpt_idle(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool
         log_warning("[selenium] ChatGPT may still be generating during idle wait")
 
     try:
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "prompt-textarea"))
-        )
+        _locate_prompt_area(driver, timeout=10)
         log_debug("[selenium] Textarea found, ChatGPT is ready for input")
         return True
     except TimeoutException:
@@ -1035,9 +1060,7 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
             log_debug(f"[selenium][STEP] Attempt {attempt} to send prompt")
             # Re-find textarea element in case it became stale
             try:
-                textarea = WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located((By.ID, "prompt-textarea"))
-                )
+                textarea = _locate_prompt_area(driver, timeout=5)
             except (TimeoutException, StaleElementReferenceException) as e:
                 log_warning(f"[selenium] Could not find textarea on attempt {attempt}: {e}")
                 continue
@@ -1254,9 +1277,7 @@ def process_prompt_in_chat(
         log_warning(f"[selenium] Failed to click prefer-response button: {e}")
 
     try:
-        textarea = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.ID, "prompt-textarea"))
-        )
+        textarea = _locate_prompt_area(driver, timeout=10)
     except TimeoutException:
         log_error("[selenium][ERROR] prompt textarea not found")
         return None
@@ -2589,7 +2610,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
 
                 # Handle case where ChatGPT completely failed to generate a response
                 if response_text is None:
-                    fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
+                    try:
+                        from core.message_chain import get_failed_message_text
+                        fallback_text = str(get_failed_message_text())
+                    except Exception:
+                        import os
+                        fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
                     log_error(f"[selenium] LLM FAILURE - Chat: {message.chat_id}, Reason: ChatGPT returned None (complete failure)")
                     log_error(f"[selenium] Sending fallback message: '{fallback_text}'")
                     response_text = fallback_text
@@ -2605,7 +2631,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                     )
                 else:
                     # Send fallback message when LLM fails to generate response
-                    fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
+                    try:
+                        from core.message_chain import get_failed_message_text
+                        fallback_text = str(get_failed_message_text())
+                    except Exception:
+                        import os
+                        fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
                     log_error(f"[selenium] LLM FAILURE - Chat: {message.chat_id}, Reason: Empty response from ChatGPT")
                     log_error(f"[selenium] Sending fallback message: '{fallback_text}'")
                     await llm_to_interface(
@@ -2628,7 +2659,12 @@ class SeleniumChatGPTPlugin(AIPluginBase):
                 if attempt == max_attempts - 1:
                     # Final fallback: send fallback message when all attempts failed
                     try:
-                        fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
+                        try:
+                            from core.message_chain import get_failed_message_text
+                            fallback_text = str(get_failed_message_text())
+                        except Exception:
+                            import os
+                            fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
                         log_error(f"[selenium] LLM FAILURE - Chat: {message.chat_id}, Reason: All {max_attempts} attempts failed with exception")
                         log_error(f"[selenium] Sending final fallback message: '{fallback_text}'")
                         

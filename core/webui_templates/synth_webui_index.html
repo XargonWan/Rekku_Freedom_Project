@@ -1498,9 +1498,9 @@
         const statusLabel = document.getElementById('status-label');
         const statusIndicator = document.querySelector('.connection-status .indicator');
         const messages = document.getElementById('messages');
-        const input = document.getElementById('input');
-        const form = document.getElementById('composer');
-        const sendBtn = document.getElementById('send');
+    const input = document.getElementById('input');
+    const form = document.getElementById('composer');
+    const sendBtn = document.getElementById('send');
         const uptimeEl = document.getElementById('stats-uptime');
         const sessionsEl = document.getElementById('stats-sessions');
         const connectionEl = document.getElementById('connection');
@@ -1958,8 +1958,30 @@
                 fragment.appendChild(div);
             });
             logOutput.appendChild(fragment);
-            if (shouldScroll) {
-                logOutput.scrollTop = logOutput.scrollHeight;
+            // Auto-scroll if the user has enabled it, or if the view is already near the bottom
+            try {
+                const clientH = logOutput.clientHeight || 0;
+                const scrollTop = logOutput.scrollTop || 0;
+                const scrollHeight = logOutput.scrollHeight || 0;
+                const scrollBottomDistance = Math.max(0, scrollHeight - (scrollTop + clientH));
+                const isNearBottom = scrollBottomDistance <= 64; // within 64px is considered bottom
+                // Debugging info to help diagnose autoscroll problems
+                console.debug('[synth_webui] renderLog: shouldScroll=', shouldScroll, 'autoscrollChecked=', (logAutoscroll ? logAutoscroll.checked : 'N/A'), 'clientH=', clientH, 'scrollTop(before)=', scrollTop, 'scrollHeight=', scrollHeight, 'isNearBottom=', isNearBottom);
+                if (shouldScroll || isNearBottom) {
+                    // Use rAF to ensure layout has updated before forcing scroll
+                    requestAnimationFrame(() => {
+                        try {
+                            logOutput.scrollTop = logOutput.scrollHeight;
+                            console.debug('[synth_webui] renderLog: scrolled to', logOutput.scrollTop, 'scrollHeight was', logOutput.scrollHeight);
+                        } catch (e) {
+                            console.debug('[synth_webui] renderLog: scroll failed', e);
+                        }
+                    });
+                }
+            } catch (e) {
+                // Fallback: best-effort scroll
+                console.debug('[synth_webui] renderLog: unexpected error computing scroll, falling back', e);
+                try { requestAnimationFrame(() => { logOutput.scrollTop = logOutput.scrollHeight; }); } catch (_) {}
             }
         }
 
@@ -2024,6 +2046,24 @@
             });
         }
 
+        // --- Chat form submit handling: prevent full page reload ---
+        // The original form used a plain submit which caused the whole
+        // page (including the VRM canvas) to reload. We intercept the
+        // submit event, send the message through the websocket and
+        // update only the chat DOM (#messages).
+        function createUserMessageBubble(text) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'bubble-row user';
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            bubble.textContent = text;
+            wrapper.appendChild(bubble);
+            return wrapper;
+        }
+
+        // Note: form submit handled later in the file to ensure a single unified
+        // handler that shows typing indicator and triggers animations consistently.
+
         function closeLogStream() {
             if (logsReconnectTimer) {
                 clearTimeout(logsReconnectTimer);
@@ -2038,7 +2078,12 @@
         async function switchLLM(name, trigger, displayName) {
             if (!name) return;
             const label = displayName || name;
-            if (trigger) trigger.disabled = true;
+            let prevText = null;
+            if (trigger) {
+                prevText = trigger.textContent;
+                trigger.disabled = true;
+                try { trigger.textContent = '⏳ Switching...'; } catch (e) {}
+            }
             componentsLoaded = false;
             setStatusMessage(`Switching to ${label}…`, 'info');
             try {
@@ -2052,10 +2097,16 @@
                 await refreshComponents(true);
                 const activeName = payload?.active || label;
                 setStatusMessage(`LLM switched to ${activeName}`, 'success');
+                if (trigger) {
+                    try { trigger.textContent = 'Active'; } catch (e) {}
+                    trigger.disabled = true;
+                }
             } catch (error) {
                 console.error('[synth_webui] Unable to switch LLM', error);
                 setStatusMessage('Unable to switch LLM engine', 'error');
-                if (trigger) trigger.disabled = false;
+                if (trigger) {
+                    try { trigger.disabled = false; trigger.textContent = prevText; } catch (e) {}
+                }
             }
         }
 
@@ -2170,7 +2221,14 @@
                     btn.addEventListener('click', (event) => {
                         event.preventDefault();
                         event.stopPropagation();
-                        switchLLM(item.name, btn, displayName);
+                        // Provide immediate feedback
+                        btn.disabled = true;
+                        const prev = btn.textContent;
+                        btn.textContent = '⏳ Activating...';
+                        switchLLM(item.name, btn, displayName).catch(() => {
+                            btn.disabled = false;
+                            btn.textContent = prev;
+                        });
                     });
                     summaryActions.appendChild(btn);
                 }
@@ -4205,7 +4263,17 @@
                     const activate = document.createElement('button');
                     activate.textContent = model.active ? 'Active' : 'Activate';
                     if (!model.active) {
-                        activate.addEventListener('click', () => setActive(model.name));
+                        activate.addEventListener('click', (event) => {
+                            // Provide immediate visual feedback
+                            activate.disabled = true;
+                            const prevText = activate.textContent;
+                            activate.textContent = '⏳ Activating...';
+                            setActive(model.name, activate).catch(() => {
+                                // Restore state on error
+                                activate.disabled = false;
+                                activate.textContent = prevText;
+                            });
+                        });
                     } else {
                         activate.disabled = true;
                     }
@@ -4282,7 +4350,7 @@
                 }
             }
 
-            async function setActive(name) {
+            async function setActive(name, trigger = null) {
                 console.log('[synth_webui] ========== SET ACTIVE VRM START ==========');
                 console.log('[synth_webui] Setting active VRM to:', name);
                 
@@ -4303,7 +4371,14 @@
                     }
                     
                     console.log('[synth_webui] ✓ Active VRM set successfully, refreshing...');
+                    // Refresh components and models; ensure the trigger button shows active state quickly
                     await refreshModels(true);
+                    if (trigger) {
+                        try {
+                            trigger.textContent = 'Active';
+                            trigger.disabled = true;
+                        } catch (e) {}
+                    }
                     console.log('[synth_webui] ========== SET ACTIVE VRM END (success) ==========');
                     
                 } catch (error) {

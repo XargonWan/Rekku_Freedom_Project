@@ -1098,13 +1098,27 @@ class DiaryPlugin:
             
             if engine and hasattr(engine, 'get_interface_limits'):
                 limits = engine.get_interface_limits()
-                max_prompt_chars = limits.get("max_prompt_chars", 8000)
+                # Prefer an engine-provided limit, fall back to core default
+                try:
+                    from core.prompt_engine import DEFAULT_MAX_PROMPT_CHARS
+                    fallback_limit = DEFAULT_MAX_PROMPT_CHARS
+                except Exception:
+                    fallback_limit = 128000
+                max_prompt_chars = limits.get("max_prompt_chars", fallback_limit)
                 log_debug(f"[ai_diary] Active LLM {active_llm} max_prompt_chars: {max_prompt_chars}")
             else:
-                max_prompt_chars = 8000
+                try:
+                    from core.prompt_engine import DEFAULT_MAX_PROMPT_CHARS
+                    max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS
+                except Exception:
+                    max_prompt_chars = 128000
         except Exception as e:
             log_debug(f"[ai_diary] Could not get active LLM limits: {e}")
-            max_prompt_chars = 8000
+            try:
+                from core.prompt_engine import DEFAULT_MAX_PROMPT_CHARS
+                max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS
+            except Exception:
+                max_prompt_chars = 128000
         
         log_debug(f"[ai_diary] Prompt stats - current: {current_prompt_length}, max: {max_prompt_chars}")
         

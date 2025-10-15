@@ -9,6 +9,11 @@ from core.config_manager import config_registry
 import aiomysql
 import os
 
+# Default maximum prompt characters to use as a safe fallback when no LLM
+# engine provides explicit limits. Keep this high to match modern models
+# (e.g. gpt-4o / 128k token-like context). Can be tuned if needed.
+DEFAULT_MAX_PROMPT_CHARS = 128000
+
 # Chat history limit
 CHAT_HISTORY_LIMIT = config_registry.get_var(
     "CHAT_HISTORY",
@@ -82,7 +87,7 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
         
         if is_plugin_enabled():
             # Get max prompt chars from active LLM first
-            max_prompt_chars = 8000  # Default fallback
+            max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS  # Default fallback
             try:
                 from core.config import get_active_llm
                 active_llm = await get_active_llm()
@@ -98,16 +103,16 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
                     
                     if engine and hasattr(engine, 'get_interface_limits'):
                         limits = engine.get_interface_limits()
-                        max_prompt_chars = limits.get("max_prompt_chars", 8000)
+                        max_prompt_chars = limits.get("max_prompt_chars", DEFAULT_MAX_PROMPT_CHARS)
                     else:
-                        max_prompt_chars = 8000  # Fallback
+                        max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS  # Fallback
                 except Exception:
-                    max_prompt_chars = 8000  # Safe fallback
+                    max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS  # Safe fallback
                     
                 log_debug(f"[json_prompt] Active interface max prompt chars: {max_prompt_chars}")
             except Exception as e:
                 log_debug(f"[json_prompt] Could not get interface limits: {e}")
-                max_prompt_chars = 8000  # Safe fallback
+                max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS  # Safe fallback
             
             # Get interface name
             interface_name = interface_name or "manual"
@@ -120,8 +125,13 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
             if should_include_diary(interface_name, current_length, max_prompt_chars):
                 max_chars = get_max_diary_chars(interface_name, current_length)
                 
-                # Use DIARY_HISTORY_DAYS from config_registry
-                recent_entries = get_recent_entries(days=DIARY_HISTORY_DAYS, max_chars=max_chars)
+                # Use DIARY_HISTORY_DAYS from config_registry - cast to int to
+                # avoid passing a ConfigVar-like object into timedelta()
+                try:
+                    days_val = int(DIARY_HISTORY_DAYS)
+                except Exception:
+                    days_val = 2
+                recent_entries = get_recent_entries(days=days_val, max_chars=max_chars)
                 
                 if recent_entries:
                     # Store entries for potential reduction, and also formatted content
@@ -219,21 +229,25 @@ async def build_json_prompt(message, context_memory, interface_name: str | None 
     # === Final check: Reduce prompt if it exceeds LLM character limits ===
     try:
         # Get max prompt chars from active LLM
-        max_prompt_chars = 8000  # Default fallback
+        max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS  # Default fallback
         try:
+            # Local imports to avoid module-level cycles
+            from core.config import get_active_llm
+            from core.llm_registry import get_llm_registry
+
             active_llm = await get_active_llm()
             registry = get_llm_registry()
             engine = registry.get_engine(active_llm)
-            
+
             if not engine:
                 engine = registry.load_engine(active_llm)
-            
+
             if engine and hasattr(engine, 'get_interface_limits'):
                 limits = engine.get_interface_limits()
-                max_prompt_chars = limits.get("max_prompt_chars", 8000)
+                max_prompt_chars = limits.get("max_prompt_chars", DEFAULT_MAX_PROMPT_CHARS)
         except Exception as e:
             log_debug(f"[json_prompt] Could not get interface limits for reduction: {e}")
-            max_prompt_chars = 8000  # Safe fallback
+            max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS  # Safe fallback
         
         # Apply reduction if needed
         prompt_with_instructions = reduce_prompt_for_llm_limit(prompt_with_instructions, max_prompt_chars)
@@ -470,6 +484,7 @@ def reduce_prompt_for_llm_limit(prompt: dict, max_chars: int) -> dict:
                 removed = memories.pop()
                 current_size = len(json_dumps(reduced_prompt))
                 log_debug(f"[reduce_prompt] Removed memory, now {current_size} chars")
+
             if current_size <= max_chars:
                 log_debug(f"[reduce_prompt] Reduced memories, now {current_size} <= {max_chars}")
                 return reduced_prompt

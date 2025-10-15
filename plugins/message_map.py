@@ -36,13 +36,20 @@ async def init_message_map_table():
 
 async def store_message_mapping(trainer_message_id: int, chat_id: int, message_id: int):
     """Store a mapping between trainer message and original message."""
+    # Validate inputs: trainer_message_id is required (primary key). If it's
+    # None, skip storing the mapping and log a warning instead of raising a
+    # DB error (this happens when forwarding isn't available).
+    if trainer_message_id is None:
+        log_warning(f"[message_map] trainer_message_id is None, skipping store for chat={chat_id}, msg={message_id}")
+        return False
+
     await init_message_map_table()
     conn = await get_conn()
     try:
         async with conn.cursor() as cur:
             await cur.execute(
                 """
-                INSERT OR REPLACE INTO message_map 
+                REPLACE INTO message_map 
                 (trainer_message_id, chat_id, message_id, timestamp)
                 VALUES (%s, %s, %s, %s)
                 """,
@@ -50,6 +57,7 @@ async def store_message_mapping(trainer_message_id: int, chat_id: int, message_i
             )
             await conn.commit()
             log_debug(f"[message_map] Stored mapping: trainer_msg={trainer_message_id} -> chat={chat_id}, msg={message_id}")
+            return True
     except Exception as e:
         log_error(f"[message_map] Failed to store mapping: {e}")
         raise

@@ -366,10 +366,8 @@ async def _download_telegram_image(bot, file_id: str, temp_dir: str) -> Optional
 def _paste_image_to_gemini(driver, image_path: str) -> bool:
     """Paste an image to Gemini input using JavaScript injection (Docker-compatible)."""
     try:
-        # Find the input area
-        textarea = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble"))
-        )
+        # Find the input area (supports Quill/rich-textarea and contenteditable fallback)
+        textarea = _locate_prompt_area(driver, timeout=10)
 
         # Click on the textarea to focus it
         textarea.click()
@@ -628,6 +626,43 @@ def _send_text_to_textarea(driver, textarea, text: str) -> None:
         raise
 
 
+def _locate_prompt_area(driver, timeout: int = 10):
+    """Locate the Gemini prompt area using multiple strategies.
+
+    Tries several selectors used for Gemini/Quill editors, then falls back to a
+    contenteditable div with id 'prompt-textarea' if present.
+    """
+    selectors = [
+        (By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble"),
+        (By.CSS_SELECTOR, "div.ql-editor"),
+        (By.CSS_SELECTOR, "[role='textbox']"),
+        (By.TAG_NAME, "textarea"),
+    ]
+
+    last_exc = None
+    for by, sel in selectors:
+        try:
+            if timeout and timeout > 0:
+                elem = WebDriverWait(driver, timeout).until(EC.element_to_be_clickable((by, sel)))
+            else:
+                elem = driver.find_element(by, sel)
+            return elem
+        except Exception as e:
+            last_exc = e
+
+    # Final fallback: contenteditable div with id 'prompt-textarea'
+    try:
+        xpath = "//div[@contenteditable='true' and @id='prompt-textarea']"
+        if timeout and timeout > 0:
+            return WebDriverWait(driver, timeout).until(EC.presence_of_element_located((By.XPATH, xpath)))
+        return driver.find_element(By.XPATH, xpath)
+    except Exception:
+        # re-raise the most relevant earlier exception
+        if last_exc:
+            raise last_exc
+        raise
+
+
 def paste_and_send(textarea, prompt_text: str) -> None:
     """Insert ``prompt_text`` into ``textarea`` ensuring full content is present.
 
@@ -676,7 +711,11 @@ def paste_and_send(textarea, prompt_text: str) -> None:
                 time.sleep(0.1)  # Brief pause after clear
             except StaleElementReferenceException:
                 log_warning("[selenium] Textarea stale, attempting to re-locate")
-                textarea = driver.find_element(By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble")
+                # attempt re-locate using helper (supports several selectors and a contenteditable fallback)
+                try:
+                    textarea = _locate_prompt_area(driver, timeout=0)
+                except Exception:
+                    textarea = driver.find_element(By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble")
                 textarea.clear()
                 time.sleep(0.1)
             
@@ -729,7 +768,7 @@ def paste_and_send(textarea, prompt_text: str) -> None:
         except StaleElementReferenceException as e:
             log_warning(f"[selenium] Stale element on send_keys attempt {attempt}: {e}")
             try:
-                textarea = driver.find_element(By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble")
+                textarea = _locate_prompt_area(driver, timeout=0)
             except NoSuchElementException:
                 log_error("[selenium] Could not re-locate textarea element")
                 break
@@ -944,9 +983,7 @@ def wait_for_gemini_idle(driver, timeout: int = AWAIT_RESPONSE_TIMEOUT) -> bool:
         log_warning("[selenium] Gemini may still be generating during idle wait")
 
     try:
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble"))
-        )
+        _locate_prompt_area(driver, timeout=10)
         log_debug("[selenium] Textarea found, Gemini is ready for input")
         return True
     except TimeoutException:
@@ -1035,9 +1072,7 @@ def _send_prompt_with_confirmation(textarea, prompt_text: str) -> None:
             log_debug(f"[selenium][STEP] Attempt {attempt} to send prompt")
             # Re-find textarea element in case it became stale
             try:
-                textarea = WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble"))
-                )
+                textarea = _locate_prompt_area(driver, timeout=5)
             except (TimeoutException, StaleElementReferenceException) as e:
                 log_warning(f"[selenium] Could not find textarea on attempt {attempt}: {e}")
                 continue
@@ -1253,36 +1288,26 @@ def process_prompt_in_chat(
 
     log_debug("[selenium] About to look for textarea...")
     try:
-        log_debug("[selenium] Looking for textarea with primary selector...")
-        textarea = WebDriverWait(driver, 20).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "rich-textarea.text-input-field_textarea.ql-container.ql-bubble"))
-        )
-        log_debug("[selenium] Found textarea with primary selector")
+        log_debug("[selenium] Locating textarea using consolidated helper...")
+        textarea = _locate_prompt_area(driver, timeout=20)
+        log_debug("[selenium] Found textarea with consolidated selector")
     except TimeoutException:
-        log_warning("[selenium] Primary textarea selector failed, trying fallback")
+        log_error("[selenium][ERROR] prompt textarea not found with any selector")
+        # Debug: print available elements
         try:
-            log_debug("[selenium] Looking for textarea with fallback selector...")
-            textarea = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "div.ql-editor"))
-            )
-            log_debug("[selenium] Found textarea with fallback selector")
-        except TimeoutException:
-            log_error("[selenium][ERROR] prompt textarea not found with any selector")
-            # Debug: print available elements
-            try:
-                all_textareas = driver.find_elements(By.TAG_NAME, "rich-textarea")
-                log_debug(f"[selenium] Found {len(all_textareas)} rich-textarea elements")
-                for i, ta in enumerate(all_textareas[:3]):  # First 3
-                    classes = ta.get_attribute("class") or ""
-                    log_debug(f"[selenium] rich-textarea {i}: classes='{classes}'")
-                
-                all_ql_editors = driver.find_elements(By.CSS_SELECTOR, "div.ql-editor")
-                log_debug(f"[selenium] Found {len(all_ql_editors)} div.ql-editor elements")
-                for i, qle in enumerate(all_ql_editors[:3]):  # First 3
-                    classes = qle.get_attribute("class") or ""
-                    log_debug(f"[selenium] div.ql-editor {i}: classes='{classes}'")
-            except Exception as debug_e:
-                log_error(f"[selenium] Error during debug: {debug_e}")
+            all_textareas = driver.find_elements(By.TAG_NAME, "rich-textarea")
+            log_debug(f"[selenium] Found {len(all_textareas)} rich-textarea elements")
+            for i, ta in enumerate(all_textareas[:3]):  # First 3
+                classes = ta.get_attribute("class") or ""
+                log_debug(f"[selenium] rich-textarea {i}: classes='{classes}'")
+
+            all_ql_editors = driver.find_elements(By.CSS_SELECTOR, "div.ql-editor")
+            log_debug(f"[selenium] Found {len(all_ql_editors)} div.ql-editor elements")
+            for i, qle in enumerate(all_ql_editors[:3]):  # First 3
+                classes = qle.get_attribute("class") or ""
+                log_debug(f"[selenium] div.ql-editor {i}: classes='{classes}'")
+        except Exception as debug_e:
+            log_error(f"[selenium] Error during debug: {debug_e}")
             return None
 
     start = time.time()
@@ -2633,7 +2658,12 @@ GEMINI-SPECIFIC INSTRUCTIONS:
 
                 # Handle case where Gemini completely failed to generate a response
                 if response_text is None:
-                    fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
+                    try:
+                        from core.message_chain import get_failed_message_text
+                        fallback_text = str(get_failed_message_text())
+                    except Exception:
+                        import os
+                        fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
                     log_error(f"[selenium] LLM FAILURE - Chat: {message.chat_id}, Reason: Gemini returned None (complete failure)")
                     log_error(f"[selenium] Sending fallback message: '{fallback_text}'")
                     response_text = fallback_text
@@ -2649,7 +2679,12 @@ GEMINI-SPECIFIC INSTRUCTIONS:
                     )
                 else:
                     # Send fallback message when LLM fails to generate response
-                    fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
+                    try:
+                        from core.message_chain import get_failed_message_text
+                        fallback_text = str(get_failed_message_text())
+                    except Exception:
+                        import os
+                        fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
                     log_error(f"[selenium] LLM FAILURE - Chat: {message.chat_id}, Reason: Empty response from Gemini")
                     log_error(f"[selenium] Sending fallback message: '{fallback_text}'")
                     await llm_to_interface(
@@ -2672,7 +2707,12 @@ GEMINI-SPECIFIC INSTRUCTIONS:
                 if attempt == max_attempts - 1:
                     # Final fallback: send fallback message when all attempts failed
                     try:
-                        fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
+                        try:
+                            from core.message_chain import get_failed_message_text
+                            fallback_text = str(get_failed_message_text())
+                        except Exception:
+                            import os
+                            fallback_text = os.getenv('FAILED_MESSAGE_TEXT', 'LLM failed')
                         log_error(f"[selenium] LLM FAILURE - Chat: {message.chat_id}, Reason: All {max_attempts} attempts failed with exception")
                         log_error(f"[selenium] Sending final fallback message: '{fallback_text}'")
                         

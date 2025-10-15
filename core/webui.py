@@ -551,11 +551,26 @@ class SynthWebUIInterface:
             seen.add(key)
             unique_candidates.append(candidate)
 
-        log_info(f"{LOG_PREFIX} Log file candidates: {[str(c) for c in unique_candidates]}")
+        log_debug(f"{LOG_PREFIX} Log file candidates: {[str(c) for c in unique_candidates]}")
         path = next((candidate for candidate in unique_candidates if candidate.exists()), unique_candidates[0])
-        log_info(f"{LOG_PREFIX} Selected log file: {path} (exists: {path.exists()})")
+        log_debug(f"{LOG_PREFIX} Selected log file: {path} (exists: {path.exists()})")
 
         try:
+            # Prepare list of exception types that are considered 'normal' disconnects
+            try:
+                from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
+            except Exception:
+                ConnectionClosedOK = ConnectionClosedError = None  # type: ignore
+            try:
+                from uvicorn.protocols.utils import ClientDisconnected
+            except Exception:
+                ClientDisconnected = None  # type: ignore
+            from starlette.websockets import WebSocketDisconnect
+
+            disconnect_exceptions = tuple(
+                [exc for exc in (ConnectionClosedOK, ConnectionClosedError, ClientDisconnected, WebSocketDisconnect) if exc]
+            )
+
             wait_seconds = self.log_wait_seconds if self.log_wait_seconds else 20
             waited = 0
             while not path.exists() and waited < wait_seconds:
@@ -566,40 +581,49 @@ class SynthWebUIInterface:
             if not path.exists():
                 error_msg = f"Log file not found: {path}"
                 log_warning(f"{LOG_PREFIX} {error_msg}")
-                await websocket.send_text(error_msg)
+                try:
+                    await websocket.send_text(error_msg)
+                except Exception:
+                    # Client probably disconnected before we could send
+                    log_debug(f"{LOG_PREFIX} Client disconnected before receiving 'log not found' message")
                 return
 
-            log_info(f"{LOG_PREFIX} Opening log file: {path}")
+            log_debug(f"{LOG_PREFIX} Opening log file: {path}")
             with path.open("r", encoding="utf-8", errors="replace") as log_file:
                 # Send last 200 lines
                 log_file.seek(0)
                 recent_lines = deque(log_file, maxlen=200)
                 for line in recent_lines:
-                    await websocket.send_text(line.rstrip())
+                    try:
+                        await websocket.send_text(line.rstrip())
+                    except Exception as exc:
+                        # If the client disconnected, stop streaming silently
+                        if isinstance(exc, disconnect_exceptions) or isinstance(exc, (BrokenPipeError, ConnectionResetError)):
+                            log_info(f"{LOG_PREFIX} Log stream websocket disconnected while sending history: {type(exc).__name__}")
+                            return
+                        # Otherwise log and break
+                        log_error(f"{LOG_PREFIX} Failed to send log line: {exc}")
+                        return
                 log_file.seek(0, os.SEEK_END)
                 while True:
                     line = log_file.readline()
                     if not line:
                         await asyncio.sleep(1)
                         continue
-                    await websocket.send_text(line.rstrip())
-        except Exception as exc:  # pragma: no cover - runtime issues
-            # WebSocket disconnections are normal (user closed browser, page reload, etc.)
-            from starlette.websockets import WebSocketDisconnect
-            if isinstance(exc, WebSocketDisconnect):
-                # Normal disconnect, don't log as error
-                pass
-            else:
-                # Actual error, log it
-                import traceback
-                log_error(f"{LOG_PREFIX} log stream error: {exc}")
-                log_error(f"{LOG_PREFIX} Exception type: {type(exc).__name__}")
-                log_error(f"{LOG_PREFIX} Traceback: {traceback.format_exc()}")
-                try:
-                    # Try to send error to client
-                    await websocket.send_text(f"--- log stream error: {exc} ---")
-                except Exception:
-                    pass  # Websocket might be closed already
+                    try:
+                        await websocket.send_text(line.rstrip())
+                    except Exception as exc:
+                        if isinstance(exc, disconnect_exceptions) or isinstance(exc, (BrokenPipeError, ConnectionResetError)):
+                            log_info(f"{LOG_PREFIX} Log stream websocket disconnected while streaming: {type(exc).__name__}")
+                            return
+                        import traceback
+                        log_error(f"{LOG_PREFIX} log stream error: {exc}")
+                        log_error(f"{LOG_PREFIX} Exception type: {type(exc).__name__}")
+                        log_error(f"{LOG_PREFIX} Traceback: {traceback.format_exc()}")
+                        try:
+                            await websocket.send_text(f"--- log stream error: {exc} ---")
+                        except Exception:
+                            pass  # Websocket might be closed already
         finally:
             try:
                 await websocket.close()
