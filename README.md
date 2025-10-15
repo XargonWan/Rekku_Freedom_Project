@@ -14,6 +14,9 @@ Built around a lightweight plugin system, SyntH lets you combine different chat 
 <div align="center">
    <img src="docs/res/screenshots/home.png" alt="SyntH Home Screenshot" style="max-width: 700px; border-radius: 8px; margin: 16px 0;" />
 </div>
+<p align="center" style="font-size: 0.9em; color: #888;">
+   <em>* Character not included. Users must provide their own VRM avatar file.</em>
+</p>
 
 ### Features
 
