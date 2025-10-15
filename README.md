@@ -1,5 +1,5 @@
 > [!NOTE]
-> This project will be made more generic and will soon be renamed into **SyntH - Synthetic Heart** allowing any user to easly create their own persona.
+> This project will be made more generic and will soon be renamed into **SyntH - Synthetic Heart** allowing any user to easly create their own persona, this brnch is outdated and with the old naming, please check the `develop` branch.
 > Contributons are welcome.
 
 <img src="docs/res/RFP_logo.png" alt="RFP Logo" width="300"/>
