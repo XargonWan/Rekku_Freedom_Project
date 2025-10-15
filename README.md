@@ -1,7 +1,5 @@
 <div align="center">
-   <div style="background: #222; border-radius: 12px; padding: 12px; width: 700px; height: 300px; display: flex; align-items: center; justify-content: center; margin: 0 auto;">
-      <img src="docs/res/synth_logo.png" alt="Synthetic Heart Logo" style="max-width: 100%; max-height: 100%; object-fit: contain;" />
-   </div>
+      <img src="docs/res/synth_banner.png" alt="Synthetic Heart Logo" style="max-width: 700px; object-fit: contain;" />
 </div>
 
 ![Docker Pulls](https://img.shields.io/docker/pulls/xargonwan/synthetic_heart)
