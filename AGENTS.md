@@ -79,7 +79,7 @@ To run tests locally, the agent may:
 
 If you need to restar the dev container use:
 ```bash
-cd /videodrome/videodrome-deployment/Synthetic_Heart/ && docker compose -f docker-compose-dev.yml --env-file .env-dev up -d --build && rm -rf logs/dev/* && videodrome synth restart dev
+docker compose -f docker-compose-dev.yml --env-file .env-dev up -d --build && rm -rf logs/dev/* && videodrome synth restart dev
 ```
 In this ay we thor away the old logs and we don't bother the stable deployment.
 
