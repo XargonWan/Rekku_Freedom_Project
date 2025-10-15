@@ -3196,25 +3196,25 @@
         chatToggleBtn?.addEventListener('click', () => {
             chatState = (chatState + 1) % 3;
             if (chatPanel) {
-                switch (chatState) {
-                    case 0: // Default: desktop left visible, mobile compact
-                        chatPanel.classList.remove('hidden', 'expanded');
-                        chatToggleBtn.setAttribute('aria-label', 'Espandi chat');
-                        chatToggleBtn.setAttribute('title', 'Espandi Chat');
-                        break;
-                    case 1: // Expanded: desktop full width + height, mobile 4/5 screen
-                        chatPanel.classList.remove('hidden');
-                        chatPanel.classList.add('expanded');
-                        chatToggleBtn.setAttribute('aria-label', 'Nascondi chat');
-                        chatToggleBtn.setAttribute('title', 'Nascondi Chat');
-                        break;
-                    case 2: // Hidden
-                        chatPanel.classList.add('hidden');
-                        chatPanel.classList.remove('expanded');
-                        chatToggleBtn.setAttribute('aria-label', 'Mostra chat');
-                        chatToggleBtn.setAttribute('title', 'Mostra Chat');
-                        break;
-                }
+            switch (chatState) {
+                case 0: // Default: desktop left visible, mobile compact
+                chatPanel.classList.remove('hidden', 'expanded');
+                chatToggleBtn.setAttribute('aria-label', 'Expand chat');
+                chatToggleBtn.setAttribute('title', 'Expand Chat');
+                break;
+                case 1: // Expanded: desktop full width + height, mobile 4/5 screen
+                chatPanel.classList.remove('hidden');
+                chatPanel.classList.add('expanded');
+                chatToggleBtn.setAttribute('aria-label', 'Hide chat');
+                chatToggleBtn.setAttribute('title', 'Hide Chat');
+                break;
+                case 2: // Hidden
+                chatPanel.classList.add('hidden');
+                chatPanel.classList.remove('expanded');
+                chatToggleBtn.setAttribute('aria-label', 'Show chat');
+                chatToggleBtn.setAttribute('title', 'Show Chat');
+                break;
+            }
             }
         });
 

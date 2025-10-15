@@ -40,7 +40,7 @@ from core.logging_utils import _LOG_FILE, log_debug, log_error, log_info, log_wa
 from core.config_manager import config_registry
 from core.message_chain import get_failed_message_text, RESPONSE_TIMEOUT, FAILED_MESSAGE_TEXT
 import core.plugin_instance as plugin_instance
-from core.animation_handler import get_animation_handler
+from core.animation_handler import get_animation_handler, AnimationState
 import mimetypes
 
 
@@ -632,12 +632,25 @@ class SynthWebUIInterface:
 
         log_debug(f"{LOG_PREFIX} message from {session_id}: {text}")
         
+        # Start "Think" animation when message is received
+        context_id = f"msg_{session_id}_{message.message_id}"
+        try:
+            await self.animation_handler.transition_to(
+                AnimationState.THINK,
+                session_id=session_id,
+                context_id=context_id
+            )
+        except Exception as anim_exc:
+            log_warning(f"{LOG_PREFIX} Failed to trigger Think animation: {anim_exc}")
+        
         # Get the configured response timeout from message_chain
         from core.message_chain import RESPONSE_TIMEOUT
         timeout_seconds = int(RESPONSE_TIMEOUT)
         
         try:
-            # Wait for response with timeout
+            # The plugin_instance will handle transitioning to WRITE when it
+            # starts generating a response (it broadcasts the animation).
+            # Here we simply invoke the plugin and wait for the result.
             response = await asyncio.wait_for(
                 plugin_instance.handle_incoming_message(
                     self, message, {}, INTERFACE_NAME
@@ -650,6 +663,12 @@ class SynthWebUIInterface:
         except Exception as exc:  # pragma: no cover - runtime issues
             log_error(f"{LOG_PREFIX} error handling message: {exc}")
             response = str(get_failed_message_text())  # Use configured fallback message (convert ConfigVar to str)
+        finally:
+            # Stop animation context and return to Idle when message is complete
+            try:
+                await self.animation_handler.stop_animation(context_id, session_id)
+            except Exception as anim_exc:
+                log_warning(f"{LOG_PREFIX} Failed to stop animation: {anim_exc}")
 
         if response:
             await self.send_message(session_id, text=response)
