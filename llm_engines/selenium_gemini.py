@@ -819,8 +819,12 @@ def wait_for_markdown_block_to_appear(driver, prev_count: int, timeout: int = 10
     return False
 
 
-AWAIT_RESPONSE_TIMEOUT = int(os.getenv("AWAIT_RESPONSE_TIMEOUT", "240"))
-CORRECTOR_RETRIES = int(os.getenv("CORRECTOR_RETRIES", "2"))
+# Import global configurations
+from core.action_parser import CORRECTOR_RETRIES
+from core.message_chain import RESPONSE_TIMEOUT
+
+# Use global RESPONSE_TIMEOUT instead of AWAIT_RESPONSE_TIMEOUT
+AWAIT_RESPONSE_TIMEOUT = RESPONSE_TIMEOUT
 
 
 def wait_until_response_stabilizes(

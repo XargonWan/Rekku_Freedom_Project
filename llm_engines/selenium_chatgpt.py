@@ -845,39 +845,12 @@ def wait_for_markdown_block_to_appear(driver, prev_count: int, timeout: int = 10
     return False
 
 
-# Register timeout and retry configurations
-AWAIT_RESPONSE_TIMEOUT = config_registry.get_value(
-    "AWAIT_RESPONSE_TIMEOUT",
-    240,
-    value_type="int",
-    label="Response Timeout",
-    description="Seconds to wait for ChatGPT response before timing out",
-    group="llm",
-    component="selenium_chatgpt",
-)
+# Import global configurations
+from core.action_parser import CORRECTOR_RETRIES
+from core.message_chain import RESPONSE_TIMEOUT
 
-CORRECTOR_RETRIES = config_registry.get_value(
-    "CORRECTOR_RETRIES",
-    2,
-    value_type="int",
-    label="Corrector Retries",
-    description="Number of times the corrector retries invalid JSON responses",
-    group="llm",
-    component="selenium_chatgpt",
-)
-
-def _update_await_timeout(value: int | None) -> None:
-    """Update global AWAIT_RESPONSE_TIMEOUT variable."""
-    global AWAIT_RESPONSE_TIMEOUT
-    AWAIT_RESPONSE_TIMEOUT = int(value) if value is not None else 240
-
-def _update_corrector_retries(value: int | None) -> None:
-    """Update global CORRECTOR_RETRIES variable."""
-    global CORRECTOR_RETRIES
-    CORRECTOR_RETRIES = int(value) if value is not None else 2
-
-config_registry.add_listener("AWAIT_RESPONSE_TIMEOUT", _update_await_timeout)
-config_registry.add_listener("CORRECTOR_RETRIES", _update_corrector_retries)
+# Use global RESPONSE_TIMEOUT instead of AWAIT_RESPONSE_TIMEOUT
+AWAIT_RESPONSE_TIMEOUT = RESPONSE_TIMEOUT
 
 
 def wait_until_response_stabilizes(
