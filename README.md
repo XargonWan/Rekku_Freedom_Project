@@ -9,7 +9,9 @@
 | `develop` | [![Develop CI Status](https://img.shields.io/github/actions/workflow/status/XargonWan/Synthetic_Heart/build-release.yml?branch=develop)](https://github.com/XargonWan/Synthetic_Heart/actions) | [![Docs Status](https://readthedocs.org/projects/synthetic-heart/badge/?version=latest)](https://synthetic-heart.readthedocs.io/en/latest/?badge=latest) |
 
 **Synthetic Heart**, stylized as SyntH, provides a modular stack for creating autonomous AI personas. Interfaces, language models and action plugins can be swapped at runtime.
-Built around a lightweight plugin system, SyntH lets you combine different chat interfaces and LLM engines to craft persistent characters that feels "alive", with their own will, emotions and sociality.
+Built around a lightweight plugin system, SyntH lets you combine different chat interfaces and LLM engines to give life to persistent digital entities, called synths.
+
+Synthetic Heart aims to make a SyntH "alive" and "conscious", with their own will, emotions, memories and sociality.
 
 <div align="center">
    <img src="docs/res/screenshots/home.png" alt="SyntH Home Screenshot" style="max-width: 700px; border-radius: 8px; margin: 16px 0;" />
