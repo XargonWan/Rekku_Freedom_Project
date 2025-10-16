@@ -1007,6 +1007,8 @@ except Exception as e:
 
 class DiaryPlugin:
     """Plugin that manages AI diary and provides static injection of recent entries."""
+    
+    display_name = "AI Diary"
 
     def __init__(self):
         register_plugin("ai_diary", self)

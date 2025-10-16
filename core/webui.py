@@ -62,6 +62,8 @@ mimetypes.add_type('application/json', '.json')
 
 class SynthWebUIInterface:
     """Production-ready web interface served from the Docker container."""
+    
+    display_name = "Web UI"
 
     def __init__(self) -> None:
         self.app = FastAPI(title=BRAND_NAME, version="1.0")
@@ -1463,14 +1465,6 @@ class SynthWebUIInterface:
             "synth_webui": "SyntH Web UI",
             "synth-webui": "SyntH Web UI",
             "synth_webui_interface": "SyntH Web UI",
-            "telegram_bot": "Telegram Bot",
-            "discord_interface": "Discord Interface",
-            "selenium_gemini": "Selenium Gemini",
-            "selenium_chatgpt": "Selenium ChatGPT",
-            "manual": "Manual",
-            "openai": "OpenAI",
-            "llama_cpp": "LLaMA.cpp",
-            "chat_link": "Chat Link",
         }
         key = str(raw_name)
         lower_key = key.lower()

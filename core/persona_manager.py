@@ -233,6 +233,8 @@ async def init_persona_table():
 
 class PersonaManager(PluginBase):
     """Core plugin for managing digital persona identity."""
+    
+    display_name = "Persona Manager"
 
     def __init__(self, config=None):
         super().__init__(config)

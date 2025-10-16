@@ -60,6 +60,7 @@ _manual_log_throttle_sec = 5
 _last_bot_none_manual_log_time = 0
 
 class ManualAIPlugin(AIPluginBase):
+    display_name = "Manual"
 
     def __init__(self, notify_fn=None):
         from core.notifier import set_notifier
