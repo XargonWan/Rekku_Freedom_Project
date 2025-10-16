@@ -130,18 +130,39 @@ class SeleniumChatGPTPlugin(SeleniumLLMBase):
         log_debug("[selenium_chatgpt] Logged in and ready")
         return True
 
-    def _locate_prompt_area(self):
-        """Locate the ChatGPT prompt input area."""
+    def _locate_prompt_area(self, driver, timeout: int = 10):
+        """Locate the ChatGPT prompt input area.
+        
+        Based on the legacy version that worked, prioritizing the main selectors.
+        """
         from selenium.webdriver.common.by import By
         from selenium.webdriver.support.ui import WebDriverWait
         from selenium.webdriver.support import expected_conditions as EC
         
-        # Try multiple selectors for ChatGPT's textarea (current interface)
-        selectors = [
-            # Primary ChatGPT selectors based on actual HTML structure (ProseMirror editor)
+        # Primary selectors from legacy version that worked
+        primary_selectors = [
+            (By.ID, "prompt-textarea"),  # Main ChatGPT textarea ID
+            (By.XPATH, "//div[@contenteditable='true' and @id='prompt-textarea']"),  # Fallback for contenteditable div
+        ]
+        
+        # Try primary selectors first (from legacy)
+        for by, selector in primary_selectors:
+            try:
+                log_debug(f"[selenium_chatgpt] Trying primary selector: {by} = '{selector}'")
+                element = WebDriverWait(driver, timeout).until(
+                    EC.element_to_be_clickable((by, selector))
+                )
+                log_debug(f"[selenium_chatgpt] Found element with primary selector: {by} = '{selector}'")
+                return element
+            except Exception as e:
+                log_debug(f"[selenium_chatgpt] Primary selector failed: {by} = '{selector}' - {e}")
+                continue
+        
+        # Additional selectors as fallback (from current version)
+        fallback_selectors = [
+            # ProseMirror editor selectors
             (By.CSS_SELECTOR, "div.ProseMirror.ProseMirror-focused"),
             (By.CSS_SELECTOR, "div.ProseMirror"),
-            (By.ID, "prompt-textarea"),
             (By.CSS_SELECTOR, "div[id='prompt-textarea']"),
             (By.CSS_SELECTOR, "p[data-placeholder='Ask anything']"),
             (By.CSS_SELECTOR, "div.ProseMirror p[data-placeholder]"),
@@ -166,88 +187,62 @@ class SeleniumChatGPTPlugin(SeleniumLLMBase):
             (By.CSS_SELECTOR, "div[contenteditable='true']"),
         ]
         
-        for by, selector in selectors:
+        for by, selector in fallback_selectors:
             try:
-                log_debug(f"[selenium_chatgpt] Trying selector: {by} = '{selector}'")
-                element = WebDriverWait(self.driver, 5).until(
+                log_debug(f"[selenium_chatgpt] Trying fallback selector: {by} = '{selector}'")
+                element = WebDriverWait(driver, timeout).until(
                     EC.element_to_be_clickable((by, selector))
                 )
-                log_debug(f"[selenium_chatgpt] Found element with selector: {by} = '{selector}'")
+                log_debug(f"[selenium_chatgpt] Found element with fallback selector: {by} = '{selector}'")
                 return element
             except Exception as e:
-                log_debug(f"[selenium_chatgpt] Selector failed: {by} = '{selector}' - {e}")
+                log_debug(f"[selenium_chatgpt] Fallback selector failed: {by} = '{selector}' - {e}")
                 continue
         
-        raise Exception("Could not locate ChatGPT prompt input area")
+        log_error("[selenium_chatgpt] Could not locate ChatGPT prompt input area with any selector")
+        return None
 
-    def _send_prompt_with_confirmation(self, prompt_text: str, image_path: str = None) -> bool:
+    def _send_prompt_with_confirmation(self, textarea, prompt_text: str) -> None:
         """Send the prompt to ChatGPT and confirm it was sent successfully."""
         try:
-            # Locate the prompt input area
-            prompt_area = self._locate_prompt_area()
-            if not prompt_area:
+            # Use the provided textarea instead of locating it again
+            if not textarea:
                 from core.logging_utils import log_error
-                log_error("[selenium] Could not locate prompt input area")
-                return False
+                log_error("[selenium] No textarea provided")
+                return
             
             # Clear any existing text
-            prompt_area.clear()
+            textarea.clear()
             
             # Paste the prompt text
-            prompt_area.send_keys(prompt_text)
-            
-            # If there's an image, handle it (ChatGPT supports image uploads)
-            if image_path and os.path.exists(image_path):
-                # Find and click the image upload button
-                try:
-                    from selenium.webdriver.common.by import By
-                    from selenium.webdriver.support.ui import WebDriverWait
-                    from selenium.webdriver.support import expected_conditions as EC
-                    
-                    upload_button = WebDriverWait(self.driver, 5).until(
-                        EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='file-upload-button'], .upload-button, [aria-label*='upload'], [aria-label*='image']"))
-                    )
-                    upload_button.click()
-                    
-                    # Wait for file input and upload
-                    file_input = WebDriverWait(self.driver, 5).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']"))
-                    )
-                    file_input.send_keys(image_path)
-                    
-                    # Wait for upload to complete
-                    WebDriverWait(self.driver, 10).until(
-                        lambda d: len(d.find_elements(By.CSS_SELECTOR, ".uploaded-image, [data-testid*='uploaded']")) > 0
-                    )
-                    from core.logging_utils import log_debug
-                    log_debug("[selenium] Image uploaded successfully")
-                except Exception as e:
-                    from core.logging_utils import log_warning
-                    log_warning(f"[selenium] Failed to upload image: {e}")
+            textarea.send_keys(prompt_text)
             
             # Send the message
             from selenium.webdriver.common.keys import Keys
-            prompt_area.send_keys(Keys.RETURN)
+            textarea.send_keys(Keys.RETURN)
             
             # Wait for confirmation that the prompt was sent
             # Check that the input area is cleared or that a sending indicator appears
+            from selenium.webdriver.common.by import By
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            
             WebDriverWait(self.driver, 10).until(
                 lambda d: (
-                    prompt_area.get_attribute("value") == "" or
+                    textarea.get_attribute("value") == "" or
                     len(d.find_elements(By.CSS_SELECTOR, "[data-testid*='sending'], .sending, .loading")) > 0
                 )
             )
             
             from core.logging_utils import log_debug
-            log_debug("[selenium] Prompt sent successfully")
-            return True
+            log_debug("[selenium_chatgpt] Prompt sent successfully")
             
         except Exception as e:
             from core.logging_utils import log_error
-            log_error(f"[selenium] Failed to send prompt: {e}")
-            return False
+            log_error(f"[selenium_chatgpt] Failed to send prompt: {e}")
+            raise
 
-    def _extract_response_text(self) -> str:
+    def _extract_response_text(self, driver) -> str:
         """Extract the latest response from ChatGPT."""
         try:
             from selenium.webdriver.common.by import By
@@ -255,7 +250,7 @@ class SeleniumChatGPTPlugin(SeleniumLLMBase):
             from selenium.webdriver.support import expected_conditions as EC
             
             # Wait for response to appear
-            response_element = WebDriverWait(self.driver, self.config.get("response_timeout", 60)).until(
+            response_element = WebDriverWait(driver, self.config.get("response_timeout", 60)).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, ".message-content, [data-testid*='response'], .response-content"))
             )
             
@@ -263,7 +258,7 @@ class SeleniumChatGPTPlugin(SeleniumLLMBase):
             response_text = response_element.text
             
             # Wait for response to stabilize (no more typing indicators)
-            self.wait_until_response_stabilizes()
+            self.wait_until_response_stabilizes(driver)
             
             # Get final text after stabilization
             final_response = response_element.text
