@@ -1287,7 +1287,7 @@
                         <div id="messages" aria-live="polite"></div>
                         <form id="composer" autocomplete="off">
                             <textarea id="input" placeholder="Type a message…" rows="2"></textarea>
-                            <button id="send" type="submit" disabled>➤</button>
+                            <button id="send" type="button" disabled>➤</button>
                         </form>
                     </section>
                     <div class="home-vrm">
@@ -3671,10 +3671,7 @@
             });
         }
 
-        form.addEventListener('submit', (event) => {
-            console.log('[synth_webui] Form submit event triggered');
-            event.preventDefault();
-            console.log('[synth_webui] preventDefault called');
+        function sendMessage() {
             const text = input.value.trim();
             if (!text || !ws || ws.readyState !== WebSocket.OPEN) {
                 console.log('[synth_webui] Cannot send message - text:', !!text, 'ws readyState:', ws?.readyState);
@@ -3695,12 +3692,17 @@
             console.log('[synth_webui] Sending message via WebSocket:', text);
             ws.send(JSON.stringify({ text }));
             input.value = '';
+        }
+
+        sendBtn.addEventListener('click', () => {
+            console.log('[synth_webui] Send button clicked');
+            sendMessage();
         });
 
         input.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
-                form.dispatchEvent(new Event('submit'));
+                sendMessage();
             }
         });
 

@@ -513,18 +513,6 @@ def reduce_prompt_for_llm_limit(prompt: dict, max_chars: int) -> dict:
             final_size = len(json_dumps(reduced_prompt))
             log_warning(f"[reduce_prompt] Removed entire context, final size: {final_size}")
         
-        # If STILL too big, try reducing actions (keep only essential ones)
-        if final_size > max_chars and "actions" in reduced_prompt:
-            # Keep only the most essential actions
-            essential_actions = ["message_telegram", "message_discord", "message_synth_webui"]
-            if isinstance(reduced_prompt["actions"], dict):
-                original_actions = reduced_prompt["actions"]
-                reduced_actions = {k: v for k, v in original_actions.items() if k in essential_actions}
-                if reduced_actions:  # Only replace if we have at least one action
-                    reduced_prompt["actions"] = reduced_actions
-                    final_size = len(json_dumps(reduced_prompt))
-                    log_warning(f"[reduce_prompt] Reduced actions to essentials ({len(reduced_actions)} actions), final size: {final_size}")
-        
         # Last resort: simplify instructions
         if final_size > max_chars and "instructions" in reduced_prompt:
             original_instructions = reduced_prompt["instructions"]

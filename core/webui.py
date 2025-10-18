@@ -360,12 +360,17 @@ class SynthWebUIInterface:
                 "required_fields": ["text", "target"],
                 "optional_fields": [],
                 "description": f"Send a text message to a {BRAND_NAME} session.",
+            },
+            "message_webui": {
+                "required_fields": ["text", "target"],
+                "optional_fields": [],
+                "description": f"Send a text message to a {BRAND_NAME} session.",
             }
         }
 
     @staticmethod
     def get_prompt_instructions(action_name: str) -> dict:
-        if action_name == "message_synth_webui":
+        if action_name in ("message_synth_webui", "message_webui"):
             return {
                 "description": f"Send a message to the {BRAND_NAME} browser client.",
                 "payload": {
@@ -746,7 +751,7 @@ class SynthWebUIInterface:
         await self._append_history(str(chat_id), "synth", text)
 
     async def execute_action(self, action: dict, context: dict, bot, original_message):
-        if action.get("type") == "message_synth_webui":
+        if action.get("type") in ("message_synth_webui", "message_webui"):
             payload = action.get("payload", {})
             await self.send_message(payload, original_message=original_message)
 
