@@ -34,8 +34,10 @@ class TestUnloggedModel(unittest.TestCase):
         """Test that ChatGPT engine has login detection logic."""
         with open("/videodrome/videodrome-deployment/Synthetic_Heart/llm_engines/selenium_chatgpt.py", 'r') as f:
             content = f.read()
-        self.assertIn('def _is_user_logged_in(self)', content)
-        self.assertIn('return "unlogged"', content)
+        self.assertIn('_check_login_status_on_startup', content)
+        self.assertIn('login_button_selectors', content)
+        self.assertIn('login_texts', content)
+        # ChatGPT uses startup login check with base class method instead of returning "unlogged" from get_current_model
 
     def test_gemini_has_login_detection(self):
         """Test that Gemini engine has login detection logic."""

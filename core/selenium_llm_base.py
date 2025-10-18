@@ -1438,3 +1438,72 @@ class SeleniumLLMBase(AIPluginBase):
         except Exception as e:
             log_error(f"[selenium] Workflow execution failed: {e}", e)
             return f"❌ Error: {e}"
+
+    def check_login_status(self, driver, login_button_selectors=None, login_texts=None):
+        """Check login status using provided selectors and warn if not logged in.
+        
+        This method should be called by LLM subclasses to check if the user appears to be
+        logged in to the service. It uses a two-strategy approach:
+        1. Check for login button selectors (CSS selectors, IDs, etc.)
+        2. Check for login/signup text on the page
+        
+        LLM subclasses should define their login detection parameters in __init__ and call
+        this method during startup checks.
+        
+        Example usage in LLM subclass:
+            self.login_button_selectors = [
+                (By.CSS_SELECTOR, "button[data-testid='login-button']"),
+                (By.ID, "login-button"),
+            ]
+            self.login_texts = ["log in", "sign in", "login"]
+            
+            # Then call during startup:
+            self.check_login_status(driver, self.login_button_selectors, self.login_texts)
+        
+        Args:
+            driver: WebDriver instance
+            login_button_selectors: List of (By, selector) tuples to check for login buttons
+            login_texts: List of text strings to search for on the page
+            
+        Returns:
+            bool: True if appears logged in, False if login indicators found
+        """
+        try:
+            # Strategy 1: Check for login button selectors (if provided)
+            login_button_found = False
+            if login_button_selectors:
+                for by, selector in login_button_selectors:
+                    try:
+                        elements = driver.find_elements(by, selector)
+                        if elements:
+                            login_button_found = True
+                            log_debug(f"[selenium] Found login button with selector: {by} = '{selector}'")
+                            break
+                    except Exception:
+                        continue
+            
+            # Strategy 2: Check for login/signup text on page (if provided)
+            if not login_button_found and login_texts:
+                try:
+                    page_text = driver.find_element(By.TAG_NAME, "body").text.lower()
+                    
+                    for text in login_texts:
+                        if text.lower() in page_text:
+                            login_button_found = True
+                            log_debug(f"[selenium] Found login text '{text}' on page")
+                            break
+                except Exception as e:
+                    log_debug(f"[selenium] Could not check page text: {e}")
+            
+            # If login indicators found, warn user about unlogged limitations
+            if login_button_found:
+                log_warning(f"[selenium] ⚠️  User appears to be unlogged on {self.component_name}. Unlogged sessions have very limited token usage and may be restricted by the service. Please log in through the UI for full functionality.")
+                if self._notify_fn:
+                    self._notify_fn(f"⚠️  {self.component_name.title()}: Unlogged session detected. Limited token usage - please log in for full functionality.")
+                return False
+                    
+        except Exception as e:
+            log_debug(f"[selenium] Error checking login status: {e}")
+            return True  # Assume logged in if check fails
+            
+        return not login_button_found

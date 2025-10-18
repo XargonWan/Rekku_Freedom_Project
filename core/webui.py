@@ -1820,14 +1820,15 @@ class SynthWebUIInterface:
         component_type = str(data.get("type") or "").strip().lower()
         component_name = str(data.get("name") or "").strip()
 
-        if not component_type or component_type not in ["interface", "plugin"]:
-            raise HTTPException(status_code=400, detail="Missing or invalid 'type'. Must be 'interface' or 'plugin'")
+        if not component_type or component_type not in ["interface", "plugin", "llm"]:
+            raise HTTPException(status_code=400, detail="Missing or invalid 'type'. Must be 'interface', 'plugin', or 'llm'")
         
         if not component_name:
             raise HTTPException(status_code=400, detail="Missing 'name'")
 
         try:
             from core.core_initializer import PLUGIN_REGISTRY, INTERFACE_REGISTRY
+            from core.llm_registry import get_llm_registry
         except Exception as exc:
             log_error(f"{LOG_PREFIX} unable to import registries: {exc}")
             raise HTTPException(status_code=500, detail="Unable to access component registries") from exc
@@ -1866,6 +1867,30 @@ class SynthWebUIInterface:
                 # Plugins typically don't need reload, but we can report success
                 log_info(f"{LOG_PREFIX} Plugin '{component_name}' noted for reload (plugins use ConfigVar auto-updates)")
                 return JSONResponse({"status": "ok", "message": f"Plugin '{component_name}' configuration updated"})
+            
+            elif component_type == "llm":
+                # Reload LLM engine
+                llm_registry = get_llm_registry()
+                
+                # Check if engine exists
+                if component_name not in llm_registry.get_available_engines():
+                    raise HTTPException(status_code=404, detail=f"LLM engine '{component_name}' not found")
+                
+                # Unload current instance if exists
+                current_instance = llm_registry.get_engine(component_name)
+                if current_instance:
+                    log_info(f"{LOG_PREFIX} Unloading LLM engine '{component_name}'...")
+                    llm_registry.unload_engine(component_name)
+                
+                # Reload the engine
+                log_info(f"{LOG_PREFIX} Reloading LLM engine '{component_name}'...")
+                try:
+                    new_instance = llm_registry.load_engine(component_name)
+                    log_info(f"{LOG_PREFIX} LLM engine '{component_name}' reloaded successfully")
+                    return JSONResponse({"status": "ok", "message": f"LLM engine '{component_name}' reloaded successfully"})
+                except Exception as load_exc:
+                    log_error(f"{LOG_PREFIX} Failed to reload LLM engine '{component_name}': {load_exc}")
+                    raise HTTPException(status_code=500, detail=f"Failed to reload LLM engine '{component_name}': {str(load_exc)}") from load_exc
         
         except HTTPException:
             raise

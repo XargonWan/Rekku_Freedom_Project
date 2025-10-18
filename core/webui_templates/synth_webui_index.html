@@ -2233,17 +2233,17 @@
                     summaryActions.appendChild(btn);
                 }
 
-                // Add Reload button for interfaces and plugins
-                if (componentType && (componentType === 'interface' || componentType === 'plugin') && item?.name) {
+                // Add Reload button for interfaces, plugins, and LLM engines
+                if (componentType && ((componentType === 'interface' || componentType === 'plugin' || componentType === 'LLM engines') && item?.name)) {
                     const reloadBtn = document.createElement('button');
                     reloadBtn.className = 'pill secondary';
                     reloadBtn.type = 'button';
                     reloadBtn.textContent = '🔄 Reload';
-                    reloadBtn.title = `Reload ${componentType} ${displayName}`;
+                    reloadBtn.title = `Reload ${componentType.replace(' engines', '')} ${displayName}`;
                     reloadBtn.addEventListener('click', (event) => {
                         event.preventDefault();
                         event.stopPropagation();
-                        reloadComponent(componentType, item.name, displayName, reloadBtn);
+                        reloadComponent(componentType === 'LLM engines' ? 'llm' : componentType, item.name, displayName, reloadBtn);
                     });
                     summaryActions.appendChild(reloadBtn);
                 }

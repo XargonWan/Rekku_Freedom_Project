@@ -106,7 +106,7 @@ async def load_plugin(name: str, notify_fn=None):
         try:
             models = plugin.get_supported_models()
             if models:
-                from config import get_current_model, set_current_model
+                from core.config import get_current_model, set_current_model
                 current = get_current_model()
                 if not current:
                     set_current_model(models[0])
